@@ -2,7 +2,7 @@
 name: review
 description: This skill should be used when the user says "/curmudgeon:review", "curmudgeon this", "tear this apart", "review my work", "how did I do", or asks for a merciless review of code, an interface, a document or a plan, or before shipping. It sizes the review to the risk, runs free scripted checks, three blind reviewers whose votes are counted by a script, and blind per-finding verification, then writes an evidence-backed teardown. It changes files only when the user asks for fixes ("curmudgeon and fix", "/curmudgeon:review fix").
 metadata:
-  version: "4.1.1"
+  version: "4.2.0"
 ---
 
 # Curmudgeon
@@ -53,12 +53,18 @@ Start the `curmudgeon-detector` agent, or run `critic_scan.py <src> --root <root
 - **Lite and trivial tiers:** one reviewer, A.
 - **No agents available:** do the review yourself, write it to `review-A.json` before opening the scan report, and open the teardown with `DEGRADED: single context (<why>)`. If the user asked specifically for an independent review, reply `BLOCKED: no independent reviewer available` and stop.
 
+## Step 3b: Outside reviewer (optional; only when the user says yes)
+Reviewers from one model family share blind spots: in our own double-blind test, another AI's review and ours overlapped on none of 23 real findings. So when the user is present, ask **once**, as a single multiple-choice question, before the tally: "Add an outside reviewer? You'd paste a brief into another AI (ChatGPT, Gemini…) and paste its answer back. That sends the files in this change to that service." Options: **No** (first, the default) and **Yes**. Never ask in an unattended session, never ask again in the same review, and never paste anything to another service yourself.
+- **Yes:** run `critic_outside.py brief [--goals "<the brief's design goals>"]`. It writes `.critic/outside/brief.md` with the commit, raw file links, the stated intent and the output format, and none of our findings. Give the user that file and pass on its notes (uncommitted edits, a commit not pushed, a private repo: in each case the user attaches the files instead). Carry on with steps 2–3 meanwhile.
+- **The answer:** save what the user pastes, exactly as pasted, to `.critic/outside/answer.txt`, then run `critic_outside.py load .critic/outside/answer.txt`. Add `--outside .critic/outside/outside-review.json` to both tally runs in step 4. Its findings face the same contract and quote checks as ours. Where one agrees with ours it adds a vote. One that only it raised always goes to blind verification, whatever its impact, and a run we can't see counts as traced, never executed.
+- **No answer by the tally:** go on without it, and say so under **Not reviewed**. If the answer arrives later, run `load`, then tally and apply again.
+
 ## Step 4: Count, check, verify
 1. `critic_merge.py tally .critic/reviews/review-*.json --scan .critic/scan/report.json`. The script:
    - rejects findings that break the contract, and retracts any whose quote isn't at its file:line;
    - hides only what the owner ruled a false positive by its exact id (`fp <id>`), and lists those under "Hidden by your rulings"; learned memories never hide anything: a finding that looks like past dismissals stays in, counted, with a note (never on a Critical), listed under "Looks like your past dismissals";
    - clusters the same issue across reviewers;
-   - keeps 2-of-3 votes, single votes with an executed case, and scanner FAILs;
+   - keeps 2-of-3 votes, single votes with an executed case, and scanner FAILs (an outside reviewer's agreement counts as one more vote);
    - sends single Critical/High traced votes, and any Critical/High/Medium finding with nothing the script could check (no confirmed quote, not executed, one vote), to verification as contested;
    - drops the rest, with reasons kept for audit.
 

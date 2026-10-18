@@ -639,6 +639,39 @@ def _(d):
     for line in ('pytest -k "token and not slow"', "npx serve -p 3000"):
         assert critic_findings.redact_secrets(line) == line, line
 
+@test("outside reviewer: blind brief without credentials, pasted answer repaired, one extra vote, outside-only findings always verified")
+def _(d):
+    write(d, "src/app.js", APP)
+    g = lambda *a: subprocess.run(["git", *a], cwd=d, capture_output=True, text=True)
+    g("init", "-q"); g("config", "user.email", "t@example.com"); g("config", "user.name", "t"); g("add", "-A"); g("commit", "-qm", "add render")
+    g("remote", "add", "origin", "https://bob:" + "EXAMPLEpw77" + "@github.com/o/r.git")
+    run(S / "critic_map.py", "--files", "src/app.js", cwd=d); run(S / "critic_ledger.py", "start", "review", cwd=d)
+    write(d, ".critic/reviews/review-A.json", json.dumps([finding()]))
+    r = run(S / "critic_outside.py", "brief", cwd=d); assert r.returncode == 0, r.stderr
+    b = (d / ".critic/outside/brief.md").read_text(); head = g("rev-parse", "HEAD").stdout.strip()
+    assert "EXAMPLEpw77" not in b and "bob" not in b and f"raw.githubusercontent.com/o/r/{head}/src/app.js" in b, b
+    assert "innerHTML" not in b and "review-A" not in b and "isn't pushed" in b  # blind: none of our findings, and the push warning
+    ours = finding(impact="High", verified="reproduced")
+    other = finding(category="domain", impact="Low", line=4, quote="const price = total * 1.0825;", title="Tax rate hard-coded", verified="reproduced")
+    wrong = finding(category="perf", impact="Medium", line=1, quote="this line is not in the file", title="Made up")
+    ans = "A. ...\n```json\n" + json.dumps([dict(x, id=f"N{i}", evidence="see code \u3010turn1view0\u3011") for i, x in enumerate((ours, other, wrong), 1)]).replace('"N1"', "\u201cN1\u201d") + "\n```\nD. prose"
+    write(d, ".critic/outside/answer.txt", ans)
+    r = run(S / "critic_outside.py", "load", ".critic/outside/answer.txt", cwd=d); assert r.returncode == 0 and "3 finding(s)" in r.stdout, r.stdout + r.stderr
+    rows = json.loads((d / ".critic/outside/outside-review.json").read_text())
+    assert all(x["verified"] == "traced" and x["claimed_verified"] in ("reproduced", "traced") and "\u3010" not in x["evidence"] for x in rows), rows
+    r = run(S / "critic_merge.py", "tally", ".critic/reviews/review-A.json", "--outside", ".critic/outside/outside-review.json", cwd=d); assert r.returncode == 0, r.stderr
+    t = json.loads((d / ".critic/tally.json").read_text())
+    assert t["outside"] == {"file": ".critic/outside/outside-review.json", "raised": 3, "accepted": 2, "matched_ours": 1, "only_outside": 1}, t["outside"]
+    agreed = [f for f in t["kept"] if f["title"] == "Title rendered as HTML"]; assert agreed and agreed[0]["votes"] == 2 and agreed[0]["of"] == 2, t["kept"]
+    solo = [f for f in t["contested"] if f.get("outside_only")]; assert len(solo) == 1 and solo[0]["impact"] == "Low", t["contested"]
+    assert (d / ".critic/verify" / f"{solo[0]['id']}.json").exists() and "outside" not in (d / ".critic/verify" / f"{solo[0]['id']}.json").read_text()
+    assert any("Made up" in x["finding"]["title"] for x in t["retracted"])
+    write(d, "v.json", json.dumps([{"id": solo[0]["id"], "verdict": "confirmed", "reproduced": "traced"}]))
+    run(S / "critic_merge.py", "apply", "v.json", cwd=d)
+    c = (d / ".critic/counts.md").read_text(); assert "## Outside reviewer" in c and solo[0]["id"] in c, c
+    assert run(S / "critic_outside.py", "load", "missing.txt", cwd=d).returncode != 0
+    write(d, "empty.txt", "```json\n[]\n```"); assert "0 finding(s)" in run(S / "critic_outside.py", "load", "empty.txt", cwd=d).stdout
+
 if __name__ == "__main__":
     bad = [r for r in RESULTS if not r[1]]
     print(f"\n{len(RESULTS) - len(bad)} of {len(RESULTS)} passed"); sys.exit(1 if bad else 0)
