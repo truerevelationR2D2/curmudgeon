@@ -74,6 +74,7 @@ def inside_root(rel):
     """Findings may only point inside the project: an absolute path, .. or a link out is never read or verified."""
     if not rel: return True
     if pathlib.PurePath(rel).is_absolute() or re.match(r"^[A-Za-z]:[\\/]", rel): return False
+    if ".critic" in pathlib.PurePath(rel).parts: return False  # our own state: a verifier sent there would read the reviews, and the review would stop being blind
     try: (ROOT / rel).resolve().relative_to(ROOT); return True
     except (ValueError, OSError): return False
 
@@ -242,7 +243,7 @@ def tally(paths):
         else: f.pop("memory_note", None)
         executed = any(x["verified"] == "executed" for x in m) or bool(c.get("scan"))
         unanchored = not any(x.get("quote_checked") for x in m if x.get("source") != "outside") and not c.get("scan")
-        if unanchored and not executed and votes < 2 and f["impact"] in ("Critical", "High", "Medium"): out["contested"].append(f)  # nothing the script could check: verify it, even on one reviewer
+        if unanchored and not executed and len(c["reviewers"]) < 2 and f["impact"] in ("Critical", "High", "Medium"): out["contested"].append(f)  # an outside vote never stands in for a check  # nothing the script could check: verify it, even on one reviewer
         elif votes >= need or executed: out["kept"].append(f)
         elif f["impact"] in ("Critical", "High"): out["contested"].append(f)
         else: out["dropped"].append({"finding": f, "why": f"raised by {votes} of {n} reviewers, not executed"})
@@ -290,10 +291,12 @@ def apply(paths):
     verdicts = {}
     for p in paths:
         for v in load_review(p): verdicts[v.get("id")] = v
-    final, refuted, notes = [], [], []
+    final, refuted, notes, unverified = [], [], [], []
     for f in T["kept"] + T["contested"]:
         v = verdicts.get(f["id"])
         if v is None:
+            if f.get("outside_only"):  # nothing of ours checked it and no verifier did: it is not a finding yet
+                unverified.append(f); notes.append(f"{f['id']}: outside-only finding with no verdict; left out of the findings until a verifier judges it"); continue
             if (D / "verify" / f"{f['id']}.json").exists():
                 notes.append(f"{f['id']}: no verdict returned; kept, confidence lowered"); f["verifier"] = "missing"
             final.append(f); continue
@@ -338,6 +341,8 @@ def apply(paths):
         md += [f"- {f['id']} {f['impact']} {f['file']}:{f.get('line', '')} {f['title']}: like memory {f['memory_note']['memory']} "
                f"({f['memory_note']['dismissed']} earlier dismissals, reason: {f['memory_note']['reason']}). Close them on purpose with "
                f"`critic_ledger.py dismiss --like {f['memory_note']['memory']} \"<why>\"`, or keep them." for f in looks]
+    if unverified: md += ["", "## Outside findings not verified (not counted above; run the verifier on their packets, then apply again)"] + \
+                        [f"- {f['id']} {f['impact']} {f['file']}:{f.get('line', '')} {f['title'].replace('|', '/')}" for f in unverified]
     if notes: md += ["", "## Notes"] + [f"- {x}" for x in notes]
     (D / "counts.md").write_text("\n".join(md) + "\n")
     led = pathlib.Path(__file__).resolve().parent / "critic_ledger.py"

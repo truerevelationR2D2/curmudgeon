@@ -2,7 +2,7 @@
 name: review
 description: This skill should be used when the user says "/curmudgeon:review", "curmudgeon this", "tear this apart", "review my work", "how did I do", or asks for a merciless review of code, an interface, a document or a plan, or before shipping. It sizes the review to the risk, runs free scripted checks, three blind reviewers whose votes are counted by a script, and blind per-finding verification, then writes an evidence-backed teardown. It changes files only when the user asks for fixes ("curmudgeon and fix", "/curmudgeon:review fix").
 metadata:
-  version: "4.2.0"
+  version: "4.2.1"
 ---
 
 # Curmudgeon
@@ -54,8 +54,8 @@ Start the `curmudgeon-detector` agent, or run `critic_scan.py <src> --root <root
 - **No agents available:** do the review yourself, write it to `review-A.json` before opening the scan report, and open the teardown with `DEGRADED: single context (<why>)`. If the user asked specifically for an independent review, reply `BLOCKED: no independent reviewer available` and stop.
 
 ## Step 3b: Outside reviewer (optional; only when the user says yes)
-Reviewers from one model family share blind spots: in our own double-blind test, another AI's review and ours overlapped on none of 23 real findings. So when the user is present, ask **once**, as a single multiple-choice question, before the tally: "Add an outside reviewer? You'd paste a brief into another AI (ChatGPT, Gemini…) and paste its answer back. That sends the files in this change to that service." Options: **No** (first, the default) and **Yes**. Never ask in an unattended session, never ask again in the same review, and never paste anything to another service yourself.
-- **Yes:** run `critic_outside.py brief [--goals "<the brief's design goals>"]`. It writes `.critic/outside/brief.md` with the commit, raw file links, the stated intent and the output format, and none of our findings. Give the user that file and pass on its notes (uncommitted edits, a commit not pushed, a private repo: in each case the user attaches the files instead). Carry on with steps 2–3 meanwhile.
+Reviewers from one model family share blind spots: in two double-blind tests, another AI's review and ours overlapped on none of 23 real findings, then 2 of 14. So when the user is present, ask **once**, as a single multiple-choice question, right after step 0: "Add an outside reviewer? You'd paste a brief into another AI (ChatGPT, Gemini…) and paste its answer back. That sends the files in this change to that service." Options: **No** (first, the default) and **Yes**. Never ask in an unattended session, never ask again in the same review, and never paste anything to another service yourself.
+- **Yes:** run `critic_outside.py brief [--goals "<the brief's design goals>"]`. It writes `.critic/outside/brief.md` with the commit, raw file links, the stated intent and the output format, and none of our findings. Give the user that file and pass on its notes (uncommitted edits, a commit not pushed, a private repo: in each case the user attaches the files instead). Ask it as soon as step 0 is done, so the other AI works while the scan and the blind reviews run; the answer is used in step 4.
 - **The answer:** save what the user pastes, exactly as pasted, to `.critic/outside/answer.txt`, then run `critic_outside.py load .critic/outside/answer.txt`. Add `--outside .critic/outside/outside-review.json` to both tally runs in step 4. Its findings face the same contract and quote checks as ours. Where one agrees with ours it adds a vote. One that only it raised always goes to blind verification, whatever its impact, and a run we can't see counts as traced, never executed.
 - **No answer by the tally:** go on without it, and say so under **Not reviewed**. If the answer arrives later, run `load`, then the whole of step 4 again: the first tally, the dedup agent, the tally with `--groups` and `--outside`, verification of every packet, and `apply`.
 

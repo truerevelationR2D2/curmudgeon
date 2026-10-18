@@ -801,6 +801,41 @@ def _(d):
     t = json.loads((w / ".critic/tally.json").read_text()); k = [f for f in t["kept"] if f["title"] == "Tax rule in render code"]
     assert k and k[0]["votes"] == 2 and k[0]["votes_ours"] == 1 and (w / ".critic/verify" / f"{k[0]['id']}.json").exists(), t
 
+@test("4.2.0 self-review fixes: unverified outside-only findings held back, .critic paths rejected, deep pastes, ssh remotes, tracked .gitignore, masking")
+def _(d):
+    write(d, "src/app.js", APP); run(S / "critic_ledger.py", "start", "review", cwd=d)
+    write(d, ".critic/reviews/review-A.json", json.dumps([finding(impact="Low", verified="traced", category="domain", line=4, quote="const price = total * 1.0825;", title="Tax rule in render code")]))
+    write(d, ".critic/reviews/review-B.json", "[]"); write(d, ".critic/reviews/review-C.json", "[]")
+    inv = dict(finding(impact="High", title="Invented by the outside AI", category="perf"), source="outside", outside_id="N1")
+    peek = dict(finding(impact="High", file=".critic/reviews/review-A.json", line=1, quote='"verified": "traced"', title="peek"), source="outside", outside_id="N2")
+    write(d, "o.json", json.dumps([inv, peek]))
+    r = run(S / "critic_merge.py", "tally", ".critic/reviews/review-A.json", ".critic/reviews/review-B.json", ".critic/reviews/review-C.json", "--outside", "o.json", cwd=d); assert r.returncode == 0, r.stderr
+    t = json.loads((d / ".critic/tally.json").read_text())
+    assert any(".critic" in " ".join(x["why"]) or "outside the project" in " ".join(x["why"]) for x in t["rejected"]), t["rejected"]
+    assert not any("review-A" in v.read_text() for v in (d / ".critic/verify").glob("*.json"))
+    run(S / "critic_merge.py", "apply", str(write(d, "v.json", "[]")), cwd=d)  # no verdicts came back
+    final = [json.loads(l) for l in (d / ".critic/findings.jsonl").read_text().splitlines()]
+    assert not any(f["title"] == "Invented by the outside AI" for f in final), final
+    assert "Outside findings not verified" in (d / ".critic/counts.md").read_text()
+    write(d, "deep.txt", "[" * 3000 + "\n" + json.dumps([dict(finding(), id="N1")]))
+    r = run(S / "critic_outside.py", "load", "deep.txt", cwd=d); assert r.returncode == 0 and "1 finding(s)" in r.stdout and "Traceback" not in r.stderr, r.stdout + r.stderr
+    many = [dict(finding(line=2, title=f"t{i}"), id=f"N{i}") for i in range(150)]
+    write(d, "many.txt", json.dumps(many) + "\n\u201cstray\u201d"); r = run(S / "critic_outside.py", "load", "many.txt", cwd=d)
+    assert "150 finding(s)" in r.stdout and "over the limit" not in r.stdout, r.stdout
+    sys.path.insert(0, str(S)); import critic_outside, critic_findings
+    assert critic_outside.public_url("ssh://git@github.com:443/o/r.git") == "https://github.com/o/r" and critic_outside.public_url("https://github.com/o/r/") == "https://github.com/o/r"
+    assert critic_outside.is_github("https://github.com/o/r") and not critic_outside.is_github("https://evil.example/github.com/o")
+    v = "EXAMPLE" + "value9"
+    for line in (f'curl --cookie "sid={v}" https://a', f"curl -b sid={v} x", f"SESSION={v}", f"--token {v}", f"accessToken={v}"):
+        assert v not in critic_findings.redact_secrets(line), line
+    for line in ("pytest --auth-type basic", "node run.js --max-tokens 4096", "--tokenizer gpt2", "docker login --password-stdin < pw.txt", "--token-count 5"):
+        assert critic_findings.redact_secrets(line) == line, line
+    e = d / "e"; write(e, ".critic/.gitignore", "scan/\n"); write(e, "x.txt", "x")
+    g = lambda *a: subprocess.run(["git", *a], cwd=e, capture_output=True, text=True)
+    g("init", "-q"); g("config", "user.email", "t@example.com"); g("config", "user.name", "t"); g("add", "-A"); g("commit", "-qm", "tracked ignore")
+    r = subprocess.run([sys.executable, "-c", f"import sys; sys.path.insert(0, {str(S)!r}); import critic_findings as c; c.log_run({str(e)!r}, 'script', 'x')"], capture_output=True, text=True)
+    assert (e / ".critic/.gitignore").read_text() == "scan/\n" and "left alone" in r.stderr, r.stderr
+
 if __name__ == "__main__":
     bad = [r for r in RESULTS if not r[1]]
     print(f"\n{len(RESULTS) - len(bad)} of {len(RESULTS)} passed"); sys.exit(1 if bad else 0)

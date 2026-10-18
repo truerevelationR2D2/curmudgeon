@@ -175,18 +175,25 @@ def append_line(path, line):
     fd = os.open(path, os.O_WRONLY | os.O_APPEND | os.O_CREAT | getattr(os, "O_NOFOLLOW", 0), 0o644)
     with os.fdopen(fd, "a", encoding="utf-8") as fh: fh.write(line)
 
-_VAL = r"""("[^"]*"|'[^']*'|[^\s"'&;|]+)"""
+_VAL = r"""("[^"]*"|'[^']*'|[^\s"'&;|<>]+)"""  # a shell redirect is never a value
 # A secret-bearing name. Strong words count anywhere in a name, run together or camelCase (PGPASSWORD, dbPassword,
 # accessToken, clientSecret, _authToken). Weak words count only as a whole _/./- segment (DB_PASS, x-pw, my.pwd), so
 # author, bypass and session-dir stay readable. Bounded repeats keep it fast on long hyphenated text.
-_STRONG = r"passw(?:or)?d|secret|token|api[_-]?key|apikey|private[_-]?key|access[_-]?key|credentials?|authorization|sessid|session[_-]?(?:id|key|token)"
-_WEAK = r"pass|pwd|pw|auth"
+_STRONG = r"passw(?:or)?d|secret|api[_-]?key|apikey|private[_-]?key|access[_-]?key|credentials?|authorization|sessid|session[_-]?(?:id|key|token)|cookies?"
+_WEAK = r"pass|pwd|pw|auth|token|session|sess"
+# A whole name: a strong word anywhere (PGPASSWORD, dbPassword, clientSecret, _authToken via "token" below), or a weak
+# word as a whole _/./- segment (DB_PASS, SESSION, x-pw). "token" is strong only when it ends the name (accessToken,
+# AUTH_TOKEN, --api-token), so --max-tokens and --tokenizer stay readable; a weak word followed by type, mode, dir,
+# file, through or stdin names a setting, not a secret (--auth-type, --password-stdin).
+_NOT_SECRET_TAIL = r"(?![_.-]?(?:type|mode|dir|file|path|through|stdin|method|scheme|header|check|count|limit)s?(?![\w.-]))"
 _NAME_BODY = (r"(?:[A-Za-z0-9_.-]{0,40}(?:" + _STRONG + r")[A-Za-z0-9_.-]{0,40}"
-              r"|(?:[A-Za-z0-9]{1,40}[_.-]){0,4}(?:" + _WEAK + r")(?:[_.-][A-Za-z0-9]{1,40}){0,4})(?![\w.-])")
+              r"|[A-Za-z0-9_.-]{0,40}(?:[Tt]oken|TOKEN)"
+              r"|(?:[A-Za-z0-9]{1,40}[_.-]){0,4}(?:" + _WEAK + r")" + _NOT_SECRET_TAIL + r"(?:[_.-][A-Za-z0-9]{1,40}){0,4})(?![\w.-])")
 _NAME = r"(?<![\w.-])" + _NAME_BODY
 _CRED = r"(?=[A-Za-z0-9._~+/=-]{8,})(?=[A-Za-z0-9._~+/=-]*[0-9+/=_~.-])[A-Za-z0-9._~+/=-]+"  # 8+ chars with a digit or symbol: not a plain word
 REDACT_RULES = [  # applied in order; each masks the value and keeps the label
     (re.compile(r"(?i)(\bcookie:\s*)([^\"'\n]+)"), lambda m: m.group(1) + "[redacted]"),                       # the whole Cookie header
+    (re.compile(r"(?i)(\s(?:-b|--cookie)[=\s]\s*)" + _VAL), None),                                                # curl -b / --cookie value
     (re.compile(r"(?i)(\b(?:bearer|basic)\s+)(" + _CRED + ")"), lambda m: m.group(1) + "[redacted]"),          # Authorization: Bearer xxx
     (re.compile(r"(?i)(" + _NAME + r"[\"']?\s*[=:]\s*(?:(?:bearer|basic|token)\s+)?)" + _VAL), None),        # NAME=value, "password": "x", headers
     (re.compile(r"(?i)((?<![\w-])--?" + _NAME_BODY + r"(?:=|\s+))" + _VAL), None),                                          # --password value, --api-key=value
@@ -215,27 +222,38 @@ def redact_secrets(text):
 RUNLOG_MAX = 1_000_000
 IGNORED = ("runlog.jsonl", "refutations.jsonl", "spotcheck.md", "restore/")
 _TRACKED = {}
-def runlog_tracked(root):
-    """True when the repository already tracks .critic/runlog.jsonl: ignore rules don't apply to a tracked file, so
-    anything written there would show up in the next commit. Asked once per process; not logged (it is the log's own check)."""
-    key = str(root)
+def git_tracked(root, rel):
+    """True when the repository tracks this file: ignore rules don't apply to a tracked file, so anything written to
+    it would show up in the next commit. Asked once per process and file; not logged (it is the log's own check)."""
+    key = (str(root), rel)
     if key not in _TRACKED:
         try:
-            r = subprocess.run(["git", "ls-files", "--error-unmatch", "--", ".critic/runlog.jsonl"], cwd=root, capture_output=True, timeout=5)
+            r = subprocess.run(["git", "ls-files", "--error-unmatch", "--", rel], cwd=root, capture_output=True, timeout=5)
             _TRACKED[key] = r.returncode == 0
         except (OSError, subprocess.TimeoutExpired): _TRACKED[key] = False
-        if _TRACKED[key]:
-            print("curmudgeon: .critic/runlog.jsonl is tracked by git in this repository, so the run log is not written (it would go into "
-                  "your next commit). To keep a log, run: git rm --cached .critic/runlog.jsonl", file=sys.stderr)
     return _TRACKED[key]
 
+def runlog_tracked(root):
+    t = git_tracked(root, ".critic/runlog.jsonl")
+    if t and ("runlog", str(root)) not in _TRACKED:
+        _TRACKED[("runlog", str(root))] = True
+        print("curmudgeon: .critic/runlog.jsonl is tracked by git in this repository, so the run log is not written (it would go into "
+              "your next commit). To keep a log, run: git rm --cached .critic/runlog.jsonl", file=sys.stderr)
+    return t
+
 def ensure_ignored(d):
-    """.critic/.gitignore lists the local logs; missing entries are added to an existing file, never through a link."""
+    """.critic/.gitignore lists the local logs; missing entries are added to an existing file, never through a link and
+    never to a file the repository tracks (that edit would land in the owner's next commit: they are told instead)."""
     gi = d / ".gitignore"
     if gi.is_symlink(): return
     have = gi.read_text(encoding="utf-8", errors="replace").splitlines() if gi.exists() else []
     missing = [x for x in IGNORED if x not in (h.strip() for h in have)]
     if not missing: return
+    if gi.exists() and git_tracked(d.parent, ".critic/.gitignore"):
+        if ("gitignore", str(d)) not in _TRACKED:
+            _TRACKED[("gitignore", str(d))] = True
+            print(f"curmudgeon: .critic/.gitignore is tracked by git, so it was left alone; add these lines to it yourself: {', '.join(missing)}", file=sys.stderr)
+        return
     head = "" if have else "# Curmudgeon's local logs: never commit them\n"
     sep = "\n" if have and not gi.read_text(encoding="utf-8", errors="replace").endswith("\n") else ""
     with open(gi, "a", encoding="utf-8") as fh: fh.write(sep + head + "".join(x + "\n" for x in missing))

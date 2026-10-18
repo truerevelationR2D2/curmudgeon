@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Optional outside reviewer: a model from another family (another AI the user pastes a brief into) reviews the same
 change blind, and its answer goes through the same quote check, vote count and blind verification as ours.
-Reviewers from one model family share blind spots; in our own double-blind test the outside review and ours overlapped
-on none of 23 real findings. Nothing here sends anything anywhere: the user copies the brief out and pastes the answer
+Reviewers from one model family share blind spots; in two double-blind tests the outside review and ours overlapped
+on none of 23 real findings, then 2 of 14. Nothing here sends anything anywhere: the user copies the brief out and pastes the answer
 back, and only when they said yes to the question in the skill.
 
 usage (from the project root, or set CRITIC_ROOT):
@@ -47,9 +47,13 @@ def public_url(remote):
     m = re.match(r"^[\w.-]+@([\w.-]+):(.+?)(?:\.git)?/?$", remote)
     if m: return f"https://{m.group(1)}/{m.group(2)}"
     u = urllib.parse.urlsplit(remote)
-    if u.scheme not in ("https", "http") or not u.hostname: return ""
-    host = u.hostname + (f":{u.port}" if u.port else "")
-    return urllib.parse.urlunsplit(("https", host, re.sub(r"\.git/?$", "", u.path), "", ""))
+    if u.scheme not in ("https", "http", "ssh", "git+ssh", "git") or not u.hostname: return ""
+    host = u.hostname + (f":{u.port}" if u.port and u.scheme in ("https", "http") else "")  # an ssh port is not a web port
+    return urllib.parse.urlunsplit(("https", host, re.sub(r"(\.git)?/*$", "", u.path), "", ""))
+
+def is_github(url):
+    try: return urllib.parse.urlsplit(url).hostname == "github.com"
+    except ValueError: return False
 
 def brief(args):
     goals, base = "", ""
@@ -83,11 +87,11 @@ def brief(args):
     if dirty: warn.append("Some files in this change have edits that aren't committed, so the outside reviewer can't see them online: commit and push first, or attach the files.")
     if not reviews_ignored: warn.append("The .critic/ folder isn't git-ignored here. If you commit and push for the outside reviewer, leave .critic/ out (or add it to .gitignore first): otherwise it can read our reviews and the review stops being blind.")
     if head and not pushed: warn.append("This commit isn't pushed, so the links below won't open: push first, or attach the files.")
-    if url and "github.com" not in url: warn.append("Raw links are made for GitHub only: for this host, attach the files or give the reviewer the repository link.")
+    if url and not is_github(url): warn.append("Raw links are made for GitHub only: for this host, attach the files or give the reviewer the repository link.")
     if not url: warn.append("No web link for this repository: attach the files to the outside reviewer yourself.")
     warn.append("A private repository can't be opened by the outside reviewer: attach the files, or skip this step.")
     def raw(f):
-        if not (url and "github.com/" in url and head): return f
+        if not (url and is_github(url) and head): return f
         return f"https://raw.githubusercontent.com/{url.split('github.com/', 1)[1]}/{head}/" + urllib.parse.quote(repo_rel(f))
     lines = ["# Outside review brief (paste everything below the line into the other AI)", "",
              "Before you paste: this sends the files listed here to that AI's service. Check:", ""] + [f"- {w}" for w in warn] + ["", "---", "",
@@ -146,16 +150,22 @@ def as_text(v):
     if not isinstance(v, str): v = json.dumps(v, ensure_ascii=False)
     return v[:MAX_FIELD]
 
-def json_values(text, limit=20000):
+def json_values(text, budget=20_000_000):
     """Every top-level JSON array or object in the text, fenced or not (a copy of a rendered chat page has no
-    fences). Each [ or { is tried with a JSON decoder; a value found is skipped over whole."""
-    dec, out, i, tries = json.JSONDecoder(), [], 0, 0
-    while i < len(text) and tries < limit:
+    fences). Each [ or { that starts a line, a fence or follows a colon-free run is tried with a JSON decoder; a value
+    found is skipped over whole. Work is bounded by the bytes the decoder has looked at, so a hostile paste (thousands
+    of brackets before a huge unterminated array) stops in well under a second instead of re-parsing the tail each time."""
+    dec, out, i, spent = json.JSONDecoder(), [], 0, 0
+    while i < len(text) and spent < budget:
         j = min([k for k in (text.find("[", i), text.find("{", i)) if k >= 0], default=-1)
         if j < 0: break
-        tries += 1
-        try: v, end = dec.raw_decode(text, j); out.append(v); i = end
-        except ValueError: i = j + 1
+        try:
+            v, end = dec.raw_decode(text, j); out.append(v); i = end; spent += end - j
+        except RecursionError:
+            i = j + 1; spent += len(text) - j  # a run of brackets: the decoder read to the end, count it
+        except ValueError as e:
+            fail = getattr(e, "pos", j); spent += max(1, fail - j)  # how far the decoder got before it gave up
+            nl = text.find("\n", j); i = nl + 1 if 0 < nl else j + 1  # a failed start is skipped to the next line
     return out
 
 def findings_in(vals):
@@ -168,7 +178,8 @@ def findings_in(vals):
 
 def inside_root(rel):
     """A finding must name a file inside the project: no absolute paths, no .., nothing that resolves outside."""
-    if not rel or rel.startswith(("/", "\\")) or re.match(r"^[A-Za-z]:", rel) or ".." in re.split(r"[/\\]", rel): return False
+    parts = re.split(r"[/\\]", rel)
+    if not rel or rel.startswith(("/", "\\")) or re.match(r"^[A-Za-z]:", rel) or ".." in parts or ".critic" in parts: return False
     try: (ROOT / rel).resolve().relative_to(ROOT)
     except (ValueError, OSError): return False
     return True
@@ -186,6 +197,11 @@ def load(args):
         rows += findings_in(json_values(straight))
     if not rows and not any(isinstance(v, list) and not v for v in vals):
         die("no findings found: paste the JSON findings list (objects with an impact field), with or without the ```json fences")
+    uniq, seen_raw = [], set()
+    for r in rows:  # the same row read twice (straight and straightened) counts once, before the limit applies
+        key = json.dumps(r, sort_keys=True, ensure_ascii=False, default=str)
+        if key not in seen_raw: seen_raw.add(key); uniq.append(r)
+    rows = uniq
     out, notes, seen = [], [], set()
     for k, r in enumerate(rows[:MAX_FINDINGS]):
         f = {x: as_text(r.get(x)) for x in TEXT_FIELDS}
