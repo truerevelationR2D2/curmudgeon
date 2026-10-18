@@ -1,0 +1,4 @@
+{
+ "R1 delete ignores a failed save but still says Deleted (the recipe comes back on reload)": {"file": "app.js", "any": ["saveRecipes\\(recipes\\);", "ignor", "return value", "failed save", "comes back", "reappear", "Deleted", "misleading success", "false success"]},
+ "R2 corrupt or blocked storage loads as an empty list with no message, and the next save overwrites the stored recipes (data loss); the comment claims app.js tells the user": {"file": "", "any": ["data loss", "overwrit", "wipe", "corrupt.*(lost|silent|overwrit)", "tells the user", "never told", "silently.*empty", "start(s)? empty"]}
+}

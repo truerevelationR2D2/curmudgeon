@@ -1,0 +1,15 @@
+body { font-family: 'Inter', sans-serif; margin: 0; background: #fff; color: #222; }
+.container { width: 1200px; margin: 0 auto; }
+.hero { text-align: center; padding: 60px 20px; background: linear-gradient(90deg, #6366f1, #8b5cf6); color: white; border-radius: 16px; }
+.toolbar { display: flex; gap: 8px; margin: 16px 0; }
+button { background: #6366f1; color: #fff; border: 0; padding: 8px 14px; border-radius: 8px; }
+button:focus, input:focus, textarea:focus { outline: none; }
+.layout { display: grid; grid-template-columns: 300px 1fr; gap: 16px; }
+#list { list-style: none; padding: 0; }
+#list li { padding: 10px; border-radius: 8px; cursor: pointer; display: flex; justify-content: space-between; }
+#list li.active { background: #eef; }
+#list small { color: #bbb; }
+.del { opacity: 0; } #list li:hover .del { opacity: 1; }
+.editor input, .editor textarea { width: 100%; border: 1px solid #eee; padding: 10px; font: inherit; }
+.editor textarea { height: 400px; }
+.hint { color: #ccc; font-size: 12px; }

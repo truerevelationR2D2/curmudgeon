@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OrderDesk</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<header class="top">
+  <p class="eyebrow">DASHBOARD — OVERVIEW</p>
+  <h1>Orders</h1>
+</header>
+<main>
+  <section class="cards" id="stats"></section>
+  <div class="toolbar">
+    <input id="q" placeholder="Search customers">
+    <select id="status"><option value="">All</option><option>paid</option><option>refunded</option><option>pending</option></select>
+    <span class="refund" id="refundBtn">Refund selected</span>
+  </div>
+  <table id="orders"><thead><tr><th></th><th>Customer</th><th>Total</th><th>Status</th></tr></thead><tbody></tbody></table>
+  <div class="pager"><button id="prev">Prev</button><span id="page"></span><button id="next">Next</button></div>
+  <div id="toast" class="toast"></div>
+</main>
+<script src="api.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

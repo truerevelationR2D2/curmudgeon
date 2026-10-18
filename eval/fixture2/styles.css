@@ -1,0 +1,21 @@
+* { box-sizing: border-box; }
+body { margin: 0; font-family: Inter, sans-serif; background: #F4F1EA; color: #111; }
+.top { padding: 32px; text-align: center; background: linear-gradient(90deg, #6366f1, #8b5cf6); color: #fff; }
+.eyebrow { letter-spacing: .2em; font-size: 11px; color: #c7c2f0; }
+main { max-width: 1100px; margin: 0 auto; padding: 24px; }
+.cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+.card { border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,.1); padding: 24px; text-align: center; background: #fff; }
+.num { font-size: 32px; font-weight: 700; }
+.lbl { font-size: 11px; color: #aaa; letter-spacing: .15em; }
+.toolbar { display: flex; gap: 8px; margin: 24px 0; }
+.toolbar input, .toolbar select { border-radius: 12px; border: 1px solid #e5e5e5; padding: 8px; }
+.refund { border-radius: 12px; background: #8b5cf6; color: #fff; padding: 8px 12px; cursor: pointer; }
+table { width: 1000px; border-collapse: collapse; background: #fff; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,.1); }
+td, th { padding: 6px; border-bottom: 1px solid #eee; text-align: left; }
+td:nth-child(2) { max-width: 120px; white-space: nowrap; overflow: hidden; }
+.dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; }
+.dot.paid { background: #3c3; } .dot.refunded { background: #c33; } .dot.pending { background: #cc3; }
+button { border: 0; background: none; color: #aaa; padding: 2px 4px; font-size: 12px; }
+button:focus, input:focus, select:focus { outline: none; }
+.toast { display: none; position: fixed; bottom: 16px; right: 16px; background: #111; color: #fff; padding: 12px; border-radius: 12px; animation: pop 1s infinite alternate; }
+@keyframes pop { from { transform: scale(1); } to { transform: scale(1.05); } }

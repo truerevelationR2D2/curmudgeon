@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OrderDesk</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<header class="top">
+  <h1>Orders</h1>
+</header>
+<main>
+  <section class="stats" aria-label="Summary">
+    <div class="stat"><p class="lbl">Revenue</p><p class="num" id="stat-revenue">—</p></div>
+    <div class="stat"><p class="lbl">Orders</p><p class="num" id="stat-count">—</p></div>
+    <div class="stat"><p class="lbl">Average per order</p><p class="num" id="stat-average">—</p></div>
+  </section>
+  <div class="toolbar">
+    <label class="field">Search customers <input id="q" type="search" autocomplete="off"></label>
+    <label class="field">Status
+      <select id="status"><option value="">All</option><option>paid</option><option>refunded</option><option>pending</option></select>
+    </label>
+    <button type="button" class="refund" id="refundBtn" disabled>Refund selected</button>
+  </div>
+  <p id="message" class="message" role="status"></p>
+  <div class="table-wrap">
+    <table id="orders">
+      <caption class="sr-only">Orders, 10 per page</caption>
+      <thead><tr><th scope="col"><span class="sr-only">Select</span></th><th scope="col">Customer</th><th scope="col">Total</th><th scope="col">Status</th></tr></thead>
+      <tbody></tbody>
+    </table>
+  </div>
+  <nav class="pager" aria-label="Pages"><button type="button" id="prev" disabled>Previous</button><span id="page"></span><button type="button" id="next" disabled>Next</button></nav>
+  <div id="toast" class="toast" role="status"></div>
+</main>
+<script src="domain.js"></script>
+<script src="api.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

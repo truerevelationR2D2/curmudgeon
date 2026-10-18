@@ -1,0 +1,271 @@
+#!/usr/bin/env python3
+"""Triple-blind merge for Curmudgeon. The counting is done here, in code, never by a model.
+
+usage (from the project root, or set CRITIC_ROOT):
+  critic_merge.py tally REVIEW_FILE... [--scan .critic/scan/report.json] [--groups GROUPS.json]
+                                            blind reviews (JSON, JSONL, or markdown with ```json blocks); --scan adds
+                                            the detector's FAIL rows as evidence-backed findings (they are never votes)
+  critic_merge.py apply VERDICT_FILE...     the blind verifiers' verdicts
+
+Deduplication: two reviewers rarely word the same issue alike, and word overlap can't tell "same issue" from "another
+issue in the same file". So tally also writes .critic/dedup-candidates.json: every finding not already merged, listed by file
+(no reviewer names, no votes). A dedup agent marks which are the same issue and returns
+{"groups": [[raw_id, raw_id, ...], ...]}; run tally again with --groups to count votes on the merged issues.
+  critic_merge.py show                      print the current merged findings
+
+tally:
+  1. Contract check on every finding (impact, category, file, evidence, failing case, verified tag). Failures are
+     rejected with the reason, not silently dropped.
+  2. Quote check: the quoted code must be at file:line (within 5 lines). Otherwise the finding is retracted.
+  3. Ledger: a finding the owner marked a false positive (by its stable id) is suppressed, whatever its impact: that
+     is an explicit ruling on that exact finding. Learned memories (patterns from repeated dismissals) never suppress a
+     Critical or High finding of any kind.
+  4. Cluster the same issue across reviewers; votes = how many reviewers raised it.
+     Kept: votes >= 2 of 3, or a single vote with an executed failing case.
+     Contested: a single vote at Critical/High that was traced, not executed. It goes to verification.
+     Dropped: other single votes. Listed with reasons so drops can be audited.
+  5. Writes .critic/verify/<id>.json, one blind packet per finding (the claim and the code only: no teardown, no votes,
+     no reviewer names), and .critic/tally.json.
+apply:
+  Verdicts are confirmed | refuted | downgrade | unclear. A refutation must be concrete: at least 60 characters and
+  a file:line that exists (the guard, or the line relying on a platform rule), a run or trace, and no hedging
+  (critic_findings.refutation_problem, the same rule the verifier's stop check uses); otherwise it counts as unclear
+  and the finding stays. Refuting a Critical also needs the verifier to have run or traced it. A verifier may
+  lower an impact, never raise it. Writes .critic/findings.jsonl, .critic/findings.sarif and .critic/counts.md, and
+  records every kept finding in the ledger (new, known or regressed)."""
+import hashlib, json, math, os, pathlib, re, subprocess, sys
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+from critic_findings import IMPACTS, extract_findings, fingerprint, quote_check, read_jsonl, refutation_problem, similar, to_sarif, validate, write_jsonl, tokens
+
+ROOT = pathlib.Path(os.environ.get("CRITIC_ROOT", os.getcwd())).resolve(); D = ROOT / ".critic"
+
+# Browser results that are measurements (the same page gives the same number) skip verification. Everything else the
+# detector reports, such as console errors or controls that seem dead, can come from the test setup, so it is verified.
+MEASURED = re.compile(r"^(axe-(?!incomplete)|no-focus-style|not-focusable|focus-obscured|sideways|sr-unnamed|tab-reach|budget-)")
+
+def die(m): print(f"critic_merge: {m}", file=sys.stderr); sys.exit(2)
+
+def norm_path(p):
+    p = str(p or "").strip().replace("\\", "/")
+    try:
+        q = pathlib.Path(p)
+        if q.is_absolute(): p = str(q.resolve().relative_to(ROOT))
+    except (ValueError, OSError): pass
+    while p.startswith("./"): p = p[2:]
+    return p
+
+def load_review(path):
+    p = pathlib.Path(path)
+    if not p.exists(): die(f"{path} does not exist")
+    text = p.read_text(encoding="utf-8")
+    try:
+        v = json.loads(text); rows = v if isinstance(v, list) else v.get("findings", [v])
+    except json.JSONDecodeError:
+        rows = extract_findings(text)
+        if not rows:
+            try: rows = read_jsonl(p)
+            except ValueError: rows = []
+    return [dict(r, source=r.get("source") or p.stem) for r in rows if isinstance(r, dict)]
+
+def ledger():
+    try: return json.loads((D / "ledger.json").read_text())
+    except Exception: return {}
+
+MEMORY_HITS = []
+def suppressed_by_ledger(f, L):
+    for x in L.get("false_positives", []):
+        if x.get("id") and x.get("id") == f.get("id"): return f"known false positive (owner's ruling on this exact finding): {x.get('why', '')}"
+    if f.get("impact") in ("Critical", "High"): return None  # learned patterns never hide a serious finding
+    for i, m in enumerate(L.get("memories", [])):
+        if m.get("retired"): continue
+        if m.get("file_glob") and not pathlib.PurePath(f.get("file") or "").match(m["file_glob"]): continue
+        ft, mt = tokens(f"{f.get('category')} {f.get('title')}"), tokens(m.get("pattern", ""))
+        if mt and len(ft & mt) / max(1, len(mt)) >= 0.6: MEMORY_HITS.append(i + 1); return f"learned dismissal ({m.get('reason')}): {m.get('pattern')}"
+    return None
+
+IMP_RANK = {k: i for i, k in enumerate(IMPACTS)}
+def median_impact(xs):
+    r = sorted(IMP_RANK[x] for x in xs if x in IMP_RANK)
+    return IMPACTS[r[len(r) // 2]] if r else "Low"
+
+def scan_rows(path):
+    try: rep = json.loads(pathlib.Path(path).read_text())
+    except Exception as e: die(f"can't read scan report {path}: {e}")
+    out = []
+    for r in rep.get("findings", []):
+        if r.get("sev") != "FAIL": continue
+        m = re.match(r"(.+?):(\d+)$", r.get("where", ""))
+        out.append({"category": r["rule"], "impact": "High", "file": m.group(1) if m else r.get("where", ""), "line": int(m.group(2)) if m else 0,
+                    "quote": "", "title": r["what"], "evidence": f"scripted row {r.get('id')} ({r.get('rule')})", "failing_case": r.get("evidence") or r["what"],
+                    "verified": "executed" if r.get("level") == "runtime" else "traced", "remediation": "", "source": "scan", "scan_id": r.get("id")})
+    return out
+
+def tally(paths):
+    scan = groups = None
+    if "--groups" in paths:
+        i = paths.index("--groups"); gp = paths[i + 1] if i + 1 < len(paths) else die("--groups needs a file"); paths = paths[:i] + paths[i + 2:]
+        try: groups = json.loads(pathlib.Path(gp).read_text()).get("groups", [])
+        except Exception as e: die(f"can't read groups {gp}: {e}")
+    if "--scan" in paths:
+        i = paths.index("--scan"); scan = paths[i + 1] if i + 1 < len(paths) else die("--scan needs a report path"); paths = paths[:i] + paths[i + 2:]
+    if not paths: die("tally needs the blind review files (for example .critic/reviews/review-*.json); refusing to count scan rows alone")
+    reviews = [load_review(p) for p in paths]
+    n = len(reviews); need = 1 if n == 1 else math.ceil(2 * n / 3)
+    L = ledger(); out = {"reviewers": n, "votes_needed": need, "kept": [], "contested": [], "dropped": [], "retracted": [], "rejected": [], "suppressed": []}
+    scanned = scan_rows(scan) if scan else []
+    accepted = []  # (raw_id, reviewer_index or None for scan, finding)
+    for ri, rows in enumerate(reviews + ([scanned] if scanned else [])):
+        is_scan = bool(scanned) and ri == len(reviews)
+        for k, f in enumerate(rows):
+            f["impact"] = str(f.get("impact", "")).title(); f["file"] = norm_path(f.get("file"))
+            try: f["line"] = int(re.match(r"\s*(\d+)", str(f.get("line") or "0")).group(1))
+            except AttributeError: f["line"] = 0
+            f["id"] = fingerprint(f); f["raw"] = "x" + hashlib.sha1(f"{ri}|{k}|{f['id']}".encode()).hexdigest()[:7]  # opaque: the dedup agent can't tell reviewers apart
+            errs = validate(f)
+            if errs: out["rejected"].append({"finding": f, "why": errs}); continue
+            if f["verified"] == "executed" and not f.get("quote") and not is_scan:
+                f["verified"] = "traced"  # an 'executed' claim needs a quote the script can check; without one it counts as traced
+            q = quote_check(f, ROOT)
+            if q is False: out["retracted"].append({"finding": f, "why": "quoted code is not at the cited file:line"}); continue
+            f["quote_checked"] = q is True
+            s_ = suppressed_by_ledger(f, L)
+            if s_: out["suppressed"].append({"finding": f, "why": s_}); continue
+            accepted.append((f["raw"], None if is_scan else ri, f))
+    parent = {r: r for r, _, _ in accepted}
+    def find(x):
+        while parent[x] != x: parent[x] = parent[parent[x]]; x = parent[x]
+        return x
+    def union(a, b):
+        if a in parent and b in parent: parent[find(a)] = find(b)
+    for i in range(len(accepted)):
+        for j in range(i + 1, len(accepted)):
+            ra, ia, a = accepted[i]; rb, ib, b = accepted[j]
+            if ia == ib: continue  # never merge two findings from the same reviewer (or two scanner rows: two keys on one line are two leaks)
+            if similar(a, b): union(ra, rb)
+    is_doc = {r: bool(re.search(r"\.(md|mdx|markdown|rst|txt|adoc)$|(^|/)(readme|changelog|license|contributing)$", f["file"] or "", re.I)) for r, _, f in accepted}  # by file type, never by a name inside a code path
+    for g in groups or []:
+        g = [x for x in g if x in parent]
+        for kind in (True, False):  # a false claim in the docs and the code that makes it false are fixed in different places: never merged
+            part = [x for x in g if is_doc[x] == kind]
+            for x in part[1:]: union(part[0], x)
+    # The dedup agent gets every finding not already merged, listed by file (pairs by line distance missed real
+    # duplicates cited at distant lines or in another file). No reviewer names or votes; ids are opaque.
+    by_file, roots = {}, {}
+    for r, ri, f in accepted: roots.setdefault(find(r), []).append((r, f))
+    for root, mem in roots.items():
+        r, f = mem[0]
+        by_file.setdefault(f["file"] or "(no file)", []).append({"id": r, "also": [x for x, _ in mem[1:]], "line": f["line"], "title": f["title"], "quote": f.get("quote", "")[:200]})
+    cands = sum(len(v) for v in by_file.values()) if len(roots) > 1 else 0
+    (D).mkdir(parents=True, exist_ok=True)
+    (D / "dedup-candidates.json").write_text(json.dumps({"instructions": "Group findings that describe the same underlying issue (same cause, one fix resolves both), within a file or across files. Return {\"groups\": [[id, ...], ...]} listing only merged sets; use the 'id' values.", "findings_by_file": by_file}, indent=1, ensure_ascii=False))
+    clusters = {}
+    for r, ri, f in accepted:
+        c = clusters.setdefault(find(r), {"members": [], "reviewers": set(), "scan": False})
+        c["members"].append(f)
+        if ri is None: c["scan"] = True
+        else: c["reviewers"].add(ri)
+    clusters = list(clusters.values())
+    for c in clusters:
+        m = c["members"]; votes = len(c["reviewers"])
+        if votes == 0 and c.get("scan"):  # found only by the detector: kept on its evidence, verified like any other
+            f = dict(m[0], votes=0, of=n, locations=[f"{m[0]['file']}:{m[0].get('line', '')}"], raised_by=["scan"], scan_confirmed=True)
+            out["kept"].append(f); continue
+        human = [x for x in m if x.get("source") != "scan"] or m
+        best = sorted(human, key=lambda x: (["executed", "traced", "inferred"].index(x["verified"]), IMP_RANK[x["impact"]]))[0]
+        f = dict(best, votes=votes, of=n, impact=median_impact([x["impact"] for x in m if x.get("source") != "scan"] or [x["impact"] for x in m]), scan_confirmed=bool(c.get("scan")),
+                 locations=sorted({f"{x['file']}:{x.get('line', '')}" for x in m}), raised_by=sorted({x["source"] for x in m}))
+        executed = any(x["verified"] == "executed" for x in m) or bool(c.get("scan"))
+        unanchored = not any(x.get("quote_checked") for x in m) and not c.get("scan")
+        if unanchored and not executed and votes < 2 and f["impact"] in ("Critical", "High", "Medium"): out["contested"].append(f)  # nothing the script could check: verify it, even on one reviewer
+        elif votes >= need or executed: out["kept"].append(f)
+        elif f["impact"] in ("Critical", "High"): out["contested"].append(f)
+        else: out["dropped"].append({"finding": f, "why": f"raised by {votes} of {n} reviewers, not executed"})
+    vd = D / "verify"; vd.mkdir(parents=True, exist_ok=True)
+    for old in vd.glob("*.json"): old.unlink()
+    for f in out["kept"] + out["contested"]:
+        if f["impact"] == "Low" and f["votes"] >= need: continue  # agreed Low findings skip verification to save usage
+        if f.get("raised_by") == ["scan"] and f.get("verified") == "executed" and MEASURED.match(str(f.get("category"))): continue  # a measurement, not an interpretation: nothing to reproduce
+        packet = {k: f.get(k) for k in ("id", "category", "impact", "file", "line", "quote", "title", "failing_case")}
+        (vd / f"{f['id']}.json").write_text(json.dumps(packet, indent=1, ensure_ascii=False))
+    (D / "tally.json").write_text(json.dumps(out, indent=1, ensure_ascii=False))
+    if MEMORY_HITS and (D / "ledger.json").exists():  # keep memories that are in use from retiring
+        led = pathlib.Path(__file__).resolve().parent / "critic_ledger.py"
+        for n_ in sorted(set(MEMORY_HITS)): subprocess.run([sys.executable, str(led), "memories", "--hit", str(n_)], cwd=ROOT, env=dict(os.environ, CRITIC_ROOT=str(ROOT)), capture_output=True)
+    print(f"{n} review(s), {sum(len(r) for r in reviews)} raw findings → kept {len(out['kept'])}, contested {len(out['contested'])}, "
+          f"dropped {len(out['dropped'])}, retracted {len(out['retracted'])}, rejected {len(out['rejected'])}, suppressed {len(out['suppressed'])}")
+    print(f"verification packets: {len(list(vd.glob('*.json')))} in {vd.relative_to(ROOT)}")
+    if not groups and cands: print(f"dedup: {cands} finding(s) listed in .critic/dedup-candidates.json; have a dedup agent group them, then rerun tally with --groups")
+    return 0
+
+def apply(paths):
+    try: T = json.loads((D / "tally.json").read_text())
+    except Exception as e: die(f"run tally first ({e})")
+    verdicts = {}
+    for p in paths:
+        for v in load_review(p): verdicts[v.get("id")] = v
+    final, refuted, notes = [], [], []
+    for f in T["kept"] + T["contested"]:
+        v = verdicts.get(f["id"])
+        if v is None:
+            if (D / "verify" / f"{f['id']}.json").exists():
+                notes.append(f"{f['id']}: no verdict returned; kept, confidence lowered"); f["verifier"] = "missing"
+            final.append(f); continue
+        kind = str(v.get("verdict", "unclear")).lower(); why = str(v.get("refutation") or v.get("reason") or "")
+        if kind == "refuted":
+            prob = refutation_problem(why, f["impact"], v.get("reproduced"), root=ROOT)
+            if not prob:
+                refuted.append({"finding": f, "why": why}); continue
+            kind = "unclear"; notes.append(f"{f['id']}: refutation not concrete enough to drop it ({prob}); kept")
+        if kind == "downgrade":
+            new = str(v.get("impact_after", "")).title()
+            if new in IMP_RANK and IMP_RANK[new] > IMP_RANK[f["impact"]]: f["impact_before"] = f["impact"]; f["impact"] = new
+            else: notes.append(f"{f['id']}: downgrade ignored (a verifier may lower, never raise)")
+        f["verifier"] = kind
+        if v.get("reproduced") in ("executed", "traced"): f["verifier_reproduced"] = v["reproduced"]
+        final.append(f)
+    for f in final:
+        ex = f.get("verified") == "executed" or f.get("verifier_reproduced") == "executed"
+        f["confidence"] = "confirmed" if ex or (f.get("votes", 1) >= 2 and f.get("verifier") == "confirmed") else \
+                          "likely" if f.get("verifier") in ("confirmed",) or f.get("votes", 1) >= 2 else "possible"
+    final.sort(key=lambda f: (IMP_RANK[f["impact"]], {"confirmed": 0, "likely": 1, "possible": 2}[f["confidence"]], f["file"], int(f.get("line") or 0)))
+    write_jsonl(D / "findings.jsonl", final)
+    (D / "findings.sarif").write_text(json.dumps(to_sarif(final), indent=1))
+    cnt = {k: sum(1 for f in final if f["impact"] == k) for k in IMPACTS}
+    md = ["# Curmudgeon merged findings", "", f"Reviewers: {T['reviewers']} (votes needed: {T['votes_needed']}).",
+          "Counts for the VERDICT (copy exactly): " + " · ".join(f"{k} {v}" for k, v in cnt.items()) + f" · total {len(final)}", "",
+          "| ID | Impact | Confidence | Votes | Verifier | Where | Title |", "| --- | --- | --- | --- | --- | --- | --- |"]
+    md += [f"| {f['id']} | {f['impact']} | {f['confidence']} | {f.get('votes', 1)}/{f.get('of', 1)} | {f.get('verifier', '-')} | {f['file']}:{f.get('line', '')} | {f['title'].replace('|', '/')} |" for f in final]
+    for name, rows in (("Refuted by verification", refuted), ("Dropped (single vote, not executed)", T["dropped"]), ("Retracted (quote not found)", T["retracted"]),
+                       ("Rejected (broke the contract)", T["rejected"]), ("Suppressed by the ledger", T["suppressed"])):
+        if rows: md += ["", f"## {name}"] + [f"- {r['finding'].get('id')} {r['finding'].get('file')}:{r['finding'].get('line', '')} {r['finding'].get('title')}: {r['why'] if isinstance(r['why'], str) else '; '.join(r['why'])}" for r in rows]
+    if notes: md += ["", "## Notes"] + [f"- {x}" for x in notes]
+    (D / "counts.md").write_text("\n".join(md) + "\n")
+    led = pathlib.Path(__file__).resolve().parent / "critic_ledger.py"
+    if (D / "ledger.json").exists():
+        tmp = D / "findings-import.jsonl"; write_jsonl(tmp, final)
+        env = dict(os.environ, CRITIC_ROOT=str(ROOT))
+        imp = subprocess.run([sys.executable, str(led), "import", str(tmp)], cwd=ROOT, env=env)
+        if imp.returncode != 0:
+            print("critic_merge: the findings were written, but recording them in the ledger FAILED (see the message above); stable ids and history are not updated", file=sys.stderr)
+            return 1
+        try: known = json.loads((D / "ledger.json").read_text()).get("findings", {})
+        except Exception: known = {}
+        for r in refuted:
+            fid = r["finding"].get("id")
+            if fid in known and known[fid].get("status") == "open":
+                subprocess.run([sys.executable, str(led), "status", fid, "wontfix", "refuted by verification: " + r["why"][:200]], cwd=ROOT, env=env, capture_output=True)
+    print(f"final: {len(final)} finding(s) — " + ", ".join(f"{k} {v}" for k, v in cnt.items()) + f"; refuted {len(refuted)}")
+    print(f"wrote {D/'findings.jsonl'}, {D/'findings.sarif'}, {D/'counts.md'}")
+    return 0
+
+def show():
+    for f in read_jsonl(D / "findings.jsonl"): print(f"{f['id']}\t{f['impact']}\t{f['confidence']}\t{f['file']}:{f.get('line', '')}\t{f['title']}")
+    return 0
+
+if __name__ == "__main__":
+    a = sys.argv[1:]
+    if not a or any(x in ("-h", "--help") for x in a): print(__doc__); sys.exit(0)
+    if a[0] == "tally" and len(a) > 1: sys.exit(tally(a[1:]))
+    if a[0] == "apply" and len(a) > 1: sys.exit(apply(a[1:]))
+    if a[0] == "show": sys.exit(show())
+    die("usage: tally REVIEW... | apply VERDICT... | show")

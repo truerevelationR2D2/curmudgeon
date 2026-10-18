@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Recipe Box</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<header class="masthead"><h1>Recipe Box</h1></header>
+<main>
+  <form id="add" aria-labelledby="add-title">
+    <h2 id="add-title">Add a recipe</h2>
+    <label for="name">Name</label>
+    <input id="name" name="name" required maxlength="80">
+    <label for="minutes">Minutes</label>
+    <input id="minutes" name="minutes" type="number" min="1" max="600" required>
+    <button type="submit">Save recipe</button>
+  </form>
+  <p id="status" role="status" aria-live="polite"></p>
+  <h2>Your recipes</h2>
+  <ul id="list"></ul>
+</main>
+<script src="util.js"></script>
+<script src="store.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

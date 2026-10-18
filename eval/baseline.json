@@ -1,0 +1,28 @@
+{
+ "suite1": {
+  "recall": 1.0,
+  "precision": 0.9642857142857143,
+  "contract": 1.0,
+  "behaviour": 1.0
+ },
+ "suite2": {
+  "recall": 1.0,
+  "precision": 0.9459459459459459,
+  "contract": 0.45454545454545453
+ },
+ "suite3": {
+  "recall": 1.0,
+  "precision": 0.3,
+  "contract": 0.45454545454545453,
+  "decoy_rate": 0.3333333333333333,
+  "decoy_block_rate": 0.0
+ },
+ "clean1": {
+  "fp_clean": 0,
+  "false_block": 0
+ },
+ "clean2": {
+  "fp_clean": 1,
+  "false_block": 0
+ }
+}

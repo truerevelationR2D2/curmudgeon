@@ -1,0 +1,411 @@
+#!/usr/bin/env python3
+"""Tests for Curmudgeon's scripts. No test framework needed: python3 tests/run_tests.py (exit 1 on any failure).
+Each test builds its own scratch project in a temp folder and runs the real scripts against it."""
+import json, os, pathlib, shutil, subprocess, sys, tempfile
+
+HERE = pathlib.Path(__file__).resolve().parent.parent
+S = HERE / "skills" / "review" / "scripts"; H = HERE / "hooks"
+RESULTS = []
+
+def run(script, *a, cwd, stdin=None, env=None):
+    e = dict(os.environ, CRITIC_ROOT=str(cwd), **(env or {}))
+    return subprocess.run([sys.executable, str(script), *a], cwd=cwd, capture_output=True, text=True, input=stdin, env=e, timeout=300)
+
+def test(name):
+    def deco(fn):
+        d = pathlib.Path(tempfile.mkdtemp(prefix="critic-test-"))
+        try: fn(d); RESULTS.append((name, True, "")); print("PASS", name)
+        except AssertionError as e: RESULTS.append((name, False, str(e))); print("FAIL", name, "—", e)
+        except Exception as e: RESULTS.append((name, False, repr(e))); print("FAIL", name, "—", repr(e))
+        finally: shutil.rmtree(d, ignore_errors=True)
+        return fn
+    return deco
+
+def write(d, rel, text): p = d / rel; p.parent.mkdir(parents=True, exist_ok=True); p.write_text(text); return p
+
+APP = 'function render(n) {\n  list.innerHTML = `<li>${n.title}</li>`;\n}\nconst price = total * 1.0825;\n'
+def finding(**k):
+    base = {"category": "xss", "impact": "Critical", "file": "src/app.js", "line": 2, "quote": "list.innerHTML = `<li>${n.title}</li>`;", "title": "Title rendered as HTML",
+            "evidence": "src/app.js:2", "failing_case": "a title with <img onerror> runs script", "verified": "traced", "remediation": "textContent"}
+    base.update(k); return base
+
+@test("merge: 2 of 3 votes kept, single traced Medium dropped, contract breaches rejected, bad quotes retracted")
+def _(d):
+    write(d, "src/app.js", APP); run(S / "critic_ledger.py", "start", "full", cwd=d)
+    write(d, "a.json", json.dumps([finding(), finding(category="domain", impact="Medium", line=4, quote="const price = total * 1.0825;", title="Tax rule in render code")]))
+    write(d, "b.json", json.dumps([finding(impact="High", quote="${n.title}"), finding(title="no case", category="other", failing_case="", evidence="")]))
+    write(d, "c.json", json.dumps([finding(title="eval of input", category="eval", quote="eval(x)", line=3)]))
+    r = run(S / "critic_merge.py", "tally", "a.json", "b.json", "c.json", cwd=d); assert r.returncode == 0, r.stderr
+    t = json.loads((d / ".critic/tally.json").read_text())
+    assert [f["title"] for f in t["kept"]] == ["Title rendered as HTML"] and t["kept"][0]["votes"] == 2, t["kept"]
+    assert any(x["finding"]["title"] == "Tax rule in render code" for x in t["dropped"])
+    assert any(x["finding"]["title"] == "eval of input" for x in t["retracted"])
+    assert any(x["finding"]["title"] == "no case" for x in t["rejected"])
+
+@test("merge: a verifier can lower but never raise an impact, and a vague refutation doesn't drop a finding")
+def _(d):
+    write(d, "src/app.js", APP); run(S / "critic_ledger.py", "start", "full", cwd=d)
+    write(d, "a.json", json.dumps([finding(impact="High")])); write(d, "b.json", json.dumps([finding(impact="High")]))
+    run(S / "critic_merge.py", "tally", "a.json", "b.json", cwd=d)
+    fid = json.loads((d / ".critic/tally.json").read_text())["kept"][0]["id"]
+    write(d, "v.json", json.dumps([{"id": fid, "verdict": "downgrade", "impact_after": "Critical"}])); run(S / "critic_merge.py", "apply", "v.json", cwd=d)
+    assert json.loads((d / ".critic/findings.jsonl").read_text().splitlines()[0])["impact"] == "High"
+    write(d, "v.json", json.dumps([{"id": fid, "verdict": "refuted", "refutation": "not real"}])); run(S / "critic_merge.py", "apply", "v.json", cwd=d)
+    assert (d / ".critic/findings.jsonl").read_text().strip(), "a vague refutation dropped the finding"
+    write(d, "v.json", json.dumps([{"id": fid, "verdict": "refuted", "reproduced": "traced", "refutation": "render() receives titles only from the escaped constant at src/app.js:4, so no user text ever reaches this line."}]))
+    run(S / "critic_merge.py", "apply", "v.json", cwd=d)
+    assert not (d / ".critic/findings.jsonl").read_text().strip(), "a concrete refutation should drop it"
+
+@test("merge: counts in counts.md match findings.jsonl, and SARIF is valid JSON")
+def _(d):
+    write(d, "src/app.js", APP); run(S / "critic_ledger.py", "start", "full", cwd=d)
+    write(d, "a.json", json.dumps([finding(verified="executed"), finding(category="domain", impact="Medium", line=4, quote="const price = total * 1.0825;", title="Tax rule", verified="executed")]))
+    run(S / "critic_merge.py", "tally", "a.json", cwd=d); run(S / "critic_merge.py", "apply", "a.json", cwd=d)
+    rows = [json.loads(x) for x in (d / ".critic/findings.jsonl").read_text().splitlines()]
+    assert "Critical 1 · High 0 · Medium 1 · Low 0 · total 2" in (d / ".critic/counts.md").read_text()
+    assert json.loads((d / ".critic/findings.sarif").read_text())["runs"][0]["results"], "empty SARIF"
+    assert len(rows) == 2
+
+@test("ledger: fixed needs all three claims; round 3 refuses unverified findings; author overrides refused")
+def _(d):
+    L = S / "critic_ledger.py"; run(L, "start", "full", cwd=d); run(L, "add", "C1", "High", "a.js:1", "x", cwd=d)
+    assert run(L, "fixed", "C1", "done", cwd=d).returncode == 2
+    for c in ("targeted", "no-new-defect", "behaviour-unchanged"): run(L, "claim", "C1", c, "test", cwd=d)
+    assert run(L, "fixed", "C1", "done", cwd=d).returncode == 0
+    run(L, "round", cwd=d); run(L, "round", cwd=d)
+    assert run(L, "add", "C2", "High", "a.js:2", "y", cwd=d).returncode == 2
+    assert run(L, "add", "C2", "High", "a.js:2", "y", "--verified", cwd=d).returncode == 0
+    assert run(L, "override", "gate", "author", "why", cwd=d).returncode == 2
+
+@test("ledger: three similar dismissals become a memory, but a Critical security finding never does")
+def _(d):
+    L = S / "critic_ledger.py"; run(L, "start", "full", cwd=d)
+    for i in range(3): run(L, "add", f"X{i}", "Low", f"b{i}.css:1", "hover colour too subtle", cwd=d); run(L, "dismiss", f"X{i}", "preference", "we like it", cwd=d)
+    j = json.loads((d / ".critic/ledger.json").read_text()); assert len(j["memories"]) == 1, j["memories"]
+    for i in range(3): run(L, "add", f"S{i}", "Critical", f"a{i}.js:1", "XSS in title", cwd=d); run(L, "dismiss", f"S{i}", "false-positive", "sanitised", cwd=d)
+    j = json.loads((d / ".critic/ledger.json").read_text()); assert len(j["memories"]) == 1, "a security finding became a memory"
+
+@test("ledger: a restore copy is exact, private (0700) and git-ignored")
+def _(d):
+    L = S / "critic_ledger.py"; src = 'const K = "sk_\x6cive_51HxQ2bOrderDeskSecretKey9f8e7d";\nconst a = 1;\n'; write(d, "api.js", src)
+    run(L, "restore", "save", "api.js", cwd=d)
+    assert next((d / ".critic/restore").rglob("api.js")).read_text() == src
+    assert (d / ".critic/restore/.gitignore").read_text().strip().endswith("*")
+    assert oct((d / ".critic/restore").stat().st_mode & 0o777) == "0o700"
+    write(d, "api.js", '// test key sk_test_abcdefgh123\nconst a = 2;\n'); run(L, "restore", "apply", cwd=d)
+    assert (d / "api.js").read_text() == src
+
+@test("scan: secrets in config files, HTML validity, structure, WCAG 2.2 static rules")
+def _(d):
+    write(d, ".env", "STRIPE=sk_\x6cive_51HxQ2bOrderDeskSecretKey9f8e7d\n")
+    write(d, "index.html", '<!doctype html><html><head><title>t</title></head><body><a href="#"><button>x</button></a><p id="a"></p><p id="a"></p><input name="otp" autocomplete="off" type="password" onpaste="return false"></body></html>')
+    write(d, "ui/view.js", 'import { price } from "../domain/price.js";\nexport function show() { return price(); }\n')
+    write(d, "domain/price.js", 'import { show } from "../ui/view.js";\nexport function price() { return 1; }\n')
+    r = run(S / "critic_scan.py", ".", "--out", "o", cwd=d); assert r.returncode == 0, r.stderr
+    rules = {x["rule"] for x in json.loads((d / "o/report.json").read_text())["findings"]}
+    for want in ("secret-stripe-key", "html-nested-interactive", "html-duplicate-id", "paste-blocked", "autocomplete-off-auth", "boundary", "import-cycle"):
+        assert want in rules, f"missing {want}: {sorted(rules)}"
+
+@test("scan: a check that never reports is blocked (fail closed), and a missing source exits 2")
+def _(d):
+    write(d, "a.js", "let x = 1;\n")
+    r = run(S / "critic_scan.py", "nope", cwd=d); assert r.returncode == 2
+    r = run(S / "critic_scan.py", ".", "--out", "o", cwd=d)
+    ch = json.loads((d / "o/report.json").read_text())["checks"]
+    assert all(k in ch for k in ("static", "structure", "deps", "ci", "page")), ch.keys()
+    assert ch["page"]["state"] == "blocked"
+
+@test("hooks: the guard denies direct edits to the ledger and allows review files")
+def _(d):
+    deny = run(H / "guard_state.py", cwd=d, stdin=json.dumps({"tool_input": {"file_path": str(d / ".critic/ledger.json")}})).stdout
+    allow = run(H / "guard_state.py", cwd=d, stdin=json.dumps({"tool_input": {"file_path": str(d / ".critic/reviews/review-A.json")}})).stdout
+    assert "deny" in deny and not allow.strip()
+
+@test("hooks: stop gate blocks edits after a review, stops after 3 blocks, honours stop_hook_active")
+def _(d):
+    write(d, "src/a.js", "x"); (d / ".critic").mkdir(exist_ok=True); (d / ".critic/gate").write_text("")
+    blocks = [run(H / "stop_gate.py", cwd=d, stdin=json.dumps({"cwd": str(d)})).stdout for _ in range(4)]
+    assert all('"block"' in b for b in blocks[:3]) and '"block"' not in blocks[3], blocks
+    assert not run(H / "stop_gate.py", cwd=d, stdin=json.dumps({"cwd": str(d), "stop_hook_active": True})).stdout.strip()
+
+@test("hooks: contract check blocks a malformed review and passes other agents")
+def _(d):
+    write(d, ".critic/reviews/review-A.json", '[{"title": "x"}]')
+    out = run(H / "check_contract.py", cwd=d, stdin=json.dumps({"agent_type": "critic:curmudgeon-reviewer", "cwd": str(d)})).stdout
+    assert '"block"' in out
+    assert not run(H / "check_contract.py", cwd=d, stdin=json.dumps({"agent_type": "general-purpose", "cwd": str(d)})).stdout.strip()
+
+@test("map: a refund change is the full tier; a two-line note is trivial")
+def _(d):
+    write(d, "api.js", "export function refund(id) { return fetch('/api/refund', {method:'POST'}); }\n"); write(d, "app.js", "import { refund } from './api.js';\nrefund(1);\n")
+    r = run(S / "critic_map.py", "--files", "api.js", "app.js", cwd=d); assert json.loads(r.stdout)["tier"] == "full", r.stdout
+    write(d, "notes.txt", "hello\n"); write(d, "b.css", "a{}\n")
+    r = run(S / "critic_map.py", "--files", "b.css", cwd=d); assert json.loads(r.stdout)["tier"] == "trivial", r.stdout
+
+@test("fix F-00afe05a: rollback keeps the live key line instead of writing the redacted copy over it")
+def _(d):
+    L = S / "critic_ledger.py"; write(d, "api.js", 'const K = "sk_\x6cive_51HxQ2bOrderDeskSecretKey9f8e7d";\nconst a = 1;\n')
+    run(L, "restore", "save", "api.js", cwd=d); write(d, "api.js", 'const K = "sk_\x6cive_51HxQ2bOrderDeskSecretKey9f8e7d";\nconst a = 2;\n')
+    run(L, "restore", "apply", cwd=d); t = (d / "api.js").read_text()
+    assert "REDACTED" not in t and "const a = 1" in t, t
+
+@test("fix F-a902aa72: a killed mutation run is recovered from its backup on the next run")
+def _(d):
+    sys.path.insert(0, str(S)); import scan_mutation
+    write(d, "lib.py", "def f(a, b):\n    return a <= b\n"); write(d, "lib.py.critic-mutation-backup", "def f(a, b):\n    return a < b\n")
+    rows = []; scan_mutation.recover(d, lambda *a: rows.append(a))
+    assert (d / "lib.py").read_text().endswith("a < b\n") and not (d / "lib.py.critic-mutation-backup").exists() and rows
+
+@test("fix F-dadeba3d: a refutation with no pointer to the guard doesn't drop a finding; one with a pointer does")
+def _(d):
+    write(d, "src/app.js", APP); run(S / "critic_ledger.py", "start", "full", cwd=d)
+    write(d, "a.json", json.dumps([finding(impact="High")])); write(d, "b.json", json.dumps([finding(impact="High")]))
+    run(S / "critic_merge.py", "tally", "a.json", "b.json", cwd=d); fid = json.loads((d / ".critic/tally.json").read_text())["kept"][0]["id"]
+    write(d, "v.json", json.dumps([{"id": fid, "verdict": "refuted", "refutation": "I do not think this is a problem because it seems fine to me overall here."}]))
+    run(S / "critic_merge.py", "apply", "v.json", cwd=d); assert (d / ".critic/findings.jsonl").read_text().strip()
+    write(d, "v.json", json.dumps([{"id": fid, "verdict": "refuted", "reproduced": "traced", "refutation": "Titles reach render() only through escapeTitle() at src/app.js:1, so no markup survives."}]))
+    run(S / "critic_merge.py", "apply", "v.json", cwd=d); assert not (d / ".critic/findings.jsonl").read_text().strip()
+
+@test("fix F-e9e9ff4c / F-c2912a1b: learned memories never hide a High finding, and Critical/High dismissals never build one")
+def _(d):
+    L = S / "critic_ledger.py"; write(d, "src/app.js", APP); run(L, "start", "full", cwd=d)
+    j = json.loads((d / ".critic/ledger.json").read_text())
+    j["memories"] = [{"reason": "intended", "pattern": "title rendered html", "file_glob": "*", "hits": 0, "made": "2026-10-18", "last_used": "2026-10-18"}]
+    (d / ".critic/ledger.json").write_text(json.dumps(j))
+    write(d, "a.json", json.dumps([finding(impact="High", category="correctness", verified="executed")]))
+    run(S / "critic_merge.py", "tally", "a.json", cwd=d); t = json.loads((d / ".critic/tally.json").read_text())
+    assert t["kept"] and not t["suppressed"], t["suppressed"]
+    for i in range(3): run(L, "add", f"H{i}", "High", f"x{i}.js:1", "xss in title render", cwd=d); run(L, "dismiss", f"H{i}", "intended", "fine", cwd=d)
+    assert len(json.loads((d / ".critic/ledger.json").read_text())["memories"]) == 1
+
+@test("fix F-e83ca836 / F-4d1e90b0: the same file written three ways is one issue; a line like '2-3' doesn't crash")
+def _(d):
+    write(d, "src/app.js", APP); run(S / "critic_ledger.py", "start", "full", cwd=d)
+    for k, path in zip("abc", ("src/app.js", "./src/app.js", str(d / "src/app.js"))):
+        write(d, f"{k}.json", json.dumps([finding(file=path, impact="Medium", line="2-3")]))
+    r = run(S / "critic_merge.py", "tally", "a.json", "b.json", "c.json", cwd=d); assert r.returncode == 0, r.stderr
+    t = json.loads((d / ".critic/tally.json").read_text()); assert len(t["kept"]) == 1 and t["kept"][0]["votes"] == 3, t["kept"]
+
+@test("fix F-2d5e7bfa: a line-level finding with no quote is rejected")
+def _(d):
+    write(d, "src/app.js", APP); run(S / "critic_ledger.py", "start", "full", cwd=d)
+    write(d, "a.json", json.dumps([finding(quote="", verified="executed", line=99)]))
+    run(S / "critic_merge.py", "tally", "a.json", cwd=d); t = json.loads((d / ".critic/tally.json").read_text())
+    assert not t["kept"] and t["rejected"]
+
+@test("fix F-577d55b0 / F-d8d732a2: keys on very long lines are found, and no report contains the secret")
+def _(d):
+    write(d, "bundle.min.js", "x" * 30000 + 'k="sk_\x6cive_51HxQ2bOrderDeskSecretKey9f8e7d";'); write(d, ".env", "DB=postgres://admin:Pa55w0rd!&x@db.example.com/app\n")
+    run(S / "critic_scan.py", ".", "--out", "o", cwd=d)
+    rep = (d / "o/report.json").read_text() + (d / "o/report.md").read_text()
+    assert "secret-stripe-key" in rep and "secret-db-url-password" in rep
+    assert "OrderDeskSecretKey" not in rep and "Pa55w0rd" not in rep
+
+@test("fix F-a82f5662: the guard resolves '..' before checking")
+def _(d):
+    out = run(H / "guard_state.py", cwd=d, stdin=json.dumps({"cwd": str(d), "tool_input": {"file_path": str(d / ".critic/reviews/../ledger.json")}})).stdout
+    assert "deny" in out
+
+@test("fix F-9989c1bb / F-27bf1c9c: the gate stays released for the same batch, and a new unstamped file counts")
+def _(d):
+    L = S / "critic_ledger.py"; write(d, "src/a.js", "x"); run(L, "stamp", "src/a.js", cwd=d); run(L, "gate", "on", cwd=d)
+    write(d, ".critic/last-review.md", "r"); import time; time.sleep(1.1); write(d, "src/new.js", "eval(userInput)")
+    outs = [run(H / "stop_gate.py", cwd=d, stdin=json.dumps({"cwd": str(d)})).stdout for _ in range(6)]
+    assert '"block"' in outs[0], "a new file after the review must count"
+    assert all('"block"' not in o for o in outs[4:]), outs
+
+@test("fix F-0e7b1749: the contract check validates the stopping reviewer's own named file")
+def _(d):
+    write(d, ".critic/reviews/review-B.json", '[{"title": "x"}]'); write(d, ".critic/reviews/review-A.json", "[]")
+    out = run(H / "check_contract.py", cwd=d, stdin=json.dumps({"agent_type": "curmudgeon-reviewer", "cwd": str(d), "last_assistant_message": "Wrote .critic/reviews/review-B.json"})).stdout
+    assert '"block"' in out, out
+
+@test("fix F-79ef1146 / F-4785936a / F-6e26d6cf: 'author' isn't 'auth', and main() doesn't link unrelated files")
+def _(d):
+    write(d, "a.css", "/* by author */\na{}\n")
+    assert json.loads(run(S / "critic_map.py", "--files", "a.css", cwd=d).stdout)["tier"] == "trivial"
+    write(d, "x.py", "def main():\n    pass\nmain()\n"); write(d, "y.py", "def main():\n    pass\nmain()\n")
+    assert json.loads(run(S / "critic_map.py", "--files", "x.py", cwd=d).stdout)["radius"] == 0
+
+@test("fix (test wave): a tally with no review files refuses instead of keeping scan rows on zero votes")
+def _(d):
+    write(d, ".critic/scan/report.json", json.dumps({"rows": []}))
+    r = run(S / "critic_merge.py", "tally", "--scan", ".critic/scan/report.json", cwd=d)
+    assert r.returncode == 2 and "refusing" in (r.stdout + r.stderr), r.stdout + r.stderr
+
+@test("fix (test wave): dedup lists duplicates cited 40+ lines apart, and a group merges their votes")
+def _(d):
+    src = "".join(f"const v{i} = {i};\n" for i in range(60))
+    write(d, "src/a.js", src)
+    a = finding(category="logic", impact="Medium", file="src/a.js", line=2, quote="const v1 = 1;", title="Counter starts at the wrong value", verified="traced")
+    b = finding(category="state", impact="Medium", file="src/a.js", line=50, quote="const v49 = 49;", title="Off-by-one in the initial index", verified="traced")
+    write(d, ".critic/reviews/review-A.json", json.dumps([a])); write(d, ".critic/reviews/review-B.json", json.dumps([b]))
+    write(d, ".critic/reviews/review-C.json", json.dumps([]))
+    revs = [".critic/reviews/review-A.json", ".critic/reviews/review-B.json", ".critic/reviews/review-C.json"]
+    r = run(S / "critic_merge.py", "tally", *revs, cwd=d); assert r.returncode == 0, r.stdout + r.stderr
+    listed = json.loads((d / ".critic/dedup-candidates.json").read_text())["findings_by_file"]["src/a.js"]
+    assert len(listed) == 2, listed
+    t = json.loads((d / ".critic/tally.json").read_text()); assert len(t["kept"]) == 0, t["kept"]
+    write(d, ".critic/groups.json", json.dumps({"groups": [[x["id"] for x in listed]]}))
+    run(S / "critic_merge.py", "tally", *revs, "--groups", ".critic/groups.json", cwd=d)
+    t = json.loads((d / ".critic/tally.json").read_text()); assert len(t["kept"]) == 1 and t["kept"][0]["votes"] == 2, t
+
+@test("round 2 N1: detector FAIL rows (a live key, eval) survive the tally without a quote")
+def _(d):
+    write(d, "src/k.js", 'const k = "sk_\x6cive_51HxQ2bOrderDeskSecretKey9f8e7d";\n'); write(d, "src/a.js", "x = 1;\neval(input);\n")
+    run(S / "critic_scan.py", "src", "--root", ".", cwd=d)
+    write(d, ".critic/reviews/review-A.json", "[]")
+    r = run(S / "critic_merge.py", "tally", ".critic/reviews/review-A.json", "--scan", ".critic/scan/report.json", cwd=d)
+    t = json.loads((d / ".critic/tally.json").read_text())
+    assert any("stripe" in str(k.get("category")) for k in t["kept"]), (r.stdout, t["rejected"])
+    assert "sk_\x6cive_51HxQ2bOrderDeskSecretKey9f8e7d" not in (d / ".critic/tally.json").read_text()
+
+@test("round 2 N2: rollback matches redacted lines by content, and an added key-like line can't displace the real one")
+def _(d):
+    write(d, "src/api.js", 'const K = "sk_\x6cive_51HxQ2bOrderDeskSecretKey9f8e7d";\nconst a = 1;\n')
+    run(S / "critic_ledger.py", "init", cwd=d); run(S / "critic_ledger.py", "restore", "save", "src/api.js", cwd=d)
+    write(d, "src/api.js", '// example key for tests: sk_test_abcdefgh123\nconst K = "sk_\x6cive_51HxQ2bOrderDeskSecretKey9f8e7d";\nconst a = 2;\n')
+    run(S / "critic_ledger.py", "restore", "apply", cwd=d)
+    t = (d / "src/api.js").read_text()
+    assert t.startswith('const K = "sk_\x6cive_51HxQ2bOrderDeskSecretKey9f8e7d";') and "const a = 1;" in t and "REDACTED" not in t, t
+
+@test("round 2 N3: every secret on a line is masked in the reports, and a private key's body never appears")
+def _(d):
+    write(d, ".env", "STRIPE_KEY=sk_\x6cive_51HxQ2bOrderDeskSecretKey9f8e7d AWS_KEY=AKIAZ7QW3RT5YU8IOP2L\n")
+    write(d, "cfg.js", 'const c = { password: "Tr0ub4dor&3x!qZ", stripe: "sk_\x6cive_51HxQ2bOrderDeskSecretKey9f8e7d" };\n')
+    write(d, "k.pem", "-----BEGIN RSA PRIVATE KEY-----MIIEowIBAAKCAQEAu1SU1LfVLPHCozMxH2Mo4lgOEePzNm0tRgeLezV6ffAt0gunVTLw7onLRnrq\n")
+    run(S / "critic_scan.py", ".", "--root", ".", cwd=d)
+    rep = (d / ".critic/scan/report.md").read_text() + (d / ".critic/scan/report.json").read_text()
+    for s_ in ("SecretKey9f8e7d", "AKIAZ7QW3RT5YU8IOP2L", "Tr0ub4dor", "MIIEowIBAAKCAQEAu1SU"): assert s_ not in rep, s_
+
+@test("round 2 N4: rules.md commands run only with --project-checks")
+def _(d):
+    write(d, ".critic/rules.md", "## Scripted checks\n- marker: touch ran.txt\n"); write(d, "a.py", "x = 1\n")
+    run(S / "critic_scan.py", ".", "--root", ".", cwd=d); assert not (d / "ran.txt").exists()
+    run(S / "critic_scan.py", ".", "--root", ".", "--project-checks", cwd=d); assert (d / "ran.txt").exists()
+
+@test("round 2 N5: token, role and security code is the full tier")
+def _(d):
+    write(d, "jwt.js", "export function verify(token) { return jwt.verify(token, KEY) }\n"); write(d, "roles.py", 'return user.role == "owner"\n')
+    for f_ in ("jwt.js", "roles.py"):
+        assert json.loads(run(S / "critic_map.py", "--files", f_, cwd=d).stdout)["tier"] == "full", f_
+
+@test("round 2 N6 / F-dadeba3d / round 4 N2: a refutation needs an existing file:line, a run or trace, and no hedging")
+def _(d):
+    sys.path.insert(0, str(S)); from critic_findings import refutation_problem
+    write(d, "src/List.jsx", "\n".join(f"line {i}" for i in range(1, 30)))
+    ok = "React escapes text children, and src/List.jsx:14 renders the title as a child, so it is never parsed as HTML."
+    assert refutation_problem(ok, "High", "traced", root=d) is None
+    assert refutation_problem(ok.replace(":14", ":99"), "High", "traced", root=d), "a line that doesn't exist"
+    assert refutation_problem("`render()` is completely fine and nothing about this path can fail in practice for any input at all.", "Critical", "traced", root=d)
+    assert refutation_problem("I don't think this is a real bug; it probably seems fine, see src/List.jsx:14 maybe, in my view.", "Critical", "traced", root=d)
+    assert refutation_problem(ok, "Medium", "no", root=d), "needs a run or a trace"
+
+@test("round 2 F-2d5e7bfa: a one-review Critical with no line and no quote is contested, not kept")
+def _(d):
+    write(d, "src/app.js", APP)
+    write(d, ".critic/reviews/review-A.json", json.dumps([finding(line=None, quote="", verified="traced")]))
+    run(S / "critic_merge.py", "tally", ".critic/reviews/review-A.json", cwd=d)
+    t = json.loads((d / ".critic/tally.json").read_text()); assert not t["kept"] and len(t["contested"]) == 1, t
+
+@test("round 3 R1: the verifier stop check blocks a bare refutation and passes a concrete one")
+def _(d):
+    msg = lambda why: "```json\n" + json.dumps([{"id": "F-1", "verdict": "refuted", "reproduced": "executed", "refutation": why}]) + "\n```"
+    out = run(H / "check_contract.py", cwd=d, stdin=json.dumps({"agent_type": "curmudgeon-verifier", "cwd": str(d), "last_assistant_message": msg("not real")})).stdout
+    assert '"block"' in out, out
+    write(d, "src/app.js", "\n".join(f"line {i}" for i in range(1, 20)))
+    ok = "The title is assigned with textContent at src/app.js:14, so markup in it is shown as text and never parsed."
+    out = run(H / "check_contract.py", cwd=d, stdin=json.dumps({"agent_type": "curmudgeon-verifier", "cwd": str(d), "last_assistant_message": msg(ok)})).stdout
+    assert '"block"' not in out, out
+
+@test("round 3 R2 (redesigned): restore copies with keys stay private and git-ignored, and no report reads them")
+def _(d):
+    keys = ["sk-proj-" + "Ab3dE6gH9jK2mN5pQ8sT1vW4yZ7bC0eF3hJ6", "AIza" + "SyA1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q"]
+    write(d, "cfg.js", "".join(f'const k{i} = "{k}";\n' for i, k in enumerate(keys)))
+    run(S / "critic_ledger.py", "init", cwd=d); run(S / "critic_ledger.py", "restore", "save", "cfg.js", cwd=d)
+    run(S / "critic_scan.py", ".", "--root", ".", cwd=d)
+    rep = "".join(p.read_text() for p in (d / ".critic/scan").glob("report.*"))
+    assert not any(k in rep for k in keys) and "restore/" not in rep, "a report read the restore copies"
+    assert (d / ".critic/restore/.gitignore").exists()
+
+@test("round 3 R3/R5 and scan rows: code named like docs merges; identical key lines restore; two keys on a line stay two")
+def _(d):
+    write(d, "src/readmeParser.js", "".join(f"const v{i} = {i};\n" for i in range(10)))
+    a = finding(category="logic", impact="Medium", file="src/readmeParser.js", line=2, quote="const v1 = 1;", title="Parser drops the first heading", verified="traced")
+    b = finding(category="state", impact="Medium", file="src/readmeParser.js", line=8, quote="const v7 = 7;", title="First section is skipped", verified="traced")
+    write(d, ".critic/reviews/review-A.json", json.dumps([a])); write(d, ".critic/reviews/review-B.json", json.dumps([b])); write(d, ".critic/reviews/review-C.json", "[]")
+    revs = [f".critic/reviews/review-{x}.json" for x in "ABC"]
+    run(S / "critic_merge.py", "tally", *revs, cwd=d)
+    ids = [x["id"] for x in json.loads((d / ".critic/dedup-candidates.json").read_text())["findings_by_file"]["src/readmeParser.js"]]
+    write(d, ".critic/groups.json", json.dumps({"groups": [ids]})); run(S / "critic_merge.py", "tally", *revs, "--groups", ".critic/groups.json", cwd=d)
+    assert len(json.loads((d / ".critic/tally.json").read_text())["kept"]) == 1
+    k = 'const K = "sk_\x6cive_51HxQ2bOrderDeskSecretKey9f8e7d";'
+    write(d, "src/two.js", f"{k}\n{k}\nconst a = 1;\n"); run(S / "critic_ledger.py", "init", cwd=d); run(S / "critic_ledger.py", "restore", "save", "src/two.js", cwd=d)
+    write(d, "src/two.js", f"{k}\n{k}\nconst a = 2;\n"); run(S / "critic_ledger.py", "restore", "apply", cwd=d)
+    assert (d / "src/two.js").read_text() == f"{k}\n{k}\nconst a = 1;\n", (d / "src/two.js").read_text()
+    write(d, ".env", "STRIPE_KEY=sk_\x6cive_51HxQ2bOrderDeskSecretKey9f8e7d AWS_KEY=AKIAZ7QW3RT5YU8IOP2L\n")
+    run(S / "critic_scan.py", ".env", "--root", ".", cwd=d)
+    run(S / "critic_merge.py", "tally", ".critic/reviews/review-C.json", "--scan", ".critic/scan/report.json", cwd=d)
+    cats = {x["category"] for x in json.loads((d / ".critic/tally.json").read_text())["kept"]}
+    assert {"secret-stripe-key", "secret-aws-access-key"} <= cats, cats
+
+@test("round 3 R4 / F-dadeba3d: a located refutation may say 'might'; a bare `name` is no pointer; a lone unquoted Medium is contested")
+def _(d):
+    sys.path.insert(0, str(S)); from critic_findings import refutation_problem
+    assert refutation_problem("The guard at src/app.js:14 returns early when the list is empty, so the loop that might crash never runs.", "High", "traced") is None
+    assert refutation_problem("`render` is completely fine and nothing about this path can fail in practice for any input.", "Critical", "traced")
+    write(d, "src/app.js", APP)
+    write(d, ".critic/reviews/review-A.json", json.dumps([finding(impact="Medium", line=None, quote="", verified="traced")]))
+    run(S / "critic_merge.py", "tally", ".critic/reviews/review-A.json", cwd=d)
+    t = json.loads((d / ".critic/tally.json").read_text()); assert not t["kept"] and len(t["contested"]) == 1, t
+
+@test("round 4 N4 and s2 fixer reports: one key is one finding; --help changes nothing; scanner rules don't flag correct code")
+def _(d):
+    write(d, "k.js", 'const a = "sk-ant-api03-' + "A" * 90 + '";\n')
+    write(d, "s.css", "a:hover, a:focus-visible { color: red }\n")
+    write(d, "q.js", "export function load(params) { return fetch(`/api?${params}`).then(r => r.json()); }\nload(new URLSearchParams());\n")
+    write(d, "u.js", "const $ = (id) => document.getElementById(id);\n$('x');\n")
+    run(S / "critic_scan.py", ".", "--root", ".", cwd=d)
+    rows = json.loads((d / ".critic/scan/report.json").read_text())["findings"]
+    rules = [r["rule"] for r in rows]
+    assert rules.count("secret-anthropic-key") == 1 and "secret-openai-key" not in rules, rules
+    assert not any(r["rule"] == "hover-only" for r in rows), rules
+    assert not any(r["rule"] == "url-unencoded" for r in rows), rules
+    assert not any(r["rule"] == "dead-function" and "u.js" in r["where"] for r in rows), rules
+    run(S / "critic_ledger.py", "init", cwd=d); before = (d / ".critic/ledger.json").read_text()
+    run(S / "critic_ledger.py", "decision", "--help", cwd=d); run(S / "critic_ledger.py", "round", "--help", cwd=d)
+    assert (d / ".critic/ledger.json").read_text() == before
+
+@test("final check R5-1..R5-7: doubt words, paths outside the project, url params, help message, refusals, deps, ids")
+def _(d):
+    sys.path.insert(0, str(S)); from critic_findings import refutation_problem
+    write(d, "src/app.js", "\n".join(f"line {i}" for i in range(1, 20)))
+    for w in ("Presumably the caller escapes the title first; src/app.js:4 is where that happens for every value.",
+              "I don\u2019t think so: the caller escapes the title first at src/app.js:4 for every value it renders here."):
+        assert refutation_problem(w, "High", "executed", root=d), w
+    good = "The caller escapes the title at src/app.js:4 before render runs, so every value reaching this line is plain text."
+    assert refutation_problem(good, "High", "traced", root=d) is None
+    assert refutation_problem(good, "Critical", "traced", root=d), "a Critical needs a run"
+    assert refutation_problem(good, "Critical", "executed", root=d) is None
+    write(d, ".critic/tally.json", "{}")
+    for loc in (".critic/tally.json:1", "../etc/passwd:1", "/etc/passwd:1"):
+        assert refutation_problem(good.replace("src/app.js:4", loc), "High", "traced", root=d), loc
+    write(d, "q.js", "export function load(params) { return fetch(`/api/u?id=${params.id}`); }\nload({});\n")
+    write(d, "package.json", json.dumps({"dependencies": {"left-pad": "*"}}))
+    write(d, "keys.js", 'const a = "sk_\x6cive_51HxQ2bOrderDeskSecretKey9f8e7d";\nconst b = "sk_\x6cive_99ZyX8wVuTsRqPoNmLkJiHg7f6e";\n')
+    run(S / "critic_ledger.py", "init", cwd=d); run(S / "critic_ledger.py", "restore", "save", "package.json", "src/app.js", cwd=d)
+    write(d, "src/app.js", "REDACTED-BY-CRITIC is just text here\n"); run(S / "critic_ledger.py", "restore", "save", "src/app.js", cwd=d)
+    write(d, "src/app.js", "changed\n"); out = run(S / "critic_ledger.py", "restore", "apply", cwd=d).stdout
+    assert (d / "src/app.js").read_text().startswith("REDACTED-BY-CRITIC"), out
+    run(S / "critic_scan.py", ".", "--root", ".", cwd=d)
+    rows = json.loads((d / ".critic/scan/report.json").read_text())["findings"]
+    assert any(r["rule"] == "url-unencoded" for r in rows), "params.id must still be flagged"
+    assert not any(".critic" in r["where"] for r in rows), [r["where"] for r in rows if ".critic" in r["where"]]
+    write(d, ".critic/reviews/review-A.json", "[]")
+    run(S / "critic_merge.py", "tally", ".critic/reviews/review-A.json", "--scan", ".critic/scan/report.json", cwd=d)
+    ids = [k["id"] for k in json.loads((d / ".critic/tally.json").read_text())["kept"] if k["category"] == "secret-stripe-key"]
+    assert len(ids) == 2 and len(set(ids)) == 2, ids
+
+if __name__ == "__main__":
+    bad = [r for r in RESULTS if not r[1]]
+    print(f"\n{len(RESULTS) - len(bad)} of {len(RESULTS)} passed"); sys.exit(1 if bad else 0)

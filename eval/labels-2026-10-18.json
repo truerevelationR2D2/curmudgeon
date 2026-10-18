@@ -1,0 +1,52 @@
+{
+ "s1": [
+  {"i":0,"label":"real","why":"app.js:46 inserts server-supplied s.title via insertAdjacentHTML with no encoding, a stored XSS from another user's data."},
+  {"i":1,"label":"real","why":"Reproduced: renderList sorts all notes per shown note and does innerHTML += per row; 500 notes took ~860 ms per render and 2000 notes took ~36 s to load."},
+  {"i":2,"label":"real","why":"app.js:11 interpolates n.title into innerHTML, so a title with markup executes or breaks the row."},
+  {"i":3,"label":"real","why":"After deleting the open note (or on first run) currentNote is null but inputs stay enabled, and scheduleSave's timer dereferences currentNote.title and throws."},
+  {"i":4,"label":"real","why":"The 500 ms debounce has no pagehide/visibilitychange flush, so edits typed just before reload or close are lost."},
+  {"i":5,"label":"real","why":".container is a fixed width: 1200px, which forces horizontal scrolling on phone viewports (Reflow 1.4.10)."},
+  {"i":6,"label":"real","why":"#ccc and #bbb on white are about 1.6:1 and 1.9:1, far below 4.5:1, and .hint is the only save-status text."},
+  {"i":7,"label":"real","why":"persist() has an empty catch, so quota or blocked-storage failures are silent while the UI says changes save automatically."},
+  {"i":8,"label":"real","why":"removeNote calls renderList() with no filter, so the list shows every note while the search box still holds the query."},
+  {"i":9,"label":"real","why":"Shared li rows have no data-id, so Number(undefined) gives NaN, find returns undefined, and openNote throws on currentNote.title."},
+  {"i":10,"label":"real","why":"Shipped UI contains lorem ipsum placeholder copy and a template hero; it is low impact but genuinely unfinished content."},
+  {"i":11,"label":"nitpick","why":"The gradient, Inter (with a fallback) and untokenised hex are aesthetic or maintainability preferences, not a functional defect."}
+ ],
+ "s2": [
+  {"i":0,"label":"real","why":"README claims refunds are confirmed, but refundBtn's onclick calls refund() at once with no confirmation."},
+  {"i":1,"label":"real","why":"Status is an empty colored span with no text or accessible name, so it fails 1.4.1 and screen readers get nothing."},
+  {"i":2,"label":"hallucinated","why":"The ERR_FAILED console error comes only from the unreachable test host api.orderdesk.test with no backend running, so it is not an app defect."},
+  {"i":3,"label":"real","why":"select#status has no label, aria-label or title, so it has no accessible name."},
+  {"i":4,"label":"real","why":"api.js:3 hard-codes an sk_live key and sends it from the browser, which directly contradicts the README security claim."},
+  {"i":5,"label":"real","why":"Tax and discount rules sit inside renderStats, the stats disagree with the untaxed table totals, and avg divides by zero to give $NaN when there are no orders."},
+  {"i":6,"label":"real","why":"With [] the avg is NaN, the pager reads 'Page 1 of 0', and there is no empty or loading state."},
+  {"i":7,"label":"real","why":"The success toast shows unconditionally because refund() returns {ok:true} without awaiting the fetch, and it pluralises wrongly ('1 orders!'); the comment part is minor."},
+  {"i":8,"label":"real","why":"The pager buttons are about 18 px tall with faint #aaa 12px text and no affordance, which contradicts the README's 44 px target claim (strict 2.5.8 failure is debatable given the spacing exception)."},
+  {"i":9,"label":"nitpick","why":"The template-look critique (gradient, Inter, caps eyebrow, shared radius and shadow, raw hex) is aesthetic preference, not a defect at report level."}
+ ],
+ "s3": [
+  {"i":0,"label":"nitpick","why":"The comment's claim that app.js tells the user is false, but truncated JSON or nameless records never come from this app's own atomic JSON.stringify writes, and there is no older schema or external writer."},
+  {"i":1,"label":"nitpick","why":"The app always stores parseInt numbers, so string or missing minutes arise only from hand-edited storage the app never writes."},
+  {"i":2,"label":"real","why":"No overflow-wrap is set, and a user-typed unbroken name (for example a pasted URL) up to 80 chars overflows a 390 px viewport."},
+  {"i":3,"label":"nitpick","why":"Solid accent-filled buttons with no hover style or pointer cursor are a polish preference, not a defect."},
+  {"i":4,"label":"nitpick","why":"importRecipes and getJson are indeed unused, but the critique is about hypothetical bugs if they were wired up; dead-code cleanup is low value."},
+  {"i":5,"label":"real","why":"The delete handler calls render(), which replaces the list innerHTML and destroys the focused Delete button, so focus falls to body (2.4.3)."},
+  {"i":6,"label":"nitpick","why":"newId() always returns a string id, so numeric or missing ids only exist in data the app never writes."},
+  {"i":7,"label":"nitpick","why":"A collision needs Date.now() on a later visit to land on exactly the same millisecond as a stored id after a clock step back, which is extremely unlikely."}
+ ],
+ "c1": [
+  {"i":0,"label":"real","why":"selectNote and deleteNote both call renderList, whose replaceChildren removes the focused button, so keyboard focus drops to body."},
+  {"i":1,"label":"real","why":"saveNotes writes the whole in-memory array and there is no storage-event listener, so two open tabs silently overwrite each other's notes."}
+ ],
+ "c2": [
+  {"i":0,"label":"real","why":"newIdempotencyKey() is minted per click and the selection and button stay enabled after an unconfirmed refund, so a user retry gets a new key and can refund twice, defeating the README's stated protection."},
+  {"i":1,"label":"real","why":"orderRevenueCents adds 8.25% tax (and re-applies the gold discount) to order totals, so the Revenue tile disagrees with the Total column and refund amounts on the same screen, and counting tax as revenue is wrong."},
+  {"i":2,"label":"real","why":"request() has no timeout and refunds pass no signal, so a hung proxy leaves 'Refunding…' disabled with no message until the browser's own long timeout or a reload."},
+  {"i":3,"label":"real","why":"Next, and refundBtn during a refund, are disabled while focused, which sends focus to body, contradicting the keyboard claim (2.4.3)."},
+  {"i":4,"label":"real","why":"Every row gets a checkbox regardless of status, and the confirm amount sums o.total for refunded and pending orders too."},
+  {"i":5,"label":"nitpick","why":"It depends on an assumed, undocumented partial-failure response shape; a 200 is server confirmation, and load() then refreshes the statuses."},
+  {"i":6,"label":"real","why":"Number(null) and Number('') are 0 and finite, so a null or empty total from the API passes as $0.00, contrary to the comment on line 7."},
+  {"i":7,"label":"real","why":"The average divides paid-only, taxed revenue by all orders including refunded and pending, giving figures that match no order on screen."}
+ ]
+}

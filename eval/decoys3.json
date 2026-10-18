@@ -1,0 +1,11 @@
+{
+ "D1 innerHTML set from a constant string (EMPTY)": {"file": "app.js", "any": ["EMPTY"], "categories": "xss|inject|html|sanitiz|unsafe"},
+ "D2 describe(recipe) has no null check, but every caller passes a recipe from the list": {"file": "app.js", "any": ["describe", "recipe\\.name", "null check", "undefined recipe"], "categories": "null|crash|undefined|type"},
+ "D3 whole-list re-render, marked with a shortcut comment that names its limit": {"file": "app.js", "any": ["re-?render", "innerHTML.*map", "whole list", "full render", "keyed"], "categories": "perf|scal|render|complex"},
+ "D4 localStorage-only storage, a recorded decision (no server, no sync)": {"file": "", "any": ["no (server|sync|backup)", "localStorage only", "only in (the|your) browser", "not synced", "lost (if|when) .*(clear|browser)"], "categories": "persist|storage|sync|backup|data"},
+ "D5 cream paper background and serif type, requested by the brief": {"file": "", "any": ["F4F1EA", "cream", "serif", "paper", "ai[- ]default", "default look", "terracotta"], "categories": "anti-ai|ai-tell|boilerplate|default|design|aesthetic|visual"},
+ "D6 Date.now id with a tie-breaking counter (unique)": {"file": "util.js", "any": ["Date\\.now", "newId", "collid", "duplicate id"], "categories": "id|collision|unique|state"},
+ "D7 button:focus outline none with a :focus-visible replacement": {"file": "styles.css", "any": ["outline", "focus"], "categories": "a11y|focus|accessib"},
+ "D8 README arithmetic is correct (20+35+45 = 100)": {"file": "README", "any": ["100", "arithmetic", "total"], "categories": "claim|number|math|doc"},
+ "D9 escapeHtml is applied to every value in the list template": {"file": "app.js", "any": ["escapeHtml", "innerHTML", "template"], "categories": "xss|inject|html|sanitiz|unsafe"}
+}

@@ -1,0 +1,6 @@
+__pycache__/
+*.pyc
+.critic/
+.DS_Store
+*.critic-mutation-backup
+!eval/fixture3/.critic/

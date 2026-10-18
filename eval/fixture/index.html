@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>NoteMaster</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div class="container">
+  <header class="hero"><h1>✨ Welcome to NoteMaster</h1><p>Lorem ipsum dolor sit amet, your notes, supercharged.</p></header>
+  <div class="toolbar">
+    <input id="search" placeholder="Search notes">
+    <button id="new">New note</button>
+  </div>
+  <div class="layout">
+    <ul id="list"></ul>
+    <div class="editor">
+      <input id="title">
+      <textarea id="body"></textarea>
+      <span class="hint">Changes save automatically</span>
+    </div>
+  </div>
+</div>
+<script src="store.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

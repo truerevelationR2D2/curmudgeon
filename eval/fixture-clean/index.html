@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Notes</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<header class="app-header"><h1>Notes</h1></header>
+<main class="layout">
+  <nav class="sidebar" aria-label="Your notes">
+    <div class="toolbar">
+      <label for="search">Search notes</label>
+      <input id="search" type="search" autocomplete="off">
+      <button id="new" type="button">New note</button>
+    </div>
+    <p id="empty" class="muted" hidden></p>
+    <ul id="list"></ul>
+    <section id="shared-box" hidden aria-labelledby="shared-heading">
+      <h2 id="shared-heading">Shared notes</h2>
+      <p id="shared-status" class="muted" role="status"></p>
+      <ul id="shared"></ul>
+    </section>
+  </nav>
+  <section class="editor" aria-label="Editor">
+    <label for="title">Title</label>
+    <input id="title" disabled>
+    <label for="body">Note</label>
+    <textarea id="body" disabled></textarea>
+    <p id="status" class="status" role="status"></p>
+  </section>
+</main>
+<script src="store.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
