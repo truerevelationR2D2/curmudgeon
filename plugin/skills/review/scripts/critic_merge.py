@@ -33,9 +33,9 @@ apply:
   and the finding stays. Refuting a Critical also needs the verifier to have run or traced it. A verifier may
   lower an impact, never raise it. Writes .critic/findings.jsonl, .critic/findings.sarif and .critic/counts.md, and
   records every kept finding in the ledger (new, known or regressed)."""
-import hashlib, json, math, os, pathlib, re, subprocess, sys
+import hashlib, json, math, os, pathlib, re, subprocess, sys, time
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
-from critic_findings import IMPACTS, extract_findings, fingerprint, quote_check, read_jsonl, refutation_problem, similar, to_sarif, validate, write_jsonl, tokens
+from critic_findings import IMPACTS, extract_findings, fingerprint, quote_check, read_jsonl, refutation_problem, similar, log_run, append_line, refuse_linked_state, to_sarif, validate, write_jsonl, tokens
 
 ROOT = pathlib.Path(os.environ.get("CRITIC_ROOT", os.getcwd())).resolve(); D = ROOT / ".critic"
 
@@ -73,14 +73,24 @@ def ledger():
 
 MEMORY_HITS = []
 def suppressed_by_ledger(f, L):
+    """Only the owner's explicit ruling on this exact finding (fp <id>) hides it, and it is still listed under
+    "Hidden by your rulings" in counts.md. Learned memories never hide anything: see memory_note."""
     for x in L.get("false_positives", []):
         if x.get("id") and x.get("id") == f.get("id"): return f"known false positive (owner's ruling on this exact finding): {x.get('why', '')}"
-    if f.get("impact") in ("Critical", "High"): return None  # learned patterns never hide a serious finding
+    return None
+
+def memory_note(f, L):
+    """Learned memories ANNOTATE, never hide: a finding that looks like ones the owner dismissed before stays in the
+    findings and the counts, with a note naming the earlier reason, so the owner decides in seconds (critic_ledger.py
+    dismiss --like N closes them on purpose). No notes on Critical or High findings: a note must never nudge anyone past one.
+    The verifier never sees notes; its packet is built from a fixed field list."""
+    if f.get("impact") in ("Critical", "High"): return None  # memories come only from Medium/Low dismissals, and only note those
     for i, m in enumerate(L.get("memories", [])):
         if m.get("retired"): continue
         if m.get("file_glob") and not pathlib.PurePath(f.get("file") or "").match(m["file_glob"]): continue
         ft, mt = tokens(f"{f.get('category')} {f.get('title')}"), tokens(m.get("pattern", ""))
-        if mt and len(ft & mt) / max(1, len(mt)) >= 0.6: MEMORY_HITS.append(i + 1); return f"learned dismissal ({m.get('reason')}): {m.get('pattern')}"
+        if mt and len(ft & mt) / max(1, len(mt)) >= 0.6:
+            MEMORY_HITS.append(i + 1); return {"memory": i + 1, "reason": m.get("reason"), "pattern": m.get("pattern"), "dismissed": m.get("count", 3)}
     return None
 
 IMP_RANK = {k: i for i, k in enumerate(IMPACTS)}
@@ -130,6 +140,8 @@ def tally(paths):
             f["quote_checked"] = q is True
             s_ = suppressed_by_ledger(f, L)
             if s_: out["suppressed"].append({"finding": f, "why": s_}); continue
+            note = memory_note(f, L)
+            if note: f["memory_note"] = note
             accepted.append((f["raw"], None if is_scan else ri, f))
     parent = {r: r for r, _, _ in accepted}
     def find(x):
@@ -174,6 +186,9 @@ def tally(paths):
         best = sorted(human, key=lambda x: (["executed", "traced", "inferred"].index(x["verified"]), IMP_RANK[x["impact"]]))[0]
         f = dict(best, votes=votes, of=n, impact=median_impact([x["impact"] for x in m if x.get("source") != "scan"] or [x["impact"] for x in m]), scan_confirmed=bool(c.get("scan")),
                  locations=sorted({f"{x['file']}:{x.get('line', '')}" for x in m}), raised_by=sorted({x["source"] for x in m}))
+        mn = next((x["memory_note"] for x in m if x.get("memory_note")), None)
+        if mn and f["impact"] in ("Medium", "Low"): f["memory_note"] = mn
+        else: f.pop("memory_note", None)
         executed = any(x["verified"] == "executed" for x in m) or bool(c.get("scan"))
         unanchored = not any(x.get("quote_checked") for x in m) and not c.get("scan")
         if unanchored and not executed and votes < 2 and f["impact"] in ("Critical", "High", "Medium"): out["contested"].append(f)  # nothing the script could check: verify it, even on one reviewer
@@ -192,10 +207,30 @@ def tally(paths):
         led = pathlib.Path(__file__).resolve().parent / "critic_ledger.py"
         for n_ in sorted(set(MEMORY_HITS)): subprocess.run([sys.executable, str(led), "memories", "--hit", str(n_)], cwd=ROOT, env=dict(os.environ, CRITIC_ROOT=str(ROOT)), capture_output=True)
     print(f"{n} review(s), {sum(len(r) for r in reviews)} raw findings → kept {len(out['kept'])}, contested {len(out['contested'])}, "
-          f"dropped {len(out['dropped'])}, retracted {len(out['retracted'])}, rejected {len(out['rejected'])}, suppressed {len(out['suppressed'])}")
+          f"dropped {len(out['dropped'])}, retracted {len(out['retracted'])}, rejected {len(out['rejected'])}, hidden by your rulings {len(out['suppressed'])}, "
+          f"noted as like past dismissals {sum(1 for f in out['kept'] + out['contested'] if f.get('memory_note'))}")
     print(f"verification packets: {len(list(vd.glob('*.json')))} in {vd.relative_to(ROOT)}")
     if not groups and cands: print(f"dedup: {cands} finding(s) listed in .critic/dedup-candidates.json; have a dedup agent group them, then rerun tally with --groups")
     return 0
+
+VERIFIER_LOG = []
+def write_verifier_log():
+    """Every refutation and downgrade is kept in .critic/refutations.jsonl, so a verifier that talks the review out of
+    real bugs can be caught: the spot-check (critic_ledger.py spotcheck) and the eval kit sample these."""
+    if not VERIFIER_LOG: return
+    try: run_no = json.loads((D / "ledger.json").read_text()).get("run", 0)
+    except Exception: run_no = 0
+    seen = set()
+    try: old = (D / "refutations.jsonl").read_text(encoding="utf-8", errors="replace").splitlines() if (D / "refutations.jsonl").exists() else []
+    except OSError: old = []
+    for line in old:
+        try: x = json.loads(line); seen.add((x.get("run"), x.get("id"), x.get("kind")))
+        except (ValueError, AttributeError, TypeError): continue  # a damaged line never stops apply
+    for kind, f, why, rep in VERIFIER_LOG:
+        if (run_no, f.get("id"), kind) in seen: continue  # apply run twice on the same verdicts logs each drop once
+        append_line(D / "refutations.jsonl", json.dumps({"run": run_no, "at": time.strftime("%Y-%m-%d %H:%M"), "kind": kind, "id": f.get("id"), "impact": f.get("impact"),
+                             "file": f.get("file"), "line": f.get("line"), "title": f.get("title"), "failing_case": f.get("failing_case"),
+                             "why": why, "reproduced": rep, "votes": f.get("votes"), "of": f.get("of")}, ensure_ascii=False) + "\n")
 
 def apply(paths):
     try: T = json.loads((D / "tally.json").read_text())
@@ -214,11 +249,13 @@ def apply(paths):
         if kind == "refuted":
             prob = refutation_problem(why, f["impact"], v.get("reproduced"), root=ROOT)
             if not prob:
-                refuted.append({"finding": f, "why": why}); continue
+                refuted.append({"finding": f, "why": why}); VERIFIER_LOG.append(("refuted", f, why, v.get("reproduced"))); continue
             kind = "unclear"; notes.append(f"{f['id']}: refutation not concrete enough to drop it ({prob}); kept")
         if kind == "downgrade":
             new = str(v.get("impact_after", "")).title()
-            if new in IMP_RANK and IMP_RANK[new] > IMP_RANK[f["impact"]]: f["impact_before"] = f["impact"]; f["impact"] = new
+            if new in IMP_RANK and IMP_RANK[new] > IMP_RANK[f["impact"]]:
+                VERIFIER_LOG.append(("downgraded", dict(f), f"{f['impact']} to {new}: {v.get('note') or why}", v.get("reproduced")))
+                f["impact_before"] = f["impact"]; f["impact"] = new
             else: notes.append(f"{f['id']}: downgrade ignored (a verifier may lower, never raise)")
         f["verifier"] = kind
         if v.get("reproduced") in ("executed", "traced"): f["verifier_reproduced"] = v["reproduced"]
@@ -229,6 +266,7 @@ def apply(paths):
                           "likely" if f.get("verifier") in ("confirmed",) or f.get("votes", 1) >= 2 else "possible"
     final.sort(key=lambda f: (IMP_RANK[f["impact"]], {"confirmed": 0, "likely": 1, "possible": 2}[f["confidence"]], f["file"], int(f.get("line") or 0)))
     write_jsonl(D / "findings.jsonl", final)
+    write_verifier_log()
     (D / "findings.sarif").write_text(json.dumps(to_sarif(final), indent=1))
     cnt = {k: sum(1 for f in final if f["impact"] == k) for k in IMPACTS}
     md = ["# Curmudgeon merged findings", "", f"Reviewers: {T['reviewers']} (votes needed: {T['votes_needed']}).",
@@ -236,8 +274,14 @@ def apply(paths):
           "| ID | Impact | Confidence | Votes | Verifier | Where | Title |", "| --- | --- | --- | --- | --- | --- | --- |"]
     md += [f"| {f['id']} | {f['impact']} | {f['confidence']} | {f.get('votes', 1)}/{f.get('of', 1)} | {f.get('verifier', '-')} | {f['file']}:{f.get('line', '')} | {f['title'].replace('|', '/')} |" for f in final]
     for name, rows in (("Refuted by verification", refuted), ("Dropped (single vote, not executed)", T["dropped"]), ("Retracted (quote not found)", T["retracted"]),
-                       ("Rejected (broke the contract)", T["rejected"]), ("Suppressed by the ledger", T["suppressed"])):
+                       ("Rejected (broke the contract)", T["rejected"]), ("Hidden by your rulings (fp on this exact finding)", T["suppressed"])):
         if rows: md += ["", f"## {name}"] + [f"- {r['finding'].get('id')} {r['finding'].get('file')}:{r['finding'].get('line', '')} {r['finding'].get('title')}: {r['why'] if isinstance(r['why'], str) else '; '.join(r['why'])}" for r in rows]
+    looks = [f for f in final if f.get("memory_note")]
+    if looks:
+        md += ["", "## Looks like your past dismissals (still counted above; nothing is hidden)"]
+        md += [f"- {f['id']} {f['impact']} {f['file']}:{f.get('line', '')} {f['title']}: like memory {f['memory_note']['memory']} "
+               f"({f['memory_note']['dismissed']} earlier dismissals, reason: {f['memory_note']['reason']}). Close them on purpose with "
+               f"`critic_ledger.py dismiss --like {f['memory_note']['memory']} \"<why>\"`, or keep them." for f in looks]
     if notes: md += ["", "## Notes"] + [f"- {x}" for x in notes]
     (D / "counts.md").write_text("\n".join(md) + "\n")
     led = pathlib.Path(__file__).resolve().parent / "critic_ledger.py"
@@ -265,6 +309,8 @@ def show():
 if __name__ == "__main__":
     a = sys.argv[1:]
     if not a or any(x in ("-h", "--help") for x in a): print(__doc__); sys.exit(0)
+    refuse_linked_state(ROOT)
+    log_run(ROOT, "script", "critic_merge.py " + " ".join(a))
     if a[0] == "tally" and len(a) > 1: sys.exit(tally(a[1:]))
     if a[0] == "apply" and len(a) > 1: sys.exit(apply(a[1:]))
     if a[0] == "show": sys.exit(show())

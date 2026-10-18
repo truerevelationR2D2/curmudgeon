@@ -5,6 +5,8 @@ usage:
   score.py REVIEW.md [REVIEW2.md ...] --suite 1|2|3 [--refactored DIR] [--baseline FILE] [--set-baseline]
   score.py REVIEW.md --clean 1|2           a review of a clean twin: every Critical/High/Medium finding is a false alarm
   score.py --label                         list unmatched findings from the last scoring for labelling (writes fp_labels.json stubs)
+  score.py --refutations .critic/refutations.jsonl   label the verifier's drops (refutation_labels.json) and report how often
+                                           it dropped a real bug
 
 Each REVIEW is a teardown (.critic/last-review.md). When a .critic/findings.jsonl sits beside it, the structured
 findings are used; otherwise finding blocks are parsed from the markdown.
@@ -22,9 +24,9 @@ import json, pathlib, re, statistics, sys
 HERE = pathlib.Path(__file__).resolve().parent
 args = sys.argv[1:]
 def opt(name, default=None): return args[args.index(name) + 1] if name in args and args.index(name) + 1 < len(args) else default
-FLAGS_WITH_VALUE = {"--suite", "--refactored", "--baseline", "--clean"}
+FLAGS_WITH_VALUE = {"--suite", "--refactored", "--baseline", "--clean", "--refutations"}
 reviews = [a for i, a in enumerate(args) if not a.startswith("--") and (i == 0 or args[i - 1] not in FLAGS_WITH_VALUE)]
-if not reviews and "--label" not in args: print(__doc__); sys.exit(2)
+if not reviews and "--label" not in args and "--refutations" not in args: print(__doc__); sys.exit(2)
 LABELS = HERE / "fp_labels.json"; labels = json.loads(LABELS.read_text()) if LABELS.exists() else {}
 
 def load(path):
@@ -84,6 +86,18 @@ def contract(review, rows):
         c["closure table"] = bool(re.search(r"closure table", review, re.I))
     return c, stated, actual, verdict
 
+AREAS = [("security", r"xss|inject|secret|key|auth|csrf|eval|sanitiz|unsafe|password|token|permission|idempot"),
+         ("accessibility", r"a11y|wcag|focus|keyboard|contrast|label|aria|screen.?reader|accessib|zoom|target"),
+         ("data and state", r"data|storage|state|race|lost|overwrit|save|corrupt|stale|tab|sync|id\b|collid"),
+         ("logic and numbers", r"logic|math|revenue|total|sum|off.by|pagina|calc|nan|number|price|tax|discount"),
+         ("errors", r"error|fail|catch|exception|status|timeout|retry|throw"),
+         ("layout and UX", r"layout|scroll|responsive|ux|hover|empty|toast|copy|wording|confirm|style|design|look|template"),
+         ("docs and claims", r"readme|claim|doc|comment")]
+def area_of(text):
+    for name, rx in AREAS:
+        if re.search(rx, text, re.I): return name
+    return "other"
+
 def score_one(path, suite):
     keyf = HERE / ("answer_key.json" if suite == "1" else f"answer_key{suite}.json")
     if not keyf.exists(): print(f"score.py: no answer key for suite {suite}"); sys.exit(2)
@@ -102,10 +116,34 @@ def score_one(path, suite):
     for b in unmatched: lab[labels.get(lab_key(b), "unlabelled")] += 1
     tp = len(hits) + lab["real"]; fp = lab["hallucinated"] + lab["nitpick"] + len(decoy_hits)
     precision = tp / (tp + fp) if tp + fp else 1.0
+    # precision by kind of finding, so a noisy area shows up even when the total looks fine
+    by = {}
+    hit_idx = set(hits.values()); decoy_idx = {bi for bi in used if bi not in hit_idx}
+    for bi, b in enumerate(blocks):
+        kind = area_of(b)
+        if bi in hit_idx: by.setdefault(kind, [0, 0])[0] += 1
+        elif bi in decoy_idx: by.setdefault(kind, [0, 0])[1] += 1
+        else:
+            l_ = labels.get(lab_key(b))
+            if l_ == "real": by.setdefault(kind, [0, 0])[0] += 1
+            elif l_ in ("hallucinated", "nitpick"): by.setdefault(kind, [0, 0])[1] += 1
     c, stated, actual, verdict = contract(review, rows)
     ids = {r.get("id") for r in rows} if rows else set()
-    return dict(path=path, key=key, hits=hits, decoy_hits=decoy_hits, decoy_detail=decoy_detail, unmatched=unmatched, labels=lab, precision=precision,
+    return dict(path=path, key=key, hits=hits, by_area=by, decoy_hits=decoy_hits, decoy_detail=decoy_detail, unmatched=unmatched, labels=lab, precision=precision,
                 recall=len(hits) / len(key), contract=c, stated=stated, actual=actual, ids=ids, verdict=verdict)
+
+if "--refutations" in args:
+    # the verifier's drops, judged: a refutation labelled "real" means the verifier talked the review out of a real bug
+    rp = pathlib.Path(opt("--refutations")); RL = HERE / "refutation_labels.json"
+    rl = json.loads(RL.read_text()) if RL.exists() else {}
+    rows_ = [json.loads(x) for x in rp.read_text().splitlines() if x.strip()] if rp.exists() else []
+    for r_ in rows_: rl.setdefault(f"{r_.get('id')}|{r_.get('kind')}", "unlabelled")
+    RL.write_text(json.dumps(rl, indent=1))
+    judged = [v for v in rl.values() if v in ("real", "correct")]
+    wrong = sum(1 for v in judged if v == "real")
+    print(f"{len(rows_)} refutation(s)/downgrade(s) in {rp.name}; labels in {RL.name} (set each to real = the verifier dropped a real bug, or correct)")
+    print(f"verifier wrongly dropped {wrong} of {len(judged)} judged" + (f" ({wrong / len(judged):.0%})" if judged else ""))
+    sys.exit(0)
 
 if "--label" in args:
     pend = json.loads((HERE / ".last-unmatched.json").read_text()) if (HERE / ".last-unmatched.json").exists() else []
@@ -137,6 +175,10 @@ else:
     lb = r0["labels"]
     print(f"Precision: {r0['precision']:.2f}  (unmatched findings: {len(r0['unmatched'])} — real {lb['real']}, hallucinated {lb['hallucinated']}, nitpick {lb['nitpick']}, unlabelled {lb['unlabelled']})")
     (HERE / ".last-unmatched.json").write_text(json.dumps(r0["unmatched"]))
+    if r0["by_area"]:
+        print("Precision by kind of finding (true / judged):")
+        for k_, (t_, f_) in sorted(r0["by_area"].items(), key=lambda kv: -(kv[1][0] + kv[1][1])):
+            print(f"  {k_:<18} {t_}/{t_ + f_}" + (f"  ({t_ / (t_ + f_):.0%})" if t_ + f_ else ""))
     for k, v in r0["contract"].items(): print(f"  {'✓' if v else '✗'} {k}")
     if not r0["contract"]["verdict counts match the findings"]: print(f"    stated {r0['stated'] or 'nothing'}; counted {r0['actual']}")
     now = {"recall": r0["recall"], "precision": r0["precision"], "contract": sum(r0["contract"].values()) / len(r0["contract"])}

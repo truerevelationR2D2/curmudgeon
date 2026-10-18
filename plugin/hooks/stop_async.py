@@ -3,18 +3,24 @@
 changed since the last review, in the background, without blocking. Only when it finds a new FAIL-level problem
 does it wake Claude (exit 2 with asyncRewake), and each problem wakes it once. At most 3 wakes per batch of edits."""
 import hashlib, json, os, pathlib, subprocess, sys
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent / "skills" / "review" / "scripts"))
+try: from critic_findings import log_run
+except Exception:
+    def log_run(*a, **k): pass
 
 def main():
     try: data = json.load(sys.stdin)
     except Exception: data = {}
     if data.get("stop_hook_active"): return 0
     root = pathlib.Path(data.get("cwd") or os.getcwd()); c = root / ".critic"
+    if c.is_symlink() or any(x.is_symlink() for x in c.glob("*")): return 0  # never write through a link a cloned repo planted
     if not (c / "gate-async").exists(): return 0
     try: stamps = json.loads((c / "ledger.json").read_text()).get("stamps", {})
     except Exception: stamps = {}
     review = c / "last-review.md"; since = review.stat().st_mtime if review.exists() else 0
     changed = [k for k in stamps if (root / k).exists() and (root / k).stat().st_mtime > since]
     if True:  # new or changed files outside the stamps count too
+        log_run(root, "command", "background stop check: git diff --name-only HEAD and git ls-files --others")
         out = subprocess.run(["git", "diff", "--name-only", "-z", "HEAD"], cwd=root, capture_output=True, text=True).stdout.split("\0")
         out += subprocess.run(["git", "ls-files", "--others", "--exclude-standard", "-z"], cwd=root, capture_output=True, text=True).stdout.split("\0")
         out = [x for x in out if x]
@@ -23,7 +29,7 @@ def main():
     scan = pathlib.Path(__file__).resolve().parent.parent / "skills" / "review" / "scripts" / "critic_scan.py"
     outdir = c / "scan-async"
     for x in changed[:40]:
-        subprocess.run([sys.executable, str(scan), str(root / x), "--root", str(root), "--out", str(outdir / hashlib.sha1(x.encode()).hexdigest()[:8])], capture_output=True, timeout=120)
+        subprocess.run([sys.executable, str(scan), str(root / x), "--root", str(root), "--out", str(outdir / hashlib.sha1(x.encode()).hexdigest()[:8]), "--no-project-rules"], capture_output=True, timeout=120)
     shown_f = c / "async-shown.json"
     try: shown = json.loads(shown_f.read_text())
     except Exception: shown = {"batch": "", "wakes": 0, "ids": []}

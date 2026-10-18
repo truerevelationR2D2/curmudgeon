@@ -5,6 +5,7 @@ change the tests did not catch. The original file is restored after every mutant
 
 The test command comes from --test-cmd or a line "Test command: ..." in .critic/rules.md."""
 import atexit, pathlib, re, shutil, signal, subprocess, time
+from critic_findings import log_run
 
 OPS = [(r"===", "!=="), (r"!==", "==="), (r"(?<![<>=!])<=(?!=)", "<"), (r"(?<![<>=!])>=(?!=)", ">"), (r"(?<![<>=!-])<(?![<=])", "<="),
        (r"(?<![<>=!-])>(?![>=])", ">="), (r"&&", "||"), (r"\|\|", "&&"), (r"\btrue\b", "false"), (r"\bfalse\b", "true"),
@@ -41,6 +42,7 @@ def run(root, files, emit, state, given_cmd=None, cap=30, timeout=120):
         except (ValueError, OSError): pass
     cmd = test_cmd(root, given_cmd)
     if not cmd: state("mutation", "blocked", "no test command (add 'Test command: …' to .critic/rules.md or pass --test-cmd)"); return
+    log_run(root, "command", f"mutation testing: {cmd} (once as a baseline, then once per mutant, up to {cap})")
     base = subprocess.run(cmd, shell=True, cwd=root, capture_output=True, timeout=timeout)
     if base.returncode != 0: state("mutation", "blocked", "the test command fails before any mutation; fix the tests first"); return
     tried = killed = 0; survivors = []; t0 = time.time()

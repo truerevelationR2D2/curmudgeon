@@ -5,7 +5,7 @@ A finding is a dict:
   id (stable, from the fingerprint), category, impact (Critical|High|Medium|Low), file, line, quote (the exact code
   or text the finding is about), title, evidence, failing_case, verified (executed|traced|inferred), remediation,
   source (reviewer name, "scan", or a tool), votes (filled by the tally)."""
-import hashlib, json, pathlib, re
+import hashlib, json, pathlib, re, time, os, sys
 
 IMPACTS = ("Critical", "High", "Medium", "Low")
 VERIFIED = ("executed", "traced", "inferred")
@@ -63,7 +63,7 @@ def read_jsonl(path):
     out = []
     p = pathlib.Path(path)
     if not p.exists(): return out
-    for i, line in enumerate(p.read_text(encoding="utf-8").splitlines(), 1):
+    for i, line in enumerate(p.read_text(encoding="utf-8", errors="replace").splitlines(), 1):
         line = line.strip()
         if not line: continue
         try: out.append(json.loads(line))
@@ -140,3 +140,43 @@ def to_sarif(findings, tool="critic", version="4.0.0"):
                         "properties": {"impact": f.get("impact"), "verified": f.get("verified"), "votes": f.get("votes")}})
     return {"version": "2.1.0",
             "runs": [{"tool": {"driver": {"name": tool, "version": version, "rules": list(rules.values())}}, "results": results}]}
+
+def state_links(root):
+    """Links inside .critic/ (or .critic itself being one) would let a cloned repository point the plugin's writes at
+    files outside the project. Returns what's wrong; scripts refuse to run until it's empty."""
+    d = pathlib.Path(root) / ".critic"
+    if d.is_symlink(): return [".critic itself is a link"]
+    if not d.is_dir(): return []
+    bad = []
+    for p in d.rglob("*"):
+        if p.is_symlink(): bad.append(str(p.relative_to(root)))
+        if len(bad) >= 5: break
+    return bad
+
+def refuse_linked_state(root):
+    bad = state_links(root)
+    if bad:
+        what = ".critic itself is a link" if "itself" in bad[0] else ", ".join(bad) + (" is a link" if len(bad) == 1 else " are links") + " inside .critic/"
+        print(f"critic: refusing to run: {what}. A link there could make the plugin write to files outside this project. Remove the link(s), then rerun.", file=sys.stderr)
+        sys.exit(2)
+
+def append_line(path, line):
+    """Append without ever following a link at the target (O_NOFOLLOW)."""
+    fd = os.open(path, os.O_WRONLY | os.O_APPEND | os.O_CREAT | getattr(os, "O_NOFOLLOW", 0), 0o644)
+    with os.fdopen(fd, "a", encoding="utf-8") as fh: fh.write(line)
+
+RUNLOG_MAX = 1_000_000
+def log_run(root, what, detail=""):
+    """Append one line to .critic/runlog.jsonl: every script the plugin starts and every outside command it runs, so a
+    user can see exactly what ran on their machine. Never fails the caller; trims itself past about 1 MB."""
+    try:
+        d = pathlib.Path(root) / ".critic"; d.mkdir(exist_ok=True)
+        p = d / "runlog.jsonl"
+        line = json.dumps({"at": time.strftime("%Y-%m-%d %H:%M:%S"), "what": what, "detail": str(detail)[:400]}, ensure_ascii=False) + "\n"
+        if p.is_symlink() or state_links(root): return  # never write through a link
+        if p.exists() and p.stat().st_size > RUNLOG_MAX:
+            keep = p.read_text(encoding="utf-8", errors="replace").splitlines(True)[-2000:]
+            tmp = p.with_name(p.name + ".tmp"); tmp.write_text("".join(keep), encoding="utf-8"); os.replace(tmp, p)
+        append_line(p, line)
+    except Exception: pass
+

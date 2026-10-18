@@ -46,7 +46,8 @@ Scenario → what happens → finding id or "holds" (driven or traced).
 #### 5. VERDICT
 - One line: **BLOCK**, **CONCERNS** or **CLEAN**, in bold, and only one of the three in bold anywhere in this section (a past verdict such as "as delivered it was a block" is written in plain words). CLEAN is impossible while any Critical or High is open or deferred.
 - A line starting `Counts:` with the counts by impact, copied from `.critic/counts.md` (they must add up to the findings listed). Put no other impact numbers on that line.
-- Panel: how many reviewers, how many findings were dropped, retracted, refuted or suppressed (from `counts.md`).
+- Panel: how many reviewers, how many findings were dropped, retracted, refuted, hidden by the owner's rulings, or noted as like past dismissals (from `counts.md`).
+- A finding with a memory note keeps its place and its count; add one line under it: `Like past dismissals: <reason> (memory N). Close with critic_ledger.py dismiss --like N, or keep.` Never drop or move a finding because of a note.
 - The five fixes worth the most per hour.
 - `Not checked:` everything in scope you did not verify, and why.
 - `Not reviewed:` files skipped for the budget, binary or generated files, and checks that were blocked or unavailable. Mandatory, even when it's "nothing".

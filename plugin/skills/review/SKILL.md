@@ -2,7 +2,7 @@
 name: review
 description: This skill should be used when the user says "/curmudgeon:review", "curmudgeon this", "tear this apart", "review my work", "how did I do", or asks for a merciless review of code, an interface, a document or a plan, or before shipping. It sizes the review to the risk, runs free scripted checks, three blind reviewers whose votes are counted by a script, and blind per-finding verification, then writes an evidence-backed teardown. It changes files only when the user asks for fixes ("curmudgeon and fix", "/curmudgeon:review fix").
 metadata:
-  version: "4.0.0"
+  version: "4.1.0"
 ---
 
 # Curmudgeon
@@ -46,7 +46,7 @@ No payload: ask for one in one line.
 - **Check:** when there is a stated intent, the reviewers report what was asked but not done, and what was done but not asked. With no stated intent, stay silent; don't guess.
 
 ## Step 2: Detector pass (runs alongside, never shown to reviewers)
-Start the `curmudgeon-detector` agent, or run `critic_scan.py <src> --root <root> [--page <page>] [--online] [--baseline compare]` yourself after the reviews are saved. It runs secrets, HTML validity, structure (layers, cycles, dead code, copy-paste), extra JS/CSS/Python and WCAG 2.2 rules, dependencies, axe-core (WCAG 2.0–2.2, plus undecided results), keyboard reach, focus visibility, focus hidden behind other content, a screen-reader view, dead controls (it never sends data: anything but a same-site read is aborted, and controls named like Delete, Pay or Send are never clicked), layout shift, reflow at 320 and 390 px, speed (median of three loads) and visual baselines. It also reads earlier CI results (SARIF, JUnit). `--mutate <files>` adds opt-in mutation testing with the project's test command. `--project-checks` also runs the commands listed under "Scripted checks" in `.critic/rules.md`. Pass it only when the user wrote or approved that file: a cloned repo can ship its own rules.md, so the first time in a project you didn't set up, show the commands and ask before running them. The background stop check never runs them. Read the report's DEGRADED line first.
+Start the `curmudgeon-detector` agent, or run `critic_scan.py <src> --root <root> [--page <page>] [--online] [--baseline compare]` yourself after the reviews are saved. It also applies rule files: the plugin's own `rules/` folder and the project's `.critic/rules/` (data only, never code; the project's run in a separate process with a 20-second limit). It runs secrets, HTML validity, structure (layers, cycles, dead code, copy-paste), extra JS/CSS and WCAG 2.2 rules, Python checks read with Python's own parser, dependencies and their licences, axe-core (WCAG 2.0–2.2, plus undecided results), keyboard reach, focus visibility, focus hidden behind other content, a screen-reader view, dead controls (it never sends data: anything but a same-site read is aborted, and controls named like Delete, Pay or Send are never clicked), layout shift, reflow at 320 and 390 px, speed (median of three loads) and visual baselines. It also reads earlier CI results (SARIF, JUnit). `--mutate <files>` adds opt-in mutation testing with the project's test command. `--project-checks` also runs the commands listed under "Scripted checks" in `.critic/rules.md`. Pass it only when the user wrote or approved that file: a cloned repo can ship its own rules.md, so the first time in a project you didn't set up, show the commands and ask before running them. The background stop check never runs them. Read the report's DEGRADED line first.
 
 ## Step 3: Blind reviews
 - **Full tier:** start three `curmudgeon-reviewer` agents in parallel, A, B and C. Give each the same brief and the files in a different order (A as ranked, B reversed, C shuffled), plus the tier, map, intent, matching rules and decisions, `critic_ledger.py examples` (past false positives), and the `references/` path. Each writes `.critic/reviews/review-<letter>.json`.
@@ -56,7 +56,7 @@ Start the `curmudgeon-detector` agent, or run `critic_scan.py <src> --root <root
 ## Step 4: Count, check, verify
 1. `critic_merge.py tally .critic/reviews/review-*.json --scan .critic/scan/report.json`. The script:
    - rejects findings that break the contract, and retracts any whose quote isn't at its file:line;
-   - applies ledger suppressions: similar-finding memories never hide a Critical or High finding; a finding the owner marked a false positive by its id (`fp <id>`) stays hidden whatever its impact, because that is the owner's explicit ruling on that exact finding;
+   - hides only what the owner ruled a false positive by its exact id (`fp <id>`), and lists those under "Hidden by your rulings"; learned memories never hide anything: a finding that looks like past dismissals stays in, counted, with a note (never on a Critical), listed under "Looks like your past dismissals";
    - clusters the same issue across reviewers;
    - keeps 2-of-3 votes, single votes with an executed case, and scanner FAILs;
    - sends single Critical/High traced votes, and any Critical/High/Medium finding with nothing the script could check (no confirmed quote, not executed, one vote), to verification as contested;
@@ -72,6 +72,10 @@ Score with `references/rubrics.md` (impact, the code and design rubrics, and the
 
 ## Step 6: The teardown
 Write it to `references/output-contract.md` in exactly its headers, and save it to `.critic/last-review.md`. The VERDICT counts are copied from `counts.md`. Every finding shows its stable id, impact, confidence and votes. The **Not reviewed** line is mandatory: files skipped, checks that couldn't run, and anything outside the budget. Keep `.critic/change-map.md` separate; link it, don't paste it. Then `critic_ledger.py stamp <payload>`. Review mode ends with its hooks.
+
+**Spot-check (when the user is present).** Run `critic_ledger.py spotcheck`. It picks up to three random Medium-or-worse findings and one refutation from this run and writes `.critic/spotcheck.md`. Ask the user to judge each one (real, wrong or unsure) in a single quick multiple-choice question, and record each answer with `critic_ledger.py spotcheck answer <id> <answer>`. Never block on it: if the user skips, or the session is unattended, leave it. `critic_ledger.py spotcheck stats` reports precision from the user's own answers and how often a refutation dropped a real bug (every refutation and downgrade is kept in `.critic/refutations.jsonl`).
+
+**What ran.** Every script a review starts and every outside command or network call it makes (git, npm, Chromium, the project's test or check commands when asked, the opt-in OSV lookup) is listed in `.critic/runlog.jsonl`. The hooks that only read state (the stop gate, the contract check, the state guard) and the read-only ledger commands (`show`, `check`, `stale`) aren't listed. When the user asks what the plugin did on their machine, show that file.
 
 ## Step 7: Refactor (full mode)
 - Write the `<refactoring_manifest>`, then fix Critical first.

@@ -33,6 +33,8 @@ def main():
     except Exception: data = {}
     if data.get("stop_hook_active"): return 0
     root = pathlib.Path(data.get("cwd") or os.getcwd()); c = root / ".critic"
+    if (c / "gate").exists() and (c.is_symlink() or any(x.is_symlink() for x in c.glob("*"))):  # gate on, but never write through a planted link
+        print(json.dumps({"systemMessage": "Curmudgeon stop gate skipped: .critic/ contains links. Remove them to use the gate."})); return 0
     if not (c / "gate").exists(): return 0
     try: L = json.loads((c / "ledger.json").read_text())
     except FileNotFoundError: L = {}

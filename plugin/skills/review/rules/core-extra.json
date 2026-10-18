@@ -1,0 +1,4 @@
+[
+  {"id": "debugger-left", "severity": "WARN", "area": "errors", "pattern": "^\\s*debugger\\s*;?\\s*$", "message": "debugger statement left in shipped code (it pauses the page for anyone with dev tools open)", "files": ["*.js", "*.mjs", "*.cjs", "*.ts", "*.jsx", "*.tsx", "*.vue", "*.svelte"]},
+  {"id": "only-test-left", "severity": "WARN", "area": "errors", "pattern": "\\b(?:it|test|describe)\\.only\\(", "message": "a focused test (.only) skips every other test in the file", "files": ["*.js", "*.ts", "*.jsx", "*.tsx", "*.mjs"]}
+]

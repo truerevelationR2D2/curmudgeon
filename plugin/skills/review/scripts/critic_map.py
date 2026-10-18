@@ -9,6 +9,8 @@ Tier: trivial (≤2 files, <20 changed lines, nothing sensitive), full (anything
 lines), else lite. The tier sets the review size: trivial = one reviewer and no verification; lite = one reviewer
 plus verification of Critical/High; full = three blind reviewers, verification and the full sandbox."""
 import json, os, pathlib, re, subprocess, sys
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+from critic_findings import log_run, refuse_linked_state
 
 ROOT = pathlib.Path(os.environ.get("CRITIC_ROOT", os.getcwd())).resolve(); D = ROOT / ".critic"
 # whole words only ("author" is not "auth"); paths may also match folder-style names
@@ -19,15 +21,20 @@ CODE = {".js", ".mjs", ".cjs", ".ts", ".jsx", ".tsx", ".py", ".html", ".css", ".
 DEF = re.compile(r"^\s*(?:export\s+)?(?:async\s+)?(?:function\*?\s+([A-Za-z_$][\w$]*)|(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*(?:async\s*)?\(|def\s+([A-Za-z_]\w*)|class\s+([A-Za-z_]\w*))", re.M)
 
 def git(*a):
+    log_run(ROOT, "command", "git " + " ".join(a))
     try: return subprocess.run(["git", *a], cwd=ROOT, capture_output=True, text=True, timeout=20).stdout
     except Exception: return ""
 
 def changed(base):
     files, lines = [], {}
-    for row in git("diff", "--numstat", base).splitlines():
+    no_commit = base == "HEAD" and not git("rev-parse", "--verify", "-q", "HEAD").strip()
+    for row in (git("diff", "--cached", "--numstat") if no_commit else git("diff", "--numstat", base)).splitlines():  # a repo with no commit yet: its staged files are the change
         p = row.split("\t")
         if len(p) == 3: files.append(p[2]); lines[p[2]] = (int(p[0]) if p[0].isdigit() else 0) + (int(p[1]) if p[1].isdigit() else 0)
+    files = [x for x in files if not x.startswith(".critic/")]  # the plugin's own records are never part of the change
+    lines = {k: v for k, v in lines.items() if not k.startswith(".critic/")}
     for u in git("ls-files", "--others", "--exclude-standard").splitlines():
+        if u.startswith(".critic/"): continue
         if u not in lines and (ROOT / u).is_file():
             files.append(u)
             try: lines[u] = len((ROOT / u).read_text(errors="replace").splitlines())
@@ -35,6 +42,8 @@ def changed(base):
     return files, lines
 
 def main(a):
+    refuse_linked_state(ROOT)
+    log_run(ROOT, "script", "critic_map.py " + " ".join(a))
     def val(flag):
         if flag not in a: return None
         i = a.index(flag)

@@ -53,8 +53,10 @@ You can also just say "tear this apart" or "review my work".
    - HTML validity;
    - import cycles and dead code;
    - injection sinks;
+   - Python safety, read with Python's own parser, so strings and comments don't trigger false alarms;
    - WCAG 2.2 rules;
-   - dependency hygiene;
+   - dependency hygiene and licences (strong copyleft such as GPL is flagged, missing licences noted);
+   - your own rule files (see "Add your own checks");
    - in a real browser: keyboard reach, focus hidden behind other content, a screen-reader view, reflow at 320 px, speed, and dead controls.
 3. **Three blind reviewers**, as described above.
 4. **The count.** The script drops any finding whose quoted code isn't at the cited line. It keeps findings that two of three reviewers agree on, or that come with an executed failing case. A dedup step merges the same issue worded differently, so votes count issues, not phrasings.
@@ -64,12 +66,17 @@ You can also just say "tear this apart" or "review my work".
 
 Results build up in a per-project ledger (`.critic/`):
 - findings keep stable ids across runs, so you can see what's new, already known or regressed;
-- false alarms you dismiss teach the next run, but never for Critical or High findings;
+- **memory that never hides anything:** when you dismiss three similar findings for the same reason, Curmudgeon remembers. In later reviews, a look-alike finding is still shown and still counted, with a note naming your earlier reason, so you can decide in seconds. `critic_ledger.py dismiss --like N "why"` closes them on purpose. Memories only note Medium and Low findings (never High or Critical), `dismiss --like` only closes open ones, the verifier never sees notes, and they expire after 90 days unused;
+- **spot-checks:** after a review it can show you three random findings and one of the verifier's refutations to judge (real, wrong or unsure). Your answers give a precision figure from your own projects, and show whether the verifier ever drops real bugs. Every refutation is kept in `.critic/refutations.jsonl`;
 - the ledger tracks how many findings you actually acted on.
+
+## Add your own checks
+
+Drop a JSON file of rules into your project's `.critic/rules/` (or, to contribute one for everyone, into `plugin/skills/review/rules/`). Each rule is an id, a severity, an area, a regular expression matched line by line, a message, and optional file patterns; see `plugin/skills/review/rules/README.md`. Rules are data, never code, and their rows are reported as `rule-<id>`, so they can't pose as built-in checks. A project's rule files must be plain files of at most 256 KB; they run in a separate process with a 20-second limit and at most 50 matches per rule, so a slow or greedy pattern can't hang or flood a review, and the background stop check skips them.
 
 ## What it runs, reads and sends
 
-- **Runs:** its own Python scripts, plus your project's test command if you opt in to mutation testing (the command is set in `.critic/rules.md`). In the browser checks it serves your files on `127.0.0.1` and blocks any request that leaves that origin. It never clicks a control that submits a form or sends data.
+- **Runs:** its own Python scripts, plus your project's test command if you opt in to mutation testing (the command is set in `.critic/rules.md`). Every script a review starts and every outside command or network call it makes (git, npm, Chromium, your test or check commands when asked, the opt-in OSV lookup) is listed in `.critic/runlog.jsonl`. In the browser checks it serves your files on `127.0.0.1` and blocks any request that leaves that origin. It never clicks a control that submits a form or sends data.
 - **Reads:** the files under review, and your CI's SARIF or JUnit output if present. It never reads its own earlier output as evidence.
 - **Writes:** only inside `.critic/`, unless you ask for fixes. Before a fix it saves exact copies of the files it will change in `.critic/restore/` (private to you, git-ignored, never read by any report), so rollback is exact. If your code holds keys, so do those copies. A guard hook blocks direct edits to `.critic/` state.
 - **Sends:** nothing, by default. It declares no connectors or MCP servers. Two opt-in flags reach the network: `--online` sends package names and versions to the free OSV vulnerability API (`api.osv.dev`), and `--allow-live` lets the page check load a live URL you give it. Without them, the page checks serve files only on this computer and block any request that would leave it. Secrets found in your code are redacted in every report.

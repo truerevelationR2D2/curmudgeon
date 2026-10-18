@@ -13,7 +13,7 @@ usage (run from the project root, or set CRITIC_ROOT):
   defer ID impossible|conflicts|worse "note"   defer, only for one of the three valid reasons
   dismiss ID false-positive|out-of-scope|redundant|intended|preference "why"
                                          the owner dismisses a finding; 3 similar dismissals with the same reason
-                                         become a learned memory (never applied to Critical/High security or correctness)
+                                         become a learned memory that NOTES look-alike findings in later reviews
   fp ID "why"                            this exact finding (by stable id) is a false positive
   memories [--retire N]                  list learned memories (retire one by number)
   examples                               print up to 5 recent false positives as few-shot examples for reviewers
@@ -22,13 +22,17 @@ usage (run from the project root, or set CRITIC_ROOT):
   score NAME VALUE MAX | cost SECONDS [NOTE]
   stamp [--add] PATH... | stale | round [--reset]   (--add keeps earlier stamps: use it for /curmudgeon:iterate)
   gate on|async|off                      turn the stop checks on or off (the guard blocks editing these files by hand)
-  memories --hit N                       record that memory N suppressed a finding (keeps it from retiring)
+  memories --hit N                       record that memory N noted a finding (keeps it from retiring)
+  spotcheck [--n 3]                      pick a few random Medium+ findings and one refutation for the owner to judge
+  spotcheck answer ID real|wrong|unsure  record the owner's answer; spotcheck stats shows precision from their answers
+  dismiss --like N "why"                 dismiss, on purpose, every finding of the last review that memory N noted
+                                         (memories never hide findings; they only note open Medium/Low ones)
   restore save [--ids ID,ID] PATH... | restore apply   (secret-looking keys are redacted in restore copies; rollback
                                          keeps the live key lines; --ids records which findings the change is for)
   show | check                           check exits 1 if a Critical/High is open"""
 import hashlib, json, os, pathlib, re, shutil, sys, time
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
-from critic_findings import norm_code, read_jsonl, tokens
+from critic_findings import log_run, norm_code, read_jsonl, refuse_linked_state, tokens
 
 ROOT = pathlib.Path(os.environ.get("CRITIC_ROOT", os.getcwd())).resolve(); D = ROOT / ".critic"; F = D / "ledger.json"
 SCORES = ("Critical", "High", "Medium", "Low"); STATES = ("open", "fixed", "deferred", "wontfix", "dismissed")
@@ -41,7 +45,7 @@ except Exception:
     SECRET = re.compile(r"\b(sk|pk|rk)_(live|test)_[A-Za-z0-9]{8,}|AKIA[0-9A-Z]{16}|ghp_[A-Za-z0-9]{20,}|xox[bp]-[A-Za-z0-9-]{10,}")
 HARD = re.compile(r"secur|xss|inject|secret|auth|data.?loss|corrupt|race|crash|money|refund|payment|privacy|leak", re.I)
 BLANK = {"version": 4, "mode": "", "tier": "", "round": 0, "run": 0, "findings": {}, "decisions": [], "overrides": [], "false_positives": [],
-         "dismissals": [], "memories": [], "scores": [], "costs": [], "stamps": {}, "restore": []}
+         "dismissals": [], "memories": [], "scores": [], "costs": [], "stamps": {}, "restore": [], "spotchecks": [], "spotcheck_pending": []}
 MEMORY_TTL_DAYS = 90
 
 def die(msg, code=2): print(f"critic_ledger: {msg}", file=sys.stderr); sys.exit(code)
@@ -55,7 +59,7 @@ def load():
     if isinstance(L["findings"], list):  # an older or hand-made ledger: key the rows by their id
         L["findings"] = {str(x.get("id")): x for x in L["findings"] if isinstance(x, dict) and x.get("id")}
     if not isinstance(L["findings"], dict): die(f"ledger 'findings' has the wrong shape; nothing was changed. Fix or move {F}, then run init.")
-    for k in ("decisions", "overrides", "false_positives", "dismissals", "memories", "scores", "costs", "restore"):
+    for k in ("decisions", "overrides", "false_positives", "dismissals", "memories", "scores", "costs", "restore", "spotchecks", "spotcheck_pending"):
         if not isinstance(L[k], list): die(f"ledger '{k}' has the wrong shape; nothing was changed. Fix or move {F}, then run init.")
     for i, x in list(L["findings"].items()):
         if not isinstance(x, dict): del L["findings"][i]; continue
@@ -78,7 +82,8 @@ def render(L):
           "", "## Decisions to respect", *[f"- {d['text']} ({d.get('source', '')})" for d in L["decisions"]],
           "", "## Gate overrides", *[f"- {o['at']}: {o['what']} — by {o['who']}: {o['why']}" for o in L["overrides"]],
           "", "## Known false positives", *[f"- {x.get('id', x.get('rule', ''))} {x.get('where', '')}: {x['why']}" for x in L["false_positives"]],
-          "", "## Learned memories (from dismissals)", *[f"- {i + 1}. [{m['reason']}] {m['pattern']}{' (retired)' if m.get('retired') else ''} — hits {m.get('hits', 0)}" for i, m in enumerate(L["memories"])],
+          "", "## Spot-checks (the owner's own answers)", spot_stats(L),
+          "", "## Learned memories (from dismissals; they add notes, never hide findings)", *[f"- {i + 1}. [{m['reason']}] {m['pattern']}{' (retired)' if m.get('retired') else ''} — hits {m.get('hits', 0)}" for i, m in enumerate(L["memories"])],
           "", "## Scores", *[f"- {x['at']} {x['name']}: {x['value']:g}/{x['max']:g}" for x in L["scores"]],
           "", "## Restore points", *[f"- {r['at']}: {r['dir']} ({len(r['files'])} files)" for r in L["restore"][-5:]]]
     return "\n".join(md) + "\n"
@@ -106,6 +111,17 @@ def quote_present(f):
     try: return q in norm_code((ROOT / file).read_text(encoding="utf-8", errors="replace"))
     except OSError: return False
 
+def spot_stats(L):
+    f = [x for x in L.get("spotchecks", []) if x.get("kind") == "finding" and x.get("answer") in ("real", "wrong")]
+    r = [x for x in L.get("spotchecks", []) if x.get("kind") == "refutation" and x.get("answer") in ("real", "wrong")]
+    a = f"findings judged {len(f)}: {sum(1 for x in f if x['answer'] == 'real')} real" + (f" (precision {sum(1 for x in f if x['answer'] == 'real') / len(f):.0%})" if f else "")
+    b = f"; refutations judged {len(r)}: {sum(1 for x in r if x['answer'] == 'real')} dropped a real bug" if r else "; no refutations judged yet"
+    return a + b
+
+def read_rows(p):
+    try: return [json.loads(x) for x in p.read_text(encoding="utf-8").splitlines() if x.strip()]
+    except (OSError, ValueError): return []
+
 def learn(L, d):
     """3 dismissals with the same reason and overlapping words become a memory. Dismissals of Critical or High findings
     never count, so a memory can't be built from serious findings and then hide smaller ones of the same kind."""
@@ -115,7 +131,7 @@ def learn(L, d):
         common = set.intersection(*[tokens(x["text"]) for x in group])
         if len(common) >= 2:
             files = {x["file"] for x in group}; glob = files.pop() if len(files) == 1 else "*"
-            L["memories"].append({"reason": d["reason"], "pattern": " ".join(sorted(common)), "file_glob": glob, "hits": 0, "made": time.strftime("%Y-%m-%d"), "last_used": time.strftime("%Y-%m-%d")})
+            L["memories"].append({"reason": d["reason"], "pattern": " ".join(sorted(common)), "file_glob": glob, "hits": 0, "count": len(group), "made": time.strftime("%Y-%m-%d"), "last_used": time.strftime("%Y-%m-%d")})
             for x in group: x["used"] = True
             return f"learned a memory from 3 '{d['reason']}' dismissals: {' '.join(sorted(common))}"
     return None
@@ -123,6 +139,7 @@ def learn(L, d):
 def main(a):
     if not a or any(x in ("-h", "--help") for x in a): print(__doc__); return 0  # help never changes the ledger
     cmd, rest = a[0], a[1:]; L = load(); msg = "ok"
+    if cmd not in ("show", "check", "stale"): refuse_linked_state(ROOT); log_run(ROOT, "script", "critic_ledger.py " + " ".join(a))
     if cmd == "init": pass
     elif cmd == "start":
         need(rest, 1, "start review|full [--tier trivial|lite|full]")
@@ -189,6 +206,21 @@ def main(a):
         if rest[1] not in REASONS: die("the only valid reasons are: impossible, conflicts, worse ('out of scope', 'pre-existing' and 'too complex' don't count)")
         if not rest[2].strip(): die("a deferral needs a note that shows the reason")
         f.update(status="deferred", reason=rest[1], note=f"{rest[1]}: {rest[2]}")
+    elif cmd == "dismiss" and rest[:1] == ["--like"]:
+        # the owner closes, on purpose, every finding of the last review that a memory noted; nothing was hidden before this
+        need(rest, 3, "dismiss --like N \"why\"")
+        try: n = int(rest[1]); mem = L["memories"][n - 1]
+        except (ValueError, IndexError): die(f"no memory {rest[1]}; see: memories")
+        done, skipped = [], []
+        for row in read_rows(D / "findings.jsonl"):
+            fid = row.get("id")
+            if (row.get("memory_note") or {}).get("memory") != n or fid not in L["findings"]: continue
+            if L["findings"][fid].get("score") not in ("Medium", "Low"): skipped.append(f"{fid} ({L['findings'][fid].get('score')})"); continue  # the ledger's own score decides, as check does
+            if L["findings"][fid].get("status") != "open": skipped.append(f"{fid} ({L['findings'][fid].get('status')})"); continue  # never overwrite fixed/wontfix: regressions must still show
+            L["findings"][fid].update(status="dismissed", note=f"{mem['reason']} (like memory {n}): {rest[2]}"); done.append(fid)
+            L["dismissals"].append({"id": fid, "reason": mem["reason"], "why": rest[2], "file": L["findings"][fid]["where"].rsplit(":", 1)[0], "text": "", "at": time.strftime("%Y-%m-%d"), "used": True, "via_memory": n})
+        mem["hits"] = mem.get("hits", 0) + len(done); mem["last_used"] = time.strftime("%Y-%m-%d")
+        msg = f"dismissed {len(done)} open Medium/Low finding(s) like memory {n}: {', '.join(done) or 'none'}" + (f"; left alone (High/Critical, or not open): {', '.join(skipped)}" if skipped else "")
     elif cmd == "dismiss":
         need(rest, 3, "dismiss ID false-positive|out-of-scope|redundant|intended|preference \"why\"")
         f = finding(L, rest[0])
@@ -206,6 +238,34 @@ def main(a):
         need(rest, 2, "fp ID \"why\" (or legacy: fp RULE_ID WHERE \"why\" for a scripted row)")
         if len(rest) >= 3: L["false_positives"].append({"rule": rest[0], "where": rest[1], "why": rest[2]})
         else: L["false_positives"].append({"id": rest[0], "where": L["findings"].get(rest[0], {}).get("where", ""), "why": rest[1]})
+    elif cmd == "spotcheck":
+        # a few random findings (and one refutation) for the owner to judge: real accuracy from their own projects
+        if rest[:1] == ["answer"]:
+            need(rest, 3, "spotcheck answer ID real|wrong|unsure [\"note\"]")
+            if rest[2] not in ("real", "wrong", "unsure"): die("answer must be real, wrong or unsure")
+            pend = {x["id"]: x for x in L["spotcheck_pending"]}
+            if rest[1] not in pend: die(f"{rest[1]} is not in the current spot-check; run: spotcheck")
+            L["spotchecks"].append(dict(pend.pop(rest[1]), answer=rest[2], note=rest[3] if len(rest) > 3 else "", run=L["run"], at=time.strftime("%Y-%m-%d")))
+            L["spotcheck_pending"] = list(pend.values()); msg = f"recorded {rest[1]}: {rest[2]}. " + spot_stats(L)
+        elif rest[:1] == ["stats"]:
+            print(spot_stats(L)); return 0
+        else:
+            import random
+            n = 3
+            if rest[:1] == ["--n"] and len(rest) > 1 and rest[1].isdigit(): n = max(1, min(10, int(rest[1])))
+            rows = [r for r in read_rows(D / "findings.jsonl") if r.get("impact") in ("Critical", "High", "Medium")]
+            refs = [r for r in read_rows(D / "refutations.jsonl") if r.get("run") == L["run"] and r.get("kind") == "refuted"]
+            pick = [{"kind": "finding", "id": r["id"], "impact": r["impact"], "where": f"{r.get('file')}:{r.get('line', '')}", "title": r.get("title", "")} for r in random.sample(rows, min(n, len(rows)))]
+            if refs:
+                r = random.choice(refs)
+                pick.append({"kind": "refutation", "id": r["id"], "impact": r.get("impact"), "where": f"{r.get('file')}:{r.get('line', '')}", "title": r.get("title", ""), "why": r.get("why", "")})
+            L["spotcheck_pending"] = pick
+            md = ["# Spot-check", "", "Judge each one in a few seconds. For a finding: is it a real problem (real) or not (wrong)? For a refutation: was the",
+                  "verifier wrong to drop it, meaning the finding was real (real), or right (wrong)? Unsure is fine.", ""]
+            md += [f"{i}. **{x['id']}** ({x['kind']}, {x['impact']}) {x['where']}: {x['title']}" + (f"\n   Verifier's reason: {x['why'][:300]}" if x["kind"] == "refutation" else "") for i, x in enumerate(pick, 1)]
+            md += ["", "Record each with: `critic_ledger.py spotcheck answer <ID> real|wrong|unsure`"]
+            (D / "spotcheck.md").write_text("\n".join(md) + "\n", encoding="utf-8")
+            msg = f"{len(pick)} item(s) to spot-check in .critic/spotcheck.md" if pick else "nothing to spot-check (no Medium or worse findings and no refutations this run)"
     elif cmd == "memories":
         if rest[:1] == ["--hit"]:
             need(rest, 2, "memories --hit N")

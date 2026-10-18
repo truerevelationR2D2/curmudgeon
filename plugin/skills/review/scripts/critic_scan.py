@@ -4,7 +4,7 @@ Python (and Playwright + Chromium for the runtime half; axe-core if present).
 
 usage: critic_scan.py SRC [--root DIR] [--page PAGE.html|URL] [--out DIR] [--axe axe.min.js]
                           [--exclude GLOB ...] [--no-interact] [--allow-live] [--online]
-                          [--mutate FILE ...] [--test-cmd CMD] [--project-checks] [--baseline save|compare] [--budget-kb N]
+                          [--mutate FILE ...] [--test-cmd CMD] [--project-checks] [--no-project-rules] [--baseline save|compare] [--budget-kb N]
 
 Modules (all our own code; the tools named are where the idea came from): secrets (gitleaks), HTML validity (Nu Html
 Checker), structure: layers, cycles, dead code, copy-paste (dependency-cruiser, knip, jscpd), extra JS/CSS and WCAG 2.2
@@ -26,6 +26,7 @@ on localhost or a file are refused unless --allow-live is given."""
 import argparse, fnmatch, json, os, pathlib, re, signal, subprocess, sys, time, urllib.parse
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import scan_secrets, scan_html, scan_graph, scan_deps, scan_rules_extra, scan_mutation
+from critic_findings import log_run, refuse_linked_state
 
 CODE = {".js", ".mjs", ".cjs", ".ts", ".jsx", ".tsx", ".vue", ".svelte", ".html", ".htm"}
 MARKUP = {".html", ".htm", ".jsx", ".tsx", ".vue", ".svelte"}
@@ -38,7 +39,7 @@ R, CHECKS, SUPPRESSED, FP = [], {}, [], []
 
 def f(sev, rule, area, where, what, ev=""):
     for x in FP:
-        if x.get("rule") == rule and str(x.get("where")) == str(where):
+        if x.get("rule") in (rule, rule[5:] if rule.startswith("rule-") else None) and str(x.get("where")) == str(where):  # rulings saved before rule- ids still apply
             SUPPRESSED.append({"rule": rule, "where": where, "what": what, "why": x.get("why", "")}); return
     level = "runtime" if area.startswith(("a11y-", "runtime", "ux", "responsive", "perf-rt", "visual")) else ("ci" if area == "ci" else "source")
     R.append({"sev": sev, "rule": rule, "area": area, "where": str(where), "what": what, "evidence": ev.strip()[:160], "level": level})
@@ -129,8 +130,47 @@ def walk(src, excludes):
         except OSError: continue
 
 TEXTS = {}
+SCAN_ROOT = pathlib.Path.cwd()  # set in main from --root, so every run-log line lands in the project being scanned
+NO_PROJECT_RULES = False  # set by --no-project-rules (the background stop check uses it)
+RULE_AREAS = {"safety", "errors", "state", "async", "perf", "a11y", "layout", "domain", "html", "theming", "ux", "structure", "deps"}
+def load_rule_files(root):
+    """Rule files: the plugin's built-in rules/ folder, then the project's .critic/rules/. Data only: nothing runs.
+    Each bad rule or file is reported once and skipped; it never stops the scan. Every rule's rows are reported as
+    rule-<id>, so a rule file can never pose as a built-in check. A project's files are read only when they are
+    plain files (no links, no devices) of at most 256 KB, and not at all under --no-project-rules."""
+    rules, bad, taken = [], [], set()
+    folders = [(pathlib.Path(__file__).resolve().parent.parent / "rules", False)]
+    if not NO_PROJECT_RULES: folders.append((root / ".critic" / "rules", True))
+    for folder, is_project in folders:
+        if not folder.is_dir() or folder.is_symlink(): continue
+        for rf in sorted(folder.glob("*.json")):
+            if rf.is_symlink() or not rf.is_file(): bad.append(f"{rf.name}: not a plain file (links and devices are never read)"); continue
+            if rf.stat().st_size > 256 * 1024: bad.append(f"{rf.name}: over 256 KB, not read"); continue
+            try: items = json.loads(rf.read_text(encoding="utf-8"))
+            except Exception as e: bad.append(f"{rf.name}: not valid JSON ({str(e)[:80]})"); continue
+            if not isinstance(items, list): bad.append(f"{rf.name}: must hold a JSON list of rules"); continue
+            for r in items[:200]:
+                try:
+                    if not isinstance(r, dict): raise ValueError("a rule must be a JSON object")
+                    rid, sev, area, pat, msg = r["id"], r["severity"], r["area"], r["pattern"], r["message"]
+                    globs = r.get("files", [])
+                    if not isinstance(rid, str) or not re.fullmatch(r"[a-z0-9][a-z0-9-]{1,60}", rid) or rid in taken: raise ValueError("id must be lowercase letters, digits and dashes, used once")
+                    if rid.startswith("file-"): raise ValueError("ids starting with file- are reserved for the plugin's own rule-file notes")
+                    if sev not in ("FAIL", "WARN", "NOTE") or area not in RULE_AREAS: raise ValueError("severity or area not allowed")
+                    if not isinstance(pat, str) or not pat or len(pat) > 300: raise ValueError("pattern missing or over 300 characters")
+                    if not isinstance(globs, list) or not all(isinstance(g, str) for g in globs): raise ValueError("files must be a list of filename patterns")
+                    if not isinstance(msg, str) or not msg.strip(): raise ValueError("message missing")
+                    re.compile(pat)  # reject a broken pattern here; a project's patterns then run in rule_runner.py under a time limit
+                    rules.append(("rule-" + rid, sev, area, pat, msg[:200], globs, is_project)); taken.add(rid)
+                except Exception as e: bad.append(f"{rf.name}: rule {r.get('id', '?') if isinstance(r, dict) else '?'} skipped ({str(e)[:80]})")
+            if len(items) > 200: bad.append(f"{rf.name}: only the first 200 rules were read")
+    return rules, bad
+
 def static(src, root, excludes):
     n = texts = 0
+    custom, bad = load_rule_files(root)
+    for b in bad[:20]: f("NOTE", "rule-file-invalid", "structure", "rules", b)
+    if len(bad) > 20: f("NOTE", "rule-file-invalid", "structure", "rules", f"{len(bad) - 20} more rule-file problems not listed")
     for p in walk(src, excludes):
         try: text = p.read_text(encoding="utf-8")
         except (UnicodeDecodeError, OSError): continue
@@ -158,7 +198,25 @@ def static(src, root, excludes):
         if p.suffix in (".css", ".scss", ".less"): css_detector(rel, text)
         elif p.suffix in MARKUP:
             for blk in re.findall(r"<style[^>]*>(.*?)</style>", text, re.S): css_detector(rel, blk)
-    if texts: state("static", *family_state({"safety", "errors", "state", "async", "perf", "a11y", "layout", "domain", "html", "theming", "ux"}, f"{n} source files, {texts} text files checked for secrets"))
+    # the plugin's own rule files run here; a project's .critic/rules run in a separate process with a time limit,
+    # because anyone who wrote the repository could have written them
+    builtin = [r[:6] for r in custom if not r[6]]; project = [r[:6] for r in custom if r[6] and not NO_PROJECT_RULES]
+    for rid, sev, area, pat, msg, globs in builtin:
+        rx = re.compile(pat)
+        for rel, text in TEXTS.items():
+            if globs and not any(fnmatch.fnmatch(pathlib.PurePath(rel).name, g) or fnmatch.fnmatch(rel, g) for g in globs): continue
+            for i, l in enumerate(text.split("\n"), 1):
+                if len(l) <= 2000 and rx.search(l): f(sev, rid, area, f"{rel}:{i}", msg, l[:160])
+    if project and TEXTS:
+        try:
+            log_run(SCAN_ROOT, "script", f"rule_runner.py ({len(project)} project rule(s), 20 s limit)")
+            r = subprocess.run([sys.executable, "-I", str(pathlib.Path(__file__).resolve().parent / "rule_runner.py")], input=json.dumps({"rules": project, "files": list(TEXTS.items())}),
+                               capture_output=True, text=True, timeout=20)
+            if r.returncode != 0: f("WARN", "rule-file-failed", "structure", ".critic/rules", f"the project's rule files could not run (exit {r.returncode}); their results are missing")
+            for row in json.loads(r.stdout or "[]"): f(*row)
+        except subprocess.TimeoutExpired: f("WARN", "rule-file-timeout", "structure", ".critic/rules", "the project's rule files took over 20 s and were stopped (a pattern may be too slow); their results are missing")
+        except ValueError: f("NOTE", "rule-file-invalid", "structure", ".critic/rules", "the rule runner returned no readable results")
+    if texts: state("static", *family_state({"safety", "errors", "state", "async", "perf", "a11y", "layout", "domain", "html", "theming", "ux"}, f"{n} source files, {texts} text files checked for secrets, {len(custom)} rule-file rules"))
     else: state("static", "blocked", "no readable files found")
     try:
         g = scan_graph.scan(root, TEXTS, f); state("structure", *family_state({"structure"}, f"{g['modules']} modules, {g['import_edges']} imports, {g['cycles']} cycles, {g['duplicates']} duplicates"))
@@ -211,6 +269,7 @@ def project_checks(root, timeout=600):
     for name, cmd in cmds[:10]:
         try:
             # commands written by the project owner in rules.md; run in their own process group so a timeout kills all of it
+            log_run(root, "command", f"project check {name}: {cmd}")
             pr = subprocess.Popen(cmd, shell=True, cwd=root, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, start_new_session=True)
             try: outp, _ = pr.communicate(timeout=timeout)
             except subprocess.TimeoutExpired:
@@ -227,6 +286,7 @@ def project_checks(root, timeout=600):
 def find_axe(arg):
     cands = [arg] if arg else []
     cands += [d / "node_modules/axe-core/axe.min.js" for d in [pathlib.Path.cwd(), *pathlib.Path.cwd().parents]]
+    log_run(SCAN_ROOT, "command", "npm root -g (to find axe-core)")
     try: cands.append(pathlib.Path(subprocess.run(["npm", "root", "-g"], capture_output=True, text=True, timeout=20).stdout.strip()) / "axe-core/axe.min.js")
     except Exception: pass
     return next((pathlib.Path(c) for c in cands if c and pathlib.Path(c).exists()), None)
@@ -305,6 +365,7 @@ def runtime(page, src, root, out, axe_arg, interact, allow_live, baseline=None, 
         return r.continue_()
     try:
         with sync_playwright() as pw:
+            log_run(SCAN_ROOT, "command", f"Chromium (Playwright, headless) opening {page}")
             try: b = pw.chromium.launch()
             except Exception as e:
                 for k in names: state(k, "unavailable", f"Chromium would not start: {str(e)[:80]}")
@@ -480,9 +541,13 @@ def main(argv):
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0], formatter_class=argparse.RawDescriptionHelpFormatter, epilog=__doc__.split("\n\n", 1)[1])
     ap.add_argument("src"); ap.add_argument("--root"); ap.add_argument("--page"); ap.add_argument("--out"); ap.add_argument("--axe")
     ap.add_argument("--exclude", action="append", default=[]); ap.add_argument("--no-interact", action="store_true"); ap.add_argument("--allow-live", action="store_true")
-    ap.add_argument("--online", action="store_true"); ap.add_argument("--mutate", nargs="+", default=[]); ap.add_argument("--test-cmd"); ap.add_argument("--project-checks", action="store_true")
+    ap.add_argument("--online", action="store_true"); ap.add_argument("--mutate", nargs="+", default=[]); ap.add_argument("--test-cmd"); ap.add_argument("--project-checks", action="store_true"); ap.add_argument("--no-project-rules", action="store_true")
     ap.add_argument("--baseline", choices=("save", "compare")); ap.add_argument("--budget-kb", type=int, default=1500)
     a = ap.parse_args(argv)
+    global NO_PROJECT_RULES, SCAN_ROOT; NO_PROJECT_RULES = a.no_project_rules
+    SCAN_ROOT = pathlib.Path(a.root or os.environ.get("CRITIC_ROOT") or os.getcwd()).resolve()
+    refuse_linked_state(SCAN_ROOT)
+    log_run(SCAN_ROOT, "script", "critic_scan.py " + " ".join(argv))
     src = pathlib.Path(a.src).resolve()
     if not src.exists(): print(f"critic_scan: {a.src} does not exist", file=sys.stderr); return 2
     root = pathlib.Path(a.root or os.environ.get("CRITIC_ROOT") or os.getcwd()).resolve()

@@ -423,6 +423,166 @@ def _(d):
     ids = [k["id"] for k in json.loads((d / ".critic/tally.json").read_text())["kept"] if k["category"] == "secret-stripe-key"]
     assert len(ids) == 2 and len(set(ids)) == 2, ids
 
+@test("4.1 memory redesign: a memory notes a look-alike finding but never hides it, never notes a Critical, and dismiss --like closes on purpose")
+def _(d):
+    write(d, "src/app.js", APP); run(S / "critic_ledger.py", "start", "full", cwd=d)
+    j = json.loads((d / ".critic/ledger.json").read_text())
+    j["memories"] = [{"reason": "intended", "pattern": "rendered title html", "file_glob": "*", "hits": 0, "count": 3, "made": "2026-10-18", "last_used": "2026-10-18"}]
+    (d / ".critic/ledger.json").write_text(json.dumps(j))
+    med = finding(impact="Medium", verified="executed"); crit = finding(category="xss2", impact="Critical", verified="executed", line=2)
+    write(d, "a.json", json.dumps([med, crit])); run(S / "critic_merge.py", "tally", "a.json", cwd=d)
+    t = json.loads((d / ".critic/tally.json").read_text())
+    assert not t["suppressed"] and len(t["kept"]) == 2, t
+    notes = {k["impact"]: bool(k.get("memory_note")) for k in t["kept"]}
+    assert notes == {"Medium": True, "Critical": False}, notes
+    assert not any("memory" in x for x in json.loads(next((d / ".critic/verify").glob("*.json")).read_text())), "the verifier must stay blind to notes"
+    write(d, "v.json", "[]"); run(S / "critic_merge.py", "apply", "v.json", cwd=d)
+    assert "Looks like your past dismissals" in (d / ".critic/counts.md").read_text()
+    assert "total 2" in (d / ".critic/counts.md").read_text(), "a noted finding still counts"
+    out = run(S / "critic_ledger.py", "dismiss", "--like", "1", "reviewed: intended pattern", cwd=d).stdout
+    st = {k: v["status"] for k, v in json.loads((d / ".critic/ledger.json").read_text())["findings"].items()}
+    assert sorted(st.values()) == ["dismissed", "open"], (out, st)
+
+@test("4.1 Python parser rules: real calls are found; strings, comments and constant shell commands are not")
+def _(d):
+    write(d, "t.py", 'import subprocess, yaml, requests\nmsg = "never call eval(x) here"  # eval( in a string\n'
+                     'subprocess.run("ls -l", shell=True)\nsubprocess.run("ls " + user, shell=True)\neval(user)\n'
+                     'yaml.load(s, Loader=yaml.SafeLoader)\nyaml.load(s)\nrequests.get(u, verify=False)\n')
+    write(d, "old.py", 'print "python 2"\neval(x)\n')  # doesn't parse: the text rules still run
+    run(S / "critic_scan.py", ".", "--root", ".", cwd=d)
+    got = sorted((r["rule"], r["where"]) for r in json.loads((d / ".critic/scan/report.json").read_text())["findings"] if r["rule"].startswith("py-"))
+    assert got == [("py-eval", "old.py:2"), ("py-eval", "t.py:5"), ("py-shell-true", "t.py:4"), ("py-verify-false", "t.py:8"), ("py-yaml-load", "t.py:7")], got
+
+@test("4.1 licences: a strong copyleft dependency warns, a missing licence is noted, the owner's own private package is fine")
+def _(d):
+    write(d, "package.json", json.dumps({"name": "x", "private": True, "dependencies": {"a": "1.0.0"}}))
+    write(d, "package-lock.json", json.dumps({"lockfileVersion": 3, "packages": {"": {}, "node_modules/gpl-thing": {"version": "1.0.0", "license": "GPL-3.0"},
+        "node_modules/lgpl-thing": {"version": "1.0.0", "license": "LGPL-2.1"}, "node_modules/nolic": {"version": "1.0.0"}, "node_modules/ok": {"version": "1.0.0", "license": "MIT"}}}))
+    run(S / "critic_scan.py", ".", "--root", ".", cwd=d)
+    rows = {r["rule"]: r for r in json.loads((d / ".critic/scan/report.json").read_text())["findings"] if r["rule"].startswith("licence")}
+    assert rows["licence-copyleft"]["sev"] == "WARN" and "gpl-thing" in rows["licence-copyleft"]["what"] and "lgpl" not in rows["licence-copyleft"]["what"], rows
+    assert "nolic" in rows["licence-missing"]["what"] and "licence-missing-own" not in rows and "licence-weak-copyleft" in rows, rows
+
+@test("4.1 rule files: built-in rules run, a project rule runs in its own process, a bad rule is reported and skipped")
+def _(d):
+    write(d, "a.js", "debugger;\nvar x = 1;\n")
+    write(d, ".critic/rules/mine.json", json.dumps([{"id": "my-var", "severity": "NOTE", "area": "perf", "pattern": "\\bvar\\b", "message": "var used", "files": ["*.js"]},
+                                                     {"id": "Bad Id", "severity": "NOTE", "area": "perf", "pattern": "x", "message": "m"}]))
+    run(S / "critic_scan.py", ".", "--root", ".", cwd=d)
+    rules = [r["rule"] for r in json.loads((d / ".critic/scan/report.json").read_text())["findings"]]
+    assert "rule-debugger-left" in rules and "rule-my-var" in rules and "rule-file-invalid" in rules, rules
+    run(S / "critic_scan.py", ".", "--root", ".", "--no-project-rules", cwd=d)
+    rules = [r["rule"] for r in json.loads((d / ".critic/scan/report.json").read_text())["findings"]]
+    assert "rule-my-var" not in rules and "rule-debugger-left" in rules, rules
+
+@test("4.1 run log, refutation log and spot-check")
+def _(d):
+    write(d, "src/app.js", APP); run(S / "critic_ledger.py", "start", "full", cwd=d)
+    write(d, "a.json", json.dumps([finding(impact="High", verified="executed"), finding(category="domain", impact="Medium", line=4, quote="const price = total * 1.0825;", title="Tax rule", verified="executed")]))
+    run(S / "critic_merge.py", "tally", "a.json", cwd=d)
+    ids = [k["id"] for k in json.loads((d / ".critic/tally.json").read_text())["kept"]]
+    why = "The price is never shown: src/app.js:4 is dead code with no caller anywhere in the project, so the rule never applies."
+    write(d, "v.json", json.dumps([{"id": ids[1], "verdict": "refuted", "reproduced": "traced", "refutation": why}]))
+    run(S / "critic_merge.py", "apply", "v.json", cwd=d)
+    log = (d / ".critic/runlog.jsonl").read_text(); assert "critic_merge.py tally" in log and "critic_ledger.py start" in log, log
+    refs = [json.loads(x) for x in (d / ".critic/refutations.jsonl").read_text().splitlines()]
+    assert len(refs) == 1 and refs[0]["id"] == ids[1] and refs[0]["kind"] == "refuted", refs
+    out = run(S / "critic_ledger.py", "spotcheck", cwd=d).stdout; assert "2 item(s)" in out, out
+    pend = json.loads((d / ".critic/ledger.json").read_text())["spotcheck_pending"]
+    for x in pend: run(S / "critic_ledger.py", "spotcheck", "answer", x["id"], "real", cwd=d)
+    st = run(S / "critic_ledger.py", "spotcheck", "stats", cwd=d).stdout
+    assert "findings judged 1: 1 real" in st and "refutations judged 1: 1 dropped a real bug" in st, st
+
+@test("4.1 self-review: session.verify = False is found; dismiss --like closes only open Medium/Low; the audit logs are guarded")
+def _(d):
+    write(d, "a.py", "import requests\ns = requests.Session()\ns.verify = False\n")
+    run(S / "critic_scan.py", ".", "--root", ".", cwd=d)
+    assert any(r["rule"] == "py-verify-false" and r["where"] == "a.py:3" for r in json.loads((d / ".critic/scan/report.json").read_text())["findings"])
+    for name in ("refutations.jsonl", "runlog.jsonl", "spotcheck.md"):
+        out = run(H / "guard_state.py", cwd=d, stdin=json.dumps({"cwd": str(d), "tool_input": {"file_path": str(d / ".critic" / name)}})).stdout
+        assert "deny" in out, (name, out)
+    write(d, "src/app.js", APP); run(S / "critic_ledger.py", "start", "full", cwd=d)
+    j = json.loads((d / ".critic/ledger.json").read_text())
+    j["memories"] = [{"reason": "intended", "pattern": "rendered title html", "file_glob": "*", "hits": 0, "count": 3, "made": "2026-10-18", "last_used": "2026-10-18"}]
+    (d / ".critic/ledger.json").write_text(json.dumps(j))
+    rows = [finding(impact="High", verified="executed"), finding(category="xss3", impact="Medium", verified="executed", line=2), finding(category="xss4", impact="Low", verified="executed", line=2)]
+    write(d, "a.json", json.dumps(rows)); run(S / "critic_merge.py", "tally", "a.json", cwd=d)
+    noted = {k["impact"]: bool(k.get("memory_note")) for k in json.loads((d / ".critic/tally.json").read_text())["kept"]}
+    assert noted == {"High": False, "Medium": True, "Low": True}, noted
+    write(d, "v.json", "[]"); run(S / "critic_merge.py", "apply", "v.json", cwd=d)
+    L = json.loads((d / ".critic/ledger.json").read_text())
+    low = next(k for k, v in L["findings"].items() if v["score"] == "Low"); L["findings"][low]["status"] = "fixed"; (d / ".critic/ledger.json").write_text(json.dumps(L))
+    out = run(S / "critic_ledger.py", "dismiss", "--like", "1", "same as before", cwd=d).stdout
+    st = {v["score"]: v["status"] for v in json.loads((d / ".critic/ledger.json").read_text())["findings"].values()}
+    assert st == {"High": "open", "Medium": "dismissed", "Low": "fixed"}, (out, st)
+
+@test("4.1 self-review: rule files are hardened (string files, non-list, links, output cap, rule- prefix) and the runner is logged")
+def _(d):
+    write(d, "app.py", "import os\n"); write(d, "a.js", "\n".join(["var x = 1;"] * 300) + "\n")
+    write(d, ".critic/rules/a.json", json.dumps([{"id": "py-only", "severity": "NOTE", "area": "perf", "pattern": "import", "message": "m", "files": "*.js"},
+                                                  {"id": "status-unchecked", "severity": "FAIL", "area": "perf", "pattern": ".", "message": "every line", "files": ["*.js"]}]))
+    write(d, ".critic/rules/b.json", json.dumps({"id": "lonely", "severity": "NOTE", "area": "perf", "pattern": "x", "message": "m"}))
+    os.symlink("/dev/zero", d / ".critic/rules/evil.json")
+    r = run(S / "critic_scan.py", ".", "--root", ".", cwd=d)
+    assert r.returncode == 2 and "refusing" in r.stderr, "a link inside .critic must stop the scan"
+    (d / ".critic/rules/evil.json").unlink()
+    run(S / "critic_scan.py", ".", "--root", ".", cwd=d)
+    rows = json.loads((d / ".critic/scan/report.json").read_text())["findings"]
+    bad = " ".join(r["what"] for r in rows if r["rule"] == "rule-file-invalid")
+    assert "files must be a list" in bad and "must hold a JSON list" in bad, bad
+    hits = [r for r in rows if r["rule"] == "rule-status-unchecked"]
+    assert len(hits) == 50 and not any(r["rule"] == "status-unchecked" and r["sev"] == "FAIL" for r in rows), len(hits)
+    assert any(r["rule"] == "rule-file-truncated" for r in rows)
+    assert "rule_runner.py" in (d / ".critic/runlog.jsonl").read_text()
+
+@test("4.1 self-review: licences read SPDX OR/AND; workspace links are skipped; apply twice logs a refutation once; the map ignores .critic")
+def _(d):
+    sys.path.insert(0, str(S)); import scan_deps
+    assert [scan_deps.spdx_kind(x) for x in ("MIT OR GPL-3.0", "(LGPL-2.1 AND GPL-3.0)", "LGPL-2.1", "GPL-2.0")] == ["permissive", "strong", "weak", "strong"]
+    write(d, "package-lock.json", json.dumps({"lockfileVersion": 3, "packages": {"": {}, "node_modules/mylib": {"link": True, "resolved": "packages/mylib"}, "packages/mylib": {"version": "1.0.0"}}}))
+    run(S / "critic_scan.py", ".", "--root", ".", cwd=d)
+    assert not any(r["rule"] == "licence-missing" for r in json.loads((d / ".critic/scan/report.json").read_text())["findings"])
+    write(d, "src/app.js", APP); run(S / "critic_ledger.py", "start", "full", cwd=d)
+    write(d, "a.json", json.dumps([finding(impact="Medium", verified="executed")])); run(S / "critic_merge.py", "tally", "a.json", cwd=d)
+    fid = json.loads((d / ".critic/tally.json").read_text())["kept"][0]["id"]
+    why = "The title is assigned with textContent at src/app.js:2 in the shipped build, so markup is never parsed by the page."
+    write(d, "v.json", json.dumps([{"id": fid, "verdict": "refuted", "reproduced": "executed", "refutation": why}]))
+    run(S / "critic_merge.py", "apply", "v.json", cwd=d); run(S / "critic_merge.py", "apply", "v.json", cwd=d)
+    assert len((d / ".critic/refutations.jsonl").read_text().splitlines()) == 1
+    subprocess.run(["git", "init", "-q"], cwd=d); subprocess.run(["git", "add", "src"], cwd=d)
+    out = json.loads(run(S / "critic_map.py", cwd=d).stdout)
+    cm = (d / ".critic/change-map.md").read_text()
+    assert "src/app.js" in cm and "runlog" not in cm and "refutations" not in cm, cm
+
+@test("4.1 recheck: links in .critic stop every script; a bad refutation line can't crash apply; verify names, SPDX parentheses, old fp rulings, file- ids")
+def _(d):
+    outside = d.parent / (d.name + "-outside.txt"); outside.write_text("keep me\n" * 5)
+    (d / ".critic").mkdir(); os.symlink(outside, d / ".critic/runlog.jsonl")
+    for script, args in (("critic_scan.py", [".", "--root", "."]), ("critic_ledger.py", ["init"]), ("critic_map.py", ["--files", "x"]), ("critic_merge.py", ["show"])):
+        r = run(S / script, *args, cwd=d); assert r.returncode == 2 and "refusing" in r.stderr, (script, r.stderr)
+    assert outside.read_text() == "keep me\n" * 5; outside.unlink(); (d / ".critic/runlog.jsonl").unlink()
+    write(d, "src/app.js", APP); run(S / "critic_ledger.py", "start", "full", cwd=d)
+    write(d, ".critic/refutations.jsonl", '{"run": 1, "id": "F-x", "kind": "refuted"}\n{"run": 1, "id": "F-y", "kin')
+    write(d, "a.json", json.dumps([finding(impact="Medium", verified="executed")])); run(S / "critic_merge.py", "tally", "a.json", cwd=d)
+    fid = json.loads((d / ".critic/tally.json").read_text())["kept"][0]["id"]
+    why = "The title is assigned with textContent at src/app.js:2 in the shipped build, so markup is never parsed by the page."
+    write(d, "v.json", json.dumps([{"id": fid, "verdict": "refuted", "reproduced": "executed", "refutation": why}]))
+    r = run(S / "critic_merge.py", "apply", "v.json", cwd=d); assert r.returncode == 0 and (d / ".critic/counts.md").exists(), r.stderr
+    write(d, "v.py", "skip_verify = False\nneeds_reverify = False\nssl_verify = False\n")
+    sys.path.insert(0, str(S)); import scan_deps
+    assert scan_deps.spdx_kind("GPL-3.0 AND (MIT OR Apache-2.0)") == "strong" and scan_deps.spdx_kind("(MIT OR GPL-3.0)") == "permissive"
+    assert scan_deps.spdx_kind("(" * 4000 + "GPL-3.0" + ")" * 4000) == "strong", "absurd nesting falls back to the strictest name"
+    write(d, "b.js", "debugger;\n")
+    write(d, ".critic/rules/r.json", json.dumps([{"id": "file-timeout", "severity": "FAIL", "area": "perf", "pattern": "x", "message": "fake"}]))
+    j = json.loads((d / ".critic/ledger.json").read_text()); j["false_positives"].append({"rule": "debugger-left", "where": "b.js:1", "why": "on purpose"})
+    (d / ".critic/ledger.json").write_text(json.dumps(j))
+    run(S / "critic_scan.py", ".", "--root", ".", cwd=d)
+    rows = json.loads((d / ".critic/scan/report.json").read_text())["findings"]
+    py = [r["where"] for r in rows if r["rule"] == "py-verify-false"]
+    assert py == ["v.py:3"], py
+    assert not any(r["rule"] == "rule-debugger-left" for r in rows), "an fp ruling saved under the old id must still apply"
+    assert not any(r["rule"] == "rule-file-timeout" for r in rows) and "reserved" in " ".join(r["what"] for r in rows if r["rule"] == "rule-file-invalid")
+
 if __name__ == "__main__":
     bad = [r for r in RESULTS if not r[1]]
     print(f"\n{len(RESULTS) - len(bad)} of {len(RESULTS)} passed"); sys.exit(1 if bad else 0)
