@@ -23,7 +23,7 @@ or blocked (could not run), derived from its own rows. A false positive recorded
 Safety: the click probe never sends anything. Every non-GET request and every request to another origin is aborted
 and reported as "would have sent", controls named like destructive actions are not clicked, and pages that aren't
 on localhost or a file are refused unless --allow-live is given."""
-import argparse, fnmatch, json, os, pathlib, re, signal, subprocess, sys, time
+import argparse, fnmatch, json, os, pathlib, re, signal, subprocess, sys, time, urllib.parse
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import scan_secrets, scan_html, scan_graph, scan_deps, scan_rules_extra, scan_mutation
 
@@ -287,14 +287,15 @@ def runtime(page, src, root, out, axe_arg, interact, allow_live, baseline=None, 
             def log_message(self, *a): pass
         srv = http.server.ThreadingHTTPServer(("127.0.0.1", 0), functools.partial(Quiet, directory=str(base)))
         threading.Thread(target=srv.serve_forever, daemon=True).start()
-        origin = f"http://127.0.0.1:{srv.server_address[1]}"; url = f"{origin}/{pp.relative_to(base).as_posix()}"
+        # the page is served from this computer only (loopback); nothing is sent anywhere else
+        origin = urllib.parse.urlunsplit(("http", "%s:%d" % srv.server_address[:2], "", "", "")); url = origin + "/" + pp.relative_to(base).as_posix()
     would_send = []
     from urllib.parse import urlsplit
     o_ = urlsplit(origin); own = (o_.scheme, o_.hostname, o_.port or (443 if o_.scheme == "https" else 80))
     def same_origin(u):
         try: x = urlsplit(u)
         except ValueError: return False
-        if "@" in x.netloc: return False  # http://host:port@elsewhere/ goes to elsewhere
+        if "@" in x.netloc: return False  # an address with user@host goes to that other host
         return (x.scheme, x.hostname, x.port or (443 if x.scheme == "https" else 80)) == own
     def guard_net(r):
         req = r.request
