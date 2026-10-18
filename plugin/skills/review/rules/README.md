@@ -24,6 +24,8 @@ project's `.critic/rules/` folder (that project's own rules), holds a list of ru
 - **files:** optional list of filename patterns. Leave it out to match every source file.
 
 Rules are data, never code: nothing in a rule file runs. A broken rule or file is reported, not run, and never stops
-the scan. A project's rule files are read only when they are plain files of at most 256 KB (up to 200 rules each),
-run in a separate process with a 20-second limit, and report at most 50 matches per rule and 2,000 in all. Lines
+the scan. A project's rule files are read only when they are plain files of at most 256 KB (up to 200 rules each,
+and at most 50 files, 2 MB and 2,000 rules in all), run in a separate process with a 20-second limit, and report at
+most 50 matches per rule and 2,000 in all. A project's rules can warn but never fail: a `FAIL` there is reported as
+`WARN`, so only the plugin's own checks become automatic findings. Lines
 longer than 2,000 characters are skipped. Add a test for every rule you contribute.

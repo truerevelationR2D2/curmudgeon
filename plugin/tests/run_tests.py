@@ -583,6 +583,62 @@ def _(d):
     assert not any(r["rule"] == "rule-debugger-left" for r in rows), "an fp ruling saved under the old id must still apply"
     assert not any(r["rule"] == "rule-file-timeout" for r in rows) and "reserved" in " ".join(r["what"] for r in rows if r["rule"] == "rule-file-invalid")
 
+@test("ChatGPT double-blind fixes: project rules can't fail, aggregate rule limits, spot-check downgrades, yaml loaders, import aliases")
+def _(d):
+    write(d, "a.js", "\n".join(f"line {i}" for i in range(10)) + "\n")
+    write(d, ".critic/rules/r.json", json.dumps([{"id": "everything", "severity": "FAIL", "area": "safety", "pattern": ".*", "message": "fake"}]))
+    for i in range(60): write(d, f".critic/rules/x{i:02d}.json", json.dumps([{"id": f"r{i:02d}", "severity": "NOTE", "area": "perf", "pattern": "zzz", "message": "m"}]))
+    run(S / "critic_scan.py", ".", "--root", ".", cwd=d)
+    rows = json.loads((d / ".critic/scan/report.json").read_text())["findings"]
+    assert all(r["sev"] != "FAIL" for r in rows if r["rule"] == "rule-everything") and any(r["rule"] == "rule-everything" for r in rows)
+    assert "over the limit of 50 files" in " ".join(r["what"] for r in rows if r["rule"] == "rule-file-invalid")
+    write(d, "y.py", "import yaml, evil\nimport subprocess as sp\nfrom subprocess import run as r\nfrom yaml import SafeLoader\n"
+                     "yaml.load(s, Loader=evil.SafeLoader)\nyaml.load(s, Loader=SafeLoader)\nsp.run(u, shell=True)\nr(u, shell=True)\n")
+    run(S / "critic_scan.py", ".", "--root", ".", cwd=d)
+    got = sorted((x["rule"], x["where"]) for x in json.loads((d / ".critic/scan/report.json").read_text())["findings"] if x["rule"].startswith("py-"))
+    assert got == [("py-shell-true", "y.py:7"), ("py-shell-true", "y.py:8"), ("py-yaml-load", "y.py:5")], got
+    write(d, "src/app.js", APP); run(S / "critic_ledger.py", "start", "full", cwd=d)
+    write(d, "a.json", json.dumps([finding(impact="High", verified="executed")])); run(S / "critic_merge.py", "tally", "a.json", cwd=d)
+    fid = json.loads((d / ".critic/tally.json").read_text())["kept"][0]["id"]
+    write(d, "v.json", json.dumps([{"id": fid, "verdict": "downgrade", "impact_after": "Low", "reproduced": "traced", "note": "minor"}]))
+    run(S / "critic_merge.py", "apply", "v.json", cwd=d)
+    out = run(S / "critic_ledger.py", "spotcheck", cwd=d).stdout; assert "1 item(s)" in out, out
+    assert "downgraded" in (d / ".critic/spotcheck.md").read_text()
+
+@test("ChatGPT double-blind fixes: unknown licences noted, v1 lockfiles flagged, run log masks secrets and trims from the tail")
+def _(d):
+    sys.path.insert(0, str(S)); import scan_deps, critic_findings
+    assert [scan_deps.spdx_kind(x) for x in ("UNLICENSED", "LicenseRef-Commercial", "MIT", "MIT OR UNLICENSED", "GPL-3.0")] == ["unknown", "unknown", "permissive", "permissive", "strong"]
+    write(d, "package-lock.json", json.dumps({"lockfileVersion": 3, "packages": {"": {}, "node_modules/p": {"version": "1", "license": "UNLICENSED"}}}))
+    write(d, "old/package-lock.json", json.dumps({"lockfileVersion": 1, "dependencies": {"q": {"version": "1"}}}))
+    run(S / "critic_scan.py", ".", "--root", ".", cwd=d)
+    rules = [r["rule"] for r in json.loads((d / ".critic/scan/report.json").read_text())["findings"]]
+    assert "licence-unknown" in rules and "licence-not-checked" in rules, rules
+    tok = "Bearer " + "EXAMPLEtoken123"
+    critic_findings.log_run(d, "command", f'curl -H "Authorization: {tok}" https://u:pw' + "EXAMPLE@h.example/x")
+    log = (d / ".critic/runlog.jsonl").read_text(); assert "EXAMPLEtoken123" not in log and "pwEXAMPLE" not in log, log
+    assert "runlog.jsonl" in (d / ".critic/.gitignore").read_text()
+    (d / ".critic/runlog.jsonl").write_text(("x" * 200 + "\n") * 10000)
+    critic_findings.log_run(d, "script", "after trim")
+    assert (d / ".critic/runlog.jsonl").stat().st_size < 600_000 and "after trim" in (d / ".critic/runlog.jsonl").read_text()
+
+@test("4.1.1 recheck: PyYAML submodule loaders, a note when the rule limit hits mid-file, wider secret masking")
+def _(d):
+    write(d, "y.py", "import yaml\nfrom yaml.loader import SafeLoader\nyaml.load(s, Loader=SafeLoader)\n"
+                     "yaml.load(s, Loader=yaml.cyaml.CSafeLoader)\nyaml.load(s, Loader=yaml.loader.FullLoader)\n")
+    for i in range(11): write(d, f".critic/rules/b{i:02d}.json", json.dumps([{"id": f"b{i:02d}-{j}", "severity": "NOTE", "area": "perf", "pattern": "zzz", "message": "m"} for j in range(190)]))
+    run(S / "critic_scan.py", ".", "--root", ".", cwd=d)
+    rows = json.loads((d / ".critic/scan/report.json").read_text())["findings"]
+    assert sorted(r["where"] for r in rows if r["rule"] == "py-yaml-load") == ["y.py:5"], rows
+    assert "stopped partway through b10.json" in " ".join(r["what"] for r in rows if r["rule"] == "rule-file-invalid")
+    sys.path.insert(0, str(S)); import critic_findings
+    v = "EXAMPLE" + "value9"
+    for line in (f"AWS_SECRET_ACCESS_KEY={v}", f'SECRET_KEY="{v}"', f'--password "{v} 2"', f"mysql -p{v}", f"curl -u bob:{v} x",
+                 f"Cookie: sid={v}", f"--api-key={v}"):
+        assert v not in critic_findings.redact_secrets(line), line
+    for line in ('pytest -k "token and not slow"', "npx serve -p 3000"):
+        assert critic_findings.redact_secrets(line) == line, line
+
 if __name__ == "__main__":
     bad = [r for r in RESULTS if not r[1]]
     print(f"\n{len(RESULTS) - len(bad)} of {len(RESULTS)} passed"); sys.exit(1 if bad else 0)

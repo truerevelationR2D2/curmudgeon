@@ -86,13 +86,13 @@ def contract(review, rows):
         c["closure table"] = bool(re.search(r"closure table", review, re.I))
     return c, stated, actual, verdict
 
-AREAS = [("security", r"xss|inject|secret|key|auth|csrf|eval|sanitiz|unsafe|password|token|permission|idempot"),
-         ("accessibility", r"a11y|wcag|focus|keyboard|contrast|label|aria|screen.?reader|accessib|zoom|target"),
-         ("data and state", r"data|storage|state|race|lost|overwrit|save|corrupt|stale|tab|sync|id\b|collid"),
-         ("logic and numbers", r"logic|math|revenue|total|sum|off.by|pagina|calc|nan|number|price|tax|discount"),
-         ("errors", r"error|fail|catch|exception|status|timeout|retry|throw"),
-         ("layout and UX", r"layout|scroll|responsive|ux|hover|empty|toast|copy|wording|confirm|style|design|look|template"),
-         ("docs and claims", r"readme|claim|doc|comment")]
+AREAS = [("accessibility", r"\ba11y\b|wcag|\bfocus|keyboard|contrast|\blabel|aria|screen.?reader|accessib|\bzoom\b|target size"),
+         ("security", r"\bxss\b|inject|secret|api.?key|\bauth|csrf|\beval\b|sanitiz|unsafe|password|\btoken|permission|idempot"),
+         ("data and state", r"\bdata\b|storage|\bstate\b|\brace\b|\blost\b|overwrit|\bsave|corrupt|\bstale\b|\btabs?\b|\bsync|\bids?\b|collid"),
+         ("logic and numbers", r"logic|\bmath|revenue|\btotal|\bsum\b|off.by|pagina|calc|\bnan\b|\bnumber|price|\btax\b|discount"),
+         ("errors", r"\berror|\bfail|\bcatch\b|exception|\bstatus\b|timeout|retry|\bthrow"),
+         ("layout and UX", r"layout|scroll|responsive|\bux\b|hover|\bempty\b|toast|\bcopy\b|wording|confirm|\bstyle|design|\blook\b|template"),
+         ("docs and claims", r"readme|\bclaim|\bdocs?\b|comment")]
 def area_of(text):
     for name, rx in AREAS:
         if re.search(rx, text, re.I): return name
@@ -120,7 +120,9 @@ def score_one(path, suite):
     by = {}
     hit_idx = set(hits.values()); decoy_idx = {bi for bi in used if bi not in hit_idx}
     for bi, b in enumerate(blocks):
-        kind = area_of(b)
+        # the finding's own category and title decide its kind; the full text is only a fallback
+        kind = area_of(f"{rows[bi].get('category', '')} {rows[bi].get('title', '')}") if rows else "other"
+        if kind == "other": kind = area_of(b)
         if bi in hit_idx: by.setdefault(kind, [0, 0])[0] += 1
         elif bi in decoy_idx: by.setdefault(kind, [0, 0])[1] += 1
         else:

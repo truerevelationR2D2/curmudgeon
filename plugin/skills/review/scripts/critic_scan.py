@@ -139,6 +139,7 @@ def load_rule_files(root):
     rule-<id>, so a rule file can never pose as a built-in check. A project's files are read only when they are
     plain files (no links, no devices) of at most 256 KB, and not at all under --no-project-rules."""
     rules, bad, taken = [], [], set()
+    budget = {"files": 50, "rules": 2000, "bytes": 2 * 1024 * 1024}  # a project's rule files, all together
     folders = [(pathlib.Path(__file__).resolve().parent.parent / "rules", False)]
     if not NO_PROJECT_RULES: folders.append((root / ".critic" / "rules", True))
     for folder, is_project in folders:
@@ -146,6 +147,10 @@ def load_rule_files(root):
         for rf in sorted(folder.glob("*.json")):
             if rf.is_symlink() or not rf.is_file(): bad.append(f"{rf.name}: not a plain file (links and devices are never read)"); continue
             if rf.stat().st_size > 256 * 1024: bad.append(f"{rf.name}: over 256 KB, not read"); continue
+            if is_project:
+                budget["files"] -= 1; budget["bytes"] -= rf.stat().st_size
+                if budget["files"] < 0 or budget["bytes"] < 0 or budget["rules"] <= 0:
+                    bad.append(f"project rule files stopped at {rf.name}: over the limit of 50 files, 2 MB or 2,000 rules in all"); break
             try: items = json.loads(rf.read_text(encoding="utf-8"))
             except Exception as e: bad.append(f"{rf.name}: not valid JSON ({str(e)[:80]})"); continue
             if not isinstance(items, list): bad.append(f"{rf.name}: must hold a JSON list of rules"); continue
@@ -161,6 +166,11 @@ def load_rule_files(root):
                     if not isinstance(globs, list) or not all(isinstance(g, str) for g in globs): raise ValueError("files must be a list of filename patterns")
                     if not isinstance(msg, str) or not msg.strip(): raise ValueError("message missing")
                     re.compile(pat)  # reject a broken pattern here; a project's patterns then run in rule_runner.py under a time limit
+                    if is_project:
+                        if sev == "FAIL": sev = "WARN"  # a repo's own rules can warn, never fail: only the plugin's checks become automatic findings
+                        budget["rules"] -= 1
+                        if budget["rules"] < 0:
+                            bad.append(f"project rules stopped partway through {rf.name}: over the limit of 2,000 rules in all"); break
                     rules.append(("rule-" + rid, sev, area, pat, msg[:200], globs, is_project)); taken.add(rid)
                 except Exception as e: bad.append(f"{rf.name}: rule {r.get('id', '?') if isinstance(r, dict) else '?'} skipped ({str(e)[:80]})")
             if len(items) > 200: bad.append(f"{rf.name}: only the first 200 rules were read")

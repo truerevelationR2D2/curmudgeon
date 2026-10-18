@@ -4,6 +4,7 @@ text-pattern rules, which stay as the fallback for files that don't parse (for e
 Idea from Bandit (Apache-2.0); our own code, no rule text copied."""
 import ast
 
+SAFE_YAML_LOADERS = {f"yaml{m}.{c}" for m in ("", ".loader", ".cyaml") for c in ("SafeLoader", "CSafeLoader", "BaseLoader", "CBaseLoader")}
 VERIFY_NAMES = {"verify", "ssl_verify", "verify_ssl", "tls_verify", "verify_tls", "verify_certs", "verify_cert"}  # not skip_verify, reverify ...
 
 def _name(node):
@@ -23,12 +24,25 @@ def scan(rel, text, emit):
     """Raises SyntaxError when the file doesn't parse; the caller then falls back to the text rules."""
     tree = ast.parse(text)
     lines = text.split("\n")
+    # import aliases: `import subprocess as sp` makes sp.run mean subprocess.run; `from subprocess import run as r`
+    # makes r mean subprocess.run; `from yaml import SafeLoader` makes SafeLoader mean yaml.SafeLoader
+    alias = {}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for a in node.names: alias[a.asname or a.name] = a.name
+        elif isinstance(node, ast.ImportFrom) and node.module and not node.level:
+            for a in node.names: alias[a.asname or a.name] = f"{node.module}.{a.name}"
+    def full(node):
+        n = _name(node)
+        if not n: return n
+        head, _, rest = n.partition(".")
+        return alias.get(head, head) + ("." + rest if rest else "")
     def hit(sev, rid, area, node, msg):
         ln = getattr(node, "lineno", 0)
         emit(sev, rid, area, f"{rel}:{ln}", msg, lines[ln - 1] if 0 < ln <= len(lines) else "")
     for node in ast.walk(tree):
         if isinstance(node, ast.Call):
-            n = _name(node.func)
+            n = full(node.func)
             if n in ("eval", "exec"):
                 hit("FAIL", "py-eval", "safety", node, "eval/exec runs arbitrary code")
             elif n.startswith("subprocess.") and _const(_kw(node, "shell"), True):
@@ -41,9 +55,9 @@ def scan(rel, text, emit):
                 hit("WARN", "py-pickle", "safety", node, "unpickling runs code from the data: never load untrusted pickles")
             elif n == "yaml.load":
                 ld = _kw(node, "Loader") or (node.args[1] if len(node.args) > 1 else None)
-                if not (ld is not None and _name(ld).split(".")[-1] in ("SafeLoader", "CSafeLoader", "BaseLoader")):
+                if not (ld is not None and full(ld) in SAFE_YAML_LOADERS):  # only PyYAML's own safe loaders
                     hit("WARN", "py-yaml-load", "safety", node, "yaml.load without SafeLoader can build arbitrary objects (use yaml.safe_load)")
-            elif n in ("tempfile.mktemp", "mktemp"):
+            elif n == "tempfile.mktemp":
                 hit("WARN", "py-mktemp", "safety", node, "tempfile.mktemp is racy: use mkstemp or NamedTemporaryFile")
             if _const(_kw(node, "verify"), False):
                 hit("WARN", "py-verify-false", "safety", node, "TLS certificate checks switched off")

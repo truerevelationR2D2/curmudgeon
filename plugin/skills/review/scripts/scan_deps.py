@@ -19,9 +19,14 @@ def _lock_npm(p):
 
 COPYLEFT = re.compile(r"\b(A?GPL|SSPL|EUPL|OSL|CC-BY-SA|CC-BY-NC)", re.I)  # LGPL/MPL are weaker; reported as NOTE
 WEAK = re.compile(r"\b(LGPL|MPL|EPL|CDDL)", re.I)
+PERMISSIVE = re.compile(r"^(MIT(-0)?|ISC|0BSD|BSD-[0-4]-Clause(-\w+)?|BSD|Apache-2\.0|Apache-1\.1|Zlib|Unlicense|CC0-1\.0|CC-BY-[34]\.0|WTFPL|BlueOak-1\.0\.0|Python-2\.0|PSF-2\.0|Artistic-2\.0|BSL-1\.0|Unicode-DFS-2016|Unicode-3\.0|X11|AFL-[23]\.\d|Ruby|PostgreSQL|NCSA)(\+)?$", re.I)
 def _one(term):
-    return "strong" if COPYLEFT.search(term) and not WEAK.search(term) else ("weak" if WEAK.search(term) else "permissive")
-RANK = {"permissive": 0, "weak": 1, "strong": 2}
+    """strong / weak copyleft, a recognised permissive licence, or unknown (UNLICENSED, LicenseRef-…, SEE LICENSE IN …,
+    NOASSERTION, typos): unknown is never assumed permissive."""
+    if COPYLEFT.search(term) and not WEAK.search(term): return "strong"
+    if WEAK.search(term): return "weak"
+    return "permissive" if PERMISSIVE.match(term.strip()) else "unknown"
+RANK = {"permissive": 0, "unknown": 1, "weak": 2, "strong": 3}
 def spdx_kind(expr):
     """Reads an SPDX expression with its parentheses: OR lets you pick the least restrictive side, AND makes every
     part apply, so the most restrictive counts. "MIT OR GPL-3.0" is permissive; "GPL-3.0 AND (MIT OR Apache-2.0)"
@@ -68,7 +73,9 @@ def licences(root, emit):
         if _skip(lf, root): continue
         try: j = json.loads(lf.read_text())
         except Exception: continue
-        missing, strong, weak = [], [], []
+        missing, strong, weak, unknown = [], [], [], []
+        if not j.get("packages") and j.get("dependencies"):
+            emit("NOTE", "licence-not-checked", "deps", str(lf.relative_to(root)), "an old (v1) lockfile records no licences, so dependency licences were not checked (npm 7+ writes them)", ""); continue
         for path, meta in (j.get("packages") or {}).items():
             if not path or not isinstance(meta, dict): continue
             if meta.get("link") or "node_modules/" not in path: continue  # workspace links and the project itself aren't third-party packages
@@ -78,9 +85,11 @@ def licences(root, emit):
             kind = spdx_kind(str(lic))
             if kind == "strong": strong.append(f"{name} ({lic})")
             elif kind == "weak": weak.append(f"{name} ({lic})")
+            elif kind == "unknown": unknown.append(f"{name} ({lic})")
         rel = str(lf.relative_to(root))
         if strong: emit("WARN", "licence-copyleft", "deps", rel, f"{len(strong)} package(s) under a strong copyleft licence: {', '.join(strong[:5])}{' …' if len(strong) > 5 else ''} (check the obligations before shipping)", "")
         if weak: emit("NOTE", "licence-weak-copyleft", "deps", rel, f"{len(weak)} package(s) under a weak copyleft licence: {', '.join(weak[:5])}{' …' if len(weak) > 5 else ''}", "")
+        if unknown: emit("NOTE", "licence-unknown", "deps", rel, f"{len(unknown)} package(s) under a licence that isn't a recognised open-source one (check the terms): {', '.join(unknown[:5])}{' …' if len(unknown) > 5 else ''}", "")
         if missing: emit("NOTE", "licence-missing", "deps", rel, f"{len(missing)} package(s) declare no licence in the lockfile: {', '.join(missing[:5])}{' …' if len(missing) > 5 else ''}", "")
 
 def _reqs(p):

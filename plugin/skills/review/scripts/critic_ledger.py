@@ -254,14 +254,15 @@ def main(a):
             n = 3
             if rest[:1] == ["--n"] and len(rest) > 1 and rest[1].isdigit(): n = max(1, min(10, int(rest[1])))
             rows = [r for r in read_rows(D / "findings.jsonl") if r.get("impact") in ("Critical", "High", "Medium")]
-            refs = [r for r in read_rows(D / "refutations.jsonl") if r.get("run") == L["run"] and r.get("kind") == "refuted"]
+            refs = [r for r in read_rows(D / "refutations.jsonl") if isinstance(r, dict) and r.get("run") == L["run"] and r.get("kind") in ("refuted", "downgraded")]
             pick = [{"kind": "finding", "id": r["id"], "impact": r["impact"], "where": f"{r.get('file')}:{r.get('line', '')}", "title": r.get("title", "")} for r in random.sample(rows, min(n, len(rows)))]
             if refs:
                 r = random.choice(refs)
-                pick.append({"kind": "refutation", "id": r["id"], "impact": r.get("impact"), "where": f"{r.get('file')}:{r.get('line', '')}", "title": r.get("title", ""), "why": r.get("why", "")})
+                pick.append({"kind": "refutation", "id": r["id"], "impact": r.get("impact"), "where": f"{r.get('file')}:{r.get('line', '')}", "title": r.get("title", ""),
+                             "why": ("downgraded " if r.get("kind") == "downgraded" else "dropped: ") + str(r.get("why", ""))})
             L["spotcheck_pending"] = pick
             md = ["# Spot-check", "", "Judge each one in a few seconds. For a finding: is it a real problem (real) or not (wrong)? For a refutation: was the",
-                  "verifier wrong to drop it, meaning the finding was real (real), or right (wrong)? Unsure is fine.", ""]
+                  "verifier wrong to drop or lower it, meaning the finding was real at its first impact (real), or right (wrong)? Unsure is fine.", ""]
             md += [f"{i}. **{x['id']}** ({x['kind']}, {x['impact']}) {x['where']}: {x['title']}" + (f"\n   Verifier's reason: {x['why'][:300]}" if x["kind"] == "refutation" else "") for i, x in enumerate(pick, 1)]
             md += ["", "Record each with: `critic_ledger.py spotcheck answer <ID> real|wrong|unsure`"]
             (D / "spotcheck.md").write_text("\n".join(md) + "\n", encoding="utf-8")

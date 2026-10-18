@@ -55,7 +55,7 @@ You can also just say "tear this apart" or "review my work".
    - injection sinks;
    - Python safety, read with Python's own parser, so strings and comments don't trigger false alarms;
    - WCAG 2.2 rules;
-   - dependency hygiene and licences (strong copyleft such as GPL is flagged, missing licences noted);
+   - dependency hygiene and licences (strong copyleft such as GPL is flagged; missing, unrecognised and proprietary licences are noted);
    - your own rule files (see "Add your own checks");
    - in a real browser: keyboard reach, focus hidden behind other content, a screen-reader view, reflow at 320 px, speed, and dead controls.
 3. **Three blind reviewers**, as described above.
@@ -72,11 +72,11 @@ Results build up in a per-project ledger (`.critic/`):
 
 ## Add your own checks
 
-Drop a JSON file of rules into your project's `.critic/rules/` (or, to contribute one for everyone, into `plugin/skills/review/rules/`). Each rule is an id, a severity, an area, a regular expression matched line by line, a message, and optional file patterns; see `plugin/skills/review/rules/README.md`. Rules are data, never code, and their rows are reported as `rule-<id>`, so they can't pose as built-in checks. A project's rule files must be plain files of at most 256 KB; they run in a separate process with a 20-second limit and at most 50 matches per rule, so a slow or greedy pattern can't hang or flood a review, and the background stop check skips them.
+Drop a JSON file of rules into your project's `.critic/rules/` (or, to contribute one for everyone, into `plugin/skills/review/rules/`). Each rule is an id, a severity, an area, a regular expression matched line by line, a message, and optional file patterns; see `plugin/skills/review/rules/README.md`. Rules are data, never code, and their rows are reported as `rule-<id>`, so they can't pose as built-in checks. A project's rule files must be plain files (at most 256 KB each, 50 files and 2,000 rules in all); they run in a separate process with a 20-second limit and at most 50 matches per rule, and they can warn but never fail, so a slow, greedy or hostile rule file can't hang a review or flood it with findings. The background stop check skips them.
 
 ## What it runs, reads and sends
 
-- **Runs:** its own Python scripts, plus your project's test command if you opt in to mutation testing (the command is set in `.critic/rules.md`). Every script a review starts and every outside command or network call it makes (git, npm, Chromium, your test or check commands when asked, the opt-in OSV lookup) is listed in `.critic/runlog.jsonl`. In the browser checks it serves your files on `127.0.0.1` and blocks any request that leaves that origin. It never clicks a control that submits a form or sends data.
+- **Runs:** its own Python scripts, plus your project's test command if you opt in to mutation testing (the command is set in `.critic/rules.md`). Every script a review starts and every outside command or network call it makes (git, npm, Chromium, your test or check commands when asked, the opt-in OSV lookup) is listed in `.critic/runlog.jsonl`, with tokens, passwords and keys masked. The log is git-ignored. In the browser checks it serves your files on `127.0.0.1` and blocks any request that leaves that origin. It never clicks a control that submits a form or sends data.
 - **Reads:** the files under review, and your CI's SARIF or JUnit output if present. It never reads its own earlier output as evidence.
 - **Writes:** only inside `.critic/`, unless you ask for fixes. Before a fix it saves exact copies of the files it will change in `.critic/restore/` (private to you, git-ignored, never read by any report), so rollback is exact. If your code holds keys, so do those copies. A guard hook blocks direct edits to `.critic/` state.
 - **Sends:** nothing, by default. It declares no connectors or MCP servers. Two opt-in flags reach the network: `--online` sends package names and versions to the free OSV vulnerability API (`api.osv.dev`), and `--allow-live` lets the page check load a live URL you give it. Without them, the page checks serve files only on this computer and block any request that would leave it. Secrets found in your code are redacted in every report.

@@ -165,6 +165,36 @@ def append_line(path, line):
     fd = os.open(path, os.O_WRONLY | os.O_APPEND | os.O_CREAT | getattr(os, "O_NOFOLLOW", 0), 0o644)
     with os.fdopen(fd, "a", encoding="utf-8") as fh: fh.write(line)
 
+_VAL = r"""("[^"]*"|'[^']*'|[^\s"'&;|]+)"""
+_NAME = r"[\w.-]*(?:secret|token|passw(?:or)?d|pwd|api[_-]?key|private[_-]?key|access[_-]?key|auth|credential|cookie|session)[\w.-]*"
+SECRET_IN_TEXT = re.compile(
+    r"(?i)(\b(?:bearer|basic|token)\s+)([A-Za-z0-9._~+/=-]{8,})"          # Authorization: Bearer xxx / Basic xxx
+    r"|(\b" + _NAME + r"\s*[=:]\s*(?:(?:bearer|basic|token)\s+)?)" + _VAL +                          # NAME=value, NAME: value (env vars, headers, config)
+    r"|(--?" + _NAME + r"(?:=|\s+))" + _VAL +                          # --password value, --api-key=value
+    r"|(\bcookie:\s*)([^\"']+)"                                       # Cookie: header
+    r"|(?<=://)([^/\s:@]+):([^@\s/]+)@"                                    # user:password@ in URLs
+    r"|(\s-u\s+)([^\s:]+):(\S+)"                                           # curl -u user:password
+    r"|(\s-p)(\S+)"                                                        # mysql -pPASSWORD
+    r"|\beyJ[\w-]{8,}\.[\w-]{8,}\.[\w-]{4,}"                               # JWTs
+    r"|\b(?:sk|rk|pk)_(?:live|test)_\w{8,}|\bsk-[\w-]{20,}|\bgh[pousr]_\w{20,}|\bAKIA[0-9A-Z]{16}\b|\bxox[abposr]-[\w-]{10,}|\bAIza[\w-]{30,}")
+def redact_secrets(text):
+    """Mask credentials in anything written to a log: auth headers, NAME=value and --name value secrets, cookies,
+    user:password@ in URLs, curl -u, mysql -p, JWTs and common provider key shapes. A plain word after "token" (as
+    in `pytest -k "token and not slow"`) is left alone: only an assignment, a flag value or a header is masked."""
+    def keepq(v):  # keep the quotes, mask the inside
+        return v[0] + "[redacted]" + v[-1] if len(v) > 1 and v[0] in "\"'" and v[-1] == v[0] else "[redacted]"
+    def sub(m):
+        g = m.groups()
+        if g[0] is not None: return g[0] + "[redacted]"
+        if g[2] is not None: return g[2] + keepq(g[3])
+        if g[4] is not None: return g[4] + keepq(g[5])
+        if g[6] is not None: return g[6] + "[redacted]"
+        if g[8] is not None: return f"{g[8]}:[redacted]@"
+        if g[10] is not None: return f"{g[10]}{g[11]}:[redacted]"
+        if g[13] is not None: return g[13] + "[redacted]"
+        return m.group(0)[:4] + "[redacted]"
+    return SECRET_IN_TEXT.sub(sub, text)
+
 RUNLOG_MAX = 1_000_000
 def log_run(root, what, detail=""):
     """Append one line to .critic/runlog.jsonl: every script the plugin starts and every outside command it runs, so a
@@ -172,11 +202,15 @@ def log_run(root, what, detail=""):
     try:
         d = pathlib.Path(root) / ".critic"; d.mkdir(exist_ok=True)
         p = d / "runlog.jsonl"
-        line = json.dumps({"at": time.strftime("%Y-%m-%d %H:%M:%S"), "what": what, "detail": str(detail)[:400]}, ensure_ascii=False) + "\n"
+        line = json.dumps({"at": time.strftime("%Y-%m-%d %H:%M:%S"), "what": what, "detail": redact_secrets(str(detail))[:400]}, ensure_ascii=False) + "\n"
         if p.is_symlink() or state_links(root): return  # never write through a link
         if p.exists() and p.stat().st_size > RUNLOG_MAX:
-            keep = p.read_text(encoding="utf-8", errors="replace").splitlines(True)[-2000:]
+            with open(p, "rb") as fh:  # read only the tail, never the whole file
+                fh.seek(max(0, p.stat().st_size - RUNLOG_MAX // 2)); tail = fh.read()
+            keep = tail.decode("utf-8", errors="replace").splitlines(True)[1:]  # drop the partial first line
             tmp = p.with_name(p.name + ".tmp"); tmp.write_text("".join(keep), encoding="utf-8"); os.replace(tmp, p)
+        gi = d / ".gitignore"
+        if not gi.exists(): gi.write_text("# Curmudgeon's local logs: never commit them\nrunlog.jsonl\nrefutations.jsonl\nspotcheck.md\nrestore/\n", encoding="utf-8")
         append_line(p, line)
     except Exception: pass
 
