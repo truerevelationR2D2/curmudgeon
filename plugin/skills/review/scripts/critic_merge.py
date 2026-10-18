@@ -38,7 +38,7 @@ apply:
   records every kept finding in the ledger (new, known or regressed)."""
 import hashlib, json, math, os, pathlib, re, subprocess, sys, time
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
-from critic_findings import IMPACTS, extract_findings, relocate_quote, fingerprint, quote_check, read_jsonl, refutation_problem, similar, log_run, append_line, refuse_linked_state, to_sarif, validate, write_jsonl, tokens
+from critic_findings import IMPACTS, extract_findings, norm_code, relocate_quote, fingerprint, quote_check, read_jsonl, refutation_problem, similar, log_run, append_line, refuse_linked_state, to_sarif, validate, write_jsonl, tokens
 
 ROOT = pathlib.Path(os.environ.get("CRITIC_ROOT", os.getcwd())).resolve(); D = ROOT / ".critic"
 
@@ -194,8 +194,9 @@ def tally(paths):
         for x in g: grouped.setdefault(x, set()).update(g)
     for r, ri, f in accepted:
         if ri != OUTSIDE_RI: continue
+        fq = dict(f, quote=f.get("quote") if len(norm_code(f.get("quote"))) >= 12 else "")  # a one-letter quote matches anything: never enough to attach
         cands = [(0 if o["file"] == f["file"] else 1, abs(int(o.get("line") or 0) - int(f.get("line") or 0)), ro) for ro, o in ours
-                 if similar(f, o) or ro in grouped.get(r, ()) and is_doc[ro] == is_doc[r]]
+                 if similar(fq, dict(o, quote=o.get("quote") if len(norm_code(o.get("quote"))) >= 12 else "")) or ro in grouped.get(r, ()) and is_doc[ro] == is_doc[r]]
         if cands: parent[r] = find(min(cands)[2])
     # The dedup agent gets every finding not already merged, listed by file (pairs by line distance missed real
     # duplicates cited at distant lines or in another file). No reviewer names or votes; ids are opaque.
@@ -232,8 +233,10 @@ def tally(paths):
         # impact, wording and evidence come from our own reviewers (or the scan); an outside finding only adds its vote
         human = [x for x in m if x.get("source") not in ("scan", "outside")] or [x for x in m if x.get("source") != "outside"] or m
         best = sorted(human, key=lambda x: (["executed", "traced", "inferred"].index(x["verified"]), IMP_RANK[x["impact"]]))[0]
-        f = dict(best, votes=votes, of=of, impact=median_impact([x["impact"] for x in human]), scan_confirmed=bool(c.get("scan")),
+        theirs = [x["impact"] for x in m if x.get("source") == "outside"]
+        f = dict(best, votes=votes, votes_ours=len(c["reviewers"]), of=of, impact=median_impact([x["impact"] for x in human]), scan_confirmed=bool(c.get("scan")),
                  locations=sorted({f"{x['file']}:{x.get('line', '')}" for x in m}), raised_by=sorted({x["source"] for x in m}))
+        if theirs: f["outside_impact"] = theirs[0]  # shown, never used: the outside reviewer's own rating
         mn = next((x["memory_note"] for x in m if x.get("memory_note")), None)
         if mn and f["impact"] in ("Medium", "Low"): f["memory_note"] = mn
         else: f.pop("memory_note", None)
@@ -246,7 +249,7 @@ def tally(paths):
     vd = D / "verify"; vd.mkdir(parents=True, exist_ok=True)
     for old in vd.glob("*.json"): old.unlink()
     for f in out["kept"] + out["contested"]:
-        if f["impact"] == "Low" and f["votes"] >= need and not f.get("outside_only"): continue  # agreed Low findings skip verification to save usage
+        if f["impact"] == "Low" and f.get("votes_ours", f["votes"]) >= need and not f.get("outside_only"): continue  # agreed by OUR reviewers; an outside vote alone never skips verification  # agreed Low findings skip verification to save usage
         if f.get("raised_by") == ["scan"] and f.get("verified") == "executed" and MEASURED.match(str(f.get("category"))): continue  # a measurement, not an interpretation: nothing to reproduce
         packet = {k: f.get(k) for k in ("id", "category", "impact", "file", "line", "quote", "title", "failing_case")}
         (vd / f"{f['id']}.json").write_text(json.dumps(packet, indent=1, ensure_ascii=False))

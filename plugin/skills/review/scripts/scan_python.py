@@ -7,6 +7,7 @@ import ast
 SAFE_YAML_LOADERS = {f"yaml{m}.{c}" for m in ("", ".loader", ".cyaml") for c in ("SafeLoader", "CSafeLoader", "BaseLoader", "CBaseLoader")}
 STAR_RISKY = {"tempfile": ("mktemp",), "os": ("system", "popen"), "builtins": ("eval", "exec"), "yaml": ("load",),
               "subprocess": ("run", "call", "Popen", "check_call", "check_output"), "pickle": ("load", "loads")}
+STAR_SAFE = {"yaml": ("SafeLoader", "CSafeLoader", "BaseLoader", "CBaseLoader")}  # so `from yaml import *` + Loader=SafeLoader stays safe
 def risky(n):
     return n in ("eval", "exec", "os.system", "os.popen", "yaml.load", "tempfile.mktemp") or n.startswith("subprocess.") or \
            (n.split(".")[0] in ("pickle", "cPickle", "dill", "shelve") and n.split(".")[-1] in ("load", "loads", "open"))
@@ -42,7 +43,7 @@ def scan(rel, text, emit):
         elif isinstance(node, ast.ImportFrom) and node.module and not node.level:
             for a in node.names:
                 if a.name == "*":
-                    for nm in STAR_RISKY.get(node.module, ()): bind(nm, f"{node.module}.{nm}")
+                    for nm in STAR_RISKY.get(node.module, ()) + STAR_SAFE.get(node.module, ()): bind(nm, f"{node.module}.{nm}")
                 else: bind(a.asname or a.name, f"{node.module}.{a.name}")
     def cands(node):
         n = _name(node)

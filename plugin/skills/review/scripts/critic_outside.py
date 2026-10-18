@@ -68,11 +68,14 @@ def brief(args):
     prefix = git("rev-parse", "--show-prefix")  # the project's folder inside the repository ("" at the top)
     top = pathlib.Path(git("rev-parse", "--show-toplevel") or ROOT)
     url = public_url(git("remote", "get-url", "origin"))
-    # edits not in HEAD (staged, unstaged or untracked) for the files in this change; pathspecs are relative to ROOT
+    def repo_rel(f):  # the change map lists paths from the project root (--files) or from the repository root (git diff)
+        return prefix + f if (ROOT / f).exists() or not (top / f).exists() else f
+    # edits not in HEAD (staged, unstaged or untracked) for the files in this change, named from the repository top
     dirty = 0
     if head and files:
-        rc, _ = git_rc("diff", "--quiet", "HEAD", "--", *files)
-        dirty = (rc != 0) + bool(git("ls-files", "--others", "--exclude-standard", "--", *files))
+        spec = [":(top)" + repo_rel(f) for f in files]
+        rc, _ = git_rc("diff", "--quiet", "HEAD", "--", *spec)
+        dirty = (rc != 0) + bool(git("ls-files", "--others", "--exclude-standard", "--", *spec))
     pushed = bool(head) and bool(git("branch", "-r", "--contains", head))
     reviews_ignored = git_rc("check-ignore", "-q", ".critic/reviews/review-A.json")[0] == 0
     warn = []
@@ -85,9 +88,7 @@ def brief(args):
     warn.append("A private repository can't be opened by the outside reviewer: attach the files, or skip this step.")
     def raw(f):
         if not (url and "github.com/" in url and head): return f
-        # the change map lists paths from the project root (--files) or from the repository root (git diff): use whichever exists
-        repo_rel = prefix + f if (ROOT / f).exists() or not (top / f).exists() else f
-        return f"https://raw.githubusercontent.com/{url.split('github.com/', 1)[1]}/{head}/" + urllib.parse.quote(repo_rel)
+        return f"https://raw.githubusercontent.com/{url.split('github.com/', 1)[1]}/{head}/" + urllib.parse.quote(repo_rel(f))
     lines = ["# Outside review brief (paste everything below the line into the other AI)", "",
              "Before you paste: this sends the files listed here to that AI's service. Check:", ""] + [f"- {w}" for w in warn] + ["", "---", "",
              "## Request for an independent, double-blind code review", "",
@@ -180,8 +181,9 @@ def load(args):
     text = p.read_text(encoding="utf-8", errors="replace")
     vals = json_values(text)
     rows = findings_in(vals)
-    if not rows:  # a chat page can turn straight quotes into curly ones; try again with them straightened
-        rows = findings_in(json_values(text.replace("\u201c", '"').replace("\u201d", '"')))
+    straight = text.replace("\u201c", '"').replace("\u201d", '"')
+    if straight != text:  # a chat page can turn straight quotes into curly ones: read it straightened too (duplicates are dropped below)
+        rows += findings_in(json_values(straight))
     if not rows and not any(isinstance(v, list) and not v for v in vals):
         die("no findings found: paste the JSON findings list (objects with an impact field), with or without the ```json fences")
     out, notes, seen = [], [], set()

@@ -734,9 +734,11 @@ def _(d):
     sys.path.insert(0, str(S)); import critic_findings
     v = "EXAMPLE" + "value9"
     for line in (f"Cookie: a=1; sid={v}", f"DB_PASS={v} npm test", f'{{"password":"{v}"}}', f"sshpass -p {v} ssh h", f"redis-cli -a {v} ping",
-                 f"https://{v}ghtoken@github.com/x", f"https://b.example/k?X-Amz-Signature={v}&X-Amz-Date=1", f"--password {v}", f"Authorization: token {v}"):
+                 f"https://{v}ghtoken@github.com/x", f"https://b.example/k?X-Amz-Signature={v}&X-Amz-Date=1", f"--password {v}", f"Authorization: token {v}",
+                 f"PGPASSWORD={v} psql", f"dbPassword={v}", f"accessToken={v}", f"clientSecret={v}", f"//registry.npmjs.org/:_authToken={v}", f"pass=a,{v}"):
         assert v not in critic_findings.redact_secrets(line), line
-    for line in ('pytest -k "token production path"', "gcc -pthread x.c", "git log --author=bob", "critic_scan.py . --session-dir /tmp/x", "find . -path ./x -prune"):
+    for line in ('pytest -k "token production path"', "gcc -pthread x.c", "git log --author=bob", "critic_scan.py . --session-dir /tmp/x", "find . -path ./x -prune",
+                 "docker run --sig-proxy=false x", "--signature-check=yes", "git clone ssh://deployuser@host/r", "bypass=1"):
         assert critic_findings.redact_secrets(line) == line, line
     t0 = time.time(); critic_findings.redact_secrets("a-" * 4000); assert time.time() - t0 < 1
     e = d / "e"; e.mkdir(); write(e, ".critic/.gitignore", "scan/\n")
@@ -750,13 +752,16 @@ def _(d):
     write(d, "y.py", "import subprocess as sp\ndef helper():\n    import os as sp\ndef go(c):\n    sp.run(c, shell=True)\n"
                      "import yaml\ntry:\n    from yaml import CLoader as L\nexcept ImportError:\n    from yaml import SafeLoader as L\nyaml.load(s, Loader=L)\n"
                      "from builtins import eval\neval(x)\nfrom tempfile import *\np = mktemp()\n")
+    write(d, "z.py", "from yaml import *\nimport yaml\nyaml.load(s, Loader=SafeLoader)\n")
     write(d, ".critic/rules/aaa.json", json.dumps([{"id": f"bad{i}"} for i in range(25)]))
+    write(d, ".critic/rules/project rule trick.json", json.dumps([{"id": f"bad{i}"} for i in range(25)]))
     for i in range(55): write(d, f".critic/rules/x{i:02d}.json", json.dumps([{"id": f"r{i:02d}", "severity": "NOTE", "area": "perf", "pattern": "zzz", "message": "m"}]))
     run(S / "critic_scan.py", ".", "--root", ".", cwd=d)
     rows = json.loads((d / ".critic/scan/report.json").read_text())["findings"]
     got = sorted((r["rule"], r["where"]) for r in rows if r["rule"].startswith("py-") and r["where"].startswith("y.py"))
     assert got == [("py-eval", "y.py:13"), ("py-mktemp", "y.py:15"), ("py-shell-true", "y.py:5"), ("py-yaml-load", "y.py:11")], got
     assert any(r["rule"] == "rule-file-limit" and "50 files" in r["what"] for r in rows), [r for r in rows if r["rule"].startswith("rule-file")]
+    assert all(r["rule"] != "rule-file-limit" or "trick" not in r["what"] for r in rows) and not any(r["where"].startswith("z.py") for r in rows if r["rule"] == "py-yaml-load")
 
 @test("outside reviewer: a long quote cited at the wrong line is moved to its one real line; a repeated or short one is not")
 def _(d):
@@ -770,6 +775,31 @@ def _(d):
     moved = [f for f in t["contested"] if f["title"] == "Tax rate"]
     assert moved and moved[0]["line"] == 4 and moved[0]["line_cited"] == 30, t["contested"]
     assert any(x["finding"]["title"] == "dup" for x in t["retracted"]) and t["outside"]["lines_corrected"] == 1, t
+
+@test("outside reviewer round 3: subfolder edits warned with the default map, curly answers after a template, short quotes never attach, outside-only agreement still verified")
+def _(d):
+    g = lambda *a: subprocess.run(["git", *a], cwd=d, capture_output=True, text=True)
+    write(d, "web/src/app.js", APP)
+    g("init", "-q"); g("config", "user.email", "t@example.com"); g("config", "user.name", "t"); g("add", "-A"); g("commit", "-qm", "one")
+    write(d, "web/src/app.js", APP + "// more\n"); g("add", "-A"); g("commit", "-qm", "two"); write(d, "web/src/app.js", APP + "// more\n// unstaged\n")
+    w = d / "web"; run(S / "critic_map.py", cwd=w)  # the default change map: paths from the repository top
+    run(S / "critic_outside.py", "brief", cwd=w); b = (w / ".critic/outside/brief.md").read_text()
+    assert "edits that aren't committed" in b, b
+    write(w, "src/app.js", APP); run(S / "critic_ledger.py", "start", "review", cwd=w)
+    tmpl = {"id": "N1", "impact": "Critical | High | Medium | Low", "category": "c", "file": "path/to/file", "line": 1, "quote": "", "title": "t"}
+    real = json.dumps([dict(finding(impact="High"), id="N1")]).replace('"', "\u201c", 1)  # one curly quote breaks straight parsing
+    write(w, "ans.txt", "```json\n" + json.dumps([tmpl]) + "\n```\n" + real.replace('"', "\u201d"))
+    r = run(S / "critic_outside.py", "load", "ans.txt", cwd=w); assert "1 finding(s)" in r.stdout, r.stdout + r.stderr
+    ours = finding(category="domain", impact="Low", line=4, quote="const price = total * 1.0825;", title="Tax rule in render code")
+    write(w, "a.json", json.dumps([ours])); write(w, "b.json", "[]"); write(w, "c.json", "[]")
+    unrelated = dict(finding(category="domain", impact="High", line=4, quote="n", title="Price shown without a currency symbol"), source="outside", outside_id="N9")
+    agrees = dict(finding(category="domain", impact="Low", line=4, quote="const price = total * 1.0825;", title="Hard-coded tax rule"), source="outside", outside_id="N8")
+    write(w, "o.json", json.dumps([unrelated])); run(S / "critic_merge.py", "tally", "a.json", "b.json", "c.json", "--outside", "o.json", cwd=w)
+    t = json.loads((w / ".critic/tally.json").read_text())
+    assert any(f.get("outside_only") and f["impact"] == "High" for f in t["contested"]), t  # the one-letter quote did not attach it to ours
+    write(w, "o.json", json.dumps([agrees])); run(S / "critic_merge.py", "tally", "a.json", "b.json", "c.json", "--outside", "o.json", cwd=w)
+    t = json.loads((w / ".critic/tally.json").read_text()); k = [f for f in t["kept"] if f["title"] == "Tax rule in render code"]
+    assert k and k[0]["votes"] == 2 and k[0]["votes_ours"] == 1 and (w / ".critic/verify" / f"{k[0]['id']}.json").exists(), t
 
 if __name__ == "__main__":
     bad = [r for r in RESULTS if not r[1]]

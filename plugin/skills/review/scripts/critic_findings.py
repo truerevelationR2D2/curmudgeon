@@ -175,12 +175,14 @@ def append_line(path, line):
     fd = os.open(path, os.O_WRONLY | os.O_APPEND | os.O_CREAT | getattr(os, "O_NOFOLLOW", 0), 0o644)
     with os.fdopen(fd, "a", encoding="utf-8") as fh: fh.write(line)
 
-_VAL = r"""("[^"]*"|'[^']*'|[^\s"'&;|,}]+)"""
-# a secret-bearing name: a whole word or a _/./- segment of a longer name (DB_PASS, x-amz-signature, my.api_key), never
-# a bare substring (author, bypass, session-dir stay readable). Bounded repeats keep it fast on long hyphenated text.
-_SEG = (r"secret|token|passw(?:or)?d|pass|pwd|pw|api[_-]?key|apikey|private[_-]?key|access[_-]?key|credentials?|"
-        r"authorization|auth[_-]?(?:token|key)|session[_-]?(?:id|key|token)|sessid|signature|sig|x-amz-credential")
-_NAME_BODY = r"(?:[A-Za-z0-9]{1,40}[_.-]){0,4}(?:" + _SEG + r")(?:[_.-][A-Za-z0-9]{1,40}){0,4}(?![\w.-])"
+_VAL = r"""("[^"]*"|'[^']*'|[^\s"'&;|]+)"""
+# A secret-bearing name. Strong words count anywhere in a name, run together or camelCase (PGPASSWORD, dbPassword,
+# accessToken, clientSecret, _authToken). Weak words count only as a whole _/./- segment (DB_PASS, x-pw, my.pwd), so
+# author, bypass and session-dir stay readable. Bounded repeats keep it fast on long hyphenated text.
+_STRONG = r"passw(?:or)?d|secret|token|api[_-]?key|apikey|private[_-]?key|access[_-]?key|credentials?|authorization|sessid|session[_-]?(?:id|key|token)"
+_WEAK = r"pass|pwd|pw|auth"
+_NAME_BODY = (r"(?:[A-Za-z0-9_.-]{0,40}(?:" + _STRONG + r")[A-Za-z0-9_.-]{0,40}"
+              r"|(?:[A-Za-z0-9]{1,40}[_.-]){0,4}(?:" + _WEAK + r")(?:[_.-][A-Za-z0-9]{1,40}){0,4})(?![\w.-])")
 _NAME = r"(?<![\w.-])" + _NAME_BODY
 _CRED = r"(?=[A-Za-z0-9._~+/=-]{8,})(?=[A-Za-z0-9._~+/=-]*[0-9+/=_~.-])[A-Za-z0-9._~+/=-]+"  # 8+ chars with a digit or symbol: not a plain word
 REDACT_RULES = [  # applied in order; each masks the value and keeps the label
@@ -189,7 +191,8 @@ REDACT_RULES = [  # applied in order; each masks the value and keeps the label
     (re.compile(r"(?i)(" + _NAME + r"[\"']?\s*[=:]\s*(?:(?:bearer|basic|token)\s+)?)" + _VAL), None),        # NAME=value, "password": "x", headers
     (re.compile(r"(?i)((?<![\w-])--?" + _NAME_BODY + r"(?:=|\s+))" + _VAL), None),                                          # --password value, --api-key=value
     (re.compile(r"(?<=://)([^/\s:@]+):([^@\s/]+)@"), lambda m: m.group(1) + ":[redacted]@"),                  # user:password@ in URLs
-    (re.compile(r"(?<=://)([^/\s:@]{8,})@"), lambda m: "[redacted]@"),                                        # token@ in URLs
+    (re.compile(r"(?i)(\bhttps?://)([^/\s:@]{8,})@"), lambda m: m.group(1) + "[redacted]@"),                  # token@ in web URLs (ssh user@ stays)
+    (re.compile(r"(?i)([?&](?:x-(?:amz|goog)-signature|x-amz-credential|signature|sig)=)([^&\s\"'#]+)"), lambda m: m.group(1) + "[redacted]"),  # signed URLs
     (re.compile(r"(\s-u\s+)([^\s:]+):(\S+)"), lambda m: f"{m.group(1)}{m.group(2)}:[redacted]"),             # curl -u user:password
     (re.compile(r"(?i)(\b(?:mysql\w*|mariadb\w*)\b[^|;&\n]{0,200}?\s-p)(\S+)"), lambda m: m.group(1) + "[redacted]"),  # mysql -pPASSWORD
     (re.compile(r"(?i)(\bsshpass\s+-p\s*)(\S+)"), lambda m: m.group(1) + "[redacted]"),
