@@ -294,7 +294,7 @@ def runtime(page, src, root, out, axe_arg, interact, allow_live, baseline=None, 
     def same_origin(u):
         try: x = urlsplit(u)
         except ValueError: return False
-        if x.username or x.password: return False  # http://host:port@elsewhere/ goes to elsewhere
+        if "@" in x.netloc: return False  # http://host:port@elsewhere/ goes to elsewhere
         return (x.scheme, x.hostname, x.port or (443 if x.scheme == "https" else 80)) == own
     def guard_net(r):
         req = r.request
