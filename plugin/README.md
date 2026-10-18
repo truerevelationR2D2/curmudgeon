@@ -72,7 +72,8 @@ Results build up in a per-project ledger (`.critic/`):
 - **Runs:** its own Python scripts, plus your project's test command if you opt in to mutation testing (the command is set in `.critic/rules.md`). In the browser checks it serves your files on `127.0.0.1` and blocks any request that leaves that origin. It never clicks a control that submits a form or sends data.
 - **Reads:** the files under review, and your CI's SARIF or JUnit output if present. It never reads its own earlier output as evidence.
 - **Writes:** only inside `.critic/`, unless you ask for fixes. Before a fix it saves exact copies of the files it will change in `.critic/restore/` (private to you, git-ignored, never read by any report), so rollback is exact. If your code holds keys, so do those copies. A guard hook blocks direct edits to `.critic/` state.
-- **Sends:** nothing, by default. With `--online`, package names and versions go to the free OSV vulnerability API (`api.osv.dev`), and nothing else does. Secrets found in your code are redacted in every report.
+- **Sends:** nothing, by default. It declares no connectors or MCP servers. Two opt-in flags reach the network: `--online` sends package names and versions to the free OSV vulnerability API (`api.osv.dev`), and `--allow-live` lets the page check load a live URL you give it. Without them, the page checks serve files only on this computer and block any request that would leave it. Secrets found in your code are redacted in every report.
+- **Personal data:** Curmudgeon collects, stores and sends no personal data for itself: no accounts, tracking or analytics. If the code you review contains personal data, the quoted lines, screenshots and restore copies it keeps in your local `.critic/` folder can include it. That folder stays on your machine.
 - **Hooks:**
   - Stop: the optional gate, off until you turn it on;
   - SubagentStop: checks that each reviewer's output follows the contract;
