@@ -1,6 +1,6 @@
 {
   "name": "curmudgeon",
-  "version": "4.0.1",
+  "version": "4.0.2",
   "description": "A grumpy, evidence-first reviewer for code, interfaces, documents and plans. Three blind reviewers, votes counted by a script, every finding re-checked blind, and false alarms measured against decoys. Prove it, then I'll grumble.",
   "author": { "name": "Ryan", "url": "https://github.com/truerevelationR2D2" },
   "homepage": "https://github.com/truerevelationR2D2/curmudgeon",
