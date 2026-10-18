@@ -6,20 +6,22 @@ on none of 23 real findings. Nothing here sends anything anywhere: the user copi
 back, and only when they said yes to the question in the skill.
 
 usage (from the project root, or set CRITIC_ROOT):
-  critic_outside.py brief [--goals TEXT] [--out PATH]
+  critic_outside.py brief [--goals TEXT] [--base REV] [--out PATH]
         writes .critic/outside/brief.md for the change in .critic/change-map.json: the commit, its parent, the repository
         link (any user:password@ removed), raw links to each file at that commit (GitHub only), the stated intent, and
         the output format. It never includes our findings, votes or reviewer notes, so the outside review stays blind.
         It warns when the outside reviewer can't see the change (uncommitted edits, a commit not pushed).
   critic_outside.py load ANSWER_FILE
-        reads the pasted answer (JSON, or text with ```json blocks), keeps the findings array, and writes
+        reads the pasted answer (JSON with or without ```json fences, as copied from a chat page), keeps every findings
+        array (objects with an impact field; recheck rows and the inspection record are ignored), and writes
         .critic/outside/outside-review.json in our finding format. It repairs curly quotes, strips citation markers,
         and maps reproduced to executed. A claim of a run we can't see counts as traced, so the finding is verified.
+        Every value becomes bounded text; a finding naming a file outside the project is not loaded.
         At most 200 findings and 1 MB are read.
 Then: critic_merge.py tally <our reviews> --outside .critic/outside/outside-review.json [--scan ...] [--groups ...]"""
 import json, os, pathlib, re, subprocess, sys, urllib.parse
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
-from critic_findings import log_run, redact_secrets, refuse_linked_state
+from critic_findings import IMPACTS, log_run, redact_secrets, refuse_linked_state
 
 ROOT = pathlib.Path(os.environ.get("CRITIC_ROOT", os.getcwd())).resolve(); D = ROOT / ".critic"; OUT = D / "outside"
 MAX_BYTES, MAX_FINDINGS = 1_000_000, 200
@@ -27,12 +29,17 @@ FIELDS = ("impact", "category", "file", "line", "quote", "title", "evidence", "f
 
 def die(m): print(f"critic_outside: {m}", file=sys.stderr); sys.exit(2)
 
-def git(*a):
+def git_rc(*a):
+    """(exit code, stdout unstripped). Logged like every outside command."""
     log_run(ROOT, "command", "git " + " ".join(a))
     try:
         r = subprocess.run(["git", *a], cwd=ROOT, capture_output=True, text=True, timeout=20)
-        return r.stdout.strip() if r.returncode == 0 else ""
-    except (OSError, subprocess.TimeoutExpired): return ""
+        return r.returncode, r.stdout
+    except (OSError, subprocess.TimeoutExpired): return 1, ""
+
+def git(*a):
+    rc, out = git_rc(*a)
+    return out.strip() if rc == 0 else ""
 
 def public_url(remote):
     """https link with no credentials, or "" when the remote isn't a web URL. git@host:owner/repo.git becomes https."""
@@ -45,28 +52,42 @@ def public_url(remote):
     return urllib.parse.urlunsplit(("https", host, re.sub(r"\.git/?$", "", u.path), "", ""))
 
 def brief(args):
-    goals = ""
+    goals, base = "", ""
     out = OUT / "brief.md"
     i = 0
     while i < len(args):
         if args[i] == "--goals" and i + 1 < len(args): goals = args[i + 1]; i += 2
+        elif args[i] == "--base" and i + 1 < len(args): base = args[i + 1]; i += 2
         elif args[i] == "--out" and i + 1 < len(args): out = pathlib.Path(args[i + 1]); i += 2
         else: die(f"unknown option {args[i]}")
     try: cm = json.loads((D / "change-map.json").read_text())
     except Exception: die("run critic_map.py first: the brief is built from .critic/change-map.json")
     files = [f for f in cm.get("files", []) if not str(f).startswith(".critic/")]
-    head, parent = git("rev-parse", "HEAD"), git("rev-parse", "HEAD~1")
+    head = git("rev-parse", "HEAD")
+    parent = git("rev-parse", "--verify", "--quiet", (base or "HEAD~1") + "^{commit}") if head else ""
+    prefix = git("rev-parse", "--show-prefix")  # the project's folder inside the repository ("" at the top)
+    top = pathlib.Path(git("rev-parse", "--show-toplevel") or ROOT)
     url = public_url(git("remote", "get-url", "origin"))
-    dirty = [l[3:] for l in git("status", "--porcelain").splitlines() if l[3:] in files]
+    # edits not in HEAD (staged, unstaged or untracked) for the files in this change; pathspecs are relative to ROOT
+    dirty = 0
+    if head and files:
+        rc, _ = git_rc("diff", "--quiet", "HEAD", "--", *files)
+        dirty = (rc != 0) + bool(git("ls-files", "--others", "--exclude-standard", "--", *files))
     pushed = bool(head) and bool(git("branch", "-r", "--contains", head))
+    reviews_ignored = git_rc("check-ignore", "-q", ".critic/reviews/review-A.json")[0] == 0
     warn = []
     if not head: warn.append("This project has no commit yet: attach the files to the outside reviewer yourself.")
-    if dirty: warn.append(f"{len(dirty)} file(s) in this change aren't committed, so the outside reviewer can't see those edits online: commit and push first, or attach the files.")
+    if dirty: warn.append("Some files in this change have edits that aren't committed, so the outside reviewer can't see them online: commit and push first, or attach the files.")
+    if not reviews_ignored: warn.append("The .critic/ folder isn't git-ignored here. If you commit and push for the outside reviewer, leave .critic/ out (or add it to .gitignore first): otherwise it can read our reviews and the review stops being blind.")
     if head and not pushed: warn.append("This commit isn't pushed, so the links below won't open: push first, or attach the files.")
     if url and "github.com" not in url: warn.append("Raw links are made for GitHub only: for this host, attach the files or give the reviewer the repository link.")
     if not url: warn.append("No web link for this repository: attach the files to the outside reviewer yourself.")
     warn.append("A private repository can't be opened by the outside reviewer: attach the files, or skip this step.")
-    def raw(f): return f"https://raw.githubusercontent.com/{url.split('github.com/', 1)[1]}/{head}/{f}" if url and "github.com/" in url and head else f
+    def raw(f):
+        if not (url and "github.com/" in url and head): return f
+        # the change map lists paths from the project root (--files) or from the repository root (git diff): use whichever exists
+        repo_rel = prefix + f if (ROOT / f).exists() or not (top / f).exists() else f
+        return f"https://raw.githubusercontent.com/{url.split('github.com/', 1)[1]}/{head}/" + urllib.parse.quote(repo_rel)
     lines = ["# Outside review brief (paste everything below the line into the other AI)", "",
              "Before you paste: this sends the files listed here to that AI's service. Check:", ""] + [f"- {w}" for w in warn] + ["", "---", "",
              "## Request for an independent, double-blind code review", "",
@@ -78,7 +99,7 @@ def brief(args):
              "### 1. Review target", "",
              f"- **Repository:** {url or '(attached files)'}",
              f"- **Exact commit:** `{head or '(not committed)'}`",
-             f"- **Parent commit:** `{parent or '(none)'}`",
+             f"- **Parent commit** ({'the change starts after ' + base if base else 'the commit before it'}): `{parent or '(none)'}`",
              f"- **Stated intent of the change:** {redact_secrets(str(cm.get('intent') or 'not stated'))[:600]}"]
     if goals: lines.append(f"- **Primary design goals:** {redact_secrets(goals)[:1200]}")
     lines += ["", "**Files in the change** (raw text at the exact commit; use these for quotes and line numbers):", ""] + [f"- {raw(f)}" for f in files[:60]]
@@ -114,44 +135,83 @@ def brief(args):
     for w in warn: print("note: " + w)
     return 0
 
-CITE = re.compile(r"【[^】]*】")  # ChatGPT-style source markers; code like a[0] is never touched
-def clean(v):
-    return CITE.sub("", v).strip() if isinstance(v, str) else v
+CITE = re.compile(r"\u3010[^\u3011]*\u3011")  # ChatGPT-style source markers; code like a[0] is never touched
+TEXT_FIELDS = ("impact", "category", "file", "title", "evidence", "failing_case", "verified", "remediation", "quote")
+MAX_FIELD = 4000
 
-def arrays(text):
-    """Every JSON value in the answer: the whole text, then each ```json block."""
-    found = []
-    for t in [text] + re.findall(r"```(?:json)?\s*\n(.*?)```", text, re.S):
-        for attempt in (t, t.replace("“", '"').replace("”", '"')):
-            try: found.append(json.loads(attempt)); break
-            except json.JSONDecodeError: continue
-    return found
+def as_text(v):
+    """Pasted values can be anything: lists, numbers, objects. Everything becomes bounded text."""
+    if v is None: return ""
+    if not isinstance(v, str): v = json.dumps(v, ensure_ascii=False)
+    return v[:MAX_FIELD]
+
+def json_values(text, limit=20000):
+    """Every top-level JSON array or object in the text, fenced or not (a copy of a rendered chat page has no
+    fences). Each [ or { is tried with a JSON decoder; a value found is skipped over whole."""
+    dec, out, i, tries = json.JSONDecoder(), [], 0, 0
+    while i < len(text) and tries < limit:
+        j = min([k for k in (text.find("[", i), text.find("{", i)) if k >= 0], default=-1)
+        if j < 0: break
+        tries += 1
+        try: v, end = dec.raw_decode(text, j); out.append(v); i = end
+        except ValueError: i = j + 1
+    return out
+
+def findings_in(vals):
+    """Every findings-shaped array: lists of objects with an impact field. Recheck rows (status, no impact) and the
+    inspection record are not findings."""
+    rows = []
+    for v in vals:
+        if isinstance(v, list) and v and all(isinstance(x, dict) for x in v) and any("impact" in x for x in v): rows += [x for x in v if "impact" in x]
+    return rows
+
+def inside_root(rel):
+    """A finding must name a file inside the project: no absolute paths, no .., nothing that resolves outside."""
+    if not rel or rel.startswith(("/", "\\")) or re.match(r"^[A-Za-z]:", rel) or ".." in re.split(r"[/\\]", rel): return False
+    try: (ROOT / rel).resolve().relative_to(ROOT)
+    except (ValueError, OSError): return False
+    return True
 
 def load(args):
     if len(args) != 1: die("usage: load ANSWER_FILE")
     p = pathlib.Path(args[0])
     if p.is_symlink() or not p.is_file(): die(f"{p} is not a plain file")
     if p.stat().st_size > MAX_BYTES: die(f"{p} is over 1 MB; paste only the findings block")
-    vals = arrays(p.read_text(encoding="utf-8", errors="replace"))
-    rows = next((v for v in vals if isinstance(v, list) and v and all(isinstance(x, dict) for x in v) and any("impact" in x for x in v)), None)
-    if rows is None:
-        if any(isinstance(v, list) and not v for v in vals): rows = []
-        else: die("no findings array found (a JSON list of objects with an impact field)")
-    out, skipped = [], max(0, len(rows) - MAX_FINDINGS)
+    text = p.read_text(encoding="utf-8", errors="replace")
+    vals = json_values(text)
+    rows = findings_in(vals)
+    if not rows:  # a chat page can turn straight quotes into curly ones; try again with them straightened
+        rows = findings_in(json_values(text.replace("\u201c", '"').replace("\u201d", '"')))
+    if not rows and not any(isinstance(v, list) and not v for v in vals):
+        die("no findings found: paste the JSON findings list (objects with an impact field), with or without the ```json fences")
+    out, notes, seen = [], [], set()
     for k, r in enumerate(rows[:MAX_FINDINGS]):
-        f = {x: (r.get(x) if x == "quote" else clean(r.get(x))) for x in FIELDS}  # the quote is code: kept exactly
-        f["impact"] = str(f.get("impact") or "").strip().title()
-        claimed = str(f.get("verified") or "").strip().lower()
+        f = {x: as_text(r.get(x)) for x in TEXT_FIELDS}
+        for x in TEXT_FIELDS:
+            if x != "quote": f[x] = CITE.sub("", f[x]).strip()  # the quote is code: kept exactly
+        oid = as_text(r.get("id") or f"N{k + 1}")[:20]
+        f["file"] = f["file"].replace("\\", "/")
+        while f["file"].startswith("./"): f["file"] = f["file"][2:]
+        if not inside_root(f["file"]): notes.append(f"{oid}: names a file outside this project ({f['file'][:80]}), not loaded"); continue
+        try: f["line"] = max(0, int(str(r.get("line") or 0).strip()))
+        except ValueError: f["line"] = 0
+        f["impact"] = f["impact"].strip().title()
+        if f["impact"] not in IMPACTS:  # e.g. the brief's own template row, "Critical | High | Medium | Low", pasted back
+            notes.append(f"{oid}: impact {f['impact'][:40]!r} is not Critical, High, Medium or Low, not loaded"); continue
+        claimed = f["verified"].strip().lower()
         f["verified"] = "inferred" if claimed == "inferred" else "traced"  # we can't see the outside run: verification decides
-        f["claimed_verified"] = claimed
-        f["quote"] = f.get("quote") or ""
-        f["outside_id"] = str(r.get("id") or f"N{k + 1}")[:20]
-        if r.get("introduced_by_change") is not None: f["introduced_by_change"] = str(r["introduced_by_change"])[:20]
+        f["claimed_verified"] = claimed[:20]
+        f["outside_id"] = oid
+        f["introduced_by_change"] = as_text(r.get("introduced_by_change"))[:20]
         f["source"] = "outside"
-        out.append(f)
+        key = (oid, f["file"], f["line"], f["title"])
+        if key in seen: continue  # the same finding pasted twice
+        seen.add(key); out.append(f)
     OUT.mkdir(parents=True, exist_ok=True)
     (OUT / "outside-review.json").write_text(json.dumps(out, indent=1, ensure_ascii=False), encoding="utf-8")
-    print(f"wrote .critic/outside/outside-review.json: {len(out)} finding(s)" + (f", {skipped} over the limit of {MAX_FINDINGS} not read" if skipped else ""))
+    over = max(0, len(rows) - MAX_FINDINGS)
+    print(f"wrote .critic/outside/outside-review.json: {len(out)} finding(s)" + (f", {over} over the limit of {MAX_FINDINGS} not read" if over else ""))
+    for n in notes: print("note: " + n)
     return 0
 
 if __name__ == "__main__":

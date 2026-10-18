@@ -5,7 +5,7 @@ A finding is a dict:
   id (stable, from the fingerprint), category, impact (Critical|High|Medium|Low), file, line, quote (the exact code
   or text the finding is about), title, evidence, failing_case, verified (executed|traced|inferred), remediation,
   source (reviewer name, "scan", or a tool), votes (filled by the tally)."""
-import hashlib, json, pathlib, re, time, os, sys
+import hashlib, json, pathlib, re, subprocess, time, os, sys
 
 IMPACTS = ("Critical", "High", "Medium", "Low")
 VERIFIED = ("executed", "traced", "inferred")
@@ -58,6 +58,16 @@ def quote_check(f, root):
     parts = [norm_code(x) for x in str(f.get("quote")).split("\n") if x.strip()]
     whole = [norm_code(x) for x in lines[max(0, lo - 10):hi + 10]]
     return bool(parts) and all(any(p_ in w for w in whole) for p_ in parts)
+
+def relocate_quote(f, root):
+    """For an outside reviewer whose viewer numbered lines differently: the line where a long quote appears, when it
+    appears on exactly one line of the file; otherwise None. A short or repeated quote is never moved."""
+    q = norm_code(f.get("quote"))
+    if len(q) < 20 or "\n" in str(f.get("quote") or "").strip() or not f.get("file"): return None
+    try: lines = (pathlib.Path(root) / f["file"]).read_text(encoding="utf-8", errors="replace").split("\n")
+    except OSError: return None
+    hits = [i + 1 for i, l in enumerate(lines) if q in norm_code(l)]
+    return hits[0] if len(hits) == 1 else None
 
 def read_jsonl(path):
     out = []
@@ -165,52 +175,83 @@ def append_line(path, line):
     fd = os.open(path, os.O_WRONLY | os.O_APPEND | os.O_CREAT | getattr(os, "O_NOFOLLOW", 0), 0o644)
     with os.fdopen(fd, "a", encoding="utf-8") as fh: fh.write(line)
 
-_VAL = r"""("[^"]*"|'[^']*'|[^\s"'&;|]+)"""
-_NAME = r"[\w.-]*(?:secret|token|passw(?:or)?d|pwd|api[_-]?key|private[_-]?key|access[_-]?key|auth|credential|cookie|session)[\w.-]*"
-SECRET_IN_TEXT = re.compile(
-    r"(?i)(\b(?:bearer|basic|token)\s+)([A-Za-z0-9._~+/=-]{8,})"          # Authorization: Bearer xxx / Basic xxx
-    r"|(\b" + _NAME + r"\s*[=:]\s*(?:(?:bearer|basic|token)\s+)?)" + _VAL +                          # NAME=value, NAME: value (env vars, headers, config)
-    r"|(--?" + _NAME + r"(?:=|\s+))" + _VAL +                          # --password value, --api-key=value
-    r"|(\bcookie:\s*)([^\"']+)"                                       # Cookie: header
-    r"|(?<=://)([^/\s:@]+):([^@\s/]+)@"                                    # user:password@ in URLs
-    r"|(\s-u\s+)([^\s:]+):(\S+)"                                           # curl -u user:password
-    r"|(\s-p)(\S+)"                                                        # mysql -pPASSWORD
-    r"|\beyJ[\w-]{8,}\.[\w-]{8,}\.[\w-]{4,}"                               # JWTs
-    r"|\b(?:sk|rk|pk)_(?:live|test)_\w{8,}|\bsk-[\w-]{20,}|\bgh[pousr]_\w{20,}|\bAKIA[0-9A-Z]{16}\b|\bxox[abposr]-[\w-]{10,}|\bAIza[\w-]{30,}")
+_VAL = r"""("[^"]*"|'[^']*'|[^\s"'&;|,}]+)"""
+# a secret-bearing name: a whole word or a _/./- segment of a longer name (DB_PASS, x-amz-signature, my.api_key), never
+# a bare substring (author, bypass, session-dir stay readable). Bounded repeats keep it fast on long hyphenated text.
+_SEG = (r"secret|token|passw(?:or)?d|pass|pwd|pw|api[_-]?key|apikey|private[_-]?key|access[_-]?key|credentials?|"
+        r"authorization|auth[_-]?(?:token|key)|session[_-]?(?:id|key|token)|sessid|signature|sig|x-amz-credential")
+_NAME_BODY = r"(?:[A-Za-z0-9]{1,40}[_.-]){0,4}(?:" + _SEG + r")(?:[_.-][A-Za-z0-9]{1,40}){0,4}(?![\w.-])"
+_NAME = r"(?<![\w.-])" + _NAME_BODY
+_CRED = r"(?=[A-Za-z0-9._~+/=-]{8,})(?=[A-Za-z0-9._~+/=-]*[0-9+/=_~.-])[A-Za-z0-9._~+/=-]+"  # 8+ chars with a digit or symbol: not a plain word
+REDACT_RULES = [  # applied in order; each masks the value and keeps the label
+    (re.compile(r"(?i)(\bcookie:\s*)([^\"'\n]+)"), lambda m: m.group(1) + "[redacted]"),                       # the whole Cookie header
+    (re.compile(r"(?i)(\b(?:bearer|basic)\s+)(" + _CRED + ")"), lambda m: m.group(1) + "[redacted]"),          # Authorization: Bearer xxx
+    (re.compile(r"(?i)(" + _NAME + r"[\"']?\s*[=:]\s*(?:(?:bearer|basic|token)\s+)?)" + _VAL), None),        # NAME=value, "password": "x", headers
+    (re.compile(r"(?i)((?<![\w-])--?" + _NAME_BODY + r"(?:=|\s+))" + _VAL), None),                                          # --password value, --api-key=value
+    (re.compile(r"(?<=://)([^/\s:@]+):([^@\s/]+)@"), lambda m: m.group(1) + ":[redacted]@"),                  # user:password@ in URLs
+    (re.compile(r"(?<=://)([^/\s:@]{8,})@"), lambda m: "[redacted]@"),                                        # token@ in URLs
+    (re.compile(r"(\s-u\s+)([^\s:]+):(\S+)"), lambda m: f"{m.group(1)}{m.group(2)}:[redacted]"),             # curl -u user:password
+    (re.compile(r"(?i)(\b(?:mysql\w*|mariadb\w*)\b[^|;&\n]{0,200}?\s-p)(\S+)"), lambda m: m.group(1) + "[redacted]"),  # mysql -pPASSWORD
+    (re.compile(r"(?i)(\bsshpass\s+-p\s*)(\S+)"), lambda m: m.group(1) + "[redacted]"),
+    (re.compile(r"(?i)(\bredis-cli\b[^|;&\n]{0,200}?\s-a\s+)(\S+)"), lambda m: m.group(1) + "[redacted]"),
+    (re.compile(r"\beyJ[\w-]{8,}\.[\w-]{8,}\.[\w-]{4,}|\b(?:sk|rk|pk)_(?:live|test)_\w{8,}|\bsk-[\w-]{20,}|\bgh[pousr]_\w{20,}"
+                r"|\bAKIA[0-9A-Z]{16}\b|\bxox[abposr]-[\w-]{10,}|\bAIza[\w-]{30,}"), lambda m: m.group(0)[:4] + "[redacted]"),  # JWTs and provider key shapes
+]
 def redact_secrets(text):
-    """Mask credentials in anything written to a log: auth headers, NAME=value and --name value secrets, cookies,
-    user:password@ in URLs, curl -u, mysql -p, JWTs and common provider key shapes. A plain word after "token" (as
-    in `pytest -k "token and not slow"`) is left alone: only an assignment, a flag value or a header is masked."""
+    """Mask credentials in anything written to a log: auth headers, NAME=value, "name": "value" and --name value
+    secrets (passwords, tokens, keys, signed-URL signatures), cookies, user:password@ and token@ in URLs, curl -u,
+    mysql -p, sshpass -p, redis-cli -a, JWTs and common provider key shapes. Ordinary words stay readable: `pytest -k
+    "token production path"`, `--author=bob`, `--session-dir x` and `gcc -pthread` are left alone."""
     def keepq(v):  # keep the quotes, mask the inside
         return v[0] + "[redacted]" + v[-1] if len(v) > 1 and v[0] in "\"'" and v[-1] == v[0] else "[redacted]"
-    def sub(m):
-        g = m.groups()
-        if g[0] is not None: return g[0] + "[redacted]"
-        if g[2] is not None: return g[2] + keepq(g[3])
-        if g[4] is not None: return g[4] + keepq(g[5])
-        if g[6] is not None: return g[6] + "[redacted]"
-        if g[8] is not None: return f"{g[8]}:[redacted]@"
-        if g[10] is not None: return f"{g[10]}{g[11]}:[redacted]"
-        if g[13] is not None: return g[13] + "[redacted]"
-        return m.group(0)[:4] + "[redacted]"
-    return SECRET_IN_TEXT.sub(sub, text)
+    text = str(text)
+    for rx, fn in REDACT_RULES:
+        text = rx.sub(fn or (lambda m: m.group(1) + keepq(m.group(2))), text)
+    return text
 
 RUNLOG_MAX = 1_000_000
+IGNORED = ("runlog.jsonl", "refutations.jsonl", "spotcheck.md", "restore/")
+_TRACKED = {}
+def runlog_tracked(root):
+    """True when the repository already tracks .critic/runlog.jsonl: ignore rules don't apply to a tracked file, so
+    anything written there would show up in the next commit. Asked once per process; not logged (it is the log's own check)."""
+    key = str(root)
+    if key not in _TRACKED:
+        try:
+            r = subprocess.run(["git", "ls-files", "--error-unmatch", "--", ".critic/runlog.jsonl"], cwd=root, capture_output=True, timeout=5)
+            _TRACKED[key] = r.returncode == 0
+        except (OSError, subprocess.TimeoutExpired): _TRACKED[key] = False
+        if _TRACKED[key]:
+            print("curmudgeon: .critic/runlog.jsonl is tracked by git in this repository, so the run log is not written (it would go into "
+                  "your next commit). To keep a log, run: git rm --cached .critic/runlog.jsonl", file=sys.stderr)
+    return _TRACKED[key]
+
+def ensure_ignored(d):
+    """.critic/.gitignore lists the local logs; missing entries are added to an existing file, never through a link."""
+    gi = d / ".gitignore"
+    if gi.is_symlink(): return
+    have = gi.read_text(encoding="utf-8", errors="replace").splitlines() if gi.exists() else []
+    missing = [x for x in IGNORED if x not in (h.strip() for h in have)]
+    if not missing: return
+    head = "" if have else "# Curmudgeon's local logs: never commit them\n"
+    sep = "\n" if have and not gi.read_text(encoding="utf-8", errors="replace").endswith("\n") else ""
+    with open(gi, "a", encoding="utf-8") as fh: fh.write(sep + head + "".join(x + "\n" for x in missing))
+
 def log_run(root, what, detail=""):
     """Append one line to .critic/runlog.jsonl: every script the plugin starts and every outside command it runs, so a
     user can see exactly what ran on their machine. Never fails the caller; trims itself past about 1 MB."""
     try:
         d = pathlib.Path(root) / ".critic"; d.mkdir(exist_ok=True)
         p = d / "runlog.jsonl"
-        line = json.dumps({"at": time.strftime("%Y-%m-%d %H:%M:%S"), "what": what, "detail": redact_secrets(str(detail))[:400]}, ensure_ascii=False) + "\n"
+        line = json.dumps({"at": time.strftime("%Y-%m-%d %H:%M:%S"), "what": what, "detail": redact_secrets(str(detail)[:4000])[:400]}, ensure_ascii=False) + "\n"
         if p.is_symlink() or state_links(root): return  # never write through a link
+        if runlog_tracked(root): return
         if p.exists() and p.stat().st_size > RUNLOG_MAX:
             with open(p, "rb") as fh:  # read only the tail, never the whole file
                 fh.seek(max(0, p.stat().st_size - RUNLOG_MAX // 2)); tail = fh.read()
             keep = tail.decode("utf-8", errors="replace").splitlines(True)[1:]  # drop the partial first line
             tmp = p.with_name(p.name + ".tmp"); tmp.write_text("".join(keep), encoding="utf-8"); os.replace(tmp, p)
-        gi = d / ".gitignore"
-        if not gi.exists(): gi.write_text("# Curmudgeon's local logs: never commit them\nrunlog.jsonl\nrefutations.jsonl\nspotcheck.md\nrestore/\n", encoding="utf-8")
+        ensure_ignored(d)
         append_line(p, line)
     except Exception: pass
 

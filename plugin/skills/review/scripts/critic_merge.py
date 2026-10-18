@@ -38,7 +38,7 @@ apply:
   records every kept finding in the ledger (new, known or regressed)."""
 import hashlib, json, math, os, pathlib, re, subprocess, sys, time
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
-from critic_findings import IMPACTS, extract_findings, fingerprint, quote_check, read_jsonl, refutation_problem, similar, log_run, append_line, refuse_linked_state, to_sarif, validate, write_jsonl, tokens
+from critic_findings import IMPACTS, extract_findings, relocate_quote, fingerprint, quote_check, read_jsonl, refutation_problem, similar, log_run, append_line, refuse_linked_state, to_sarif, validate, write_jsonl, tokens
 
 ROOT = pathlib.Path(os.environ.get("CRITIC_ROOT", os.getcwd())).resolve(); D = ROOT / ".critic"
 
@@ -69,6 +69,13 @@ def load_review(path):
             try: rows = read_jsonl(p)
             except ValueError: rows = []
     return [dict(r, source=r.get("source") or p.stem) for r in rows if isinstance(r, dict)]
+
+def inside_root(rel):
+    """Findings may only point inside the project: an absolute path, .. or a link out is never read or verified."""
+    if not rel: return True
+    if pathlib.PurePath(rel).is_absolute() or re.match(r"^[A-Za-z]:[\\/]", rel): return False
+    try: (ROOT / rel).resolve().relative_to(ROOT); return True
+    except (ValueError, OSError): return False
 
 def ledger():
     try: return json.loads((D / "ledger.json").read_text())
@@ -136,7 +143,11 @@ def tally(paths):
     for ri, rows in list(enumerate(reviews)) + ([(len(reviews), scanned)] if scanned else []) + ([(OUTSIDE_RI, outside_rows)] if outside else []):
         is_scan = bool(scanned) and ri == len(reviews)
         for k, f in enumerate(rows):
+            for k_ in ("impact", "category", "title", "file", "evidence", "failing_case", "verified", "remediation", "quote"):
+                if f.get(k_) is not None and not isinstance(f[k_], str): f[k_] = json.dumps(f[k_], ensure_ascii=False)  # a pasted or malformed value never crashes a later step
             f["impact"] = str(f.get("impact", "")).title(); f["file"] = norm_path(f.get("file"))
+            if not inside_root(f["file"]):
+                out["rejected"].append({"finding": f, "why": ["names a file outside the project: never read, never sent to a verifier"]}); continue
             try: f["line"] = int(re.match(r"\s*(\d+)", str(f.get("line") or "0")).group(1))
             except AttributeError: f["line"] = 0
             f["id"] = fingerprint(f); f["raw"] = "x" + hashlib.sha1(f"{ri}|{k}|{f['id']}".encode()).hexdigest()[:7]  # opaque: the dedup agent can't tell reviewers apart
@@ -145,6 +156,9 @@ def tally(paths):
             if f["verified"] == "executed" and not f.get("quote") and not is_scan:
                 f["verified"] = "traced"  # an 'executed' claim needs a quote the script can check; without one it counts as traced
             q = quote_check(f, ROOT)
+            if q is False and ri == OUTSIDE_RI:  # another model's viewer may number lines differently: a long quote found on exactly one line is moved there
+                moved = relocate_quote(f, ROOT)
+                if moved: f["line_cited"], f["line"] = f["line"], moved; f["id"] = fingerprint(f); q = True
             if q is False: out["retracted"].append({"finding": f, "why": "quoted code is not at the cited file:line"}); continue
             f["quote_checked"] = q is True
             s_ = suppressed_by_ledger(f, L)
@@ -162,14 +176,27 @@ def tally(paths):
     for i in range(len(accepted)):
         for j in range(i + 1, len(accepted)):
             ra, ia, a = accepted[i]; rb, ib, b = accepted[j]
-            if ia == ib: continue  # never merge two findings from the same reviewer (or two scanner rows: two keys on one line are two leaks)
+            if ia == ib or OUTSIDE_RI in (ia, ib): continue  # outside findings are attached below, one cluster each: they never join two of ours  # never merge two findings from the same reviewer (or two scanner rows: two keys on one line are two leaks)
             if similar(a, b): union(ra, rb)
     is_doc = {r: bool(re.search(r"\.(md|mdx|markdown|rst|txt|adoc)$|(^|/)(readme|changelog|license|contributing)$", f["file"] or "", re.I)) for r, _, f in accepted}  # by file type, never by a name inside a code path
+    outside_raw = {r for r, ri, _ in accepted if ri == OUTSIDE_RI}
     for g in groups or []:
-        g = [x for x in g if x in parent]
+        g = [x for x in g if x in parent and x not in outside_raw]
         for kind in (True, False):  # a false claim in the docs and the code that makes it false are fixed in different places: never merged
             part = [x for x in g if is_doc[x] == kind]
             for x in part[1:]: union(part[0], x)
+    # Attach each outside finding to at most ONE of our clusters (similar wording, or grouped with it by the dedup
+    # agent), the nearest by file and line. It adds a vote there and nothing else: it can't merge two of our findings,
+    # and it never sets the impact (see below).
+    ours = [(r, f) for r, ri, f in accepted if ri != OUTSIDE_RI]
+    grouped = {}
+    for g in groups or []:
+        for x in g: grouped.setdefault(x, set()).update(g)
+    for r, ri, f in accepted:
+        if ri != OUTSIDE_RI: continue
+        cands = [(0 if o["file"] == f["file"] else 1, abs(int(o.get("line") or 0) - int(f.get("line") or 0)), ro) for ro, o in ours
+                 if similar(f, o) or ro in grouped.get(r, ()) and is_doc[ro] == is_doc[r]]
+        if cands: parent[r] = find(min(cands)[2])
     # The dedup agent gets every finding not already merged, listed by file (pairs by line distance missed real
     # duplicates cited at distant lines or in another file). No reviewer names or votes; ids are opaque.
     by_file, roots = {}, {}
@@ -191,6 +218,7 @@ def tally(paths):
     of = n + (1 if outside else 0)
     if outside:
         out["outside"] = {"file": str(outside), "raised": len(outside_rows), "accepted": out_raised,
+                          "lines_corrected": sum(1 for _, ri, f in accepted if ri == OUTSIDE_RI and f.get("line_cited")),
                           "matched_ours": sum(1 for c in clusters if c["outside"] and (c["reviewers"] or c["scan"])),
                           "only_outside": sum(1 for c in clusters if c["outside"] and not c["reviewers"] and not c["scan"])}
     for c in clusters:
@@ -201,15 +229,16 @@ def tally(paths):
         if votes == 0 and c.get("scan"):  # found only by the detector: kept on its evidence, verified like any other
             f = dict(m[0], votes=0, of=of, locations=[f"{m[0]['file']}:{m[0].get('line', '')}"], raised_by=["scan"], scan_confirmed=True)
             out["kept"].append(f); continue
-        human = [x for x in m if x.get("source") != "scan"] or m
+        # impact, wording and evidence come from our own reviewers (or the scan); an outside finding only adds its vote
+        human = [x for x in m if x.get("source") not in ("scan", "outside")] or [x for x in m if x.get("source") != "outside"] or m
         best = sorted(human, key=lambda x: (["executed", "traced", "inferred"].index(x["verified"]), IMP_RANK[x["impact"]]))[0]
-        f = dict(best, votes=votes, of=of, impact=median_impact([x["impact"] for x in m if x.get("source") != "scan"] or [x["impact"] for x in m]), scan_confirmed=bool(c.get("scan")),
+        f = dict(best, votes=votes, of=of, impact=median_impact([x["impact"] for x in human]), scan_confirmed=bool(c.get("scan")),
                  locations=sorted({f"{x['file']}:{x.get('line', '')}" for x in m}), raised_by=sorted({x["source"] for x in m}))
         mn = next((x["memory_note"] for x in m if x.get("memory_note")), None)
         if mn and f["impact"] in ("Medium", "Low"): f["memory_note"] = mn
         else: f.pop("memory_note", None)
         executed = any(x["verified"] == "executed" for x in m) or bool(c.get("scan"))
-        unanchored = not any(x.get("quote_checked") for x in m) and not c.get("scan")
+        unanchored = not any(x.get("quote_checked") for x in m if x.get("source") != "outside") and not c.get("scan")
         if unanchored and not executed and votes < 2 and f["impact"] in ("Critical", "High", "Medium"): out["contested"].append(f)  # nothing the script could check: verify it, even on one reviewer
         elif votes >= need or executed: out["kept"].append(f)
         elif f["impact"] in ("Critical", "High"): out["contested"].append(f)
@@ -229,7 +258,7 @@ def tally(paths):
           f"dropped {len(out['dropped'])}, retracted {len(out['retracted'])}, rejected {len(out['rejected'])}, hidden by your rulings {len(out['suppressed'])}, "
           f"noted as like past dismissals {sum(1 for f in out['kept'] + out['contested'] if f.get('memory_note'))}")
     print(f"verification packets: {len(list(vd.glob('*.json')))} in {vd.relative_to(ROOT)}")
-    if out["outside"]: print("outside reviewer: {raised} raised, {accepted} passed the contract and quote checks, {matched_ours} matched ours, {only_outside} only theirs (all sent to verification)".format(**out["outside"]))
+    if out["outside"]: print("outside reviewer: {raised} raised, {accepted} passed the contract and quote checks ({lines_corrected} at a corrected line), {matched_ours} matched ours, {only_outside} only theirs (all sent to verification)".format(**out["outside"]))
     if not groups and cands: print(f"dedup: {cands} finding(s) listed in .critic/dedup-candidates.json; have a dedup agent group them, then rerun tally with --groups")
     return 0
 
@@ -298,7 +327,7 @@ def apply(paths):
         if rows: md += ["", f"## {name}"] + [f"- {r['finding'].get('id')} {r['finding'].get('file')}:{r['finding'].get('line', '')} {r['finding'].get('title')}: {r['why'] if isinstance(r['why'], str) else '; '.join(r['why'])}" for r in rows]
     if T.get("outside"):
         o = T["outside"]; theirs = [f for f in final if "outside" in (f.get("raised_by") or [])]
-        md += ["", "## Outside reviewer", f"- {o['raised']} raised; {o['accepted']} passed the contract and quote checks; {o['matched_ours']} matched our reviewers; "
+        md += ["", "## Outside reviewer", f"- {o['raised']} raised; {o['accepted']} passed the contract and quote checks ({o.get('lines_corrected', 0)} at a corrected line); {o['matched_ours']} matched our reviewers; "
                f"{o['only_outside']} only theirs, each verified blind. In the final list: " + (", ".join(f"{f['id']} {f['impact']}" for f in theirs) or "none") + "."]
     looks = [f for f in final if f.get("memory_note")]
     if looks:

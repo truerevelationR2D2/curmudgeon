@@ -144,7 +144,14 @@ def load_rule_files(root):
     if not NO_PROJECT_RULES: folders.append((root / ".critic" / "rules", True))
     for folder, is_project in folders:
         if not folder.is_dir() or folder.is_symlink(): continue
-        for rf in sorted(folder.glob("*.json")):
+        found, more = [], False
+        with os.scandir(folder) as it:  # a bounded listing: a folder of a million files is never read in full
+            for e in it:
+                if e.name.endswith(".json"):
+                    if len(found) >= 500: more = True; break
+                    found.append(folder / e.name)
+        if more: bad.append(f"project rule files: over 500 .json files in {folder.name}/, only the first 500 listed were considered")
+        for rf in sorted(found):
             if rf.is_symlink() or not rf.is_file(): bad.append(f"{rf.name}: not a plain file (links and devices are never read)"); continue
             if rf.stat().st_size > 256 * 1024: bad.append(f"{rf.name}: over 256 KB, not read"); continue
             if is_project:
@@ -179,8 +186,11 @@ def load_rule_files(root):
 def static(src, root, excludes):
     n = texts = 0
     custom, bad = load_rule_files(root)
-    for b in bad[:20]: f("NOTE", "rule-file-invalid", "structure", "rules", b)
-    if len(bad) > 20: f("NOTE", "rule-file-invalid", "structure", "rules", f"{len(bad) - 20} more rule-file problems not listed")
+    limits = [b for b in bad if b.startswith("project rule")]  # a limit cut the rule set: always shown, never behind the cap
+    rest = [b for b in bad if not b.startswith("project rule")]
+    for b in limits: f("NOTE", "rule-file-limit", "structure", "rules", b)
+    for b in rest[:20]: f("NOTE", "rule-file-invalid", "structure", "rules", b)
+    if len(rest) > 20: f("NOTE", "rule-file-invalid", "structure", "rules", f"{len(rest) - 20} more rule-file problems not listed")
     for p in walk(src, excludes):
         try: text = p.read_text(encoding="utf-8")
         except (UnicodeDecodeError, OSError): continue

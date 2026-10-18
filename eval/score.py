@@ -121,7 +121,9 @@ def score_one(path, suite):
     hit_idx = set(hits.values()); decoy_idx = {bi for bi in used if bi not in hit_idx}
     for bi, b in enumerate(blocks):
         # the finding's own category and title decide its kind; the full text is only a fallback
-        kind = area_of(f"{rows[bi].get('category', '')} {rows[bi].get('title', '')}") if rows else "other"
+        # the finding's own category decides; the title only when the category names no area; the whole block last
+        kind = area_of(str(rows[bi].get("category", ""))) if rows else "other"
+        if kind == "other" and rows: kind = area_of(str(rows[bi].get("title", "")))
         if kind == "other": kind = area_of(b)
         if bi in hit_idx: by.setdefault(kind, [0, 0])[0] += 1
         elif bi in decoy_idx: by.setdefault(kind, [0, 0])[1] += 1

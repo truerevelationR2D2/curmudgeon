@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Tests for Curmudgeon's scripts. No test framework needed: python3 tests/run_tests.py (exit 1 on any failure).
 Each test builds its own scratch project in a temp folder and runs the real scripts against it."""
-import json, os, pathlib, shutil, subprocess, sys, tempfile
+import json, os, pathlib, shutil, subprocess, sys, tempfile, time
 
 HERE = pathlib.Path(__file__).resolve().parent.parent
 S = HERE / "skills" / "review" / "scripts"; H = HERE / "hooks"
@@ -491,7 +491,7 @@ def _(d):
     pend = json.loads((d / ".critic/ledger.json").read_text())["spotcheck_pending"]
     for x in pend: run(S / "critic_ledger.py", "spotcheck", "answer", x["id"], "real", cwd=d)
     st = run(S / "critic_ledger.py", "spotcheck", "stats", cwd=d).stdout
-    assert "findings judged 1: 1 real" in st and "refutations judged 1: 1 dropped a real bug" in st, st
+    assert "findings judged 1: 1 real" in st and "verifier decisions judged 1: 1 of 1 drops removed a real bug" in st, st
 
 @test("4.1 self-review: session.verify = False is found; dismiss --like closes only open Medium/Low; the audit logs are guarded")
 def _(d):
@@ -591,7 +591,7 @@ def _(d):
     run(S / "critic_scan.py", ".", "--root", ".", cwd=d)
     rows = json.loads((d / ".critic/scan/report.json").read_text())["findings"]
     assert all(r["sev"] != "FAIL" for r in rows if r["rule"] == "rule-everything") and any(r["rule"] == "rule-everything" for r in rows)
-    assert "over the limit of 50 files" in " ".join(r["what"] for r in rows if r["rule"] == "rule-file-invalid")
+    assert "over the limit of 50 files" in " ".join(r["what"] for r in rows if r["rule"] == "rule-file-limit")
     write(d, "y.py", "import yaml, evil\nimport subprocess as sp\nfrom subprocess import run as r\nfrom yaml import SafeLoader\n"
                      "yaml.load(s, Loader=evil.SafeLoader)\nyaml.load(s, Loader=SafeLoader)\nsp.run(u, shell=True)\nr(u, shell=True)\n")
     run(S / "critic_scan.py", ".", "--root", ".", cwd=d)
@@ -630,7 +630,7 @@ def _(d):
     run(S / "critic_scan.py", ".", "--root", ".", cwd=d)
     rows = json.loads((d / ".critic/scan/report.json").read_text())["findings"]
     assert sorted(r["where"] for r in rows if r["rule"] == "py-yaml-load") == ["y.py:5"], rows
-    assert "stopped partway through b10.json" in " ".join(r["what"] for r in rows if r["rule"] == "rule-file-invalid")
+    assert "stopped partway through b10.json" in " ".join(r["what"] for r in rows if r["rule"] == "rule-file-limit")
     sys.path.insert(0, str(S)); import critic_findings
     v = "EXAMPLE" + "value9"
     for line in (f"AWS_SECRET_ACCESS_KEY={v}", f'SECRET_KEY="{v}"', f'--password "{v} 2"', f"mysql -p{v}", f"curl -u bob:{v} x",
@@ -661,7 +661,7 @@ def _(d):
     assert all(x["verified"] == "traced" and x["claimed_verified"] in ("reproduced", "traced") and "\u3010" not in x["evidence"] for x in rows), rows
     r = run(S / "critic_merge.py", "tally", ".critic/reviews/review-A.json", "--outside", ".critic/outside/outside-review.json", cwd=d); assert r.returncode == 0, r.stderr
     t = json.loads((d / ".critic/tally.json").read_text())
-    assert t["outside"] == {"file": ".critic/outside/outside-review.json", "raised": 3, "accepted": 2, "matched_ours": 1, "only_outside": 1}, t["outside"]
+    assert t["outside"] == {"file": ".critic/outside/outside-review.json", "raised": 3, "accepted": 2, "lines_corrected": 0, "matched_ours": 1, "only_outside": 1}, t["outside"]
     agreed = [f for f in t["kept"] if f["title"] == "Title rendered as HTML"]; assert agreed and agreed[0]["votes"] == 2 and agreed[0]["of"] == 2, t["kept"]
     solo = [f for f in t["contested"] if f.get("outside_only")]; assert len(solo) == 1 and solo[0]["impact"] == "Low", t["contested"]
     assert (d / ".critic/verify" / f"{solo[0]['id']}.json").exists() and "outside" not in (d / ".critic/verify" / f"{solo[0]['id']}.json").read_text()
@@ -671,6 +671,105 @@ def _(d):
     c = (d / ".critic/counts.md").read_text(); assert "## Outside reviewer" in c and solo[0]["id"] in c, c
     assert run(S / "critic_outside.py", "load", "missing.txt", cwd=d).returncode != 0
     write(d, "empty.txt", "```json\n[]\n```"); assert "0 finding(s)" in run(S / "critic_outside.py", "load", "empty.txt", cwd=d).stdout
+
+@test("outside reviewer hardening: can't lower our impact, can't merge two of ours, can't point outside the project, survives real pastes")
+def _(d):
+    write(d, "src/app.js", APP); run(S / "critic_ledger.py", "start", "full", cwd=d)
+    a1, a2 = finding(), finding(line=4, quote="const price = total * 1.0825;", title="Tax rule in render code")
+    write(d, ".critic/reviews/review-A.json", json.dumps([a1, a2])); write(d, ".critic/reviews/review-B.json", "[]"); write(d, ".critic/reviews/review-C.json", "[]")
+    low = dict(finding(impact="Low"), id="N1")                                    # agrees with our Critical, rates it Low
+    bridge = dict(finding(impact="Low", line=3, quote="e", title="x"), id="N2")  # a one-letter quote that matches both of ours
+    away = dict(finding(file="/etc/passwd", line=1, quote="root"), id="N3")
+    away2 = dict(finding(file="../outside.js", line=1, quote="x"), id="N4")
+    odd = dict(finding(category="perf", impact="Medium", line=1, quote="function render(n) {", title=["not", "text"]), id="N5")
+    tmpl = {"id": "N1", "impact": "Critical | High | Medium | Low", "category": "short category", "file": "path/to/file", "line": 123, "quote": "", "title": "t"}
+    ans = ("Here is the brief I was given:\n```json\n" + json.dumps([tmpl]) + "\n```\nA. Inspection record\n" + json.dumps({"files_read": []}) +
+           "\nB. Recheck\n" + json.dumps([{"id": "G1", "status": "fixed", "file": "src/app.js"}]) + "\nC. New findings\n" + json.dumps([low, bridge]) +
+           "\nmore findings:\n```JSON\n" + json.dumps([away, away2, odd]) + "\n```\n")
+    write(d, ".critic/outside/answer.txt", ans)
+    r = run(S / "critic_outside.py", "load", ".critic/outside/answer.txt", cwd=d); assert r.returncode == 0, r.stderr
+    assert "3 finding(s)" in r.stdout and "outside this project" in r.stdout and "not Critical, High, Medium or Low" in r.stdout, r.stdout
+    rows = json.loads((d / ".critic/outside/outside-review.json").read_text())
+    assert [x["outside_id"] for x in rows] == ["N1", "N2", "N5"] and rows[2]["title"] == '["not", "text"]', rows
+    rows.append(dict(away, source="outside", verified="traced")); write(d, ".critic/outside/outside-review.json", json.dumps(rows))  # tally refuses it even if load were bypassed
+    r = run(S / "critic_merge.py", "tally", ".critic/reviews/review-A.json", ".critic/reviews/review-B.json", ".critic/reviews/review-C.json", "--outside", ".critic/outside/outside-review.json", cwd=d)
+    assert r.returncode == 0, r.stderr
+    t = json.loads((d / ".critic/tally.json").read_text()); allf = t["kept"] + t["contested"]
+    xss = [f for f in allf if f["title"] == "Title rendered as HTML"]; tax = [f for f in allf if f["title"] == "Tax rule in render code"]
+    assert xss and xss[0]["impact"] == "Critical" and (d / ".critic/verify" / f"{xss[0]['id']}.json").exists(), allf
+    assert tax, "an outside finding merged two of our findings and one disappeared"
+    assert any("outside the project" in " ".join(x["why"]) for x in t["rejected"]), t["rejected"]
+    assert not any("passwd" in v.read_text() for v in (d / ".critic/verify").glob("*.json"))
+    r = run(S / "critic_merge.py", "apply", str(write(d, "v.json", "[]")), cwd=d)
+    assert r.returncode == 0 and (d / ".critic/counts.md").exists(), r.stderr
+
+@test("outside brief: unstaged edits to the first file warned, subfolder links and odd names encoded, .critic exposure warned")
+def _(d):
+    g = lambda *a, cwd=d: subprocess.run(["git", *a], cwd=cwd, capture_output=True, text=True)
+    write(d, "web/a b#1.js", "let x = 1;\n"); write(d, "web/z.js", "let y = 2;\n")
+    g("init", "-q"); g("config", "user.email", "t@example.com"); g("config", "user.name", "t"); g("add", "-A"); g("commit", "-qm", "one")
+    g("remote", "add", "origin", "git@github.com:o/r.git")
+    write(d, "web/a b#1.js", "let x = 3;\n")  # unstaged edit to the first file in the change
+    w = d / "web"
+    run(S / "critic_map.py", "--files", "a b#1.js", "z.js", cwd=w)
+    r = run(S / "critic_outside.py", "brief", cwd=w); assert r.returncode == 0, r.stderr
+    b = (w / ".critic/outside/brief.md").read_text(); head = g("rev-parse", "HEAD").stdout.strip()
+    assert "edits that aren't committed" in b, b
+    assert f"https://raw.githubusercontent.com/o/r/{head}/web/a%20b%231.js" in b and f"/{head}/web/z.js" in b, b
+    assert "leave .critic/ out" in b, b
+
+@test("4.1.1 double-blind fixes: one spot-check item per id, downgrades counted apart, masking, tracked log, scope-safe aliases, limit notes")
+def _(d):
+    write(d, "src/app.js", APP); run(S / "critic_ledger.py", "start", "full", cwd=d)
+    write(d, "a.json", json.dumps([finding(impact="High", verified="executed")])); run(S / "critic_merge.py", "tally", "a.json", cwd=d)
+    fid = json.loads((d / ".critic/tally.json").read_text())["kept"][0]["id"]
+    write(d, "v.json", json.dumps([{"id": fid, "verdict": "downgrade", "impact_after": "Medium", "reproduced": "traced", "note": "bounded"}]))
+    run(S / "critic_merge.py", "apply", "v.json", cwd=d)
+    for _ in range(5):  # the downgraded finding is still Medium: it must never be listed twice
+        run(S / "critic_ledger.py", "spotcheck", cwd=d)
+        pend = json.loads((d / ".critic/ledger.json").read_text())["spotcheck_pending"]
+        assert len({x["id"] for x in pend}) == len(pend), pend
+    out = run(S / "critic_ledger.py", "spotcheck", "answer", fid, "real", cwd=d).stdout
+    assert "0 of 0 drops removed a real bug, 1 of 1 downgrades lowered a real bug" in out, out
+    sys.path.insert(0, str(S)); import critic_findings
+    v = "EXAMPLE" + "value9"
+    for line in (f"Cookie: a=1; sid={v}", f"DB_PASS={v} npm test", f'{{"password":"{v}"}}', f"sshpass -p {v} ssh h", f"redis-cli -a {v} ping",
+                 f"https://{v}ghtoken@github.com/x", f"https://b.example/k?X-Amz-Signature={v}&X-Amz-Date=1", f"--password {v}", f"Authorization: token {v}"):
+        assert v not in critic_findings.redact_secrets(line), line
+    for line in ('pytest -k "token production path"', "gcc -pthread x.c", "git log --author=bob", "critic_scan.py . --session-dir /tmp/x", "find . -path ./x -prune"):
+        assert critic_findings.redact_secrets(line) == line, line
+    t0 = time.time(); critic_findings.redact_secrets("a-" * 4000); assert time.time() - t0 < 1
+    e = d / "e"; e.mkdir(); write(e, ".critic/.gitignore", "scan/\n")
+    critic_findings.log_run(e, "script", "x"); gi = (e / ".critic/.gitignore").read_text()
+    assert "scan/" in gi and "runlog.jsonl" in gi and "restore/" in gi, gi
+    g = lambda *a: subprocess.run(["git", *a], cwd=e, capture_output=True, text=True)
+    g("init", "-q"); g("config", "user.email", "t@example.com"); g("config", "user.name", "t"); g("add", "-f", ".critic/runlog.jsonl"); g("commit", "-qm", "tracked log")
+    before = (e / ".critic/runlog.jsonl").read_text()
+    r = subprocess.run([sys.executable, "-c", f"import sys; sys.path.insert(0, {str(S)!r}); import critic_findings as c; c.log_run({str(e)!r}, 'script', 'secret run')"], capture_output=True, text=True)
+    assert (e / ".critic/runlog.jsonl").read_text() == before and "tracked by git" in r.stderr, r.stderr
+    write(d, "y.py", "import subprocess as sp\ndef helper():\n    import os as sp\ndef go(c):\n    sp.run(c, shell=True)\n"
+                     "import yaml\ntry:\n    from yaml import CLoader as L\nexcept ImportError:\n    from yaml import SafeLoader as L\nyaml.load(s, Loader=L)\n"
+                     "from builtins import eval\neval(x)\nfrom tempfile import *\np = mktemp()\n")
+    write(d, ".critic/rules/aaa.json", json.dumps([{"id": f"bad{i}"} for i in range(25)]))
+    for i in range(55): write(d, f".critic/rules/x{i:02d}.json", json.dumps([{"id": f"r{i:02d}", "severity": "NOTE", "area": "perf", "pattern": "zzz", "message": "m"}]))
+    run(S / "critic_scan.py", ".", "--root", ".", cwd=d)
+    rows = json.loads((d / ".critic/scan/report.json").read_text())["findings"]
+    got = sorted((r["rule"], r["where"]) for r in rows if r["rule"].startswith("py-") and r["where"].startswith("y.py"))
+    assert got == [("py-eval", "y.py:13"), ("py-mktemp", "y.py:15"), ("py-shell-true", "y.py:5"), ("py-yaml-load", "y.py:11")], got
+    assert any(r["rule"] == "rule-file-limit" and "50 files" in r["what"] for r in rows), [r for r in rows if r["rule"].startswith("rule-file")]
+
+@test("outside reviewer: a long quote cited at the wrong line is moved to its one real line; a repeated or short one is not")
+def _(d):
+    write(d, "src/app.js", APP + "\n" * 30 + "list.innerHTML = `<li>${n.title}</li>`;\n"); run(S / "critic_ledger.py", "start", "review", cwd=d)
+    write(d, "r.json", "[]")
+    far = dict(finding(category="domain", impact="Medium", line=30, quote="const price = total * 1.0825;", title="Tax rate"), source="outside", outside_id="N1")
+    twice = dict(finding(impact="Medium", line=18, title="dup"), source="outside", outside_id="N2")  # the innerHTML line is in the file twice
+    write(d, "o.json", json.dumps([far, twice]))
+    run(S / "critic_merge.py", "tally", "r.json", "--outside", "o.json", cwd=d)
+    t = json.loads((d / ".critic/tally.json").read_text())
+    moved = [f for f in t["contested"] if f["title"] == "Tax rate"]
+    assert moved and moved[0]["line"] == 4 and moved[0]["line_cited"] == 30, t["contested"]
+    assert any(x["finding"]["title"] == "dup" for x in t["retracted"]) and t["outside"]["lines_corrected"] == 1, t
 
 if __name__ == "__main__":
     bad = [r for r in RESULTS if not r[1]]
