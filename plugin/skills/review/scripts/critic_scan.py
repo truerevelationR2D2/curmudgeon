@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Curmudgeon scripted pass (v4): the free checks that would otherwise cost reading time. Nothing needs installing beyond
+"""Curmudgeon scripted checks (v4): the free checks that would otherwise cost reading time. Nothing needs installing beyond
 Python (and Playwright + Chromium for the runtime half; axe-core if present).
 
 usage: critic_scan.py SRC [--root DIR] [--page PAGE.html|URL] [--out DIR] [--axe axe.min.js]
@@ -226,7 +226,6 @@ def project_checks(root, timeout=600):
 
 def find_axe(arg):
     cands = [arg] if arg else []
-    cands += [os.environ.get("CURMUDGEON_AXE"), os.environ.get("CRITIC_AXE")]  # a path set once, for every project
     cands += [d / "node_modules/axe-core/axe.min.js" for d in [pathlib.Path.cwd(), *pathlib.Path.cwd().parents]]
     try: cands.append(pathlib.Path(subprocess.run(["npm", "root", "-g"], capture_output=True, text=True, timeout=20).stdout.strip()) / "axe-core/axe.min.js")
     except Exception: pass
@@ -521,7 +520,7 @@ def main(argv):
     (out / "scan.sarif").write_text(json.dumps(to_sarif([{"category": x["rule"], "impact": {"FAIL": "High", "WARN": "Medium", "NOTE": "Low"}[x["sev"]], "file": x["where"].split(":")[0] if ":" in x["where"] else x["where"],
         "line": int(x["where"].rsplit(":", 1)[1]) if re.search(r":\d+$", x["where"]) else 1, "title": x["what"], "id": x["id"], "verified": "executed" if x["level"] == "runtime" else "traced"} for x in R], tool="critic-scan"), indent=1))
     c = {s: sum(1 for x in R if x["sev"] == s) for s in order}
-    md = [f"# Curmudgeon scripted pass: {src.name}", f"{nfiles} files · {c['FAIL']} FAIL · {c['WARN']} WARN · {c['NOTE']} NOTE · {len(SUPPRESSED)} suppressed · {time.time() - t:.1f} s", ""] + \
+    md = [f"# Curmudgeon scripted checks: {src.name}", f"{nfiles} files · {c['FAIL']} FAIL · {c['WARN']} WARN · {c['NOTE']} NOTE · {len(SUPPRESSED)} suppressed · {time.time() - t:.1f} s", ""] + \
          ([f"**DEGRADED:** these checks could not run: {', '.join(degraded)}. Anything they cover is unverified.", ""] if degraded else []) + [
           "## Checks", "| Check | State | Note |", "| --- | --- | --- |"] + [f"| {k} | {v['state']} | {esc_cell(v['note'])} |" for k, v in CHECKS.items()] + \
          ["", "## Stats"] + [f"- {k}: {v}" for k, v in stats.items()] + ["", "## Findings", "| ID | Sev | Rule | Level | Where | What | Evidence |", "| --- | --- | --- | --- | --- | --- | --- |"] + \

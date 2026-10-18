@@ -138,5 +138,5 @@ def to_sarif(findings, tool="critic", version="4.0.0"):
         results.append({"ruleId": rid, "level": SARIF_LEVEL.get(f.get("impact"), "note"), "message": {"text": f.get("title", "")},
                         "locations": [loc], "partialFingerprints": {"criticId": f.get("id") or fingerprint(f)},
                         "properties": {"impact": f.get("impact"), "verified": f.get("verified"), "votes": f.get("votes")}})
-    return {"version": "2.1.0", "$schema": "https://json.schemastore.org/sarif-2.1.0.json",
+    return {"version": "2.1.0",
             "runs": [{"tool": {"driver": {"name": tool, "version": version, "rules": list(rules.values())}}, "results": results}]}

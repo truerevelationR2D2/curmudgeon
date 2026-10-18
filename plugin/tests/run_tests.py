@@ -21,7 +21,24 @@ def test(name):
         return fn
     return deco
 
-def write(d, rel, text): p = d / rel; p.parent.mkdir(parents=True, exist_ok=True); p.write_text(text); return p
+# Fake credentials for the scanner tests. They are assembled at run time from obviously fake parts (EXAMPLE), so no
+# credential-shaped text ships in this file; @NAME@ tokens in test strings are replaced by write() and T().
+FAKE = {
+    "@LIVE@": "sk" + "_live_" + "EXAMPLE" * 3 + "0001",
+    "@LIVE2@": "sk" + "_live_" + "EXAMPLE" * 3 + "0002",
+    "@TEST@": "sk" + "_test_" + "EXAMPLE" * 2,
+    "@AWS@": "AK" + "IA" + "EXAMPLEEXAMPLE00",
+    "@PROJ@": "sk" + "-proj-" + "EXAMPLE" * 5,
+    "@GOOG@": "AI" + "za" + "EXAMPLE" * 5,
+    "@ANT@": "sk" + "-ant-api03-" + "EXAMPLE" * 13,
+    "@PW@": "Zq9x" + "&pw!" + "EXAMPLE",  # a placeholder-looking start would (rightly) be skipped by the scan
+    "@DBPW@": "EXAMPLE" + "pw" + "55",
+    "@PEM@": "-----BEGIN RSA " + "PRIVATE KEY-----" + "EXAMPLEbody" * 8,
+}
+def T(text):
+    for k, v in FAKE.items(): text = text.replace(k, v)
+    return text
+def write(d, rel, text): p = d / rel; p.parent.mkdir(parents=True, exist_ok=True); p.write_text(T(text)); return p
 
 APP = 'function render(n) {\n  list.innerHTML = `<li>${n.title}</li>`;\n}\nconst price = total * 1.0825;\n'
 def finding(**k):
@@ -87,17 +104,17 @@ def _(d):
 
 @test("ledger: a restore copy is exact, private (0700) and git-ignored")
 def _(d):
-    L = S / "critic_ledger.py"; src = 'const K = "sk_\x6cive_51HxQ2bOrderDeskSecretKey9f8e7d";\nconst a = 1;\n'; write(d, "api.js", src)
+    L = S / "critic_ledger.py"; src = 'const K = "@LIVE@";\nconst a = 1;\n'; write(d, "api.js", src)
     run(L, "restore", "save", "api.js", cwd=d)
-    assert next((d / ".critic/restore").rglob("api.js")).read_text() == src
+    assert next((d / ".critic/restore").rglob("api.js")).read_text() == T(src)
     assert (d / ".critic/restore/.gitignore").read_text().strip().endswith("*")
     assert oct((d / ".critic/restore").stat().st_mode & 0o777) == "0o700"
-    write(d, "api.js", '// test key sk_test_abcdefgh123\nconst a = 2;\n'); run(L, "restore", "apply", cwd=d)
-    assert (d / "api.js").read_text() == src
+    write(d, "api.js", '// test key @TEST@\nconst a = 2;\n'); run(L, "restore", "apply", cwd=d)
+    assert (d / "api.js").read_text() == T(src)
 
 @test("scan: secrets in config files, HTML validity, structure, WCAG 2.2 static rules")
 def _(d):
-    write(d, ".env", "STRIPE=sk_\x6cive_51HxQ2bOrderDeskSecretKey9f8e7d\n")
+    write(d, ".env", "STRIPE=@LIVE@\n")
     write(d, "index.html", '<!doctype html><html><head><title>t</title></head><body><a href="#"><button>x</button></a><p id="a"></p><p id="a"></p><input name="otp" autocomplete="off" type="password" onpaste="return false"></body></html>')
     write(d, "ui/view.js", 'import { price } from "../domain/price.js";\nexport function show() { return price(); }\n')
     write(d, "domain/price.js", 'import { show } from "../ui/view.js";\nexport function price() { return 1; }\n')
@@ -144,8 +161,8 @@ def _(d):
 
 @test("fix F-00afe05a: rollback keeps the live key line instead of writing the redacted copy over it")
 def _(d):
-    L = S / "critic_ledger.py"; write(d, "api.js", 'const K = "sk_\x6cive_51HxQ2bOrderDeskSecretKey9f8e7d";\nconst a = 1;\n')
-    run(L, "restore", "save", "api.js", cwd=d); write(d, "api.js", 'const K = "sk_\x6cive_51HxQ2bOrderDeskSecretKey9f8e7d";\nconst a = 2;\n')
+    L = S / "critic_ledger.py"; write(d, "api.js", 'const K = "@LIVE@";\nconst a = 1;\n')
+    run(L, "restore", "save", "api.js", cwd=d); write(d, "api.js", 'const K = "@LIVE@";\nconst a = 2;\n')
     run(L, "restore", "apply", cwd=d); t = (d / "api.js").read_text()
     assert "REDACTED" not in t and "const a = 1" in t, t
 
@@ -195,11 +212,11 @@ def _(d):
 
 @test("fix F-577d55b0 / F-d8d732a2: keys on very long lines are found, and no report contains the secret")
 def _(d):
-    write(d, "bundle.min.js", "x" * 30000 + 'k="sk_\x6cive_51HxQ2bOrderDeskSecretKey9f8e7d";'); write(d, ".env", "DB=postgres://admin:Pa55w0rd!&x@db.example.com/app\n")
+    write(d, "bundle.min.js", "x" * 30000 + 'k="@LIVE@";'); write(d, ".env", "DB=postgres://admin:@DBPW@@db.example.com/app\n")
     run(S / "critic_scan.py", ".", "--out", "o", cwd=d)
     rep = (d / "o/report.json").read_text() + (d / "o/report.md").read_text()
     assert "secret-stripe-key" in rep and "secret-db-url-password" in rep
-    assert "OrderDeskSecretKey" not in rep and "Pa55w0rd" not in rep
+    assert FAKE["@LIVE@"][8:] not in rep and FAKE["@DBPW@"] not in rep
 
 @test("fix F-a82f5662: the guard resolves '..' before checking")
 def _(d):
@@ -252,31 +269,31 @@ def _(d):
 
 @test("round 2 N1: detector FAIL rows (a live key, eval) survive the tally without a quote")
 def _(d):
-    write(d, "src/k.js", 'const k = "sk_\x6cive_51HxQ2bOrderDeskSecretKey9f8e7d";\n'); write(d, "src/a.js", "x = 1;\neval(input);\n")
+    write(d, "src/k.js", 'const k = "@LIVE@";\n'); write(d, "src/a.js", "x = 1;\neval(input);\n")
     run(S / "critic_scan.py", "src", "--root", ".", cwd=d)
     write(d, ".critic/reviews/review-A.json", "[]")
     r = run(S / "critic_merge.py", "tally", ".critic/reviews/review-A.json", "--scan", ".critic/scan/report.json", cwd=d)
     t = json.loads((d / ".critic/tally.json").read_text())
     assert any("stripe" in str(k.get("category")) for k in t["kept"]), (r.stdout, t["rejected"])
-    assert "sk_\x6cive_51HxQ2bOrderDeskSecretKey9f8e7d" not in (d / ".critic/tally.json").read_text()
+    assert FAKE["@LIVE@"] not in (d / ".critic/tally.json").read_text()
 
 @test("round 2 N2: rollback matches redacted lines by content, and an added key-like line can't displace the real one")
 def _(d):
-    write(d, "src/api.js", 'const K = "sk_\x6cive_51HxQ2bOrderDeskSecretKey9f8e7d";\nconst a = 1;\n')
+    write(d, "src/api.js", 'const K = "@LIVE@";\nconst a = 1;\n')
     run(S / "critic_ledger.py", "init", cwd=d); run(S / "critic_ledger.py", "restore", "save", "src/api.js", cwd=d)
-    write(d, "src/api.js", '// example key for tests: sk_test_abcdefgh123\nconst K = "sk_\x6cive_51HxQ2bOrderDeskSecretKey9f8e7d";\nconst a = 2;\n')
+    write(d, "src/api.js", '// example key for tests: @TEST@\nconst K = "@LIVE@";\nconst a = 2;\n')
     run(S / "critic_ledger.py", "restore", "apply", cwd=d)
     t = (d / "src/api.js").read_text()
-    assert t.startswith('const K = "sk_\x6cive_51HxQ2bOrderDeskSecretKey9f8e7d";') and "const a = 1;" in t and "REDACTED" not in t, t
+    assert t.startswith(T('const K = "@LIVE@";')) and "const a = 1;" in t and "REDACTED" not in t, t
 
 @test("round 2 N3: every secret on a line is masked in the reports, and a private key's body never appears")
 def _(d):
-    write(d, ".env", "STRIPE_KEY=sk_\x6cive_51HxQ2bOrderDeskSecretKey9f8e7d AWS_KEY=AKIAZ7QW3RT5YU8IOP2L\n")
-    write(d, "cfg.js", 'const c = { password: "Tr0ub4dor&3x!qZ", stripe: "sk_\x6cive_51HxQ2bOrderDeskSecretKey9f8e7d" };\n')
-    write(d, "k.pem", "-----BEGIN RSA PRIVATE KEY-----MIIEowIBAAKCAQEAu1SU1LfVLPHCozMxH2Mo4lgOEePzNm0tRgeLezV6ffAt0gunVTLw7onLRnrq\n")
+    write(d, ".env", "STRIPE_KEY=@LIVE@ AWS_KEY=@AWS@\n")
+    write(d, "cfg.js", 'const c = { password: "@PW@", stripe: "@LIVE@" };\n')
+    write(d, "k.pem", "@PEM@\n")
     run(S / "critic_scan.py", ".", "--root", ".", cwd=d)
     rep = (d / ".critic/scan/report.md").read_text() + (d / ".critic/scan/report.json").read_text()
-    for s_ in ("SecretKey9f8e7d", "AKIAZ7QW3RT5YU8IOP2L", "Tr0ub4dor", "MIIEowIBAAKCAQEAu1SU"): assert s_ not in rep, s_
+    for s_ in (FAKE["@LIVE@"][8:], FAKE["@AWS@"], FAKE["@PW@"], FAKE["@PEM@"][31:60]): assert s_ not in rep, s_
 
 @test("round 2 N4: rules.md commands run only with --project-checks")
 def _(d):
@@ -320,7 +337,7 @@ def _(d):
 
 @test("round 3 R2 (redesigned): restore copies with keys stay private and git-ignored, and no report reads them")
 def _(d):
-    keys = ["sk-proj-" + "Ab3dE6gH9jK2mN5pQ8sT1vW4yZ7bC0eF3hJ6", "AIza" + "SyA1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q"]
+    keys = [FAKE["@PROJ@"], FAKE["@GOOG@"]]
     write(d, "cfg.js", "".join(f'const k{i} = "{k}";\n' for i, k in enumerate(keys)))
     run(S / "critic_ledger.py", "init", cwd=d); run(S / "critic_ledger.py", "restore", "save", "cfg.js", cwd=d)
     run(S / "critic_scan.py", ".", "--root", ".", cwd=d)
@@ -339,11 +356,11 @@ def _(d):
     ids = [x["id"] for x in json.loads((d / ".critic/dedup-candidates.json").read_text())["findings_by_file"]["src/readmeParser.js"]]
     write(d, ".critic/groups.json", json.dumps({"groups": [ids]})); run(S / "critic_merge.py", "tally", *revs, "--groups", ".critic/groups.json", cwd=d)
     assert len(json.loads((d / ".critic/tally.json").read_text())["kept"]) == 1
-    k = 'const K = "sk_\x6cive_51HxQ2bOrderDeskSecretKey9f8e7d";'
+    k = 'const K = "@LIVE@";'
     write(d, "src/two.js", f"{k}\n{k}\nconst a = 1;\n"); run(S / "critic_ledger.py", "init", cwd=d); run(S / "critic_ledger.py", "restore", "save", "src/two.js", cwd=d)
     write(d, "src/two.js", f"{k}\n{k}\nconst a = 2;\n"); run(S / "critic_ledger.py", "restore", "apply", cwd=d)
-    assert (d / "src/two.js").read_text() == f"{k}\n{k}\nconst a = 1;\n", (d / "src/two.js").read_text()
-    write(d, ".env", "STRIPE_KEY=sk_\x6cive_51HxQ2bOrderDeskSecretKey9f8e7d AWS_KEY=AKIAZ7QW3RT5YU8IOP2L\n")
+    assert (d / "src/two.js").read_text() == T(f"{k}\n{k}\nconst a = 1;\n"), (d / "src/two.js").read_text()
+    write(d, ".env", "STRIPE_KEY=@LIVE@ AWS_KEY=@AWS@\n")
     run(S / "critic_scan.py", ".env", "--root", ".", cwd=d)
     run(S / "critic_merge.py", "tally", ".critic/reviews/review-C.json", "--scan", ".critic/scan/report.json", cwd=d)
     cats = {x["category"] for x in json.loads((d / ".critic/tally.json").read_text())["kept"]}
@@ -361,7 +378,7 @@ def _(d):
 
 @test("round 4 N4 and s2 fixer reports: one key is one finding; --help changes nothing; scanner rules don't flag correct code")
 def _(d):
-    write(d, "k.js", 'const a = "sk-ant-api03-' + "A" * 90 + '";\n')
+    write(d, "k.js", 'const a = "@ANT@";\n')
     write(d, "s.css", "a:hover, a:focus-visible { color: red }\n")
     write(d, "q.js", "export function load(params) { return fetch(`/api?${params}`).then(r => r.json()); }\nload(new URLSearchParams());\n")
     write(d, "u.js", "const $ = (id) => document.getElementById(id);\n$('x');\n")
@@ -392,7 +409,7 @@ def _(d):
         assert refutation_problem(good.replace("src/app.js:4", loc), "High", "traced", root=d), loc
     write(d, "q.js", "export function load(params) { return fetch(`/api/u?id=${params.id}`); }\nload({});\n")
     write(d, "package.json", json.dumps({"dependencies": {"left-pad": "*"}}))
-    write(d, "keys.js", 'const a = "sk_\x6cive_51HxQ2bOrderDeskSecretKey9f8e7d";\nconst b = "sk_\x6cive_99ZyX8wVuTsRqPoNmLkJiHg7f6e";\n')
+    write(d, "keys.js", 'const a = "@LIVE@";\nconst b = "@LIVE2@";\n')
     run(S / "critic_ledger.py", "init", cwd=d); run(S / "critic_ledger.py", "restore", "save", "package.json", "src/app.js", cwd=d)
     write(d, "src/app.js", "REDACTED-BY-CRITIC is just text here\n"); run(S / "critic_ledger.py", "restore", "save", "src/app.js", cwd=d)
     write(d, "src/app.js", "changed\n"); out = run(S / "critic_ledger.py", "restore", "apply", cwd=d).stdout

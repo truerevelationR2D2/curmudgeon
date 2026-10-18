@@ -9,7 +9,7 @@ Run the scenarios that apply to the payload type, and only those:
 
 Run each against the payload. Drive the real app where you can start it: a local HTTP server and Python Playwright, or the Playwright MCP tools when they are connected. Otherwise trace the code, and say "traced" in the ledger line. Record each as one line: scenario → what happens → finding id or "holds".
 
-0. **Interactive state check (always first for UI):** every control: does focus look different from rest, does hover, does clicking change anything visible (no dead controls), is there layout shift on load? The scripted pass measures these; you look at the screenshots for what it can't.
+0. **Interactive state check (always first for UI):** every control: does focus look different from rest, does hover, does clicking change anything visible (no dead controls), is there layout shift on load? The scripted checks measures these; you look at the screenshots for what it can't.
 1. **First run, empty:** no data, no settings. What does the user see, and can they act?
 2. **Corrupted or old saved data:** bad JSON, a missing field, a previous version's shape.
 3. **Fast hands:** double-click, two creates in one millisecond, typing during a save.
