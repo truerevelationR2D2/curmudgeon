@@ -133,6 +133,7 @@ TEXTS = {}
 SCAN_ROOT = pathlib.Path.cwd()  # set in main from --root, so every run-log line lands in the project being scanned
 NO_PROJECT_RULES = False  # set by --no-project-rules (the background stop check uses it)
 RULE_AREAS = {"safety", "errors", "state", "async", "perf", "a11y", "layout", "domain", "html", "theming", "ux", "structure", "deps"}
+LIMIT = "\x00limit\x00"  # marks a note that a limit cut the rule set (a file name can't contain it)
 def load_rule_files(root):
     """Rule files: the plugin's built-in rules/ folder, then the project's .critic/rules/. Data only: nothing runs.
     Each bad rule or file is reported once and skipped; it never stops the scan. Every rule's rows are reported as
@@ -144,13 +145,20 @@ def load_rule_files(root):
     if not NO_PROJECT_RULES: folders.append((root / ".critic" / "rules", True))
     for folder, is_project in folders:
         if not folder.is_dir() or folder.is_symlink(): continue
-        for rf in sorted(folder.glob("*.json")):
+        found, more = [], False
+        with os.scandir(folder) as it:  # a bounded listing: a folder of a million files is never read in full
+            for e in it:
+                if e.name.endswith(".json"):
+                    if len(found) >= 500: more = True; break
+                    found.append(folder / e.name)
+        if more: bad.append(LIMIT + f"project rule files: over 500 .json files in {folder.name}/, only the first 500 listed were considered")
+        for rf in sorted(found):
             if rf.is_symlink() or not rf.is_file(): bad.append(f"{rf.name}: not a plain file (links and devices are never read)"); continue
-            if rf.stat().st_size > 256 * 1024: bad.append(f"{rf.name}: over 256 KB, not read"); continue
+            if rf.stat().st_size > 256 * 1024: bad.append(LIMIT + f"{rf.name}: over 256 KB, not read"); continue
             if is_project:
                 budget["files"] -= 1; budget["bytes"] -= rf.stat().st_size
                 if budget["files"] < 0 or budget["bytes"] < 0 or budget["rules"] <= 0:
-                    bad.append(f"project rule files stopped at {rf.name}: over the limit of 50 files, 2 MB or 2,000 rules in all"); break
+                    bad.append(LIMIT + f"project rule files stopped at {rf.name}: over the limit of 50 files, 2 MB or 2,000 rules in all"); break
             try: items = json.loads(rf.read_text(encoding="utf-8"))
             except Exception as e: bad.append(f"{rf.name}: not valid JSON ({str(e)[:80]})"); continue
             if not isinstance(items, list): bad.append(f"{rf.name}: must hold a JSON list of rules"); continue
@@ -170,17 +178,20 @@ def load_rule_files(root):
                         if sev == "FAIL": sev = "WARN"  # a repo's own rules can warn, never fail: only the plugin's checks become automatic findings
                         budget["rules"] -= 1
                         if budget["rules"] < 0:
-                            bad.append(f"project rules stopped partway through {rf.name}: over the limit of 2,000 rules in all"); break
+                            bad.append(LIMIT + f"project rules stopped partway through {rf.name}: over the limit of 2,000 rules in all"); break
                     rules.append(("rule-" + rid, sev, area, pat, msg[:200], globs, is_project)); taken.add(rid)
                 except Exception as e: bad.append(f"{rf.name}: rule {r.get('id', '?') if isinstance(r, dict) else '?'} skipped ({str(e)[:80]})")
-            if len(items) > 200: bad.append(f"{rf.name}: only the first 200 rules were read")
+            if len(items) > 200: bad.append(LIMIT + f"{rf.name}: only the first 200 rules were read")
     return rules, bad
 
 def static(src, root, excludes):
     n = texts = 0
     custom, bad = load_rule_files(root)
-    for b in bad[:20]: f("NOTE", "rule-file-invalid", "structure", "rules", b)
-    if len(bad) > 20: f("NOTE", "rule-file-invalid", "structure", "rules", f"{len(bad) - 20} more rule-file problems not listed")
+    limits = [b[len(LIMIT):] for b in bad if b.startswith(LIMIT)]  # a limit cut the rule set: always shown, never behind the cap
+    rest = [b for b in bad if not b.startswith(LIMIT)]
+    for b in limits: f("NOTE", "rule-file-limit", "structure", "rules", b)
+    for b in rest[:20]: f("NOTE", "rule-file-invalid", "structure", "rules", b)
+    if len(rest) > 20: f("NOTE", "rule-file-invalid", "structure", "rules", f"{len(rest) - 20} more rule-file problems not listed")
     for p in walk(src, excludes):
         try: text = p.read_text(encoding="utf-8")
         except (UnicodeDecodeError, OSError): continue

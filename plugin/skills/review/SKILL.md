@@ -2,7 +2,7 @@
 name: review
 description: This skill should be used when the user says "/curmudgeon:review", "curmudgeon this", "tear this apart", "review my work", "how did I do", or asks for a merciless review of code, an interface, a document or a plan, or before shipping. It sizes the review to the risk, runs free scripted checks, three blind reviewers whose votes are counted by a script, and blind per-finding verification, then writes an evidence-backed teardown. It changes files only when the user asks for fixes ("curmudgeon and fix", "/curmudgeon:review fix").
 metadata:
-  version: "4.1.1"
+  version: "4.2.0"
 ---
 
 # Curmudgeon
@@ -53,17 +53,23 @@ Start the `curmudgeon-detector` agent, or run `critic_scan.py <src> --root <root
 - **Lite and trivial tiers:** one reviewer, A.
 - **No agents available:** do the review yourself, write it to `review-A.json` before opening the scan report, and open the teardown with `DEGRADED: single context (<why>)`. If the user asked specifically for an independent review, reply `BLOCKED: no independent reviewer available` and stop.
 
+## Step 3b: Outside reviewer (optional; only when the user says yes)
+Reviewers from one model family share blind spots: in our own double-blind test, another AI's review and ours overlapped on none of 23 real findings. So when the user is present, ask **once**, as a single multiple-choice question, before the tally: "Add an outside reviewer? You'd paste a brief into another AI (ChatGPT, Gemini…) and paste its answer back. That sends the files in this change to that service." Options: **No** (first, the default) and **Yes**. Never ask in an unattended session, never ask again in the same review, and never paste anything to another service yourself.
+- **Yes:** run `critic_outside.py brief [--goals "<the brief's design goals>"]`. It writes `.critic/outside/brief.md` with the commit, raw file links, the stated intent and the output format, and none of our findings. Give the user that file and pass on its notes (uncommitted edits, a commit not pushed, a private repo: in each case the user attaches the files instead). Carry on with steps 2–3 meanwhile.
+- **The answer:** save what the user pastes, exactly as pasted, to `.critic/outside/answer.txt`, then run `critic_outside.py load .critic/outside/answer.txt`. Add `--outside .critic/outside/outside-review.json` to both tally runs in step 4. Its findings face the same contract and quote checks as ours. Where one agrees with ours it adds a vote. One that only it raised always goes to blind verification, whatever its impact, and a run we can't see counts as traced, never executed.
+- **No answer by the tally:** go on without it, and say so under **Not reviewed**. If the answer arrives later, run `load`, then the whole of step 4 again: the first tally, the dedup agent, the tally with `--groups` and `--outside`, verification of every packet, and `apply`.
+
 ## Step 4: Count, check, verify
 1. `critic_merge.py tally .critic/reviews/review-*.json --scan .critic/scan/report.json`. The script:
    - rejects findings that break the contract, and retracts any whose quote isn't at its file:line;
    - hides only what the owner ruled a false positive by its exact id (`fp <id>`), and lists those under "Hidden by your rulings"; learned memories never hide anything: a finding that looks like past dismissals stays in, counted, with a note (never on a Critical), listed under "Looks like your past dismissals";
    - clusters the same issue across reviewers;
-   - keeps 2-of-3 votes, single votes with an executed case, and scanner FAILs;
+   - keeps 2-of-3 votes, single votes with an executed case, and scanner FAILs (an outside reviewer's agreement counts as one more vote);
    - sends single Critical/High traced votes, and any Critical/High/Medium finding with nothing the script could check (no confirmed quote, not executed, one vote), to verification as contested;
    - drops the rest, with reasons kept for audit.
 
    Reviewers rarely word the same issue alike, so the first tally also writes `.critic/dedup-candidates.json`: every finding not already merged, listed by file, with no reviewer names or votes. Start the `curmudgeon-dedup` agent on it, then run the tally again with `--groups .critic/groups.json` so votes count on merged issues.
-2. **Blind verification:** start `curmudgeon-verifier` agents on the packets in `.critic/verify/` (up to five packets per agent, judged separately; one agent per Critical in the full tier). Each verifier sees only the claim and the code. Verifiers default to "not a defect", must reproduce or trace, and may lower an impact but never raise it. Lite tier: verify Critical and High only. Trivial tier: verify only the contested packets (the tally lists them).
+2. **Blind verification:** start `curmudgeon-verifier` agents on the packets in `.critic/verify/` (up to five packets per agent, judged separately; one agent per Critical in the full tier). Each verifier sees only the claim and the code. Verifiers default to "not a defect", must reproduce or trace, and may lower an impact but never raise it. Lite tier: verify Critical and High only. Trivial tier: verify only the contested packets (the tally lists them). In every tier, also verify each finding only the outside reviewer raised (marked `outside_only` in the tally): nothing else has checked it.
 3. Run `critic_ledger.py acted` first, to record which findings from the **last** run were acted on. Then `critic_merge.py apply <verdict files>`: refutations must point at the guard to drop a finding. This writes `.critic/findings.jsonl`, `.critic/findings.sarif` and `.critic/counts.md`, with each finding's **confidence** (confirmed, likely, possible), and records every finding in the ledger as new, known or regressed.
 4. If `apply` exits non-zero, the ledger wasn't updated: say so in the teardown and fix it before the next run.
 
@@ -73,7 +79,7 @@ Score with `references/rubrics.md` (impact, the code and design rubrics, and the
 ## Step 6: The teardown
 Write it to `references/output-contract.md` in exactly its headers, and save it to `.critic/last-review.md`. The VERDICT counts are copied from `counts.md`. Every finding shows its stable id, impact, confidence and votes. The **Not reviewed** line is mandatory: files skipped, checks that couldn't run, and anything outside the budget. Keep `.critic/change-map.md` separate; link it, don't paste it. Then `critic_ledger.py stamp <payload>`. Review mode ends with its hooks.
 
-**Spot-check (when the user is present).** Run `critic_ledger.py spotcheck`. It picks up to three random Medium-or-worse findings and one refutation from this run and writes `.critic/spotcheck.md`. Ask the user to judge each one (real, wrong or unsure) in a single quick multiple-choice question, and record each answer with `critic_ledger.py spotcheck answer <id> <answer>`. Never block on it: if the user skips, or the session is unattended, leave it. `critic_ledger.py spotcheck stats` reports precision from the user's own answers and how often a refutation dropped a real bug (every refutation and downgrade is kept in `.critic/refutations.jsonl`).
+**Spot-check (when the user is present).** Run `critic_ledger.py spotcheck`. It picks up to three random Medium-or-worse findings and one refutation from this run and writes `.critic/spotcheck.md`. Ask the user to judge each one (real, wrong or unsure) in a single quick multiple-choice question, and record each answer with `critic_ledger.py spotcheck answer <id> <answer>`. Never block on it: if the user skips, or the session is unattended, leave it. `critic_ledger.py spotcheck stats` reports precision from the user's own answers, how often a refutation removed a real bug, and how often a downgrade lowered one (every refutation and downgrade is kept in `.critic/refutations.jsonl`).
 
 **What ran.** Every script a review starts and every outside command or network call it makes (git, npm, Chromium, the project's test or check commands when asked, the opt-in OSV lookup) is listed in `.critic/runlog.jsonl`. The hooks that only read state (the stop gate, the contract check, the state guard) and the read-only ledger commands (`show`, `check`, `stale`) aren't listed. When the user asks what the plugin did on their machine, show that file.
 

@@ -5,6 +5,12 @@ Idea from Bandit (Apache-2.0); our own code, no rule text copied."""
 import ast
 
 SAFE_YAML_LOADERS = {f"yaml{m}.{c}" for m in ("", ".loader", ".cyaml") for c in ("SafeLoader", "CSafeLoader", "BaseLoader", "CBaseLoader")}
+STAR_RISKY = {"tempfile": ("mktemp",), "os": ("system", "popen"), "builtins": ("eval", "exec"), "yaml": ("load",),
+              "subprocess": ("run", "call", "Popen", "check_call", "check_output"), "pickle": ("load", "loads")}
+STAR_SAFE = {"yaml": ("SafeLoader", "CSafeLoader", "BaseLoader", "CBaseLoader")}  # so `from yaml import *` + Loader=SafeLoader stays safe
+def risky(n):
+    return n in ("eval", "exec", "os.system", "os.popen", "yaml.load", "tempfile.mktemp") or n.startswith("subprocess.") or \
+           (n.split(".")[0] in ("pickle", "cPickle", "dill", "shelve") and n.split(".")[-1] in ("load", "loads", "open"))
 VERIFY_NAMES = {"verify", "ssl_verify", "verify_ssl", "tls_verify", "verify_tls", "verify_certs", "verify_cert"}  # not skip_verify, reverify ...
 
 def _name(node):
@@ -26,23 +32,31 @@ def scan(rel, text, emit):
     lines = text.split("\n")
     # import aliases: `import subprocess as sp` makes sp.run mean subprocess.run; `from subprocess import run as r`
     # makes r mean subprocess.run; `from yaml import SafeLoader` makes SafeLoader mean yaml.SafeLoader
+    # Every binding of a name is kept (a set per name), because imports inside functions, try/except fallbacks and
+    # if-branches can bind the same name differently: a call is flagged when ANY binding makes it dangerous, and a YAML
+    # loader counts as safe only when EVERY binding is a safe one. `from M import *` binds the risky names M exports.
     alias = {}
+    def bind(name, target): alias.setdefault(name, set()).add(target[9:] if target.startswith("builtins.") else target)
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
-            for a in node.names: alias[a.asname or a.name] = a.name
+            for a in node.names: bind(a.asname or a.name, a.name)
         elif isinstance(node, ast.ImportFrom) and node.module and not node.level:
-            for a in node.names: alias[a.asname or a.name] = f"{node.module}.{a.name}"
-    def full(node):
+            for a in node.names:
+                if a.name == "*":
+                    for nm in STAR_RISKY.get(node.module, ()) + STAR_SAFE.get(node.module, ()): bind(nm, f"{node.module}.{nm}")
+                else: bind(a.asname or a.name, f"{node.module}.{a.name}")
+    def cands(node):
         n = _name(node)
-        if not n: return n
+        if not n: return {""}
         head, _, rest = n.partition(".")
-        return alias.get(head, head) + ("." + rest if rest else "")
+        return {t + ("." + rest if rest else "") for t in alias.get(head, {head})}
     def hit(sev, rid, area, node, msg):
         ln = getattr(node, "lineno", 0)
         emit(sev, rid, area, f"{rel}:{ln}", msg, lines[ln - 1] if 0 < ln <= len(lines) else "")
     for node in ast.walk(tree):
         if isinstance(node, ast.Call):
-            n = full(node.func)
+            ns = cands(node.func)
+            n = next((x for x in sorted(ns) if risky(x)), sorted(ns)[0])  # the binding that makes it dangerous, if any
             if n in ("eval", "exec"):
                 hit("FAIL", "py-eval", "safety", node, "eval/exec runs arbitrary code")
             elif n.startswith("subprocess.") and _const(_kw(node, "shell"), True):
@@ -55,7 +69,7 @@ def scan(rel, text, emit):
                 hit("WARN", "py-pickle", "safety", node, "unpickling runs code from the data: never load untrusted pickles")
             elif n == "yaml.load":
                 ld = _kw(node, "Loader") or (node.args[1] if len(node.args) > 1 else None)
-                if not (ld is not None and full(ld) in SAFE_YAML_LOADERS):  # only PyYAML's own safe loaders
+                if not (ld is not None and cands(ld) <= SAFE_YAML_LOADERS):  # only PyYAML's own safe loaders, on every binding
                     hit("WARN", "py-yaml-load", "safety", node, "yaml.load without SafeLoader can build arbitrary objects (use yaml.safe_load)")
             elif n == "tempfile.mktemp":
                 hit("WARN", "py-mktemp", "safety", node, "tempfile.mktemp is racy: use mkstemp or NamedTemporaryFile")

@@ -115,7 +115,9 @@ def spot_stats(L):
     f = [x for x in L.get("spotchecks", []) if x.get("kind") == "finding" and x.get("answer") in ("real", "wrong")]
     r = [x for x in L.get("spotchecks", []) if x.get("kind") == "refutation" and x.get("answer") in ("real", "wrong")]
     a = f"findings judged {len(f)}: {sum(1 for x in f if x['answer'] == 'real')} real" + (f" (precision {sum(1 for x in f if x['answer'] == 'real') / len(f):.0%})" if f else "")
-    b = f"; refutations judged {len(r)}: {sum(1 for x in r if x['answer'] == 'real')} dropped a real bug" if r else "; no refutations judged yet"
+    drops = [x for x in r if x.get("ref_kind") != "downgraded"]; lows = [x for x in r if x.get("ref_kind") == "downgraded"]
+    b = (f"; verifier decisions judged {len(r)}: {sum(1 for x in drops if x['answer'] == 'real')} of {len(drops)} drops removed a real bug, "
+         f"{sum(1 for x in lows if x['answer'] == 'real')} of {len(lows)} downgrades lowered a real bug's impact") if r else "; no verifier decisions judged yet"
     return a + b
 
 def read_rows(p):
@@ -255,10 +257,15 @@ def main(a):
             if rest[:1] == ["--n"] and len(rest) > 1 and rest[1].isdigit(): n = max(1, min(10, int(rest[1])))
             rows = [r for r in read_rows(D / "findings.jsonl") if r.get("impact") in ("Critical", "High", "Medium")]
             refs = [r for r in read_rows(D / "refutations.jsonl") if isinstance(r, dict) and r.get("run") == L["run"] and r.get("kind") in ("refuted", "downgraded")]
+            ref = random.choice(refs) if refs else None
+            # one item per id: a downgraded finding is still in findings.jsonl, so it is never also sampled as a finding,
+            # and the owner's one answer always means one thing
+            rows = [r for r in rows if not ref or r.get("id") != ref.get("id")]
             pick = [{"kind": "finding", "id": r["id"], "impact": r["impact"], "where": f"{r.get('file')}:{r.get('line', '')}", "title": r.get("title", "")} for r in random.sample(rows, min(n, len(rows)))]
-            if refs:
-                r = random.choice(refs)
-                pick.append({"kind": "refutation", "id": r["id"], "impact": r.get("impact"), "where": f"{r.get('file')}:{r.get('line', '')}", "title": r.get("title", ""),
+            if ref:
+                r = ref
+                pick.append({"kind": "refutation", "ref_kind": "downgraded" if r.get("kind") == "downgraded" else "refuted", "id": r["id"], "impact": r.get("impact"),
+                             "where": f"{r.get('file')}:{r.get('line', '')}", "title": r.get("title", ""),
                              "why": ("downgraded " if r.get("kind") == "downgraded" else "dropped: ") + str(r.get("why", ""))})
             L["spotcheck_pending"] = pick
             md = ["# Spot-check", "", "Judge each one in a few seconds. For a finding: is it a real problem (real) or not (wrong)? For a refutation: was the",
