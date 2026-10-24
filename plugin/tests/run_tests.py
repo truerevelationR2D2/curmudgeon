@@ -1809,6 +1809,23 @@ def _(d):
     run(S / "critic_scan.py", ".", "--root", ".", "--page", "index.html", cwd=d)
     assert not [r for r in json.loads((d / ".critic/scan/report.json").read_text())["findings"] if r["rule"] == "live-refused"], "a local file never needs a scope"
 
+@test("5.0 SC-50: the strict YAML reader keeps every scalar a string, matches the pinned outputs, gives lines for findings, and refuses what it can't read safely")
+def _(d):
+    sys.path.insert(0, str(S)); import importlib; Y = importlib.import_module("yaml_lite")
+    for f in sorted((HERE / "tests" / "yaml").glob("*.y*ml")):
+        exp = json.loads(f.with_name(f.name.rsplit(".", 1)[0] + ".expected.json").read_text())
+        try: got = {"data": Y.plain(Y.loads(f.read_text()))}
+        except Y.Refused as e: got = {"refused_line": e.line, "why": e.why}
+        assert got == exp, (f.name, got, exp)
+    doc = Y.loads((HERE / "tests" / "yaml" / "ci-target.yml").read_text())
+    assert "on" in doc and doc["on"] == "pull_request_target", "the key on stays the string on"
+    steps = doc["jobs"]["build"]["steps"]
+    assert steps.item_lines[0] == 8 and steps[1]["run"].line == 11 and doc.key_lines["jobs"] == 3
+    for bad in ["a: *x", "a: !!str 1", "? complex\n: v", "%YAML 1.2\n---\na: 1", "a: [1, 2", "a: b: c", "- - x"]:
+        try: Y.loads(bad); assert False, f"should refuse: {bad!r}"
+        except Y.Refused: pass
+    assert Y.plain(Y.loads("yes: no\nn: 010\nv: 1.0")) == {"yes": "no", "n": "010", "v": "1.0"}
+
 if __name__ == "__main__":
     shutil.rmtree(TMP, ignore_errors=True)
     bad = [r for r in RESULTS if not r[1]]

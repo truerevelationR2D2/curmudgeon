@@ -1,0 +1,18 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: app
+  labels: {app: web, tier: "front"}
+spec:
+  replicas: 3
+  template:
+    spec:
+      containers:
+      - name: app
+        image: "registry.example/app:1.2.3"
+        args:
+        - --port=8080
+        - "--verbose"
+        livenessProbe:
+          httpGet: {path: /healthz, port: 8080}
