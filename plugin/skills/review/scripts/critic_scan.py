@@ -32,6 +32,10 @@ CODE = {".js", ".mjs", ".cjs", ".ts", ".jsx", ".tsx", ".vue", ".svelte", ".html"
 MARKUP = {".html", ".htm", ".jsx", ".tsx", ".vue", ".svelte"}
 STYLE = {".css", ".scss", ".less"} | MARKUP
 SCAN_EXT = CODE | STYLE | {".py"}
+CONFIG_EXT = {".yml", ".yaml", ".sql", ".toml"}  # read by rule files and by line rules that name these types; never by code rules
+def is_config(p, rel):
+    n = p.name.lower()
+    return p.suffix.lower() in CONFIG_EXT or n == "dockerfile" or n.startswith("dockerfile.") or n.endswith(".dockerfile") or rel.startswith(".github/")
 SKIP = {"node_modules", "dist", "build", "vendor", ".git", "__pycache__", ".next", "coverage", ".critic", ".venv", "venv"}
 MAX_BYTES = 2_000_000
 SELF = pathlib.Path(__file__).resolve()
@@ -130,6 +134,7 @@ def walk(src, excludes):
         except OSError: continue
 
 TEXTS = {}
+CONFIG_TEXTS = {}  # config files: rule files and line rules for their types read them; the code checks don't
 SCAN_ROOT = pathlib.Path.cwd()  # set in main from --root, so every run-log line lands in the project being scanned
 NO_PROJECT_RULES = False  # set by --no-project-rules (the background stop check uses it)
 RULE_AREAS = {"safety", "errors", "state", "async", "perf", "a11y", "layout", "domain", "html", "theming", "ux", "structure", "deps"}
@@ -185,7 +190,7 @@ def load_rule_files(root):
     return rules, bad
 
 def static(src, root, excludes):
-    n = texts = 0
+    n = texts = 0; secrets_only = {}
     custom, bad = load_rule_files(root)
     limits = [b[len(LIMIT):] for b in bad if b.startswith(LIMIT)]  # a limit cut the rule set: always shown, never behind the cap
     rest = [b for b in bad if not b.startswith(LIMIT)]
@@ -199,7 +204,14 @@ def static(src, root, excludes):
         except ValueError: rel = str(p)
         lines = text.split("\n"); texts += 1
         scan_secrets.scan(rel, text, f)  # every text file, dotfiles and configs included
-        if p.suffix not in SCAN_EXT: continue
+        if p.suffix not in SCAN_EXT:
+            if is_config(p, rel):
+                CONFIG_TEXTS[rel] = text
+                for i, l in enumerate(lines, 1):
+                    for rid, sev, area, rx, msg, exts, fl in RULES:
+                        if exts and p.suffix in exts and re.search(rx, l, fl): f(sev, rid, area, f"{rel}:{i}", msg, l)
+            else: secrets_only[p.suffix.lower() or p.name] = secrets_only.get(p.suffix.lower() or p.name, 0) + 1
+            continue
         n += 1; TEXTS[rel] = text
         scan_rules_extra.scan(rel, p.suffix, text, f)
         if p.suffix in (".html", ".htm"): scan_html.scan(rel, text, f)
@@ -224,20 +236,22 @@ def static(src, root, excludes):
     builtin = [r[:6] for r in custom if not r[6]]; project = [r[:6] for r in custom if r[6] and not NO_PROJECT_RULES]
     for rid, sev, area, pat, msg, globs in builtin:
         rx = re.compile(pat)
-        for rel, text in TEXTS.items():
+        for rel, text in {**TEXTS, **CONFIG_TEXTS}.items():
+            if rel in CONFIG_TEXTS and not globs: continue  # config is read only by a rule that names its file type
             if globs and not any(fnmatch.fnmatch(pathlib.PurePath(rel).name, g) or fnmatch.fnmatch(rel, g) for g in globs): continue
             for i, l in enumerate(text.split("\n"), 1):
                 if len(l) <= 2000 and rx.search(l): f(sev, rid, area, f"{rel}:{i}", msg, l[:160])
-    if project and TEXTS:
+    if project and (TEXTS or CONFIG_TEXTS):
         try:
             log_run(SCAN_ROOT, "script", f"rule_runner.py ({len(project)} project rule(s), 20 s limit)")
-            r = subprocess.run([sys.executable, "-I", str(pathlib.Path(__file__).resolve().parent / "rule_runner.py")], input=json.dumps({"rules": project, "files": list(TEXTS.items())}),
+            r = subprocess.run([sys.executable, "-I", str(pathlib.Path(__file__).resolve().parent / "rule_runner.py")], input=json.dumps({"rules": project, "files": list({**TEXTS, **CONFIG_TEXTS}.items()), "config": list(CONFIG_TEXTS)}),
                                capture_output=True, text=True, timeout=20)
             if r.returncode != 0: f("WARN", "rule-file-failed", "structure", ".critic/rules", f"the project's rule files could not run (exit {r.returncode}); their results are missing")
             for row in json.loads(r.stdout or "[]"): f(*row)
         except subprocess.TimeoutExpired: f("WARN", "rule-file-timeout", "structure", ".critic/rules", "the project's rule files took over 20 s and were stopped (a pattern may be too slow); their results are missing")
         except ValueError: f("NOTE", "rule-file-invalid", "structure", ".critic/rules", "the rule runner returned no readable results")
-    if texts: state("static", *family_state({"safety", "errors", "state", "async", "perf", "a11y", "layout", "domain", "html", "theming", "ux"}, f"{n} source files, {texts} text files checked for secrets, {len(custom)} rule-file rules"))
+    if texts: state("static", *family_state({"safety", "errors", "state", "async", "perf", "a11y", "layout", "domain", "html", "theming", "ux"}, f"{n} source files, {len(CONFIG_TEXTS)} config files, {texts} text files checked for secrets, {len(custom)} rule-file rules"
+                              + (("; not checked beyond secrets: " + ", ".join(f"{k} {v}" for k, v in sorted(secrets_only.items(), key=lambda kv: -kv[1])[:8])) if secrets_only else "")))
     else: state("static", "blocked", "no readable files found")
     try:
         g = scan_graph.scan(root, TEXTS, f); state("structure", *family_state({"structure"}, f"{g['modules']} modules, {g['import_edges']} imports, {g['cycles']} cycles, {g['duplicates']} duplicates"))

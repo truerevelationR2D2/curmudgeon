@@ -1026,6 +1026,25 @@ def _(d):
     kept = sorted(p.read_text() for p in (h / ".critic/history").rglob("review-A.json"))
     assert kept == ['["v1"]', '["v2"]', '["v3"]'], f"an archived review was overwritten: {kept}"
 
+@test("5.0 SC-6: rule files read config files (workflows, SQL, TOML, Dockerfiles) only when a rule names them, and other types are listed as not checked")
+def _(d):
+    write(d, ".github/workflows/ci.yml", "on:\n  pull_request_target:\n    types: [opened]\njobs: {}\n")
+    write(d, "db/001.sql", "CREATE INDEX idx_users_email ON users(email);\n"); write(d, "Dockerfile", "FROM node:latest\n")
+    write(d, "pyproject.toml", "[tool.x]\nvar = 1\n"); write(d, "notes.txt", "var is fine here\n"); write(d, "src/a.js", "var x = 1;\n")
+    write(d, ".critic/rules/ci.json", json.dumps([
+        {"id": "prt", "severity": "WARN", "area": "safety", "pattern": "pull_request_target", "message": "fork code can run with secrets", "files": [".github/*", "*.yml"]},
+        {"id": "idx", "severity": "NOTE", "area": "perf", "pattern": "CREATE INDEX (?!CONCURRENTLY)", "message": "index locks writes", "files": ["*.sql"]},
+        {"id": "latest", "severity": "NOTE", "area": "deps", "pattern": "^FROM \\S+:latest", "message": "unpinned base image", "files": ["Dockerfile*"]},
+        {"id": "anyvar", "severity": "NOTE", "area": "perf", "pattern": "\\bvar\\b", "message": "var used"}]))
+    run(S / "critic_scan.py", ".", "--root", ".", cwd=d)
+    rep = json.loads((d / ".critic/scan/report.json").read_text())
+    hits = {(r["rule"], r["where"].split(":")[0]) for r in rep["findings"] if r["rule"].startswith("rule-")}
+    for want in [("rule-prt", ".github/workflows/ci.yml"), ("rule-idx", "db/001.sql"), ("rule-latest", "Dockerfile"), ("rule-anyvar", "src/a.js")]:
+        assert want in hits, (want, sorted(hits))
+    assert ("rule-anyvar", "pyproject.toml") not in hits, "a rule with no file patterns fired on a config file"
+    note = rep["checks"]["static"]["note"]
+    assert "config files" in note and "not checked beyond secrets: .txt 1" in note, note
+
 if __name__ == "__main__":
     bad = [r for r in RESULTS if not r[1]]
     print(f"\n{len(RESULTS) - len(bad)} of {len(RESULTS)} passed"); sys.exit(1 if bad else 0)
