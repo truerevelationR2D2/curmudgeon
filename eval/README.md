@@ -7,6 +7,7 @@ Planted-flaw apps, their hidden answer keys, clean twins, decoys and a scorer. *
 | 1 | `fixture/` notes app | Recall on 16 planted defects; 9 browser behaviour tests on the fixed copy |
 | 2 | `fixture2/` order dashboard | Recall on 27 planted defects (secrets, domain leaks, a refund reported as success, AI-default look, wrong README numbers); 13 behaviour tests (API mocked by path) |
 | 3 | `fixture3/` recipe box (**decoys**) | 9 correct-but-suspicious constructs that must **not** be reported, plus 2 real bugs. Includes a recorded decision in its ledger and a look the brief asked for |
+| 4 | `fixture4/` invoices (**fake guards**) | 4 real bugs, each behind a guard that looks protective and isn't (an escape that skips quotes, an `indexOf` truthiness check, an `isNaN` that accepts blanks, a debounce that never updates). A verifier that trusts the guard refutes a real bug, so suite 4 measures wrongful refutations: score it, then `score.py --funnel RUN --suite 4` shows how many plants were "refuted by a verifier" or "downgraded". `fixture4-clean/` is its clean twin |
 | clean 1, clean 2 | `fixture-clean/`, `fixture2-clean/` | The two apps with every planted flaw fixed (written by Claude in the v3 runs, so they double as the self-preference arm). Every Critical/High/Medium finding here is a false alarm unless it's a real unplanted bug |
 
 ## Run
