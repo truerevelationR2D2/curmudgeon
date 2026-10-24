@@ -396,8 +396,21 @@ def main(a):
     elif cmd == "round":
         if rest[:1] == ["--reset"]: L["round"] = 0; msg = "round reset"
         else:
-            archive_reviews(L, f"run-{L['run']}-round-{L['round']}"); L["round"] += 1; save(L)
+            archive_reviews(L, f"run-{L['run']}-round-{L['round']}")
+            # convergence (SC-36, after code-improver's detectors; our own rules): escalate instead of looping
+            openf = {k: v for k, v in L["findings"].items() if v.get("status") in ("open", "regressed")}
+            ch = sum(1 for v in openf.values() if v.get("score") in ("Critical", "High"))
+            snaps = L.setdefault("round_snapshots", {}).setdefault(str(L["run"]), [])
+            snaps.append({"round": L["round"], "open": sorted(openf), "critical_high": ch})
+            esc = []
+            esc += [f"{k} was marked fixed twice and is open again" for k, v in openf.items() if sum("fixed" in h for h in v.get("history", [])) >= 2]
+            if len(snaps) >= 3: esc += [f"{k} has stayed open for 3 rounds" for k in sorted(set.intersection(*[set(x["open"]) for x in snaps[-3:]]))]
+            if len(snaps) >= 2 and snaps[-1]["critical_high"] and snaps[-1]["critical_high"] >= snaps[-2]["critical_high"]:
+                esc.append(f"open Critical+High did not fall ({snaps[-2]['critical_high']} -> {snaps[-1]['critical_high']})")
+            L["round"] += 1; save(L)
+            for e in esc: print(f"ESCALATE to the owner: {e}")
             print(f"review round {L['round']} of 3" + (" (verify-only: no new findings without an executed case)" if L["round"] == 3 else ""))
+            if esc: return 3
             return 1 if L["round"] > 3 else 0
     elif cmd == "restore":
         need(rest, 1, "restore save PATH... | restore apply")

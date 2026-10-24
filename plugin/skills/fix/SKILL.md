@@ -14,7 +14,7 @@ Do what the first word of `$ARGUMENTS` names; the words after it are the target 
 4. Mark it in the ledger and show a diff summary. Change nothing else, even if you notice other problems; list those as new findings instead.
 
 ## iterate [component]: go deeper on one part
-1. Run `critic_ledger.py round`. If it says past round 3 for this run, stop and hand the open items to the owner. (A new `/curmudgeon:review` run starts again at round 1.)
+1. Run `critic_ledger.py round`. If it says past round 3 for this run, or prints any `ESCALATE to the owner` line (a finding fixed twice and open again, one open for 3 rounds, or open Critical+High not falling), stop and hand the open items to the owner with those lines. (A new `/curmudgeon:review` run starts again at round 1.)
 2. Re-run the review skill on that component only: `critic_map.py --files <its files>`, the scripted checks, fresh blind reviewers (who don't see the earlier review), the merge and verification, limited to it. If the user rejected the previous fix, say what approach it took and take a different one. In round 3, only verify: no new findings without an executed case.
 3. Refactor, re-check and update the ledger as in the review skill's steps 7 and 8, but stamp with `critic_ledger.py stamp --add <component files>` so the rest of the project stays watched. Leave everything outside the component untouched.
 

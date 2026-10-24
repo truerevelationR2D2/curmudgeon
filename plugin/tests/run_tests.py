@@ -1437,6 +1437,18 @@ def _(d):
     e = d / "old"; write(e, ".critic/ledger.json", json.dumps({"started_at": time.time() - 13 * 3600, "run": 1}))
     assert "deny" not in run(H / "read_guard.py", cwd=e, stdin=json.dumps({"tool_name": "Agent", "tool_input": {"subagent_type": "fork"}, "cwd": str(e)})).stdout, "an abandoned run must not block forks for ever"
 
+@test("5.0 SC-36: round escalates a finding fixed twice, one open for 3 rounds, and open Critical+High that doesn't fall")
+def _(d):
+    run(S / "critic_ledger.py", "start", "review", "--tier", "full", cwd=d)
+    run(S / "critic_ledger.py", "add", "F-1", "High", "src/a.js:1", "a real bug", cwd=d)
+    r = run(S / "critic_ledger.py", "round", cwd=d); assert "ESCALATE" not in r.stdout, r.stdout
+    r = run(S / "critic_ledger.py", "round", cwd=d)
+    assert r.returncode == 3 and "did not fall" in r.stdout, r.stdout
+    L = json.loads((d / ".critic/ledger.json").read_text()); L["findings"]["F-1"]["history"] += ["run 1: fixed", "run 1: fixed"]; L["round"] = 1
+    (d / ".critic/ledger.json").write_text(json.dumps(L))
+    r = run(S / "critic_ledger.py", "round", cwd=d)
+    assert "fixed twice" in r.stdout and "open for 3 rounds" in r.stdout, r.stdout
+
 if __name__ == "__main__":
     bad = [r for r in RESULTS if not r[1]]
     print(f"\n{len(RESULTS) - len(bad)} of {len(RESULTS)} passed"); sys.exit(1 if bad else 0)
