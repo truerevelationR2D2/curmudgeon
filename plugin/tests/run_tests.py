@@ -1746,6 +1746,7 @@ def _(d):
         return "deny" in run(H / "read_guard.py", cwd=p, stdin=json.dumps({"tool_name": tool, "tool_input": ti, "cwd": str(cwd), "agent_type": "curmudgeon:curmudgeon-reviewer", "agent_id": "r1"})).stdout
     assert ask(notes, "Read", file_path=str(p / ".critic/reviews/review-B.json")), "a cwd in notes still guards the project's .critic"
     assert not ask(notes, "Bash", command=f"cd {ws} && ls"), "and still finds the workspace"
+    assert not ask(p, "Bash", command=f"git -C {ws} log --oneline") and ask(p, "Bash", command=f"git -C {ws} log; grep -rn SECRET .") and ask(p, "Bash", command=f"git -C {p} log")
     assert ask(p, "Glob", pattern=str(p) + "/**/review-*.json", path=str(p)), "an absolute Glob pattern is expanded with dot-folders"
     e = d / "lite"; write(e, "src/app.js", APP)
     run(S / "critic_run.py", "begin", "--files", "src/app.js", "--tier", "lite", cwd=e)

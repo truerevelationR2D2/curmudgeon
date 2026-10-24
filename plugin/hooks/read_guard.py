@@ -83,10 +83,12 @@ def bash_problem(cmd, rec, root, critic, role, me):
     import glob as _glob, shlex
     payload = rec["payload"]
     m = re.match(r"\s*cd\s+((?:'[^']*'|\"[^\"]*\"|\\.|[^\s;&|])+)\s*&&", cmd)  # however it is quoted (shlex.quote included)
+    if not m: m = re.match(r"\s*git\s+-C\s+((?:'[^']*'|\"[^\"]*\"|\\.|[^\s;&|])+)(?=\s)", cmd)  # git -C <copy> ...: Claude Code asks before a cd followed by git
     try: target = shlex.split(m.group(1))[0] if m else None
     except (ValueError, IndexError): target = None
-    if not target or fold(target.rstrip("/\\") or "/") != fold(payload): return f"a command that doesn't start in your workspace; start it with: cd {shlex.quote(payload)} && "
+    if not target or fold(target.rstrip("/\\") or "/") != fold(payload): return f"a command that doesn't start in your workspace; start it with: cd {shlex.quote(payload)} && (or, for git, git -C {shlex.quote(payload)} ...)"
     rest = cmd[m.end():]
+    if not cmd.lstrip().startswith("cd") and re.search(r"[;&|`\n]|\$\(", rest): return "a git -C command followed by another command (that one would run in the project, not your copy); use cd <workspace> && ... for chains"
     if re.search(r"(?i)\$\{?(?:OLDPWD|CLAUDE_PROJECT_DIR)\b|(?:^|[\s;&|(])(?:cd|pushd)\s+-(?:\s|$|[;&|)])|\bpopd\b|\bdirs\b", rest): return "a way back to the project folder ($OLDPWD, cd -, popd, $CLAUDE_PROJECT_DIR)"
     home = os.path.expanduser("~")
     flat = re.sub(r"\\(.)", r"\1", rest).replace("${HOME}", home).replace("$HOME", home)
