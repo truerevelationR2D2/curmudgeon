@@ -102,4 +102,4 @@ Write it to `references/output-contract.md` in exactly its headers, and save it 
 5. Touch `.critic/last-review.md` only after the re-check passes. In `/curmudgeon:fix iterate`, stamp with `--add`. Record time spent with `critic_ledger.py cost`.
 
 ## Self-test
-The eval kit lives **outside** this plugin. After changing the plugin, copy a fixture to a scratch folder, run a fresh agent with only this skill on the copy, and score it with `python3 <kit>/score.py <review> --suite <n> --refactored <copy>`. The kit has defective apps, clean twins and decoys, so it scores precision as well as recall. A non-zero exit means a drop below the recorded baseline.
+The eval kit is in the repository's `eval/` folder, outside the installed plugin (see its README). After changing the plugin, copy a fixture to a scratch folder, run a fresh agent with only this skill on the copy, and score it with `python3 eval/score.py <review> --suite <n> --refactored <copy>`. The kit has defective apps, clean twins and decoys, so it scores precision as well as recall. A non-zero exit means a drop below the recorded baseline.

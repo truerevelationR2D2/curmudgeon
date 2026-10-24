@@ -1718,6 +1718,14 @@ def _(d):
     run(S / "critic_ledger.py", "start", "review", "--tier", "full", cwd=d)
     assert not (d / ".critic/verdicts").exists() and list((d / ".critic/history").glob("run-*/verdicts/1.json")), "a new run starts with no verdicts; the old ones are archived"
 
+@test("5.0 SC-41: the README compares Curmudgeon with Anthropic's review options (dated and sourced), gives a CI recipe with the action's real inputs, and says the reviewers share one model")
+def _(d):
+    r = (HERE.parent / "README.md").read_text()
+    assert r == (HERE / "README.md").read_text(), "the two READMEs must match"
+    assert "## How it compares with Anthropic's own review options" in r and "code.claude.com/docs/en/ultrareview" in r and "24 October 2026" in r
+    assert "plugin_marketplaces:" in r and "plugins: curmudgeon@curmudgeon" in r and "hasn't been run by us yet" in r and "secrets.ANTHROPIC_API_KEY" in r
+    assert "All three are the same model" in r and "/curmudgeon:review quiet" in r
+
 if __name__ == "__main__":
     shutil.rmtree(TMP, ignore_errors=True)
     bad = [r for r in RESULTS if not r[1]]

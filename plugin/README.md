@@ -33,6 +33,7 @@ You need Python 3.9 or later. The browser checks also need Playwright with Chrom
 | `/curmudgeon:review [what]` | Reviews and changes nothing. Writes `.critic/last-review.md`. |
 | `/curmudgeon:review fix [what]` | Reviews, then fixes. Each fix must pass a re-check before it counts. |
 | `/curmudgeon:review deep [what]` | Forces the full three-reviewer run, whatever the size of the change. |
+| `/curmudgeon:review quiet [what]` | The same review with a shorter teardown: Critical and High in full, Medium and Low one line each. Every count stays exact. |
 | `/curmudgeon:fix patch [id]` | Fixes one finding. |
 | `/curmudgeon:fix iterate [part]` | Goes deeper on one part, or tries another approach. |
 | `/curmudgeon:fix approve` | Keeps the last refactor. |
@@ -58,7 +59,7 @@ You can also just say "tear this apart" or "review my work".
    - dependency hygiene and licences (strong copyleft such as GPL is flagged; missing, unrecognised and proprietary licences are noted);
    - your own rule files (see "Add your own checks");
    - in a real browser: keyboard reach, focus hidden behind other content, a screen-reader view, reflow at 320 px, speed, and dead controls.
-3. **Three blind reviewers**, as described above.
+3. **Three blind reviewers**, as described above. All three are the same model, so their agreement isn't independent the way three people's would be. The decoys, the clean twins and the optional outside reviewer are the defence against blind spots they share.
 4. **The count.** The script drops any finding whose quoted code isn't at the cited line. It keeps findings that two of three reviewers agree on, or that come with an executed failing case. A dedup step merges the same issue worded differently, so votes count issues, not phrasings.
    **Optional outside reviewer.** Reviewers from one model family share blind spots. In two double-blind tests, another AI's review and Curmudgeon's own overlapped on none of 23 real findings the first time and 2 of 14 the second ([details](docs/double-blind-test.md)). So Curmudgeon asks once whether you want an outside reviewer; the default is no. If you say yes, it writes a brief for that change, with the commit, raw file links and an output format, and none of its own findings. You paste the brief into another AI yourself, then paste the answer back. Those findings get the same quote check as Curmudgeon's own. Where one agrees with Curmudgeon's reviewers, it counts as one more vote. One only the outside AI raised always goes to blind verification, and a run Curmudgeon can't see never counts as proof.
 5. **Blind verification**, one finding at a time.
@@ -70,6 +71,52 @@ Results build up in a per-project ledger (`.critic/`):
 - **memory that never hides anything:** when you dismiss three similar findings for the same reason, Curmudgeon remembers. In later reviews, a look-alike finding is still shown and still counted, with a note naming your earlier reason, so you can decide in seconds. `critic_ledger.py dismiss --like N "why"` closes them on purpose. Memories only note Medium and Low findings (never High or Critical), `dismiss --like` only closes open ones, the verifier never sees notes, and they expire after 90 days unused;
 - **spot-checks:** after a review it can show you three random findings and one of the verifier's refutations to judge (real, wrong or unsure). Your answers give a precision figure from your own projects, and show whether the verifier ever drops a real bug or lowers one's impact (counted separately). Every refutation and downgrade is kept in `.critic/refutations.jsonl`;
 - the ledger tracks how many findings you actually acted on.
+
+## How it compares with Anthropic's own review options
+
+Checked against Anthropic's documentation on 24 October 2026 ([`/code-review`](https://code.claude.com/docs/en/code-review-local), [ultrareview](https://code.claude.com/docs/en/ultrareview), [Code Review](https://code.claude.com/docs/en/code-review)). There is no head-to-head benchmark yet; the comparison runs are planned, and their results will go in Benchmarks below.
+
+| | Curmudgeon | `/code-review` (`/review` is an alias) | `/code-review ultra` (ultrareview) | Code Review (managed) |
+|---|---|---|---|---|
+| Where it runs | Your Claude Code session and your machine | Your Claude Code session, as a background subagent | A cloud sandbox on Anthropic's infrastructure | Anthropic's infrastructure, on GitHub pull requests |
+| What leaves your machine, beyond the session's own model calls | Nothing by default (opt-in network calls are listed above) | Nothing | For a branch review, your repository state is bundled and uploaded; a PR review clones from GitHub | The GitHub App reads the repository |
+| Who can use it | Anyone with Claude Code | Any plan | Requires a claude.ai sign-in; not on Bedrock, Agent Platform or Foundry, ZDR, HIPAA or CMEK organisations | Team and Enterprise organisations, turned on by an Owner |
+| Cost | Your session's usage; the scripted checks cost no tokens | Your session's usage | 3 free runs on Pro and Max, then typically $5 to $25 per review in usage credits | Billed per review (see Anthropic's cost page) |
+| How findings are checked | Quote at the cited line, script-counted votes of three blind reviewers, then blind per-finding verification that can only lower an impact | Depth scales with the effort level | Every reported finding is independently reproduced and verified | A verification step filters false positives |
+| Runs your code | Yes, in each agent's private copy, when it helps reproduce a failure | Not documented | Reproduces findings in its sandbox | No: it reads the diff and surrounding code |
+| False alarms measured | Yes, with decoys and clean twins in `eval/` | Not published | Not published | Not published |
+| Beyond code | Interfaces in a real browser, documents and plans | Code | Code | Code |
+
+Curmudgeon is not a replacement for any of these. Running it next to them costs nothing extra in scripted checks, and its ledger keeps your rulings across runs.
+
+## Run it in CI
+
+A starting point with [claude-code-action](https://github.com/anthropics/claude-code-action) (MIT), which takes a `plugins` input and a `plugin_marketplaces` input. The input names are from the action's `action.yml` as of 24 October 2026; this workflow hasn't been run by us yet, so treat it as a recipe to adapt, not a tested file.
+
+```yaml
+name: curmudgeon
+on: pull_request
+permissions:
+  contents: read
+  security-events: write   # for the SARIF upload
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          plugin_marketplaces: https://github.com/truerevelationR2D2/curmudgeon.git
+          plugins: curmudgeon@curmudgeon
+          prompt: "/curmudgeon:review the changes in this pull request, compared with origin/${{ github.base_ref }}"
+      - uses: github/codeql-action/upload-sarif@v4
+        if: always() && hashFiles('.critic/findings.sarif') != ''
+        with: { sarif_file: .critic/findings.sarif }
+```
+
+For a stricter pipeline, pin each action to a full commit SHA, as this repository's own `ci.yml` does. Keep the API key in a repository secret, never in the file.
 
 ## Add your own checks
 
