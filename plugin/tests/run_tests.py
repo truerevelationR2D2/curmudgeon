@@ -1327,6 +1327,24 @@ def _(d):
         if "tests" in p.parts or "evals" in p.parts: continue
         assert not _re.search(r"/curmudgeon:(patch|iterate|approve|rollback)\b", p.read_text(errors="replace")), p
 
+@test("5.0 card-B review: cost stops being recorded once the teardown is written, and the funnel reads only the current run")
+def _(d):
+    tr = d / "agent.jsonl"; tr.write_text(json.dumps({"type": "assistant", "requestId": "r1", "message": {"model": "m", "usage": {"input_tokens": 1, "cache_creation_input_tokens": 0, "cache_read_input_tokens": 0, "output_tokens": 2}}}) + "\n")
+    hook = {"cwd": str(d), "agent_type": "curmudgeon:curmudgeon-reviewer", "agent_id": "a1", "agent_transcript_path": str(tr)}
+    run(S / "critic_ledger.py", "start", "review", "--tier", "full", cwd=d)
+    time.sleep(1.1); write(d, ".critic/last-review.md", "# done")
+    run(H / "record_cost.py", cwd=d, stdin=json.dumps(hook))
+    assert not (d / ".critic/cost.jsonl").exists(), "the run ended with the teardown; nothing should be billed to it"
+    E = HERE.parent / "eval"
+    if not (E / "score.py").exists(): return
+    e = d / "f"; c = e / ".critic"; (c / "history/run-1/reviews").mkdir(parents=True); (c / "reviews").mkdir()
+    (c / "ledger.json").write_text(json.dumps({"run": 2}))
+    fz = lambda title: {"file": "guards.js", "line": 1, "category": "x", "impact": "High", "title": title}
+    (c / "history/run-1/reviews/review-A.json").write_text(json.dumps([fz("canVoid indexOf returns -1 which is truthy")]))
+    (c / "refutations.jsonl").write_text(json.dumps(dict(fz("lastSend is never updated so a double click sends twice"), kind="refuted", run=1)) + "\n")
+    out = subprocess.run([sys.executable, str(E / "score.py"), "--funnel", str(e), "--suite", "4"], capture_output=True, text=True).stdout
+    assert "never raised: G2" in out and "never raised: G4" in out, out
+
 if __name__ == "__main__":
     bad = [r for r in RESULTS if not r[1]]
     print(f"\n{len(RESULTS) - len(bad)} of {len(RESULTS)} passed"); sys.exit(1 if bad else 0)

@@ -30,15 +30,18 @@ Without --gate, a single run is compared point by point with the baseline (indic
 With --gate (at least 2 runs): FAIL when precision, recall or impact misses are worse than the baseline's 95% interval
 in most runs, when any run flags more decoys at Medium or above than the baseline (strict floor), when any clean-twin
 run says BLOCK (strict floor), or when tokens rise more than 10% with no metric better; NOT MEASURED with fewer than 2
-runs, an answer-key leak, or a baseline without counts for a metric. Exit 0 PASS, 1 FAIL, 2 bad usage, 3 NOT MEASURED."""
-import hashlib, json, math, pathlib, re, statistics, subprocess, sys
+runs, an answer-key leak, or a baseline without counts for a metric. Exit 0 PASS, 1 FAIL, 2 bad usage, 3 NOT MEASURED, 4 the scorer itself crashed."""
+import hashlib, json, math, os, pathlib, re, statistics, subprocess, sys, traceback
+def _crash(t, v, tb):  # a crash must never look like a gate verdict: FAIL is 1, a crash is 4
+    traceback.print_exception(t, v, tb); sys.stderr.flush(); sys.stdout.flush(); os._exit(4)
+sys.excepthook = _crash
 HERE = pathlib.Path(__file__).resolve().parent
 args = sys.argv[1:]
 def opt(name, default=None): return args[args.index(name) + 1] if name in args and args.index(name) + 1 < len(args) else default
-FLAGS_WITH_VALUE = {"--suite", "--refactored", "--baseline", "--clean", "--refutations", "--model", "--labeller", "--funnel"}
+FLAGS_WITH_VALUE = {"--suite", "--refactored", "--baseline", "--clean", "--refutations", "--model", "--labeller", "--funnel", "--labels"}
 reviews = [a for i, a in enumerate(args) if not a.startswith("--") and (i == 0 or args[i - 1] not in FLAGS_WITH_VALUE)]
 if not reviews and "--label" not in args and "--refutations" not in args and "--selftest" not in args and "--funnel" not in args: print(__doc__); sys.exit(2)
-LABELS = HERE / "fp_labels.json"; labels = json.loads(LABELS.read_text()) if LABELS.exists() else {}
+LABELS = pathlib.Path(opt("--labels", HERE / "fp_labels.json")); labels = json.loads(LABELS.read_text()) if LABELS.exists() else {}
 
 def load(path):
     p = pathlib.Path(path)
@@ -76,29 +79,53 @@ def stamp():
             "model": opt("--model", "unrecorded"), "prompts_sha256": h.hexdigest()[:16], "labeller": opt("--labeller", labels.get("_labeller", "unrecorded"))}
 
 LEAK_FILES = re.compile(r"^(answer_key\d*\.json|decoys\d*\.json|fp_labels\.json|labels-.*\.json|refutation_labels\.json|score\.py|baseline\.json)$")
-def leak(path):
-    """Signs the reviewed copy could see the answers: eval files inside the run folder, or answer-key ids in the review."""
+def leak(path, key=None):
+    """Signs the reviewed copy could see the answers: eval files inside the run folder, answer-key ids, or an answer-key
+    entry's wording copied into the review."""
     p = pathlib.Path(path).resolve(); run_dir = p.parent.parent if p.parent.name == ".critic" else p.parent
     found = [str(x.relative_to(run_dir)) for x in run_dir.rglob("*") if x.is_file() and LEAK_FILES.match(x.name) and ".git" not in x.parts][:5]
     text = p.read_text(encoding="utf-8", errors="replace")
-    if re.search(r"answer[_ ]key|\b[DE]\d{2}\b.*planted|planted (defect|flaw)s? list", text, re.I): found.append("the review names the answer key")
+    if re.search(r"answer[_ ]key|\b[DEGR]\d{1,2}\b.*planted|planted (defect|flaw)s? list", text, re.I): found.append("the review names the answer key")
+    low = re.sub(r"\s+", " ", text.lower())
+    for name in (key or {}):
+        words = re.sub(r"\s+", " ", name.split(" ", 1)[-1].lower())[:48]
+        if len(words) >= 30 and words in low: found.append(f"the review copies an answer-key entry ({name.split()[0]})"); break
     return found
 
 def run_tokens(path):
     """Tokens the run's agents used, from the run's .critic/cost.jsonl (None when not recorded)."""
     p = pathlib.Path(path).resolve(); cf = (p.parent if p.parent.name == ".critic" else p.parent / ".critic") / "cost.jsonl"
     if not cf.is_file(): return None
-    tot = 0
+    rows = []
     for line in cf.read_text().splitlines():
-        try: r = json.loads(line)
+        try: rows.append(json.loads(line))
         except ValueError: continue
-        tot += sum(r.get(k, 0) for k in ("input_tokens", "cache_creation_input_tokens", "cache_read_input_tokens", "output_tokens"))
-    return tot
+    if not rows: return None
+    last = max((r.get("run") or 0) for r in rows)  # the latest run only, as critic_ledger.py tokens does
+    return sum(sum(r.get(k, 0) for k in ("input_tokens", "cache_creation_input_tokens", "cache_read_input_tokens", "output_tokens")) for r in rows if (r.get("run") or 0) == last)
+
+def verdict_word(review):
+    """The one verdict word (BLOCK, CONCERNS or CLEAN) the teardown gives, or None. Bold first, then a line that starts
+    with the word; a sentence that merely mentions BLOCK is not a verdict."""
+    sec = (re.search(r"VERDICT(.*)", review, re.S) or [None, ""])[1][:600]
+    m = re.search(r"\*\*(BLOCK|CONCERNS|CLEAN)\*\*", sec) or re.search(r"(?m)^\W*(BLOCK|CONCERNS|CLEAN)\b", sec)
+    return m.group(1) if m else None
+
+def clean_counts(path):
+    """A clean-twin run: Critical/High/Medium findings that are false alarms (minus those labelled real, as the
+    baseline does), the unlabelled ones, and whether the verdict is BLOCK."""
+    review, rows, _ = load(path)
+    if rows: chm = [r for r in rows if r.get("impact") in ("Critical", "High", "Medium")]; blocks_ = [" ".join(str(r.get(k, "")) for k in ("file", "line", "category", "title", "quote", "evidence", "failing_case", "remediation")) for r in chm]
+    else: blocks_ = [m.group(0) for m in re.finditer(r"IMPACT:\s*\**\s*(Critical|High|Medium)[^\n]*", review)]
+    labs_ = [labels.get(lab_key(b), "unlabelled") for b in blocks_]
+    return {"fp": len(blocks_) - labs_.count("real"), "unlabelled": labs_.count("unlabelled"), "block": verdict_word(review) == "BLOCK",
+            "labs": labs_, "chm": len(blocks_), "low": (sum(1 for r in rows if r.get("impact") == "Low") if rows else len(re.findall(r"IMPACT:\s*\**\s*Low", review)))}
 
 def match_key(key, blocks):
     hits, used = {}, set()
     for name, k in key.items():
         for bi, b in enumerate(blocks):
+            if bi in used: continue  # one finding is credited to one planted defect, never several
             if (not k["file"] or k["file"].lower() in b.lower()) and any(re.search(p, b, re.I) for p in k["any"]):
                 hits[name] = bi; used.add(bi); break
     return hits, used
@@ -162,7 +189,7 @@ def score_one(path, suite):
             if bi in used: continue
             if (not d["file"] or d["file"].lower() in b.lower()) and any(re.search(p, b, re.I) for p in d["any"]) and re.search(d["categories"], b, re.I):
                 decoy_hits.append(name); used.add(bi)
-                decoy_detail.append((name, (rows[bi].get("id"), rows[bi].get("impact"), rows[bi].get("title")) if rows else (None, None, b[:80]))); break
+                decoy_detail.append((name, (rows[bi].get("id"), rows[bi].get("impact"), rows[bi].get("title")) if rows else (None, (re.search(r"\b(Critical|High|Medium|Low)\b", b) or [None, None])[1], b[:80]))); break
     unmatched = [b for bi, b in enumerate(blocks) if bi not in used and re.search(r"\b(Critical|High|Medium|Low)\b|IMPACT", b) and len(b) > 40] if not rows else [b for bi, b in enumerate(blocks) if bi not in used]
     lab = {"real": 0, "hallucinated": 0, "nitpick": 0, "unlabelled": 0}
     for b in unmatched: lab[labels.get(lab_key(b), "unlabelled")] += 1
@@ -208,16 +235,18 @@ if "--funnel" in args:
     final = jl(C / "findings.jsonl")
     tally = json.loads((C / "tally.json").read_text()) if (C / "tally.json").is_file() else {}
     raised, aside = [], []
-    for rv in sorted((C / "reviews").glob("review-*.json")) + sorted((C / "history").glob("**/review-*.json")):
+    try: cur = json.loads((C / "ledger.json").read_text()).get("run")
+    except Exception: cur = None
+    for rv in sorted((C / "reviews").glob("review-*.json")):  # this run's reviews only; earlier runs live in history/
         try: data = json.loads(rv.read_text())
         except ValueError: continue
         items = data if isinstance(data, list) else data.get("findings", []) if isinstance(data, dict) else []
         raised += [x for x in items if isinstance(x, dict)]
         if isinstance(data, dict): aside += [x for x in data.get("set_aside", []) if isinstance(x, dict)]
-    refs = jl(C / "refutations.jsonl")
+    refs = [r for r in jl(C / "refutations.jsonl") if cur is None or r.get("run") in (None, cur)]  # this run's verdicts only
     stages = [("retracted by the quote check", [x["finding"] for x in tally.get("retracted", [])]),
               ("failed the finding contract", [x["finding"] for x in tally.get("rejected", [])]),
-              ("hidden by a memory (should never happen: memories note, never hide)", [x["finding"] for x in tally.get("suppressed", [])]),
+              ("suppressed by an owner's false-positive ruling", [x["finding"] for x in tally.get("suppressed", [])]),
               ("dropped on votes", [x["finding"] for x in tally.get("dropped", [])]),
               ("refuted by a verifier", [r.get("finding", r) for r in refs if r.get("kind") == "refuted"]),
               ("downgraded by a verifier", [r.get("finding", r) for r in refs if r.get("kind") == "downgraded"])]
@@ -235,28 +264,62 @@ if "--funnel" in args:
     sys.exit(0)
 
 if "--selftest" in args:
-    # Break the gate on purpose (SC-71): runs where a verifier refuted every real bug must FAIL; runs equal to the
-    # baseline must PASS; one run must be NOT MEASURED; a decoy flagged at Medium must FAIL at once. No model needed.
+    # Break the gate on purpose (SC-71). Each check names the exact exit code it needs, so a crash (4) is never
+    # mistaken for a FAIL (1). No model needed.
     import tempfile
-    key = json.loads((HERE / "answer_key.json").read_text())
-    def text_for(name, k):
-        for cand in [name] + [re.sub(r"\\(.)", r"\1", x) for x in k["any"]]:
-            if any(re.search(x, f"{k['file']} {cand}", re.I) for x in k["any"]): return cand
-        return name
-    def make(dirp, rows):
-        dirp.mkdir(parents=True); (dirp / "last-review.md").write_text("# review\n## VERDICT\n**CONCERNS**\n")
+    def sample(rx_list):  # a phrase that one of these regexes matches
+        for x in rx_list:
+            for cand in [re.sub(r"\\(.)", r"\1", x)] + [re.sub(r"\\(.)", r"\1", y) for y in re.split(r"(?<!\\)\|", x.strip("()"))]:
+                cand = re.sub(r"[\^\$\(\)\?\*\+\[\]]", "", cand)
+                if any(re.search(z, cand, re.I) for z in rx_list): return cand
+        return rx_list[0]
+    def make(dirp, rows, verdict="**CONCERNS**"):
+        dirp.mkdir(parents=True); (dirp / "last-review.md").write_text(f"# review\n## VERDICT\n{verdict}\n")
         (dirp / "findings.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows))
         return str(dirp / "last-review.md")
-    good = [{"id": f"F-{i}", "file": k["file"] or "app.js", "line": 1, "category": "x", "impact": k.get("impact", "Medium"), "title": text_for(n, k)} for i, (n, k) in enumerate(key.items())]
+    def plants(suite):
+        key = json.loads((HERE / ("answer_key.json" if suite == "1" else f"answer_key{suite}.json")).read_text())
+        return [{"id": f"F-{i}", "file": k["file"] or "app.js", "line": i + 1, "category": "x", "impact": k.get("impact", "Medium"), "title": sample(k["any"])} for i, (n, k) in enumerate(key.items())]
+    checks = []
     with tempfile.TemporaryDirectory() as t:
-        t = pathlib.Path(t); bl = t / "baseline.json"
+        t = pathlib.Path(t); bl = t / "baseline.json"; lab = t / "labels.json"
+        def go(*a, suite="1", env=None):
+            return subprocess.run([sys.executable, str(pathlib.Path(__file__).resolve()), *a, "--suite", suite, "--baseline", str(bl), "--labels", str(lab)],
+                                  capture_output=True, text=True, env=dict(os.environ, **(env or {}))).returncode
+        def label(rows, value):
+            cur = json.loads(lab.read_text()) if lab.exists() else {}
+            for r in rows: cur[lab_key(" ".join(str(r.get(k, "")) for k in ("file", "line", "category", "title", "quote", "evidence", "failing_case", "remediation")))] = value
+            lab.write_text(json.dumps(cur))
+        good = plants("1")
         g = [make(t / f"good{i}", good) for i in range(3)]
-        bad = [make(t / f"refuted{i}", []) for i in range(3)]
-        low = [make(t / f"low{i}", [dict(r, impact="Low") if r.get("impact") in ("Critical", "High") else r for r in good]) for i in range(3)]
-        def go(*a): return subprocess.run([sys.executable, str(pathlib.Path(__file__).resolve()), *a, "--suite", "1", "--baseline", str(bl)], capture_output=True, text=True).returncode
-        checks = [("baseline recorded", go(*g, "--set-baseline") == 0), ("equal runs PASS", go(*g, "--gate") == 0),
-                  ("a verifier that refutes everything FAILS", go(*bad, "--gate") == 1), ("impact misses FAIL", go(*low, "--gate") == 1),
-                  ("one run is NOT MEASURED", go(g[0], "--gate") == 3)]
+        checks.append(("baseline recorded", go(*g, "--set-baseline") == 0))
+        checks.append(("equal runs PASS", go(*g, "--gate") == 0))
+        checks.append(("a verifier that refutes everything FAILS", go(*[make(t / f"refuted{i}", []) for i in range(3)], "--gate") == 1))
+        checks.append(("losing 2 of 16 plants in every run FAILS", go(*[make(t / f"lost{i}", good[2:]) for i in range(3)], "--gate") == 1))
+        checks.append(("impact misses FAIL", go(*[make(t / f"low{i}", [dict(r, impact="Low") if r["impact"] in ("Critical", "High") else r for r in good]) for i in range(3)], "--gate") == 1))
+        bogus = [{"id": f"X-{j}", "file": "app.js", "line": 900 + j, "category": "made-up", "impact": "High", "title": f"invented problem number {j}"} for j in range(20)]
+        noisy = [make(t / f"noisy{i}", good + bogus) for i in range(3)]
+        checks.append(("unlabelled extra findings are NOT MEASURED, never PASS", go(*noisy, "--gate") == 3))
+        label(bogus, "hallucinated")
+        checks.append(("labelled false alarms FAIL on precision", go(*noisy, "--gate") == 1))
+        checks.append(("one run is NOT MEASURED", go(g[0], "--gate") == 3))
+        checks.append(("a crash exits 4, never 1", go(*g, "--gate", env={"CRITIC_SELFTEST_CRASH": "1"}) == 4))
+        d3 = json.loads((HERE / "decoys3.json").read_text()); dn, dk = next(iter(d3.items()))
+        p3 = plants("3"); b3 = [make(t / f"s3good{i}", p3) for i in range(3)]
+        go(*b3, "--set-baseline", suite="3")
+        decoy = {"id": "D-1", "file": dk["file"] or "app.js", "line": 1, "category": sample([dk["categories"]]), "impact": "Medium", "title": sample(dk["any"]) + " " + sample([dk["categories"]])}
+        checks.append(("one decoy at Medium FAILS at once (strict floor)", go(*[make(t / f"s3decoy{i}", p3 + ([decoy] if i == 0 else [])) for i in range(3)], "--gate", suite="3") == 1))
+        clean = [make(t / f"clean{i}", [], verdict="**CLEAN**: nothing here rises to BLOCK.") for i in range(3)]
+        def gc(*a): return subprocess.run([sys.executable, str(pathlib.Path(__file__).resolve()), *a, "--clean", "1", "--baseline", str(bl), "--labels", str(lab)], capture_output=True, text=True).returncode
+        gc(clean[0], "--set-baseline")
+        checks.append(("a clean verdict that mentions BLOCK PASSES", gc(*clean, "--gate") == 0))
+        checks.append(("a clean twin run that says BLOCK FAILS (strict floor)", gc(*[make(t / f"cblock{i}", [], verdict="**BLOCK**") for i in range(3)], "--gate") == 1))
+        realf = [{"id": "R-1", "file": "app.js", "line": 3, "category": "bug", "impact": "Medium", "title": "a real unplanted bug in the clean twin"}]
+        rc = [make(t / f"creal{i}", realf, verdict="**CONCERNS**") for i in range(3)]
+        label(realf, "real"); gc(rc[0], "--set-baseline")
+        checks.append(("a clean-twin finding labelled real does not FAIL an unchanged plugin", gc(*rc, "--gate") == 0))
+        leaky = make(t / "leak", good); (t / "leak" / "answer_key.json").write_text("{}")
+        checks.append(("an answer-key leak is NOT MEASURED", go(leaky, g[1], "--gate") == 3))
     for name, ok in checks: print(f"  {'✓' if ok else '✗'} {name}")
     sys.exit(0 if all(ok for _, ok in checks) else 1)
 
@@ -279,17 +342,13 @@ if "--label" in args:
     LABELS.write_text(json.dumps(labels, indent=1)); print(f"{len(pend)} unmatched finding(s) written to {LABELS.name}: set each to real, hallucinated or nitpick"); sys.exit(0)
 
 if "--clean" in args:
-    review, rows, blocks = load(reviews[0])
-    imps = [r.get("impact") for r in rows] if rows else re.findall(r"IMPACT:\s*\**\s*(Critical|High|Medium|Low)", review)
-    fa = sum(1 for x in imps if x in ("Critical", "High", "Medium"))
-    block = bool(re.search(r"\bBLOCK\b", (re.search(r"VERDICT(.*)", review, re.S) or [None, ""])[1][:400]))
-    print(f"Clean twin {opt('--clean')}: {fa} Critical/High/Medium finding(s) (each is a false alarm unless it's a real unplanted bug), {imps.count('Low')} Low; verdict BLOCK: {block}")
+    review, rows, blocks = load(reviews[0]); cc = clean_counts(reviews[0])
+    print(f"Clean twin {opt('--clean')}: {cc['chm']} Critical/High/Medium finding(s) (each is a false alarm unless it's a real unplanted bug), {cc['low']} Low; verdict BLOCK: {cc['block']}")
     for r in rows:
         if r.get("impact") in ("Critical", "High", "Medium"): print(f"  - {r.get('impact')}: {r.get('file')}:{r.get('line')} {r.get('title')}")
-    blocks_ = [" ".join(str(r.get(k, "")) for k in ("file", "line", "category", "title", "quote", "evidence", "failing_case", "remediation")) for r in rows if r.get("impact") in ("Critical", "High", "Medium")]
-    labs_ = [labels.get(lab_key(b), "unlabelled") for b in blocks_]
-    if blocks_: print(f"  labelled: real (unplanted bugs) {labs_.count('real')}, nitpick {labs_.count('nitpick')}, hallucinated {labs_.count('hallucinated')}, unlabelled {labs_.count('unlabelled')}")
-    now = {"fp_clean": fa - labs_.count("real"), "false_block": int(block)}
+    labs_ = cc["labs"]
+    if labs_: print(f"  labelled: real (unplanted bugs) {labs_.count('real')}, nitpick {labs_.count('nitpick')}, hallucinated {labs_.count('hallucinated')}, unlabelled {labs_.count('unlabelled')}")
+    now = {"fp_clean": cc["fp"], "false_block": int(cc["block"])}
     suite_key = f"clean{opt('--clean')}"
 else:
     suite = opt("--suite", "1"); res = [score_one(r, suite) for r in reviews]; r0 = res[0]
@@ -340,7 +399,8 @@ else:
 
 bf = pathlib.Path(opt("--baseline", HERE / "baseline.json")); base = json.loads(bf.read_text()) if bf.exists() else {}
 st = stamp(); print("Stamp: " + ", ".join(f"{k} {v}" for k, v in st.items()))
-leaks = {r: leak(r) for r in reviews}; leaks = {r: v for r, v in leaks.items() if v}
+_key = json.loads((HERE / ("answer_key.json" if suite_key == "suite1" else f"answer_key{suite_key[5:]}.json")).read_text()) if suite_key.startswith("suite") and (HERE / ("answer_key.json" if suite_key == "suite1" else f"answer_key{suite_key[5:]}.json")).exists() else None
+leaks = {r: leak(r, _key) for r in reviews}; leaks = {r: v for r, v in leaks.items() if v}
 for r, v in leaks.items(): print(f"ANSWER-KEY LEAK in {r}: {', '.join(v)}")
 toks = [run_tokens(r) for r in reviews]
 if any(t is not None for t in toks): print("Tokens per run: " + ", ".join("unrecorded" if t is None else f"{t:,}" for t in toks))
@@ -358,36 +418,42 @@ if "--gate" in args:
     if len(reviews) < 2: verdict_("NOT MEASURED", ["the gate needs at least 2 runs (3 recommended)"])
     if not b: verdict_("NOT MEASURED", [f"no baseline for {suite_key}"])
     why, missing = [], []
+    if os.environ.get("CRITIC_SELFTEST_CRASH") == "1": raise RuntimeError("deliberate crash for --selftest")
     if "--clean" in args:
-        runs = []
-        for r in reviews:
-            rv, rws, _ = load(r); imps = [x.get("impact") for x in rws] if rws else re.findall(r"IMPACT:\s*\**\s*(Critical|High|Medium|Low)", rv)
-            runs.append({"fp": sum(1 for x in imps if x in ("Critical", "High", "Medium")), "block": bool(re.search(r"\bBLOCK\b", (re.search(r"VERDICT(.*)", rv, re.S) or [None, ""])[1][:400]))})
+        runs = [clean_counts(r) for r in reviews]
         if any(x["block"] for x in runs): why.append("a clean-twin run says BLOCK (strict floor)")
+        if any(x["unlabelled"] for x in runs): missing.append(f"labels for {sum(x['unlabelled'] for x in runs)} Critical/High/Medium clean-twin finding(s) (score.py --label)")
         worse = sum(1 for x in runs if x["fp"] > b.get("fp_clean", 0))
         if worse * 2 > len(runs): why.append(f"more false alarms than the baseline in {worse} of {len(runs)} runs")
     else:
-        def lower(metric):
+        def pooled(metric):  # the baseline's counts over all its recorded runs, so the interval reflects every run
+            rs = b.get("runs") or []
+            if rs and all(f"{metric}_k" in r_ and f"{metric}_n" in r_ for r_ in rs): return sum(r_[f"{metric}_k"] for r_ in rs), sum(r_[f"{metric}_n"] for r_ in rs)
             k, n = b.get(f"{metric}_k"), b.get(f"{metric}_n")
-            if k is None or not n: missing.append(metric); return None
-            return wilson(k, n)[0]
+            return (k, n) if k is not None and n else (None, None)
+        unl = sum(x["labels"]["unlabelled"] for x in res)
+        if unl: missing.append(f"labels for {unl} unmatched finding(s): precision can't be judged until they're labelled (score.py --label)")
         for metric in ("precision", "recall"):
-            lo = lower(metric)
-            if lo is None: continue
-            worse = sum(1 for x in res if (x["tp"] / (x["tp"] + x["fp"]) if metric == "precision" and x["tp"] + x["fp"] else (len(x["hits"]) / len(x["key"]) if metric == "recall" else 1.0)) < lo - 1e-9)
-            if worse * 2 > len(res): why.append(f"{metric} below the baseline's 95% interval (lower bound {lo:.0%}) in {worse} of {len(res)} runs")
+            k, n = pooled(metric)
+            if k is None: missing.append(f"baseline counts for {metric}"); continue
+            lo = wilson(k, n)[0]
+            val = (lambda x: x["tp"] / (x["tp"] + x["fp"]) if x["tp"] + x["fp"] else 1.0) if metric == "precision" else (lambda x: len(x["hits"]) / len(x["key"]))
+            worse = sum(1 for x in res if val(x) < lo - 1e-9)
+            if worse * 2 > len(res): why.append(f"{metric} below the baseline's 95% interval (lower bound {lo:.0%} from {k} of {n}) in {worse} of {len(res)} runs")
         if "impact_misses" in b:
             worse = sum(1 for x in res if len(x["impact_misses"]) > b["impact_misses"])
             if worse * 2 > len(res): why.append(f"more impact misses than the baseline in {worse} of {len(res)} runs")
-        else: missing.append("impact_misses")
+        else: missing.append("baseline counts for impact_misses")
         floor = b.get("decoy_blocking")
         if floor is None and "decoy_block_rate" in b and suite == "3": floor = round(b["decoy_block_rate"] * max(1, len(json.loads((HERE / "decoys3.json").read_text()))))
         if floor is not None and any(x["decoy_blocking"] > floor for x in res): why.append(f"a run flags more decoys at Medium or above than the baseline's {floor} (strict floor)")
-        if b.get("tokens") and all(t is not None for t in toks):
-            better = any(x["tp"] / max(1, x["tp"] + x["fp"]) > b.get("precision", 1) + 1e-9 or x["recall"] > b.get("recall", 1) + 1e-9 for x in res)
-            if statistics.median(toks) > 1.10 * b["tokens"] and not better: why.append(f"tokens rose {statistics.median(toks) / b['tokens'] - 1:.0%} with no metric better (cost regression)")
+        if b.get("tokens"):
+            if all(t is not None for t in toks):
+                better = any(x["tp"] / max(1, x["tp"] + x["fp"]) > b.get("precision", 1) + 1e-9 or x["recall"] > b.get("recall", 1) + 1e-9 for x in res)
+                if statistics.median(toks) > 1.10 * b["tokens"] and not better: why.append(f"tokens rose {statistics.median(toks) / b['tokens'] - 1:.0%} with no metric better (cost regression)")
+            else: missing.append("token counts for every run (the baseline has them; the cost rule can't run)")
     if why: verdict_("FAIL", why)
-    if missing: verdict_("NOT MEASURED", [f"the baseline has no counts for {', '.join(sorted(set(missing)))}: re-record it with --set-baseline from accepted runs"])
+    if missing: verdict_("NOT MEASURED", sorted(set(missing)) + (["re-record the baseline with --set-baseline from accepted runs"] if any(m.startswith("baseline counts") for m in missing) else []))
     verdict_("PASS", [])
 lower_is_better = {"fp_clean", "false_block", "decoy_rate", "decoy_block_rate", "impact_misses", "decoy_blocking"}
 drops = [k for k, v in now.items() if k in b and not k.endswith(("_k", "_n")) and isinstance(v, (int, float)) and ((v > b[k] + 1e-9) if k in lower_is_better else (v + 1e-9 < b[k]))]

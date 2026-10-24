@@ -1,0 +1,74 @@
+[
+ {
+  "category": "xss",
+  "impact": "High",
+  "file": "src/app.js",
+  "line": 3,
+  "quote": "el.innerHTML = clean(title);",
+  "title": "Title rendered with innerHTML",
+  "evidence": "src/app.js:3",
+  "failing_case": "see title",
+  "verified": "traced",
+  "remediation": "fix it"
+ },
+ {
+  "category": "off-by-one",
+  "impact": "High",
+  "file": "src/app.js",
+  "line": 7,
+  "quote": "for (let i = 0; i <= items.length; i++) t += items[i].price;",
+  "title": "Loop reads past the end of items",
+  "evidence": "src/app.js:7",
+  "failing_case": "see title",
+  "verified": "traced",
+  "remediation": "fix it"
+ },
+ {
+  "category": "storage",
+  "impact": "High",
+  "file": "src/app.js",
+  "line": 11,
+  "quote": "localStorage.setItem(\"d\", JSON.stringify(data));",
+  "title": "Save ignores a full or blocked storage",
+  "evidence": "src/app.js:11",
+  "failing_case": "see title",
+  "verified": "traced",
+  "remediation": "fix it"
+ },
+ {
+  "category": "parse",
+  "impact": "Medium",
+  "file": "src/app.js",
+  "line": 14,
+  "quote": "return JSON.parse(localStorage.getItem(\"d\"));",
+  "title": "Corrupt storage crashes load",
+  "evidence": "src/app.js:14",
+  "failing_case": "see title",
+  "verified": "traced",
+  "remediation": "fix it"
+ },
+ {
+  "category": "domain",
+  "impact": "Medium",
+  "file": "src/app.js",
+  "line": 16,
+  "quote": "export const TAX = 0.0825;",
+  "title": "Tax rate hard-coded in UI module",
+  "evidence": "src/app.js:16",
+  "failing_case": "see title",
+  "verified": "traced",
+  "remediation": "fix it"
+ },
+ {
+  "category": "made-up",
+  "impact": "Medium",
+  "file": "src/app.js",
+  "line": 5,
+  "quote": "this line is not in the file",
+  "title": "Quote that is not at its line",
+  "evidence": "src/app.js:5",
+  "failing_case": "see title",
+  "verified": "traced",
+  "remediation": "fix it"
+ }
+]

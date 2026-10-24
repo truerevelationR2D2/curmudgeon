@@ -24,13 +24,6 @@
    "theming",
    "styles.css",
    "colours are raw hex values with no tokens (custom properties)"
-  ],
-  [
-   "WARN",
-   "status-unchecked",
-   "errors",
-   "app.js",
-   "fetch used but no response status is ever checked (errors look like success)"
   ]
  ]
 }

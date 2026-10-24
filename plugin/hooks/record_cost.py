@@ -38,7 +38,9 @@ def main():
     if c.is_symlink() or not (c / "ledger.json").is_file() or (c / "ledger.json").is_symlink(): return 0
     try: led = json.loads((c / "ledger.json").read_text())
     except Exception: return 0
-    if not led.get("started_at"): return 0  # no review run is active
+    started = led.get("started_at")
+    last = c / "last-review.md"
+    if not started or (last.exists() and last.stat().st_mtime >= started): return 0  # no review run is active (it ends when the teardown is written)
     if (c / "cost.jsonl").is_symlink(): return 0
     kind = str(data.get("agent_type") or "")
     role = kind.split(":")[-1].replace("curmudgeon-", "") or "unknown"

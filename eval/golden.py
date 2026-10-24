@@ -25,7 +25,7 @@ def snapshot(name):
         env = dict(os.environ, PYTHONDONTWRITEBYTECODE="1")
         subprocess.run([sys.executable, "-I", str(SCAN), ".", "--root", ".", "--no-project-rules"], cwd=dst, capture_output=True, timeout=300, env=env)
         rep = json.loads((dst / ".critic" / "scan" / "report.json").read_text())
-    rows = sorted({(r["sev"], r["rule"], r["area"], r["where"], r["what"]) for r in rep["findings"]})
+    rows = sorted((r["sev"], r["rule"], r["area"], r["where"], r["what"]) for r in rep["findings"])  # a list, so a doubled row shows
     checks = {k: v["state"] for k, v in sorted(rep["checks"].items())}
     return {"checks": checks, "rows": [list(r) for r in rows]}
 

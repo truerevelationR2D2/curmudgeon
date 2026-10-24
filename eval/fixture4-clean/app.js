@@ -1,5 +1,5 @@
 const lines = [];
-const user = { name: "sam", roles: ["admin", "billing"] };
+const user = { name: "sam", roles: ["viewer", "billing"] };  // the signed-in user
 let sentCount = 0;
 
 function render() {
@@ -23,11 +23,13 @@ document.getElementById("line-form").addEventListener("submit", (e) => {
 
 document.getElementById("send").addEventListener("click", async () => {
   if (tooSoon()) return;
-  await fetch("/api/invoices", { method: "POST", body: JSON.stringify(lines) });
+  const res = await fetch("/api/invoices", { method: "POST", body: JSON.stringify(lines) });
+  if (!res.ok) { alert("The invoice was not sent. Try again."); return; }
   sentCount += 1;
 });
 
 document.getElementById("void").addEventListener("click", async () => {
-  if (!canVoid({ name: "guest", roles: ["viewer", "admin"].slice(0, 1) })) return;
-  await fetch("/api/invoices/void", { method: "POST" });
+  if (!canVoid(user)) return;
+  const res = await fetch("/api/invoices/void", { method: "POST" });
+  if (!res.ok) alert("The invoice was not voided.");
 });

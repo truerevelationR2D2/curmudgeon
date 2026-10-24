@@ -3,7 +3,7 @@
 folder in eval/replays/ holds what the models produced in one accepted run (the blind reviews, the dedup agent's
 groups and the verifiers' verdicts), plus the cited files as they stood. The replay runs critic_ledger start, then
 critic_merge tally, tally --groups and apply, and compares the result (ids, impacts, votes, verifier outcomes and the
-counts line) with expected.json.
+counts line), what the tally dropped, retracted, rejected and suppressed, and the verifier log, with expected.json.
 
   replay.py                         compare; exit 1 on any difference, printing it
   CRITIC_UPDATE_REPLAY=1 replay.py  rewrite expected.json on purpose, after a change meant to alter the outcome
@@ -36,9 +36,13 @@ def replay(rec):
         go(S / "critic_merge.py", "tally", *revs, "--groups", ".critic/groups.json")
         go(S / "critic_merge.py", "apply", "verdicts.json")
         rows = [json.loads(x) for x in (root / ".critic" / "findings.jsonl").read_text().splitlines() if x.strip()]
+        tally = json.loads((root / ".critic" / "tally.json").read_text())
+        stages = {k: sorted((x.get("finding") or x).get("id") or "" for x in tally.get(k, [])) for k in ("dropped", "retracted", "rejected", "suppressed")}
+        refuted = sorted({(json.loads(x).get("id"), json.loads(x).get("kind")) for x in (root / ".critic" / "refutations.jsonl").read_text().splitlines() if x.strip()}) if (root / ".critic" / "refutations.jsonl").exists() else []
         counts = next((l for l in (root / ".critic" / "counts.md").read_text().splitlines() if l.startswith("Counts for the VERDICT")), "")
     keep = ("id", "impact", "file", "line", "votes", "of", "verifier", "confidence")
-    return {"counts": counts, "findings": sorted(({k: r.get(k) for k in keep} for r in rows), key=lambda r: r["id"])}, None
+    return {"counts": counts, "findings": sorted(({k: r.get(k) for k in keep} for r in rows), key=lambda r: r["id"]),
+            "tally": stages, "verifier_log": [list(x) for x in refuted]}, None
 
 def main():
     update = os.environ.get("CRITIC_UPDATE_REPLAY") == "1"; bad = 0

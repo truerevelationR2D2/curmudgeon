@@ -41,5 +41,15 @@
    "verifier": "confirmed",
    "confidence": "confirmed"
   }
- ]
+ ],
+ "tally": {
+  "dropped": [
+   "F-6b5556dd",
+   "F-9f11f8e6"
+  ],
+  "retracted": [],
+  "rejected": [],
+  "suppressed": []
+ },
+ "verifier_log": []
 }
