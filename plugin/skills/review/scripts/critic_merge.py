@@ -155,8 +155,9 @@ def tally(paths):
     for p in paths:
         try: v = json.loads(pathlib.Path(p).read_text(encoding="utf-8"))
         except (ValueError, OSError): continue
-        if isinstance(v, dict):
-            set_aside += [dict(scrub(x), reviewer=pathlib.Path(p).stem) for x in v.get("set_aside", []) if isinstance(x, dict)]
+        aside = v.get("set_aside") if isinstance(v, dict) else None
+        if isinstance(aside, list):  # anything else (null, a number) is ignored: the list is only a log
+            set_aside += [dict(scrub(x), reviewer=pathlib.Path(p).stem) for x in aside if isinstance(x, dict)]
     n = len(reviews); need = 1 if n == 1 else math.ceil(2 * n / 3)
     # an outside run we can't see never counts as executed: verification decides
     outside_rows = [dict(r, source="outside", verified=r.get("verified") if r.get("verified") == "inferred" else "traced") for r in load_review(outside)] if outside else []

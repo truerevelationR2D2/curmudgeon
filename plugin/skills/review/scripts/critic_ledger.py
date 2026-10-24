@@ -169,6 +169,11 @@ def main(a):
                 if not m.get("retired") and (time.time() - time.mktime(time.strptime(m.get("last_used", m.get("made")), "%Y-%m-%d"))) > MEMORY_TTL_DAYS * 86400: m["retired"] = True
             except Exception: pass
         archive_reviews(L, f"run-{L['run'] - 1}")
+        sc = D / "scratch"  # the last run's agent scratch folders move aside too: a new run's agents start empty
+        if sc.is_dir() and not sc.is_symlink() and any(sc.iterdir()):
+            dest = D / "history" / f"run-{L['run'] - 1}" / "scratch"; k = 2
+            while dest.exists(): dest = D / "history" / f"run-{L['run'] - 1}-{k}" / "scratch"; k += 1
+            dest.parent.mkdir(parents=True, exist_ok=True); os.replace(sc, dest)
         msg = f"{rest[0]} run {L['run']} started{' (' + tier + ' tier)' if tier else ''}, round 1 of 3"
     elif cmd == "import":
         need(rest, 1, "import FINDINGS.jsonl")

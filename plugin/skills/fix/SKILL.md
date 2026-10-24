@@ -1,10 +1,11 @@
 ---
 name: fix
 description: Acts on Curmudgeon's last review. Runs only when the user types /curmudgeon:fix patch [id], iterate [part], approve or rollback.
+argument-hint: "patch <finding id or issue> | iterate <component> | approve | rollback"
 disable-model-invocation: true
 ---
 
-Do what the first word of `$ARGUMENTS` names, using the review skill's `scripts/` folder (`${CLAUDE_PLUGIN_ROOT}/skills/review/scripts`) from the project root. With no word, or an unknown one, list the four below and stop.
+Do what the first word of `$ARGUMENTS` names; the words after it are the target (the finding id or issue for patch, the component for iterate). Arguments: $ARGUMENTS. Work using the review skill's `scripts/` folder (`${CLAUDE_PLUGIN_ROOT}/skills/review/scripts`) from the project root. With no word, or an unknown one, list the four below and stop.
 
 ## patch [id or issue]: fix only that
 1. Find the finding ids in `.critic/ledger.md` or the last review. If the issue isn't there, write it up first as one finding (Evidence, Failing case, Impact).

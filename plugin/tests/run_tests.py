@@ -1408,6 +1408,35 @@ def _(d):
     from critic_findings import validate
     assert validate(dict(g, preconditions=3)) and not validate(g)
 
+@test("5.0 card-C review: the guard covers .critic itself, searches from above it, case, Bash globs, cd and links, and no longer blocks payload or search text")
+def _(d):
+    write(d, ".critic/reviews/review-B.json", '[{"title": "SECRET-B"}]'); write(d, "src/a.py", "x = 1\n"); write(d, "eval/fixture3/.critic/ledger.json", "{}")
+    (d / ".critic/scratch/me").mkdir(parents=True); os.symlink(d / ".critic/reviews", d / ".critic/scratch/me/r"); os.symlink(d / ".critic", d / "src/link")
+    def ask(tool, agent="curmudgeon:curmudgeon-reviewer", **ti):
+        return "deny" in run(H / "read_guard.py", cwd=d, stdin=json.dumps({"tool_name": tool, "tool_input": ti, "cwd": str(d), "agent_type": agent, "agent_id": "me"})).stdout
+    for tool, ti in [("Grep", {"pattern": "x", "path": ".critic"}), ("Grep", {"pattern": "x", "path": str(d / ".critic")}), ("Grep", {"pattern": "x", "path": ".critic/"}),
+                     ("Grep", {"pattern": "x", "path": ".critic/scratch"}), ("Grep", {"pattern": "x", "path": "src/link"}), ("Grep", {"pattern": "x"}), ("Grep", {"pattern": "x", "path": "."}),
+                     ("Glob", {"pattern": "*", "path": ".critic/scratch"}), ("Glob", {"pattern": ".critic/**/*.json"}), ("Read", {"file_path": ".CRITIC/REVIEWS/review-B.json"}),
+                     ("Read", {"file_path": ".critic/scratch/me/r/review-B.json"}), ("Bash", {"command": "cat .critic/*/review-B.json"}), ("Bash", {"command": "cat .critic/\"reviews\"/review-B.json"}),
+                     ("Bash", {"command": "cd .critic && cat reviews/review-B.json"}), ("Bash", {"command": "grep -rn title ."}), ("Bash", {"command": "cat .critic/scratch/me/../../reviews/review-B.json"}),
+                     ("Bash", {"command": "cat .critic/scratch/me/r/review-B.json"}), ("Bash", {"command": "rg --hidden title ."})]:
+        assert ask(tool, **ti), f"should be denied: {tool} {ti}"
+    for tool, ti in [("Grep", {"pattern": "x", "path": ".", "glob": "!.critic/**"}), ("Grep", {"pattern": "\\.critic/reviews", "path": "plugin"}), ("Grep", {"pattern": "x", "path": "src"}),
+                     ("Read", {"file_path": "eval/fixture3/.critic/ledger.json"}), ("Read", {"file_path": "src/a.py"}), ("Glob", {"pattern": "**/*.py"}),
+                     ("Bash", {"command": "grep -rn --exclude-dir=.critic title ."}), ("Bash", {"command": "rg title ."}), ("Bash", {"command": "grep -n '.critic/reviews' src/a.py"}),
+                     ("Bash", {"command": "python3 .critic/scratch/me/probe.py"}), ("Read", {"file_path": ".critic/rules.md"})]:
+        assert not ask(tool, **ti), f"should be allowed: {tool} {ti}"
+    assert not ask("Read", agent="curmudgeon:curmudgeon-verifier", file_path=".critic/verify/F-1.json")
+    assert ask("Read", agent="curmudgeon:curmudgeon-verifier", file_path=".critic/reviews/review-B.json")
+    r = run(S / "critic_ledger.py", "start", "review", "--tier", "full", cwd=d)
+    assert r.returncode != 0 and "link" in r.stderr, "a link planted in a scratch folder must stop the run"
+    (d / ".critic/scratch/me/r").unlink(); run(S / "critic_ledger.py", "start", "review", "--tier", "full", cwd=d)
+    assert "scratch/" in (d / ".critic/.gitignore").read_text()
+    write(d, ".critic/reviews/review-A.json", json.dumps({"findings": [], "set_aside": None}))
+    r = run(S / "critic_merge.py", "tally", ".critic/reviews/review-A.json", cwd=d); assert r.returncode == 0, r.stdout + r.stderr
+    e = d / "old"; write(e, ".critic/ledger.json", json.dumps({"started_at": time.time() - 13 * 3600, "run": 1}))
+    assert "deny" not in run(H / "read_guard.py", cwd=e, stdin=json.dumps({"tool_name": "Agent", "tool_input": {"subagent_type": "fork"}, "cwd": str(e)})).stdout, "an abandoned run must not block forks for ever"
+
 if __name__ == "__main__":
     bad = [r for r in RESULTS if not r[1]]
     print(f"\n{len(RESULTS) - len(bad)} of {len(RESULTS)} passed"); sys.exit(1 if bad else 0)

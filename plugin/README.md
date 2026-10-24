@@ -94,7 +94,7 @@ Drop a JSON file of rules into your project's `.critic/rules/` (or, to contribut
   - SubagentStop: checks that each reviewer's and verifier's output follows the contract (it runs only for those two agents);
   - SubagentStop, cost: during a review run, reads each Curmudgeon agent's own transcript and records its token use in `.critic/cost.jsonl` (`critic_ledger.py tokens` totals it by role). Nothing leaves your machine;
   - PreToolUse: protects `.critic/` state.
-  - PreToolUse, blindness guard: when a Curmudgeon reviewer, verifier or dedup agent tries to read what its role must not see (other reviews, the scan, the tally, the teardown, other agents' scratch folders), the read is denied; it also refuses a fork during a review run, because a fork inherits the whole conversation. Bash is checked by the paths in the command, which is best effort. It adds about 30 ms to each read-type tool call;
+  - PreToolUse, blindness guard: when a Curmudgeon reviewer, verifier or dedup agent tries to read what its role must not see in the project's `.critic/` folder (other reviews, the scan, the tally, the teardown, other agents' scratch folders), the read is denied. Paths are resolved, links followed and case ignored. A search from a folder above `.critic/` must exclude it. Bash is checked token by token, which is best effort: a shell is a language. The guard also refuses a fork during a review run, because a fork inherits the whole conversation. Your own session is never limited. It adds about 30 ms to each read-type tool call;
   - SubagentStart: gives each Curmudgeon agent its own private scratch folder, `.critic/scratch/<agent id>/`, and tells it the path;
 
 ## Benchmarks
