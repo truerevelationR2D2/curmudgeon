@@ -58,6 +58,7 @@ You can also just say "tear this apart" or "review my work".
    - tests of the tests (Python): tests that check nothing, asserts that can never fail, two tests with one name (one never runs), failures swallowed by a broad `except`, skips with no reason;
    - CI and supply chain: untrusted text pasted into workflow scripts, `pull_request_target` running a PR's own code, always-true `if:`, missing `permissions:`, actions not pinned by SHA (or in `actions.lock`), secrets pasted into scripts, workspace uploads that carry the token, `curl | sh`, `--extra-index-url`, unpinned base images, and npm lockfile entries from other hosts or without an integrity hash. Workflows are read with a strict YAML reader written for this plugin; a file it can't read safely is reported as not checked;
    - agent and MCP configuration: committed `enableAllProjectMcpServers`, literal credentials in a server's settings, servers started by downloading and running code or in privileged containers, unpinned `npx`/`uvx` servers, allow rules for a whole server or every command, and the same server defined in two files;
+   - release and rollback (PostgreSQL migrations in `.sql` files, Alembic and Django): indexes built without `CONCURRENTLY`, `NOT NULL` columns with no default, constraints validated in place, and migrations that can't be rolled back;
    - WCAG 2.2 rules;
    - dependency hygiene and licences (strong copyleft such as GPL is flagged; missing, unrecognised and proprietary licences are noted);
    - your own rule files (see "Add your own checks");
