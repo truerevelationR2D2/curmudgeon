@@ -1100,6 +1100,24 @@ def _(d):
     ci = json.loads((d / ".critic/scan/report.json").read_text())["checks"]["ci"]
     assert ci["state"] == "pass" and "1 result file" in ci["note"], ci
 
+@test("5.0 SC-9: the structure check maps Python imports (cycles, layers), skips imports inside functions, and is n/a with nothing to map")
+def _(d):
+    write(d, "app/core/rules.py", "from app.ui import view\n\ndef total(x):\n    return x\n")
+    write(d, "app/ui/view.py", "from ..core import rules\n\ndef show():\n    return rules.total(1)\n")
+    write(d, "app/ui/__init__.py", ""); write(d, "app/core/__init__.py", ""); write(d, "app/__init__.py", "")
+    write(d, "tools/a.py", "import b\n"); write(d, "tools/b.py", "def f():\n    import a\n    return a\n")
+    run(S / "critic_scan.py", ".", "--root", ".", cwd=d)
+    rep = json.loads((d / ".critic/scan/report.json").read_text())
+    rules = {(x["rule"], x["where"]) for x in rep["findings"] if x["rule"] in ("import-cycle", "boundary")}
+    assert ("import-cycle", "app/core/rules.py") in rules, rules
+    assert ("boundary", "app/core/rules.py") in rules, rules
+    assert not any(w.startswith("tools/") for _r, w in rules), f"an import inside a function was counted: {rules}"
+    assert rep["checks"]["structure"]["state"] == "pass" and "7 modules" in rep["checks"]["structure"]["note"], rep["checks"]["structure"]
+    e = d / "html"; write(e, "index.html", "<!doctype html><title>t</title><p>hi</p>")
+    run(S / "critic_scan.py", ".", "--root", ".", cwd=e)
+    st = json.loads((e / ".critic/scan/report.json").read_text())["checks"]["structure"]
+    assert st["state"] == "n/a", st
+
 if __name__ == "__main__":
     bad = [r for r in RESULTS if not r[1]]
     print(f"\n{len(RESULTS) - len(bad)} of {len(RESULTS)} passed"); sys.exit(1 if bad else 0)

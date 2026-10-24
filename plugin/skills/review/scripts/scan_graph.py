@@ -8,7 +8,7 @@ domain -> ui and data -> ui imports are flagged. Projects can override in .criti
     layer ui: src/components/** src/views/**
     forbid: domain -> ui
 """
-import fnmatch, hashlib, pathlib, re
+import ast, fnmatch, hashlib, pathlib, re
 
 JS = {".js", ".mjs", ".cjs", ".ts", ".jsx", ".tsx"}
 IMPORT = re.compile(r"""(?:^|\s)import\s+(?:[\w*{}\s,]+\s+from\s+)?['"]([^'"]+)['"]|\bimport\(\s*['"]([^'"]+)['"]\s*\)|\brequire\(\s*['"]([^'"]+)['"]\s*\)""")
@@ -54,9 +54,52 @@ def resolve(src_rel, spec, files):
         if c in files: return c
     return None
 
+def python_graph(py):
+    """Module-level imports between the Python files in scope, read with ast (imports inside functions are left out:
+    they are how Python code breaks a cycle on purpose). Relative imports resolve from the file's folder; absolute
+    ones match a dotted path that only one file in scope can be. Files that don't parse add no edges."""
+    names = {}
+    for r in py:
+        parts = list(pathlib.PurePosixPath(r).with_suffix("").parts)
+        if parts[-1] == "__init__": parts = parts[:-1]
+        for k in range(len(parts)):
+            names.setdefault(".".join(parts[k:]), set()).add(r)
+    def unique(dotted):
+        hit = names.get(dotted)
+        return next(iter(hit)) if hit and len(hit) == 1 else None
+    graph = {r: set() for r in py}
+    for r, t in py.items():
+        try: tree = ast.parse(t)
+        except (SyntaxError, ValueError): continue
+        pkg = list(pathlib.PurePosixPath(r).parent.parts)
+        def top(nodes):
+            for n in nodes:
+                if isinstance(n, (ast.If, ast.Try)) or type(n).__name__ == "TryStar":
+                    yield from top(getattr(n, "body", []) + getattr(n, "orelse", []) + [x for h in getattr(n, "handlers", []) for x in h.body] + getattr(n, "finalbody", []))
+                elif isinstance(n, (ast.Import, ast.ImportFrom)): yield n
+        for n in top(tree.body):
+            cands = []
+            if isinstance(n, ast.Import): cands = [a.name for a in n.names]
+            elif n.level:
+                base = pkg[: len(pkg) - (n.level - 1)] if n.level > 1 else pkg
+                mod = base + (n.module.split(".") if n.module else [])
+                cands = [".".join(mod + [a.name]) for a in n.names] + [".".join(mod)]
+                for c in cands:
+                    path = "/".join(c.split("."))
+                    for tgt in (path + ".py", path + "/__init__.py"):
+                        if tgt in py and tgt != r: graph[r].add(tgt); break
+                continue
+            else: cands = [f"{n.module}.{a.name}" for a in n.names] + [n.module]
+            for c in cands:
+                tgt = unique(c)
+                if tgt and tgt != r: graph[r].add(tgt); break
+    return graph
+
 def scan(root, texts, emit):
-    """texts: {rel_path: text} for every source file in scope (posix rel paths)."""
+    """texts: {rel_path: text} for every source file in scope (posix rel paths). Builds the import graph for
+    JavaScript/TypeScript and Python, and returns the file types it could not analyse."""
     js = {r: t for r, t in texts.items() if pathlib.PurePath(r).suffix in JS}
+    py = {r: t for r, t in texts.items() if pathlib.PurePath(r).suffix == ".py"}
     layers, forbid = read_rules(root); custom = layers is not None
     layers = layers or DEFAULT_LAYERS; forbid = forbid or DEFAULT_FORBID
     graph = {r: set() for r in js}
@@ -65,6 +108,7 @@ def scan(root, texts, emit):
             spec = next(g for g in m.groups() if g)
             tgt = resolve(r, spec, js)
             if tgt: graph[r].add(tgt)
+    graph.update(python_graph(py))
     edges = sum(len(v) for v in graph.values())
     # layer rules
     for r, deps in graph.items():
@@ -126,4 +170,8 @@ def scan(root, texts, emit):
             else: seen.setdefault(h, here)
     for (fa, la), (fb, lb) in dups[:10]:
         emit("NOTE", "duplicate-code", "structure", f"{fb}:{lb}", f"{W}+ lines duplicated from {fa}:{la}: one fix will be missed", "")
-    return {"modules": len(js), "import_edges": edges, "cycles": len(out), "duplicates": len(dups)}
+    other = {}
+    for r in texts:
+        ext = pathlib.PurePath(r).suffix
+        if ext not in JS and ext != ".py": other[ext] = other.get(ext, 0) + 1
+    return {"modules": len(js) + len(py), "import_edges": edges, "cycles": len(out), "duplicates": len(dups), "not_analysed": other}

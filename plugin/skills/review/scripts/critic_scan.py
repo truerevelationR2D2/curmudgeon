@@ -256,7 +256,11 @@ def static(src, root, excludes):
                               + (("; not checked beyond secrets: " + ", ".join(f"{k} {v}" for k, v in sorted(secrets_only.items(), key=lambda kv: -kv[1])[:8])) if secrets_only else "")))
     else: state("static", "blocked", "no readable files found")
     try:
-        g = scan_graph.scan(root, TEXTS, f); state("structure", *family_state({"structure"}, f"{g['modules']} modules, {g['import_edges']} imports, {g['cycles']} cycles, {g['duplicates']} duplicates"))
+        g = scan_graph.scan(root, TEXTS, f)
+        skipped = ", ".join(f"{k} {v}" for k, v in sorted(g["not_analysed"].items(), key=lambda kv: -kv[1]) if k not in (".html", ".htm", ".css", ".scss", ".less"))
+        note = f"{g['modules']} modules, {g['import_edges']} imports, {g['cycles']} cycles, {g['duplicates']} duplicates" + (f"; import graph not analysed for {skipped}" if skipped else "")
+        if g["modules"]: state("structure", *family_state({"structure"}, note))
+        else: state("structure", NA, "no JavaScript, TypeScript or Python modules to map" + (f"; not analysed: {skipped}" if skipped else ""))
     except Exception as e: state("structure", "blocked", f"{type(e).__name__}: {str(e)[:100]}")
     return n
 
