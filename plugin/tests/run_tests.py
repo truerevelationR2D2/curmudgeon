@@ -2921,6 +2921,15 @@ def _(d):
     s0 = json.loads(seen[0][seen[0].index("--settings") + 1])["enabledPlugins"]; s1 = json.loads(seen[1][seen[1].index("--settings") + 1])["enabledPlugins"]
     assert s0 == {"curmudgeon@synced": False, "code-review-anthropics@anthropic-plugin-directory": True} and not any(s1.values()), (s0, s1)
 
+@test("death match scorer: an indented sub-bullet stays part of its finding, and a structured finding's claim includes its evidence, as a free-form one does")
+def _(d):
+    EV = HERE.parent / "eval"; sys.path.insert(0, str(EV))
+    import importlib, deathmatch; importlib.reload(deathmatch)
+    text = "1. **`guards.js:10`: the void check is inverted.**\n   - `indexOf` returns -1 when admin is absent, and -1 is truthy.\n   - A viewer can void.\n2. **`app.js:8`: dead link.**\n"
+    bl = deathmatch.blocks_from(text); assert len(bl) == 2 and "-1 is truthy" in bl[0], bl
+    write(d, "a/findings.jsonl", json.dumps({"file": "guards.js", "line": 10, "title": "canVoid lets every non-admin void", "evidence": "indexOf returns -1 (truthy) when admin is absent", "failing_case": "a viewer voids", "remediation": "use includes"}) + "\n")
+    b = deathmatch.blocks_for(d / "a")[0]; assert "indexOf returns -1" in b["claim"] and "includes" not in b["claim"], b
+
 if __name__ == "__main__":
     shutil.rmtree(TMP, ignore_errors=True)
     bad = [r for r in RESULTS if not r[1]]

@@ -45,7 +45,7 @@ def blocks_from(text):
     """Finding blocks from a free-form review: top-level list items and headed sections, each with its text."""
     lines = text.split("\n"); out = []; cur = []
     for l in lines:
-        if re.match(r"^\s{0,3}(?:[-*+]|\d+[.)])\s+\S", l) or re.match(r"^#{2,6}\s+\S", l):
+        if re.match(r"^\s?(?:[-*+]|\d+[.)])\s+\S", l) or re.match(r"^#{2,6}\s+\S", l):  # a top-level item; an indented sub-bullet stays part of its item
             if cur and "".join(cur).strip(): out.append("\n".join(cur))
             cur = [l]
         elif cur: cur.append(l)
@@ -80,7 +80,7 @@ def blocks_for(arm_dir):
         for r in rows:
             at = f"{r.get('file', '')}:{r.get('line')}" if r.get("line") not in (None, "") else str(r.get("file", ""))
             out.append({"loc": f"{at} {r.get('quote', '')} " + " ".join(str(x) for x in (r.get("locations") or []) if isinstance(x, str)),  # a merged finding's own cited places, as score.py
-                        "claim": f"{at} {r.get('title', '')}. {r.get('failing_case', '')}"})
+                        "claim": f"{at} {r.get('title', '')}. {r.get('evidence', '')} {r.get('failing_case', '')}"})  # all it says is wrong, never its fix: the same as a free-form arm's item minus its Fix: line
         return out
     md = arm_dir / "output.md"
     if not md.exists() or not md.read_text().strip(): return None

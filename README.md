@@ -194,6 +194,16 @@ Measured on 24 October 2026: version 5.0.0 against 4.2.2, three review runs of e
 
 Cost: $1.01 a run for 4.2.2, $1.33 for 5.0.0 (the whole session, lead and agents). The accept/kill gate (`score.py --gate`) passes 5.0.0 on all seven tests. 5.0.0 found more planted bugs in every test; the one bug it found less often (2 of 3 runs against 3 of 3) was dropped on votes in one run. The first 5.0.0 build measured lost real findings because reviewers cited wrong line numbers (`cat -n` over several files) and the quote check retracted them, as it should; the reviewers' instructions were fixed and the quote check was left strict.
 
+**Against the alternatives** (death match, 24 October 2026, the same seven tasks, three runs each, Sonnet 5.5, one scorer, blind labels; details in `eval/deathmatch-2026-10-24.md`):
+
+| Reviewer | Planted bugs found | Wrong findings | Real share of all findings | Cost per run |
+|---|---|---|---|---|
+| Curmudgeon 5.0.0 | **134 of 147 (91%)** | **0** | **79%** | $1.57 |
+| Plain Claude | 84 of 147 (57%) | 3 | 69% | $0.11 |
+| Anthropic's code-review plugin | 44 of 147 (30%) | 1 | 65% | $0.10 |
+| Claude Code's built-in `/code-review` | 44 of 147 (30%) | 4 | 59% | $0.10 |
+| Semgrep (its own rules) | 6 of 147 (4%) | 39 | 30% | $0 |
+
 Version 4.0.0, measured on 18 October 2026 with a looser scorer, for the record: notes app 16/16 found, 96% real (27 of 28); orders dashboard 27/27, 95% (35 of 37); decoy app 2/2 with no decoy at Medium or above, but only 30% of its findings real (3 decoys and several true-but-trivial nitpicks flagged at Low).
 
 In that 4.0.0 run, after the fix stage, the fixed apps passed 9 of 9 and 12 of 13 browser behaviour tests. The miss was an animation that ignores the reduced-motion setting.
