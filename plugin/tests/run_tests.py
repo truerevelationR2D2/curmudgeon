@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Tests for Curmudgeon's scripts. No test framework needed: python3 tests/run_tests.py (exit 1 on any failure).
 Each test builds its own scratch project in a temp folder and runs the real scripts against it."""
-import json, os, pathlib, shutil, subprocess, sys, tempfile, time
+import json, os, pathlib, re, shutil, subprocess, sys, tempfile, time
 
 HERE = pathlib.Path(__file__).resolve().parent.parent
 S = HERE / "skills" / "review" / "scripts"; H = HERE / "hooks"
@@ -1996,6 +1996,30 @@ def _(d):
     p = json.loads(run(S / "critic_plan.py", "--json", cwd=e).stdout)
     assert p["kind"] == "document or plan" and p["reviewers"] == 1 and p["lenses"] == [] and p["checks"] == ["claims, numbers and consistency"], p
     assert "plan:" in run(S / "critic_run.py", "begin", "--files", "README.md", cwd=e).stdout
+
+@test("5.0 SC-66: the step-by-step browser driver gives evidence per step, never clicks destructive controls, blocks writes and other origins unless allowed, and refuses live sites outside the scope")
+def _(d):
+    B = S / "browse.py"
+    write(d, "site/index.html", "<!doctype html><title>Shop</title><label for=q>Search</label><input id=q name=q>"
+          "<button id=go onclick=\"document.getElementById('out').textContent='searched '+document.getElementById('q').value\">Search</button>"
+          "<button id=del onclick=\"fetch('/api/items/1',{method:'DELETE'})\">Delete item</button>"
+          "<button id=save onclick=\"fetch('/api/save',{method:'POST',body:'x'}).catch(()=>{})\">Save draft</button>"
+          "<button id=ext onclick=\"fetch('https://tracker.example.invalid/t?u=me').catch(()=>{})\">Track</button><p id=out></p>")
+    r = run(B, "start", "site/index.html", "--session", "s/s.json", cwd=d)
+    try: import playwright  # noqa: F401
+    except ImportError:
+        assert r.returncode == 3 and "unavailable" in r.stdout, r.stdout; return  # CI without Playwright: the driver says so and stops
+    assert "e3 button/submit \"Delete item\" [destructive: never clicked]" in r.stdout and (d / "s/step-0.png").exists(), r.stdout
+    run(B, "step", "type", "e1", "socks", "--session", "s/s.json", cwd=d)
+    out = run(B, "step", "click", "e2", "--session", "s/s.json", cwd=d).stdout; assert "searched socks" in out, out
+    r = run(B, "step", "click", "e3", "--session", "s/s.json", cwd=d); assert r.returncode == 2 and "never clicked" in r.stdout
+    assert [x["verb"] for x in json.loads((d / "s/s.json").read_text())["steps"]] == ["type", "click"], "a refused step is not recorded"
+    out = run(B, "step", "click", "e4", "--session", "s/s.json", cwd=d).stdout; assert "POST" in out and "would have sent" in out, out
+    out = run(B, "step", "click", "e5", "--session", "s/s.json", cwd=d).stdout; assert "tracker.example.invalid/t?u=…" in out, out
+    r = run(B, "start", "http://shop.example.invalid/", "--session", "s/l.json", cwd=d); assert r.returncode == 2 and "scope.json" in r.stdout, r.stdout
+    out = run(B, "start", "site/index.html", "--session", "s/w.json", "--allow-writes", cwd=d).stdout
+    out = run(B, "step", "click", "e4", "--session", "s/w.json", cwd=d).stdout
+    assert re.search(r"POST http://127\.0\.0\.1:\d+/api/save 501", out) and "would have sent" not in out, "with the user's yes, a write reaches the local server: " + out
 
 if __name__ == "__main__":
     shutil.rmtree(TMP, ignore_errors=True)
