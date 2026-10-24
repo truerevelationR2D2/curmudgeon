@@ -109,6 +109,17 @@ def median_impact(xs):
     r = sorted(IMP_RANK[x] for x in xs if x in IMP_RANK)
     return IMPACTS[r[len(r) // 2]] if r else "Low"
 
+# A scripted FAIL's impact by rule (it used to be High for every rule). A live credential is Critical; code that runs
+# input, or a page that throws, is High; an accessibility or layout failure is Medium unless it locks people out.
+SCAN_IMPACT = {"eval": "High", "py-eval": "High", "console-error": "High", "click-error": "High", "not-focusable": "High",
+               "no-focus-style": "Medium", "focus-obscured": "Medium", "zoom-off": "Medium", "html-nested-interactive": "Medium", "sideways": "Medium"}
+def scan_impact(rule):
+    try:
+        import scan_secrets
+        secret = {rid for rid, sev, *_ in scan_secrets.PROVIDERS if sev == "FAIL"} | {"private-key", "db-url-password"}
+    except Exception: secret = set()
+    return "Critical" if rule in secret else SCAN_IMPACT.get(rule, "High")
+
 def scan_rows(path):
     try: rep = json.loads(pathlib.Path(path).read_text())
     except Exception as e: die(f"can't read scan report {path}: {e}")
@@ -116,7 +127,7 @@ def scan_rows(path):
     for r in rep.get("findings", []):
         if r.get("sev") != "FAIL": continue
         m = re.match(r"(.+?):(\d+)$", r.get("where", ""))
-        out.append({"category": r["rule"], "impact": "High", "file": m.group(1) if m else r.get("where", ""), "line": int(m.group(2)) if m else 0,
+        out.append({"category": r["rule"], "impact": scan_impact(r["rule"]), "file": m.group(1) if m else r.get("where", ""), "line": int(m.group(2)) if m else 0,
                     "quote": "", "title": r["what"], "evidence": f"scripted row {r.get('id')} ({r.get('rule')})", "failing_case": r.get("evidence") or r["what"],
                     "verified": "executed" if r.get("level") == "runtime" else "traced", "remediation": "", "source": "scan", "scan_id": r.get("id")})
     return out
@@ -243,6 +254,8 @@ def tally(paths):
         f = dict(best, votes=votes, votes_ours=len(c["reviewers"]), of=of, impact=median_impact([x["impact"] for x in human]), scan_confirmed=bool(c.get("scan")),
                  locations=sorted({f"{x['file']}:{x.get('line', '')}" for x in m}), raised_by=sorted({x["source"] for x in m}))
         if theirs: f["outside_impact"] = theirs[0]  # shown, never used: the outside reviewer's own rating
+        if c.get("scan") and best.get("source") != "scan":  # a reviewer restated a scripted row: keep the script's evidence too
+            f["scan_evidence"] = [x["evidence"] for x in m if x.get("source") == "scan"]
         mn = next((x["memory_note"] for x in m if x.get("memory_note")), None)
         if mn and f["impact"] in ("Medium", "Low"): f["memory_note"] = mn
         else: f.pop("memory_note", None)

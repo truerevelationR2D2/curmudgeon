@@ -1118,6 +1118,23 @@ def _(d):
     st = json.loads((e / ".critic/scan/report.json").read_text())["checks"]["structure"]
     assert st["state"] == "n/a", st
 
+@test("5.0 SC-10: a scripted FAIL gets its rule's impact (a live key is Critical), and a reviewer who restates it keeps the script's evidence")
+def _(d):
+    write(d, "src/a.js", "x = 1;\ny = 2;\neval(input);\nz = 3;\n"); write(d, "src/k.js", "const k = 1;\n")
+    write(d, "scan.json", json.dumps({"findings": [
+        {"sev": "FAIL", "rule": "stripe-key", "area": "secrets", "where": "src/k.js:1", "what": "Stripe live secret key", "evidence": "sk_l…[redacted]", "level": "source", "id": "S001"},
+        {"sev": "FAIL", "rule": "eval", "area": "safety", "where": "src/a.js:3", "what": "eval runs input", "evidence": "eval(input);", "level": "source", "id": "S002"},
+        {"sev": "FAIL", "rule": "zoom-off", "area": "a11y", "where": "src/a.js:1", "what": "zoom disabled", "evidence": "", "level": "runtime", "id": "S003"}]}))
+    g = finding(category="injection", impact="High", file="src/a.js", line=3, quote="eval(input);", title="eval runs user input")
+    write(d, ".critic/reviews/review-A.json", json.dumps([g])); write(d, ".critic/reviews/review-B.json", json.dumps([g])); write(d, ".critic/reviews/review-C.json", "[]")
+    run(S / "critic_merge.py", "tally", ".critic/reviews/review-A.json", ".critic/reviews/review-B.json", ".critic/reviews/review-C.json", "--scan", "scan.json", cwd=d)
+    t = json.loads((d / ".critic/tally.json").read_text())
+    by = {k["category"]: k for k in t["kept"]}
+    assert by["stripe-key"]["impact"] == "Critical", by["stripe-key"]
+    assert by["zoom-off"]["impact"] == "Medium", by["zoom-off"]
+    ev = by["injection"]
+    assert ev.get("scan_evidence") == ["scripted row S002 (eval)"] and ev["votes"] == 2, ev
+
 if __name__ == "__main__":
     bad = [r for r in RESULTS if not r[1]]
     print(f"\n{len(RESULTS) - len(bad)} of {len(RESULTS)} passed"); sys.exit(1 if bad else 0)
