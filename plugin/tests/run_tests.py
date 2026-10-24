@@ -1065,6 +1065,27 @@ def _(d):
     note = rep["checks"]["static"]["note"]
     assert "config files" in note and "not checked beyond secrets: .txt 1" in note, note
 
+@test("5.0 SC-7: mutation touches code only (never strings, docstrings, comments or generics), checks the tests load the file, and runs without bytecode")
+def _(d):
+    write(d, "lib.py", 'def less(a, b):\n    """True when a < b."""\n    msg = "a > b is false"  # a >= b here\n    return a < b\n')
+    write(d, "other.py", "def g(a, b):\n    return a < b\n")
+    write(d, "test_lib.py", "import os\nfrom lib import less\nopen('env.txt', 'w').write(os.environ.get('PYTHONDONTWRITEBYTECODE', ''))\n"
+                            "assert less(1, 2) and not less(2, 1) and not less(1, 1)\n")
+    run(S / "critic_scan.py", ".", "--root", ".", "--mutate", "lib.py", "other.py", "--test-cmd", f"{sys.executable} test_lib.py", cwd=d)
+    rep = json.loads((d / ".critic/scan/report.json").read_text())
+    rows = [r for r in rep["findings"] if r["area"] == "tests"]
+    surv = [r for r in rows if r["rule"] == "mutant-survived"]
+    assert surv == [], f"a mutant landed in a string, docstring or comment: {surv}"
+    assert any(r["rule"] == "mutation-not-exercised" and r["where"] == "other.py" for r in rows), rows
+    assert (d / "env.txt").read_text() == "1", "the test command must run with PYTHONDONTWRITEBYTECODE=1"
+    assert rep["checks"]["mutation"]["state"] == "pass", rep["checks"]["mutation"]
+    assert (d / "lib.py").read_text().endswith("return a < b\n") and not list(d.glob("*.critic-mutation-backup"))
+    sys.path.insert(0, str(S)); import importlib, scan_mutation; importlib.reload(scan_mutation)
+    import pathlib as _pl
+    v = scan_mutation.code_view(_pl.Path("m.ts"), "const xs: Array<string> = [];\nconst s = `a < b ${x}`; // a > b\nif (a < b) go();\n")
+    hits = [(i, pat) for i, l in enumerate(v) for pat, _r in scan_mutation.OPS if __import__("re").search(pat, l)]
+    assert hits == [(2, r"(?<=\s)<(?=\s)")], hits
+
 if __name__ == "__main__":
     bad = [r for r in RESULTS if not r[1]]
     print(f"\n{len(RESULTS) - len(bad)} of {len(RESULTS)} passed"); sys.exit(1 if bad else 0)
