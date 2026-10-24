@@ -5,7 +5,7 @@ Only active in projects that have a .critic/ folder. Fails open (allows) on any 
 import json, os, pathlib, sys
 
 PROTECTED = {"ledger.json", "ledger.md", "gate", "gate-count", "gate-async", "findings.jsonl", "findings.sarif", "tally.json", "counts.md", "async-shown.json", "refutations.jsonl", "runlog.jsonl", "spotcheck.md"}
-PROTECTED_DIRS = {"baseline", "verify", "restore"}
+PROTECTED_DIRS = {"baseline", "verify", "restore", "private"}  # private: the browser driver's signing key and live-request ledger
 
 def main():
     try: data = json.load(sys.stdin)

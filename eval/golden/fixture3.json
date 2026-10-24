@@ -1,0 +1,43 @@
+{
+ "checks": {
+  "axe": "n/a",
+  "ci": "n/a",
+  "console": "n/a",
+  "deps": "n/a",
+  "focus": "n/a",
+  "interactive": "n/a",
+  "keyboard": "n/a",
+  "obscured": "n/a",
+  "page": "n/a",
+  "responsive": "n/a",
+  "screen-reader": "n/a",
+  "screenshots": "n/a",
+  "speed": "n/a",
+  "static": "pass",
+  "structure": "pass",
+  "visual": "n/a"
+ },
+ "rows": [
+  [
+   "NOTE",
+   "cream-look",
+   "anti-ai",
+   "styles.css:1",
+   "cream-and-terracotta look (a current AI default)"
+  ],
+  [
+   "NOTE",
+   "dead-function",
+   "structure",
+   "app.js:42",
+   "`importRecipes` is defined but never used"
+  ],
+  [
+   "NOTE",
+   "dead-function",
+   "structure",
+   "util.js:10",
+   "`getJson` is defined but never used"
+  ]
+ ]
+}

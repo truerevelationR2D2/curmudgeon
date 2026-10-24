@@ -1,0 +1,25 @@
+{
+ "data": {
+  "services": {
+   "web": {
+    "image": "nginx:latest",
+    "ports": [
+     "8080:80"
+    ],
+    "environment": [
+     "DEBUG=true",
+     "NAME=it's"
+    ],
+    "command": [
+     "npm",
+     "run",
+     "start"
+    ]
+   },
+   "db": {
+    "image": "postgres:16",
+    "privileged": "true"
+   }
+  }
+ }
+}

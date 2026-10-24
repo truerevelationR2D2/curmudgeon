@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Invoices</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <main>
+    <h1>Invoices</h1>
+    <form id="line-form">
+      <label for="client">Client</label>
+      <input id="client" name="client" required>
+      <label for="qty">Quantity</label>
+      <input id="qty" name="qty" inputmode="numeric">
+      <label for="price">Unit price</label>
+      <input id="price" name="price" inputmode="decimal">
+      <button type="submit">Add line</button>
+    </form>
+    <ul id="lines" aria-live="polite"></ul>
+    <p>Total: <output id="total">0.00</output></p>
+    <button id="send" type="button">Send invoice</button>
+    <button id="void" type="button">Void invoice</button>
+  </main>
+  <script src="guards.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

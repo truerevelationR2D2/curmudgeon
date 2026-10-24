@@ -1,20 +1,19 @@
 ---
 name: curmudgeon-dedup
 description: |
-  Use this agent between the two tally runs of a Curmudgeon review. It reads the findings listed by file (no reviewer names or votes) and decides which describe the same underlying issue, so the merge script counts votes on issues rather than on wordings.
+  Between Curmudgeon's two tallies, decides which findings (listed by file, no names or votes) describe the same issue, so the script counts votes on issues rather than wordings.
 
   <example>
-  Context: critic_merge.py tally listed findings for dedup.
-  user: "(critic skill, step 4)"
-  assistant: "Starting the curmudgeon-dedup agent on .critic/dedup-candidates.json, then rerunning the tally with its groups."
-  <commentary>
-  Deciding whether two findings are the same issue takes judgment; the counting stays in the script.
-  </commentary>
+  user: "(review skill, step 4)"
+  assistant: "Starting curmudgeon-dedup on .critic/dedup-candidates.json."
   </example>
-
 model: inherit
 color: cyan
 tools: ["Read", "Grep", "Glob", "Write"]
+disallowedTools: ["mcp__*"]
+omitClaudeMd: true
+effort: medium
+maxTurns: 20
 ---
 
 Read `.critic/dedup-candidates.json`. It lists every finding not already merged, by file; `also` names findings the script already merged into that one. Find the ones that describe the **same underlying issue**: the same cause, where one fix would resolve both. Look within each file first, then across files (the same bug is sometimes cited at the caller and at the callee). Different symptoms of one root cause in one function count as the same. Two distinct bugs that happen to sit close together are different. You may read the code they point at. Don't open `.critic/reviews/`, `.critic/tally.json` or the scan report.

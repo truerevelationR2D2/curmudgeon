@@ -1,0 +1,72 @@
+{
+ "lens": "agent and MCP configuration (SC-52)",
+ "fixture": "fixture7",
+ "clean": "fixture7-clean",
+ "area": "agent-config",
+ "planted": [
+  {
+   "id": "A1",
+   "rule": "agent-literal-credential",
+   "where": ".mcp.json:7",
+   "why": "a literal token in env"
+  },
+  {
+   "id": "A2",
+   "rule": "agent-auto-mcp",
+   "where": ".claude/settings.json:2",
+   "why": "enableAllProjectMcpServers committed"
+  },
+  {
+   "id": "A3",
+   "rule": "agent-wildcard-allow",
+   "where": ".claude/settings.json:4",
+   "why": "mcp__tracker__* allows every tool"
+  },
+  {
+   "id": "A4",
+   "rule": "agent-download-run",
+   "where": ".mcp.json:11",
+   "why": "bash -c curl | bash"
+  },
+  {
+   "id": "A5",
+   "rule": "agent-privileged-docker",
+   "where": ".mcp.json:15",
+   "why": "docker --privileged"
+  },
+  {
+   "id": "A6",
+   "rule": "agent-shadowed-server",
+   "where": ".cursor/mcp.json:3",
+   "why": "tracker defined in two files"
+  },
+  {
+   "id": "A7",
+   "rule": "agent-unpinned-runner",
+   "where": ".mcp.json:5",
+   "why": "npx tracker-mcp with no version"
+  }
+ ],
+ "decoy_files": [
+  ".vscode/mcp.json"
+ ],
+ "decoys": [
+  {
+   "where": ".mcp.json (search server)",
+   "why": "uvx pinned with ==, an Authorization header from ${SEARCH_TOKEN}"
+  },
+  {
+   "where": ".cursor/mcp.json (docs server)",
+   "why": "a scoped npx package pinned @1.4.0, the key from ${DOCS_API_KEY}"
+  },
+  {
+   "where": ".claude/settings.json",
+   "why": "Bash(npm test:*) and Read are narrow allow rules"
+  },
+  {
+   "where": ".vscode/mcp.json",
+   "why": "VS Code's servers key; a pinned scoped package; ${env:...} references; a non-secret env value; docker with no network and a read-only relative mount"
+  }
+ ],
+ "note": "Decoys inside the planted files are covered by precision (any other row there is a false row); the decoy file must have no regular row; the clean twin none at all."
+}

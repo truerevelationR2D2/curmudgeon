@@ -1,0 +1,10 @@
+name: label safely
+on: pull_request_target
+permissions:
+  pull-requests: write
+jobs:
+  label:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: echo "labelling PR ${{ github.event.pull_request.number }}"

@@ -12,7 +12,7 @@ import json, os, pathlib, re, subprocess, sys
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 from critic_findings import log_run, refuse_linked_state
 
-ROOT = pathlib.Path(os.environ.get("CRITIC_ROOT", os.getcwd())).resolve(); D = ROOT / ".critic"
+ROOT = pathlib.Path(os.environ.get("CRITIC_ROOT") or re.sub(r"[\\/]\.critic[\\/]scratch(?:[\\/].*)?$", "", os.getcwd()) or os.getcwd()).resolve(); D = ROOT / ".critic"
 # whole words only ("author" is not "auth"); paths may also match folder-style names
 SENSITIVE = re.compile(r"(?<![A-Za-z])(auth|authn|authz|authenticate\w*|authoriz\w*|login|logout|sessions?|passwords?|secrets?|payments?|billing|refunds?|checkout|invoices?|crypto|encrypt\w*|decrypt\w*|permissions?|admin|migrations?|webhooks?|uploads?|credentials?|api[_-]?keys?|private[_-]?keys?|tokens?|jwts?|oauth\w*|sso|saml|roles?|rbac|acls?|security|privacy|pii|gdpr|csrf|xsrf|cors|csp|signatures?|hmac|hash(?:es|ing)?|salt|sanitiz\w*|schemas?)(?![A-Za-z])", re.I)
 SENSITIVE_PATH = re.compile(r"(?:^|/)(\.env[\w.]*|config|settings|security|privacy|auth|admin|migrations?|schema)(?:/|\.|$)", re.I)
@@ -40,6 +40,19 @@ def changed(base):
             try: lines[u] = len((ROOT / u).read_text(errors="replace").splitlines())
             except OSError: lines[u] = 0
     return files, lines
+
+def hunks(base, files):
+    """The changed line ranges on the new side of the diff, per file: {file: [[start, count], ...]}. Untracked files are
+    wholly new. Used by apply to tell findings this change introduced from ones that were already there (SC-43)."""
+    no_commit = base == "HEAD" and not git("rev-parse", "--verify", "-q", "HEAD").strip()
+    out = {}
+    diff = git("diff", "--cached", "-U0") if no_commit else git("diff", "-U0", base)
+    cur = None
+    for line in diff.splitlines():
+        if line.startswith("+++ "): cur = line[6:] if line.startswith("+++ b/") else None; continue
+        m = re.match(r"@@ -\S+ \+(\d+)(?:,(\d+))? @@", line)
+        if m and cur: out.setdefault(cur, []).append([int(m.group(1)), int(m.group(2) or 1)])
+    return {k: v for k, v in out.items() if k in files}
 
 def main(a):
     refuse_linked_state(ROOT)
@@ -109,7 +122,11 @@ def main(a):
         md += ["", "## Map", "```mermaid", "graph LR"] + [f'  "{u}" --> "{t}"' for u, t in edges] + ["```"]
     md += ["", "## Not reviewed", "_Filled in by Curmudgeon: files skipped for budget, binary or generated files, checks that could not run._"]
     D.mkdir(parents=True, exist_ok=True); (D / "change-map.md").write_text("\n".join(md) + "\n")
-    (D / "change-map.json").write_text(json.dumps({"tier": tier, "files": order, "lines": total, "sensitive": {x: sens[x] for x in files}, "radius": radius, "intent": intent}, indent=1))
+    from_git = "--files" not in a
+    untracked = set(git("ls-files", "--others", "--exclude-standard").splitlines()) if from_git else set()
+    (D / "change-map.json").write_text(json.dumps({"tier": tier, "files": order, "lines": total, "sensitive": {x: sens[x] for x in files}, "radius": radius, "intent": intent,
+        "mode": "diff" if from_git else "files", "base": base if from_git else None,
+        "hunks": hunks(base, files) if from_git else {}, "new_files": sorted(x for x in files if x in untracked)}, indent=1))
     print(json.dumps({"tier": tier, "files": len(files), "lines": total, "sensitive": any_sens, "radius": len(radius)}))
     return 0
 

@@ -10,6 +10,8 @@ Loop guards: never blocks while Claude Code reports stop_hook_active; at most 3 
 After the third it lets stops through for that batch for good (it says so once); a new edit starts a new batch.
 Fails open, but never silently: an unexpected error lets the stop through with a message saying the gate is off."""
 import hashlib, json, os, pathlib, sys
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import workspace
 
 SKIP = {".git", "node_modules", "dist", "build", ".critic", "__pycache__", ".next", "coverage", "vendor", ".venv", "venv"}
 CODE = {".js", ".mjs", ".cjs", ".ts", ".jsx", ".tsx", ".py", ".css", ".scss", ".html", ".vue", ".svelte", ".go", ".rs", ".java", ".rb", ".php", ".cs", ".swift", ".kt"}
@@ -32,7 +34,7 @@ def main():
     try: data = json.load(sys.stdin)
     except Exception: data = {}
     if data.get("stop_hook_active"): return 0
-    root = pathlib.Path(data.get("cwd") or os.getcwd()); c = root / ".critic"
+    root = workspace.project_root(data); c = root / ".critic"
     if (c / "gate").exists() and (c.is_symlink() or any(x.is_symlink() for x in c.glob("*"))):  # gate on, but never write through a planted link
         print(json.dumps({"systemMessage": "Curmudgeon stop gate skipped: .critic/ contains links. Remove them to use the gate."})); return 0
     if not (c / "gate").exists(): return 0

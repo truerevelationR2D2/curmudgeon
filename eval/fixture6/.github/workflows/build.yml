@@ -1,0 +1,22 @@
+name: build
+on:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Note the commit
+        run: echo "Building ${{ github.event.head_commit.message }}"
+      - name: Install tool
+        run: curl -sSL https://tools.example.com/install.sh | bash
+      - name: Deploy
+        run: ./deploy.sh --key "${{ secrets.DEPLOY_KEY }}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: everything
+          path: .
+          include-hidden-files: true

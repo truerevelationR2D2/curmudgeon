@@ -1,0 +1,232 @@
+{
+ "checks": {
+  "axe": "n/a",
+  "ci": "n/a",
+  "console": "n/a",
+  "deps": "n/a",
+  "focus": "n/a",
+  "interactive": "n/a",
+  "keyboard": "n/a",
+  "obscured": "n/a",
+  "page": "n/a",
+  "responsive": "n/a",
+  "screen-reader": "n/a",
+  "screenshots": "n/a",
+  "speed": "n/a",
+  "static": "fail",
+  "structure": "pass",
+  "visual": "n/a"
+ },
+ "rows": [
+  [
+   "FAIL",
+   "secret-stripe-key",
+   "safety",
+   "api.js:3",
+   "Stripe live secret key in a file (rotate it: anything committed or shipped is exposed)"
+  ],
+  [
+   "NOTE",
+   "ai-palette",
+   "anti-ai",
+   "styles.css:12",
+   "stock indigo/violet palette"
+  ],
+  [
+   "NOTE",
+   "ai-palette",
+   "anti-ai",
+   "styles.css:3",
+   "stock indigo/violet palette"
+  ],
+  [
+   "NOTE",
+   "cream-look",
+   "anti-ai",
+   "styles.css:2",
+   "cream-and-terracotta look (a current AI default)"
+  ],
+  [
+   "NOTE",
+   "default-font",
+   "anti-ai",
+   "styles.css:2",
+   "overused default typeface"
+  ],
+  [
+   "NOTE",
+   "domain-math",
+   "domain",
+   "app.js:13",
+   "pricing arithmetic: confirm it lives in the domain layer, not in render code"
+  ],
+  [
+   "NOTE",
+   "eyebrow",
+   "anti-ai",
+   "index.html:11",
+   "template chrome: eyebrow / 'WORD — fragment' label"
+  ],
+  [
+   "NOTE",
+   "html-append",
+   "perf",
+   "app.js:32",
+   "innerHTML += (re-parses the whole container each time; quadratic in a loop)"
+  ],
+  [
+   "NOTE",
+   "narrating-comment",
+   "anti-ai",
+   "api.js:1",
+   "comment that narrates the obvious"
+  ],
+  [
+   "NOTE",
+   "narrating-comment",
+   "anti-ai",
+   "app.js:1",
+   "comment that narrates the obvious"
+  ],
+  [
+   "NOTE",
+   "narrating-comment",
+   "anti-ai",
+   "app.js:25",
+   "comment that narrates the obvious"
+  ],
+  [
+   "NOTE",
+   "narrating-comment",
+   "anti-ai",
+   "app.js:7",
+   "comment that narrates the obvious"
+  ],
+  [
+   "NOTE",
+   "one-radius",
+   "anti-ai",
+   "styles.css",
+   "one border-radius (12px) on 5 of 6 rules: no hierarchy"
+  ],
+  [
+   "NOTE",
+   "one-shadow",
+   "anti-ai",
+   "styles.css",
+   "the same shadow (0 4px 12px rgba(0,0,0,.1)) on every surface"
+  ],
+  [
+   "NOTE",
+   "per-keystroke",
+   "async",
+   "app.js:45",
+   "request-per-keystroke candidate: confirm debounce and stale-response guard"
+  ],
+  [
+   "NOTE",
+   "raw-hex",
+   "theming",
+   "styles.css",
+   "colours are raw hex values with no tokens (custom properties)"
+  ],
+  [
+   "NOTE",
+   "tiny-text",
+   "type",
+   "styles.css .eyebrow",
+   "tiny text (11px, under 12px)"
+  ],
+  [
+   "NOTE",
+   "tiny-text",
+   "type",
+   "styles.css .lbl",
+   "tiny text (11px, under 12px)"
+  ],
+  [
+   "NOTE",
+   "wide-tracking",
+   "anti-ai",
+   "styles.css .eyebrow",
+   "wide tracking on small labels (the all-caps eyebrow look)"
+  ],
+  [
+   "NOTE",
+   "wide-tracking",
+   "anti-ai",
+   "styles.css .lbl",
+   "wide tracking on small labels (the all-caps eyebrow look)"
+  ],
+  [
+   "WARN",
+   "clipped-text",
+   "layout",
+   "styles.css td:nth-child(2)",
+   "text clipped with no ellipsis or way to read it"
+  ],
+  [
+   "WARN",
+   "fire-forget",
+   "errors",
+   "api.js:11",
+   "fetch result never awaited or handled (fire and forget)"
+  ],
+  [
+   "WARN",
+   "fixed-width",
+   "layout",
+   "styles.css:13",
+   "fixed width of 600 px or more (sideways scroll on phones, WCAG 1.4.10)"
+  ],
+  [
+   "WARN",
+   "html-input-label",
+   "html",
+   "index.html:17",
+   "form control has no label (placeholder text is not a label: WCAG 1.3.1, 3.3.2, 4.1.2)"
+  ],
+  [
+   "WARN",
+   "html-input-label",
+   "html",
+   "index.html:18",
+   "form control has no label (placeholder text is not a label: WCAG 1.3.1, 3.3.2, 4.1.2)"
+  ],
+  [
+   "WARN",
+   "motion",
+   "a11y",
+   "styles.css",
+   "infinite animation with no prefers-reduced-motion rule (WCAG 2.2.2 / 2.3.3)"
+  ],
+  [
+   "WARN",
+   "outline-none",
+   "a11y",
+   "styles.css:19",
+   "focus outline removed: confirm a :focus-visible replacement"
+  ],
+  [
+   "WARN",
+   "status-unchecked",
+   "errors",
+   "api.js",
+   "fetch used but no response status is ever checked (errors look like success)"
+  ],
+  [
+   "WARN",
+   "unescaped-html",
+   "safety",
+   "app.js:32",
+   "HTML built from a template with unescaped value(s): o.id, o.customer.name, o.total"
+  ],
+  [
+   "WARN",
+   "url-unencoded",
+   "safety",
+   "api.js:6",
+   "URL query built from raw values (no encodeURIComponent / URLSearchParams)"
+  ]
+ ]
+}

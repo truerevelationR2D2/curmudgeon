@@ -1,0 +1,9 @@
+{
+ "what": "Synthetic, hand-written on 24 Oct 2026 to pin the verifier and vote rules: a valid refutation (dropped), a hedged refutation (ignored, finding kept), a downgrade (applied), a downgrade that tries to raise the impact (ignored), an unclear verdict (kept, low confidence), plus one finding retracted by the quote check, one dropped on votes and one rejected by the contract. These are not model outputs.",
+ "model": "none (hand-written)",
+ "plugin_version_reviewed": "fixture only",
+ "tree": "a small fixture written for this recording",
+ "reviews": ["reviews/review-A.json", "reviews/review-B.json", "reviews/review-C.json"],
+ "groups": "groups.json",
+ "verdicts": "verdicts.json"
+}

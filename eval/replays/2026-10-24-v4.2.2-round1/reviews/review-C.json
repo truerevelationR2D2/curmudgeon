@@ -1,0 +1,23 @@
+[
+  {"category": "secret-leak", "impact": "High", "file": "plugin/skills/review/scripts/critic_merge.py", "line": 339,
+   "quote": "{r['why'] if isinstance(r['why'], str) else '; '.join(r['why'])}",
+   "title": "A verifier's refutation is written unmasked to counts.md, ledger.md and ledger.json, and none of those files is git-ignored",
+   "evidence": "apply() runs scrub() on final and unverified only (line 325). The refuted list keeps the verifier's raw refutation text, written to counts.md under 'Refuted by verification' (line 339) and to the ledger through \"refuted by verification: \" + r[\"why\"][:200] (line 367), which critic_ledger.py status stores in ledger.json and renders into ledger.md. scrub() has no 'why' key in FINDING_TEXT. IGNORED (critic_findings.py:255) does not list counts.md, ledger.json or ledger.md. Test N-4 covers only a confirmed verdict. README line 82 says everything Curmudgeon writes itself has secrets masked.",
+   "failing_case": "Executed in a temp project: app.py:2 holds a test-shaped Stripe key; run 2 the verifier refutes citing app.py:3 and quoting the key; after apply the full key is in .critic/counts.md, .critic/ledger.md and .critic/ledger.json, none ignored.",
+   "verified": "executed",
+   "remediation": "Mask why where apply() reads it, before it goes into refuted, counts.md or the ledger note; better, mask every string written to counts.md and the ledger. Extend N-4 to a refuted verdict on a finding the ledger already knows."},
+  {"category": "vote-integrity", "impact": "Medium", "file": "plugin/skills/review/scripts/critic_ledger.py", "line": 355,
+   "quote": "L[\"round\"] += 1; save(L)",
+   "title": "Stale reviews are still counted as votes across rounds: round neither moves the reviews aside nor resets started_at",
+   "evidence": "The N-1 fix moves reviews aside and sets started_at only in start (lines 157-163). The tally refuses only files older than started_at (critic_merge.py:137-139). SKILL.md step 4 runs critic_ledger.py round with fresh reviewers; round-1 review files are newer than started_at and pass.",
+   "failing_case": "Executed: start full; A, B, C write the same Medium finding (3 votes); critic_ledger.py round; fresh A writes []; B and C write nothing; tally .critic/reviews/review-*.json keeps the finding with 2 votes from round-1 reviewers.",
+   "verified": "executed",
+   "remediation": "Move reviews aside and set started_at in one shared function called from both start and round, or refuse review files older than the current round's start."},
+  {"category": "secret-leak", "impact": "Low", "file": "plugin/skills/review/scripts/critic_findings.py", "line": 255,
+   "quote": "\"restore/\", \"reviews/\", \"history/\", \"outside/\", \"verify/\",",
+   "title": "Adding reviews/ to .gitignore doesn't protect review files an earlier version already let users commit, and nobody is told",
+   "evidence": "Before 4.2.2 .critic/reviews/ was not ignored; ignore rules don't apply to tracked files. runlog_tracked() and ensure_ignored() warn for the tracked runlog and .gitignore, but nothing does for reviews/, history/, verify/ or tally.json. README line 82 says raw reviews are git-ignored.",
+   "failing_case": "Traced: a repo with a committed .critic/reviews/review-A.json upgrades; a new review-A.json quoting a key shows as modified, not ignored; git commit -a commits it with no warning.",
+   "verified": "traced",
+   "remediation": "Warn once when an ignored path is tracked, with the git rm --cached command; say in the README that ignore rules don't cover files already committed."}
+]

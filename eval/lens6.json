@@ -1,0 +1,116 @@
+{
+ "lens": "CI and supply chain (SC-51)",
+ "fixture": "fixture6",
+ "clean": "fixture6-clean",
+ "area": "supply-chain",
+ "planted": [
+  {
+   "id": "C1",
+   "rule": "ci-injection",
+   "where": ".github/workflows/build.yml:13",
+   "why": "the commit message is pasted into run: on push"
+  },
+  {
+   "id": "C2",
+   "rule": "ci-pwn-request",
+   "where": ".github/workflows/triage.yml:11",
+   "why": "pull_request_target checks out the PR head"
+  },
+  {
+   "id": "C3",
+   "rule": "ci-injection",
+   "where": ".github/workflows/triage.yml:14",
+   "why": "the PR title is pasted into run: under pull_request_target"
+  },
+  {
+   "id": "C4",
+   "rule": "ci-if-always-true",
+   "where": ".github/workflows/triage.yml:17",
+   "why": "the if: mixes ${{ }} with text"
+  },
+  {
+   "id": "C5",
+   "rule": "curl-pipe-shell",
+   "where": ".github/workflows/build.yml:15",
+   "why": "curl piped into bash"
+  },
+  {
+   "id": "C6",
+   "rule": "ci-secret-in-run",
+   "where": ".github/workflows/build.yml:17",
+   "why": "a secret pasted into run:"
+  },
+  {
+   "id": "C7",
+   "rule": "ci-upload-checkout",
+   "where": ".github/workflows/build.yml:18",
+   "why": "the whole workspace, hidden files included, uploaded after a credentialed checkout"
+  },
+  {
+   "id": "C8",
+   "rule": "ci-unpinned-action",
+   "where": ".github/workflows/triage.yml:15",
+   "why": "a third-party action by tag"
+  },
+  {
+   "id": "C9",
+   "rule": "ci-no-permissions",
+   "where": ".github/workflows/triage.yml:2",
+   "why": "pull_request_target with no permissions"
+  },
+  {
+   "id": "C10",
+   "rule": "npm-resolved-host",
+   "where": "package-lock.json:13",
+   "why": "resolved over plain http from another host"
+  },
+  {
+   "id": "C11",
+   "rule": "pip-extra-index",
+   "where": "requirements.txt:2",
+   "why": "--extra-index-url"
+  },
+  {
+   "id": "C12",
+   "rule": "docker-latest",
+   "where": "Dockerfile:1",
+   "why": "FROM python:latest"
+  },
+  {
+   "id": "C13",
+   "rule": "npm-no-integrity",
+   "where": "package-lock.json:13",
+   "why": "no integrity hash"
+  }
+ ],
+ "decoy_files": [
+  ".github/workflows/safe.yml",
+  ".github/workflows/safe-target.yml",
+  "requirements-dev.txt",
+  "Dockerfile.base",
+  "deploy.sh"
+ ],
+ "decoys": [
+  {
+   "where": ".github/workflows/safe.yml",
+   "why": "plain pull_request; the title and a secret pass through env:; checkout without credentials; a pinned third-party action; one listed in actions.lock; a download checked by hash; the PR number (not text) in run:; one ${{ }} if:"
+  },
+  {
+   "where": ".github/workflows/safe-target.yml",
+   "why": "pull_request_target with a permissions block, checking out the base (no ref), using only the PR number"
+  },
+  {
+   "where": "requirements-dev.txt",
+   "why": "--index-url, not --extra-index-url"
+  },
+  {
+   "where": "Dockerfile.base",
+   "why": "pinned by digest, and FROM scratch"
+  },
+  {
+   "where": "deploy.sh",
+   "why": "curl | sh only in a comment"
+  }
+ ],
+ "note": "A decoy file must have no regular row from this lens; the clean twin must have none at all."
+}

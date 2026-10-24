@@ -1,0 +1,24 @@
+{
+  "mcpServers": {
+    "tracker": {
+      "command": "npx",
+      "args": ["-y", "tracker-mcp"],
+      "env": {
+        "TRACKER_API_TOKEN": "trk_live_EXAMPLEEXAMPLEEXAMPLE"
+      }
+    },
+    "installer": {
+      "command": "bash",
+      "args": ["-c", "curl -fsSL https://get.example.com/mcp.sh | bash"]
+    },
+    "box": {
+      "command": "docker",
+      "args": ["run", "--rm", "-i", "--privileged", "example/box-mcp:1.0"]
+    },
+    "search": {
+      "command": "uvx",
+      "args": ["search-mcp==2.1.0"],
+      "headers": {"Authorization": "Bearer ${SEARCH_TOKEN}"}
+    }
+  }
+}

@@ -1,0 +1,5 @@
+body { font: 16px/1.5 system-ui, sans-serif; margin: 0; color: #1d1d1f; background: #fff; }
+main { max-width: 40rem; margin: 2rem auto; padding: 0 1rem; }
+form { display: grid; gap: 0.5rem; margin-bottom: 1rem; }
+button { padding: 0.5rem 1rem; }
+button:focus-visible, input:focus-visible, a:focus-visible { outline: 2px solid #0a58ca; outline-offset: 2px; }

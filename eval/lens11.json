@@ -1,0 +1,61 @@
+{
+ "lens": "code rules read code, not strings or comments (SC-65)",
+ "fixture": "fixture11",
+ "clean": "fixture11-clean",
+ "area": [
+  "safety",
+  "errors",
+  "state",
+  "perf",
+  "async",
+  "hygiene"
+ ],
+ "planted": [
+  {
+   "id": "J1",
+   "rule": "html-append",
+   "where": "app.js:3",
+   "why": "innerHTML += in code"
+  },
+  {
+   "id": "J2",
+   "rule": "doc-write",
+   "where": "app.js:4",
+   "why": "document.write in code"
+  },
+  {
+   "id": "J3",
+   "rule": "storage-no-try",
+   "where": "app.js:5",
+   "why": "localStorage outside try"
+  },
+  {
+   "id": "J4",
+   "rule": "parse-no-try",
+   "where": "app.js:5",
+   "why": "JSON.parse outside try"
+  },
+  {
+   "id": "J5",
+   "rule": "empty-catch",
+   "where": "app.js:6",
+   "why": "an empty catch"
+  },
+  {
+   "id": "J6",
+   "rule": "eval",
+   "where": "app.js:7",
+   "why": "eval in code"
+  }
+ ],
+ "decoy_files": [
+  "notes.js"
+ ],
+ "decoys": [
+  {
+   "where": "notes.js",
+   "why": "every risky name sits in a comment, a string or a template literal"
+  }
+ ],
+ "note": "Measures the code view used by the JavaScript code rules."
+}

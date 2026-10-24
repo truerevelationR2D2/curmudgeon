@@ -1,0 +1,5 @@
+{
+  "mcpServers": {
+    "docs": {"command": "npx", "args": ["-y", "@example/docs-mcp@1.4.0"], "env": {"DOCS_API_KEY": "${DOCS_API_KEY}"}}
+  }
+}

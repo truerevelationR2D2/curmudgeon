@@ -8,7 +8,7 @@ domain -> ui and data -> ui imports are flagged. Projects can override in .criti
     layer ui: src/components/** src/views/**
     forbid: domain -> ui
 """
-import fnmatch, hashlib, pathlib, re
+import ast, fnmatch, hashlib, pathlib, re
 
 JS = {".js", ".mjs", ".cjs", ".ts", ".jsx", ".tsx"}
 IMPORT = re.compile(r"""(?:^|\s)import\s+(?:[\w*{}\s,]+\s+from\s+)?['"]([^'"]+)['"]|\bimport\(\s*['"]([^'"]+)['"]\s*\)|\brequire\(\s*['"]([^'"]+)['"]\s*\)""")
@@ -54,9 +54,66 @@ def resolve(src_rel, spec, files):
         if c in files: return c
     return None
 
+def python_graph(py):
+    """Module-level imports between the Python files in scope, read with ast. Left out, because Python code uses them to
+    break a cycle on purpose: imports inside functions, under `if TYPE_CHECKING:`, and under `if __name__ == "__main__":`.
+    Each file gets the module name Python would give it: its path from the first folder up that isn't a package (has no
+    __init__.py). An absolute import matches that full name only, so `import calendar` never lands on a local
+    app/components/calendar.py; a bare top-level name (a script beside other scripts) matches only from the same
+    folder. Relative imports resolve from the file's package. Files that don't parse add no edges."""
+    have = set(py)
+    def modname(r):
+        parts = list(pathlib.PurePosixPath(r).with_suffix("").parts)
+        if parts[-1] == "__init__": parts = parts[:-1]
+        k = len(pathlib.PurePosixPath(r).parent.parts)
+        while k > 0 and "/".join(pathlib.PurePosixPath(r).parent.parts[:k]) + "/__init__.py" in have: k -= 1
+        return ".".join(parts[k:]), "/".join(pathlib.PurePosixPath(r).parent.parts[:k])
+    names = {}
+    for r in py:
+        n, base = modname(r)
+        if n: names.setdefault(n, []).append((r, base))
+    def find(dotted, src):
+        hits = names.get(dotted, [])
+        if "." not in dotted:  # a top-level script module: only a sibling script can import it by that name
+            folder = str(pathlib.PurePosixPath(src).parent) if str(pathlib.PurePosixPath(src).parent) != "." else ""
+            hits = [h for h in hits if h[1] == folder]
+        return hits[0][0] if len(hits) == 1 else None
+    def guarded(test):
+        t = ast.unparse(test) if hasattr(ast, "unparse") else ""
+        return t in ("TYPE_CHECKING", "typing.TYPE_CHECKING") or re.fullmatch(r"__name__\s*==\s*['\"]__main__['\"]", t) is not None
+    graph = {r: set() for r in py}
+    for r, t in py.items():
+        try: tree = ast.parse(t)
+        except (SyntaxError, ValueError): continue
+        pkg = list(pathlib.PurePosixPath(r).parent.parts)
+        def top(nodes):
+            for n in nodes:
+                if isinstance(n, ast.If):
+                    if not guarded(n.test): yield from top(n.body)
+                    yield from top(n.orelse)
+                elif isinstance(n, ast.Try) or type(n).__name__ == "TryStar":
+                    yield from top(n.body + n.orelse + [x for h in n.handlers for x in h.body] + n.finalbody)
+                elif isinstance(n, (ast.Import, ast.ImportFrom)): yield n
+        for n in top(tree.body):
+            if isinstance(n, ast.ImportFrom) and n.level:
+                base = pkg[: len(pkg) - (n.level - 1)] if n.level > 1 else pkg
+                mod = base + (n.module.split(".") if n.module else [])
+                for c in [mod + [a.name] for a in n.names] + [mod]:
+                    path = "/".join(c)
+                    tgt = next((x for x in (path + ".py", path + "/__init__.py") if x in have and x != r), None)
+                    if tgt: graph[r].add(tgt); break
+                continue
+            cands = [a.name for a in n.names] if isinstance(n, ast.Import) else [f"{n.module}.{a.name}" for a in n.names] + [n.module]
+            for c in cands:
+                tgt = find(c, r)
+                if tgt and tgt != r: graph[r].add(tgt); break
+    return graph
+
 def scan(root, texts, emit):
-    """texts: {rel_path: text} for every source file in scope (posix rel paths)."""
+    """texts: {rel_path: text} for every source file in scope (posix rel paths). Builds the import graph for
+    JavaScript/TypeScript and Python, and returns the file types it could not analyse."""
     js = {r: t for r, t in texts.items() if pathlib.PurePath(r).suffix in JS}
+    py = {r: t for r, t in texts.items() if pathlib.PurePath(r).suffix == ".py"}
     layers, forbid = read_rules(root); custom = layers is not None
     layers = layers or DEFAULT_LAYERS; forbid = forbid or DEFAULT_FORBID
     graph = {r: set() for r in js}
@@ -65,6 +122,7 @@ def scan(root, texts, emit):
             spec = next(g for g in m.groups() if g)
             tgt = resolve(r, spec, js)
             if tgt: graph[r].add(tgt)
+    graph.update(python_graph(py))
     edges = sum(len(v) for v in graph.values())
     # layer rules
     for r, deps in graph.items():
@@ -126,4 +184,8 @@ def scan(root, texts, emit):
             else: seen.setdefault(h, here)
     for (fa, la), (fb, lb) in dups[:10]:
         emit("NOTE", "duplicate-code", "structure", f"{fb}:{lb}", f"{W}+ lines duplicated from {fa}:{la}: one fix will be missed", "")
-    return {"modules": len(js), "import_edges": edges, "cycles": len(out), "duplicates": len(dups)}
+    other = {}
+    for r in texts:
+        ext = pathlib.PurePath(r).suffix
+        if ext not in JS and ext != ".py": other[ext] = other.get(ext, 0) + 1
+    return {"modules": len(js) + len(py), "import_edges": edges, "cycles": len(out), "duplicates": len(dups), "not_analysed": other}

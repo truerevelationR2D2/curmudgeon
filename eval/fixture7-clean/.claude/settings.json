@@ -1,0 +1,6 @@
+{
+  "enabledMcpjsonServers": ["tracker", "search"],
+  "permissions": {
+    "allow": ["mcp__tracker__list_issues", "Bash(npm test:*)", "Read"]
+  }
+}

@@ -3,7 +3,7 @@
 Python (and Playwright + Chromium for the runtime half; axe-core if present).
 
 usage: critic_scan.py SRC [--root DIR] [--page PAGE.html|URL] [--out DIR] [--axe axe.min.js]
-                          [--exclude GLOB ...] [--no-interact] [--allow-live] [--online]
+                          [--exclude GLOB ...] [--no-interact] [--allow-live HOST] [--online]
                           [--mutate FILE ...] [--test-cmd CMD] [--project-checks] [--no-project-rules] [--baseline save|compare] [--budget-kb N]
 
 Modules (all our own code; the tools named are where the idea came from): secrets (gitleaks), HTML validity (Nu Html
@@ -16,34 +16,54 @@ results from earlier CI runs (SARIF and JUnit files already in the project) read
 SRC may be a folder or a single file. ROOT (default: CRITIC_ROOT, else the current folder) is where .critic/ lives;
 rows are keyed by path relative to ROOT so recorded false positives match whichever SRC is scanned.
 
-Every row has an evidence id (S001…) and a rule id. Every check family reports pass, fail, unavailable (tool missing)
-or blocked (could not run), derived from its own rows. A false positive recorded with
+Every row has an evidence id (S001…) and a rule id. Every check family reports pass, fail, unavailable (tool missing),
+blocked (could not run) or n/a (nothing for it to look at: no page given, no manifest), derived from its own rows.
+Only blocked and unavailable make a run DEGRADED. A false positive recorded with
 `critic_ledger.py fp RULE_ID WHERE "why"` suppresses only that rule at that exact place, and is listed, never hidden.
 
 Safety: the click probe never sends anything. Every non-GET request and every request to another origin is aborted
-and reported as "would have sent", controls named like destructive actions are not clicked, and pages that aren't
-on localhost or a file are refused unless --allow-live is given."""
+and reported as "would have sent", WebSockets are never connected (not even to the page's own server) and workers are
+switched off (their sockets can't be seen from outside the page), controls that
+look destructive by name, id, link, form action or title are not clicked, and pages that aren't
+on localhost or a file are refused unless .critic/scope.json lists the origin and the run carries --allow-live HOST
+(the owner's typed confirmation; scope.py), and then only GET, HEAD and OPTIONS, up to the target's request cap."""
 import argparse, fnmatch, json, os, pathlib, re, signal, subprocess, sys, time, urllib.parse
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
-import scan_secrets, scan_html, scan_graph, scan_deps, scan_rules_extra, scan_mutation
+import scan_secrets, scan_html, scan_graph, scan_deps, scan_rules_extra, scan_mutation, scan_ci, scan_agentcfg, scan_migrations, scan_reqs, scan_ops
+import scope as scope_file
+import safe_web
 from critic_findings import log_run, refuse_linked_state
+from scan_rules_extra import guarded as G
 
 CODE = {".js", ".mjs", ".cjs", ".ts", ".jsx", ".tsx", ".vue", ".svelte", ".html", ".htm"}
 MARKUP = {".html", ".htm", ".jsx", ".tsx", ".vue", ".svelte"}
 STYLE = {".css", ".scss", ".less"} | MARKUP
 SCAN_EXT = CODE | STYLE | {".py"}
+CONFIG_EXT = {".yml", ".yaml", ".sql", ".toml"}  # read by rule files and by line rules that name these types; never by code rules
+def is_config(p, rel):
+    n = p.name.lower()
+    return p.suffix.lower() in CONFIG_EXT or n == "dockerfile" or n.startswith("dockerfile.") or n.endswith(".dockerfile") or rel.startswith(".github/")
 SKIP = {"node_modules", "dist", "build", "vendor", ".git", "__pycache__", ".next", "coverage", ".critic", ".venv", "venv"}
 MAX_BYTES = 2_000_000
 SELF = pathlib.Path(__file__).resolve()
 R, CHECKS, SUPPRESSED, FP = [], {}, [], []
+REQ_ROWS = []  # the requirement-to-test table (SC-55), written beside the report
 
-def f(sev, rule, area, where, what, ev=""):
+# Scripted rows come in two tiers (SC-47, after zizmor's personas; our own list): regular rows can become findings;
+# pedantic rows are known to be noisy, are always NOTE, and are counted apart. A rule file can mark a rule pedantic.
+PEDANTIC = {"long-lines", "long-file", "unused-export", "dead-function", "duplicate-code", "mutation-not-exercised", "test-sleep", "test-unseeded-random", "agent-headless-mcp", "mig-drop-rename", "ops-k8s-no-probes", "ops-k8s-no-limits", "semgrep-present"}
+PEDANTIC_RULES = set()
+
+def f(sev, rule, area, where, what, ev="", lvl=None):
     for x in FP:
         if x.get("rule") in (rule, rule[5:] if rule.startswith("rule-") else None) and str(x.get("where")) == str(where):  # rulings saved before rule- ids still apply
             SUPPRESSED.append({"rule": rule, "where": where, "what": what, "why": x.get("why", "")}); return
-    level = "runtime" if area.startswith(("a11y-", "runtime", "ux", "responsive", "perf-rt", "visual")) else ("ci" if area == "ci" else "source")
-    R.append({"sev": sev, "rule": rule, "area": area, "where": str(where), "what": what, "evidence": ev.strip()[:160], "level": level})
+    level = lvl or ("runtime" if area.startswith(("a11y-", "runtime", "ux", "responsive", "perf-rt", "visual")) else ("ci" if area == "ci" else "source"))
+    tier = "pedantic" if rule in PEDANTIC or rule in PEDANTIC_RULES else "regular"
+    if tier == "pedantic": sev = "NOTE"
+    R.append({"sev": sev, "rule": rule, "area": area, "where": str(where), "what": what, "evidence": ev.strip()[:160], "level": level, "tier": tier})
 
+NA = "n/a"  # not applicable: nothing for this check to look at (no page given, no manifest). Never DEGRADED.
 def state(name, s, note=""): CHECKS[name] = {"state": s, "note": note}
 def family_state(areas, note=""):
     rows = [x for x in R if x["area"] in areas]
@@ -83,6 +103,8 @@ RULES = [
     ("arrow-cta", "NOTE", "anti-ai", r"<(button|a)\b[^>]*>[^<]*→", "arrow appended to button or link text", MARKUP, 0),
     ("narrating-comment", "NOTE", "anti-ai", r"^\s*//\s*(Render|Main|Handle|Load|Init|Setup|Get|Set|Create|Update|API client|Helper)s?\b[\w ]{0,30}$", "comment that narrates the obvious", {".js", ".mjs", ".ts", ".jsx", ".tsx"}, re.I),
 ]
+CODE_ONLY_RULES = {"eval", "raw-html", "empty-catch", "log-only-catch", "fire-forget", "storage-no-try", "parse-no-try", "time-id", "await-loop", "interval",
+                   "html-append", "console-log"}  # not per-keystroke, todo or placeholder: those read strings or comments on purpose  # matched against code with strings and comments blanked (SC-65)
 SAFE_EXPR = re.compile(r"^\s*([\w.$]*\b(esc|escape|escapeHtml|escAttr|sanitize|DOMPurify\.sanitize|encodeURIComponent|Number|parseInt|parseFloat)\(|[\w.]+\.(length|size|toFixed\(\d*\)|toLocaleString\(\))\s*$|\d+\s*$|\w+\s*\?\s*[\"'][^\"']*[\"']\s*:\s*[\"'][^\"']*[\"']\s*$)")
 
 def unescaped_html(rel, lines):
@@ -118,11 +140,21 @@ def css_detector(rel, text):
     if re.search(r"(?<!-)(color|background)\s*:\s*#(?:[0-9a-f]{3}){1,2}\b", text, re.I) and not re.search(r"--[\w-]+\s*:", text):
         f("NOTE", "raw-hex", "theming", rel, "colours are raw hex values with no tokens (custom properties)")
 
+ONLY = None  # set by --only: the exact files (paths relative to --root) to scan, for the background check
 def walk(src, excludes):
-    items = [src] if src.is_file() else [p for p in src.rglob("*") if p.is_file()]
+    if ONLY is not None:  # exact files someone changed: scanned even under build/ or vendor/, never outside the root
+        top = SCAN_ROOT.resolve(); items = []
+        for r in sorted(ONLY):
+            q = SCAN_ROOT / r
+            try: real = q.resolve()
+            except OSError: continue
+            if ".." in pathlib.PurePath(r).parts or not real.is_relative_to(top) or real != top / pathlib.PurePath(r) or not q.is_file(): continue
+            if ".critic" in pathlib.PurePath(r).parts: continue
+            items.append(q)
+    else: items = [src] if src.is_file() else [p for p in src.rglob("*") if p.is_file()]
     for p in items:
         try:
-            rel_parts = p.relative_to(src).parts if src.is_dir() else (p.name,)
+            rel_parts = () if ONLY is not None else (p.relative_to(src).parts if src.is_dir() else (p.name,))
             if set(rel_parts) & SKIP or p.resolve() == SELF: continue
             if any(fnmatch.fnmatch(str(p), g) or fnmatch.fnmatch(p.name, g) for g in excludes): continue
             if p.stat().st_size > MAX_BYTES: continue
@@ -130,6 +162,7 @@ def walk(src, excludes):
         except OSError: continue
 
 TEXTS = {}
+CONFIG_TEXTS = {}  # config files: rule files and line rules for their types read them; the code checks don't
 SCAN_ROOT = pathlib.Path.cwd()  # set in main from --root, so every run-log line lands in the project being scanned
 NO_PROJECT_RULES = False  # set by --no-project-rules (the background stop check uses it)
 RULE_AREAS = {"safety", "errors", "state", "async", "perf", "a11y", "layout", "domain", "html", "theming", "ux", "structure", "deps"}
@@ -179,39 +212,61 @@ def load_rule_files(root):
                         budget["rules"] -= 1
                         if budget["rules"] < 0:
                             bad.append(LIMIT + f"project rules stopped partway through {rf.name}: over the limit of 2,000 rules in all"); break
+                    if r.get("pedantic") is True: PEDANTIC_RULES.add("rule-" + rid)  # a rule file may mark a noisy rule pedantic
                     rules.append(("rule-" + rid, sev, area, pat, msg[:200], globs, is_project)); taken.add(rid)
                 except Exception as e: bad.append(f"{rf.name}: rule {r.get('id', '?') if isinstance(r, dict) else '?'} skipped ({str(e)[:80]})")
             if len(items) > 200: bad.append(LIMIT + f"{rf.name}: only the first 200 rules were read")
     return rules, bad
 
 def static(src, root, excludes):
-    n = texts = 0
+    n = texts = 0; secrets_only = {}
     custom, bad = load_rule_files(root)
     limits = [b[len(LIMIT):] for b in bad if b.startswith(LIMIT)]  # a limit cut the rule set: always shown, never behind the cap
     rest = [b for b in bad if not b.startswith(LIMIT)]
     for b in limits: f("NOTE", "rule-file-limit", "structure", "rules", b)
     for b in rest[:20]: f("NOTE", "rule-file-invalid", "structure", "rules", b)
     if len(rest) > 20: f("NOTE", "rule-file-invalid", "structure", "rules", f"{len(rest) - 20} more rule-file problems not listed")
+    agent_names = {}; req_docs, req_tests = {}, {}
+    lockp = root / ".github" / "workflows" / "actions.lock"
+    try: lock_text = lockp.read_text(encoding="utf-8")[:2_000_000] if lockp.is_file() and not lockp.is_symlink() else ""
+    except OSError: lock_text = ""
     for p in walk(src, excludes):
         try: text = p.read_text(encoding="utf-8")
         except (UnicodeDecodeError, OSError): continue
         try: rel = str(p.resolve().relative_to(root))
         except ValueError: rel = str(p)
         lines = text.split("\n"); texts += 1
-        scan_secrets.scan(rel, text, f)  # every text file, dotfiles and configs included
-        if p.suffix not in SCAN_EXT: continue
+        G("scan_secrets", scan_secrets.scan, rel, f, rel, text, f)  # every text file, dotfiles and configs included
+        if scan_ci.is_workflow(rel): G("scan_ci", scan_ci.scan_workflow, rel, f, rel, text, f, lock_text)  # the CI and supply-chain lens (SC-51)
+        elif scan_ci.wants_text(rel): G("scan_ci", scan_ci.scan_text, rel, f, rel, text, f)
+        elif p.name == "package-lock.json": G("scan_ci", scan_ci.scan_npm_lock, rel, f, rel, text, f)
+        elif scan_agentcfg.wants(rel): G("scan_agentcfg", scan_agentcfg.scan, rel, f, rel, text, f, agent_names)  # the agent and MCP configuration lens (SC-52)
+        if scan_migrations.wants(rel): G("scan_migrations", scan_migrations.scan, rel, f, rel, text, f)  # the release and rollback lens (SC-53)
+        G("scan_ops", scan_ops.scan, rel, f, rel, text, f, root)  # the operations lens (SC-54)
+        if scan_reqs.is_doc(rel): req_docs[rel] = text  # the requirements lens (SC-55)
+        elif scan_reqs.is_test(rel): req_tests[rel] = text
+        if p.suffix not in SCAN_EXT:
+            if is_config(p, rel):
+                CONFIG_TEXTS[rel] = text
+                for i, l in enumerate(lines, 1):
+                    for rid, sev, area, rx, msg, exts, fl in RULES:
+                        if exts and p.suffix in exts and re.search(rx, l, fl): f(sev, rid, area, f"{rel}:{i}", msg, l)
+            else: secrets_only[p.suffix.lower() or p.name] = secrets_only.get(p.suffix.lower() or p.name, 0) + 1
+            continue
         n += 1; TEXTS[rel] = text
-        scan_rules_extra.scan(rel, p.suffix, text, f)
-        if p.suffix in (".html", ".htm"): scan_html.scan(rel, text, f)
+        G("scan_rules_extra", scan_rules_extra.scan, rel, f, rel, p.suffix, text, f)
+        if p.suffix in (".html", ".htm"): G("scan_html", scan_html.scan, rel, f, rel, text, f)
         if len(lines) > 400: f("WARN", "long-file", "structure", rel, f"{len(lines)} lines in one file")
         longl = [i for i, l in enumerate(lines, 1) if len(l) > 300 and not p.name.endswith(".min.js")]
         if longl: f("NOTE", "long-lines", "structure", f"{rel}:{longl[0]}", f"{len(longl)} lines over 300 characters")
         if p.suffix in CODE and re.search(r"\bfetch\(", text) and not re.search(r"\.ok\b|\.status\b", text):
             f("WARN", "status-unchecked", "errors", rel, "fetch used but no response status is ever checked (errors look like success)")
+        view = scan_rules_extra.code_lines(rel, p.suffix, text)  # SC-65: code rules read code, never strings or comments
         for i, l in enumerate(lines, 1):
+            cl = view[i - 1] if view is not None and i - 1 < len(view) else l
             for rid, sev, area, rx, msg, exts, fl in RULES:
                 if exts and p.suffix not in exts: continue
-                if not re.search(rx, l, fl): continue
+                if not re.search(rx, cl if rid in CODE_ONLY_RULES else l, fl): continue
                 if area in ("state", "async") and in_try(lines, i): continue
                 if rid == "outline-none" and ":focus-visible" in text: continue
                 f(sev, rid, area, f"{rel}:{i}", msg, l)
@@ -219,60 +274,105 @@ def static(src, root, excludes):
         if p.suffix in (".css", ".scss", ".less"): css_detector(rel, text)
         elif p.suffix in MARKUP:
             for blk in re.findall(r"<style[^>]*>(.*?)</style>", text, re.S): css_detector(rel, blk)
+    REQ_ROWS[:] = G("scan_reqs", scan_reqs.check, "requirements", f, req_docs, req_tests, f) or []
     # the plugin's own rule files run here; a project's .critic/rules run in a separate process with a time limit,
     # because anyone who wrote the repository could have written them
     builtin = [r[:6] for r in custom if not r[6]]; project = [r[:6] for r in custom if r[6] and not NO_PROJECT_RULES]
     for rid, sev, area, pat, msg, globs in builtin:
         rx = re.compile(pat)
-        for rel, text in TEXTS.items():
+        for rel, text in {**TEXTS, **CONFIG_TEXTS}.items():
+            if rel in CONFIG_TEXTS and not globs: continue  # config is read only by a rule that names its file type
             if globs and not any(fnmatch.fnmatch(pathlib.PurePath(rel).name, g) or fnmatch.fnmatch(rel, g) for g in globs): continue
             for i, l in enumerate(text.split("\n"), 1):
                 if len(l) <= 2000 and rx.search(l): f(sev, rid, area, f"{rel}:{i}", msg, l[:160])
-    if project and TEXTS:
+    if project and (TEXTS or CONFIG_TEXTS):
         try:
             log_run(SCAN_ROOT, "script", f"rule_runner.py ({len(project)} project rule(s), 20 s limit)")
-            r = subprocess.run([sys.executable, "-I", str(pathlib.Path(__file__).resolve().parent / "rule_runner.py")], input=json.dumps({"rules": project, "files": list(TEXTS.items())}),
+            r = subprocess.run([sys.executable, "-I", str(pathlib.Path(__file__).resolve().parent / "rule_runner.py")], input=json.dumps({"rules": project, "files": list({**TEXTS, **CONFIG_TEXTS}.items()), "config": list(CONFIG_TEXTS)}),
                                capture_output=True, text=True, timeout=20)
             if r.returncode != 0: f("WARN", "rule-file-failed", "structure", ".critic/rules", f"the project's rule files could not run (exit {r.returncode}); their results are missing")
             for row in json.loads(r.stdout or "[]"): f(*row)
         except subprocess.TimeoutExpired: f("WARN", "rule-file-timeout", "structure", ".critic/rules", "the project's rule files took over 20 s and were stopped (a pattern may be too slow); their results are missing")
         except ValueError: f("NOTE", "rule-file-invalid", "structure", ".critic/rules", "the rule runner returned no readable results")
-    if texts: state("static", *family_state({"safety", "errors", "state", "async", "perf", "a11y", "layout", "domain", "html", "theming", "ux"}, f"{n} source files, {texts} text files checked for secrets, {len(custom)} rule-file rules"))
+    if texts: state("static", *family_state({"safety", "errors", "state", "async", "perf", "a11y", "layout", "domain", "html", "theming", "ux", "tests", "supply-chain", "agent-config", "release", "requirements", "operations"}, f"{n} source files, {len(CONFIG_TEXTS)} config files, {texts} text files checked for secrets, {len(custom)} rule-file rules"
+                              + (("; not checked beyond secrets: " + ", ".join(f"{k} {v}" for k, v in sorted(secrets_only.items(), key=lambda kv: -kv[1])[:8])) if secrets_only else "")))
     else: state("static", "blocked", "no readable files found")
     try:
-        g = scan_graph.scan(root, TEXTS, f); state("structure", *family_state({"structure"}, f"{g['modules']} modules, {g['import_edges']} imports, {g['cycles']} cycles, {g['duplicates']} duplicates"))
+        g = scan_graph.scan(root, TEXTS, f)
+        skipped = ", ".join(f"{k} {v}" for k, v in sorted(g["not_analysed"].items(), key=lambda kv: -kv[1]) if k not in (".html", ".htm", ".css", ".scss", ".less"))
+        note = f"{g['modules']} modules, {g['import_edges']} imports, {g['cycles']} cycles, {g['duplicates']} duplicates" + (f"; import graph not analysed for {skipped}" if skipped else "")
+        if g["modules"]: state("structure", *family_state({"structure"}, note))
+        else: state("structure", NA, "no JavaScript, TypeScript or Python modules to map" + (f"; not analysed: {skipped}" if skipped else ""))
     except Exception as e: state("structure", "blocked", f"{type(e).__name__}: {str(e)[:100]}")
     return n
+
+# SC-58: results other tools already produced are read as evidence, under the lens they belong to (our own mapping).
+TOOL_LENS = {"zizmor": "supply-chain", "actionlint": "supply-chain", "poutine": "supply-chain", "scorecard": "supply-chain", "trivy": "supply-chain",
+             "osv-scanner": "supply-chain", "semgrep": "safety", "codeql": "safety", "bandit": "safety", "gitleaks": "secrets", "trufflehog": "secrets",
+             "eslint": "errors", "ruff": "errors", "squawk": "release", "pint": "operations", "checkov": "operations", "hadolint": "supply-chain"}
+def tool_lens(tool):
+    t = str(tool).lower()
+    return next((v for k, v in TOOL_LENS.items() if k in t), "ci")
+
+def semgrep_presence(root):
+    """SC-64: signs the user already runs Semgrep. Never runs it, never reads its login files. Returns a list of signs."""
+    import shutil as _sh
+    signs = []
+    for name in (".semgrep.yml", ".semgrep.yaml", ".semgrep", "semgrep.yml", ".semgrepignore"):
+        if (root / name).exists(): signs.append(f"config {name}")
+    wf = root / ".github" / "workflows"
+    if wf.is_dir():
+        for p in sorted(wf.glob("*.y*ml"))[:50]:
+            try:
+                if re.search(r"(?i)\bsemgrep\b", p.read_text(encoding="utf-8", errors="replace")): signs.append(f"CI step in {p.relative_to(root)}"); break
+            except OSError: pass
+    if _sh.which("semgrep"): signs.append("semgrep on PATH")
+    return signs
 
 def ci_evidence(root, out=None):
     """Read results that earlier test or lint runs already left in the project, instead of re-running them.
     Curmudgeon's own outputs (anything under .critic/ or the --out folder) are never read back as evidence."""
     import xml.etree.ElementTree as ET
-    seen = 0
+    seen = files = unreadable = 0
     own = {"scan.sarif", "findings.sarif"}
     def mine(p): return ".critic" in p.parts or p.name in own or (out is not None and str(p.resolve()).startswith(str(out.resolve())))
     for p in list(root.rglob("*.sarif"))[:20]:
         if set(p.parts) & SKIP or mine(p): continue
         try:
-            j = json.loads(p.read_text())
+            j = json.loads(p.read_text()); files += 1
             for run in j.get("runs", []):
                 tool = run.get("tool", {}).get("driver", {}).get("name", "tool")
                 for r in run.get("results", [])[:50]:
                     loc = (r.get("locations") or [{}])[0].get("physicalLocation", {})
                     where = f"{loc.get('artifactLocation', {}).get('uri', '')}:{loc.get('region', {}).get('startLine', '')}"
-                    f({"error": "WARN"}.get(r.get("level"), "NOTE"), f"ci-{tool}-{r.get('ruleId', '')}", "ci", where, f"{tool}: {r.get('message', {}).get('text', '')[:150]}"); seen += 1
-        except Exception: continue
+                    if any(x["where"] == where and x["area"] == tool_lens(tool) for x in R):  # our own check already flagged this line: one row, credited to both
+                        for x in R:
+                            if x["where"] == where and x["area"] == tool_lens(tool): x["also_found_by"] = tool
+                        seen += 1; continue
+                    f({"error": "WARN"}.get(r.get("level"), "NOTE"), f"ci-{tool}-{r.get('ruleId', '')}", tool_lens(tool), where, f"{tool}: {r.get('message', {}).get('text', '')[:150]}", lvl="ci"); seen += 1
+        except Exception: unreadable += 1; continue
     for p in list(root.rglob("*.xml"))[:40]:
         if set(p.parts) & SKIP or mine(p): continue
         try:
-            t = ET.parse(p).getroot()
+            try: t = ET.parse(p).getroot()
+            except ET.ParseError:
+                if re.search(r"<testsuites?\b", p.read_text(encoding="utf-8", errors="replace")[:4000]): unreadable += 1
+                continue
             if t.tag not in ("testsuite", "testsuites"): continue
+            files += 1
             for tc in t.iter("testcase"):
                 bad = tc.find("failure") if tc.find("failure") is not None else tc.find("error")
                 if bad is not None:
                     f("WARN", "ci-test-failure", "ci", str(p.relative_to(root)), f"test failing in the last recorded run: {tc.get('classname', '')} {tc.get('name', '')}", (bad.get("message") or "")[:120]); seen += 1
         except Exception: continue
-    state("ci", "pass" if seen == 0 else "fail", f"{seen} result(s) read from earlier runs" if seen else "no earlier CI results found (nothing to read)")
+    sg = semgrep_presence(root)
+    if sg:
+        have = any("semgrep" in x["rule"].lower() or "semgrep" in str(x.get("also_found_by", "")).lower() for x in R)
+        f("NOTE", "semgrep-present", "ci", "semgrep", "Semgrep is in use here (" + ", ".join(sg) + "). " + ("Its SARIF results are read as evidence, and a line both tools flag is one row." if have else "No Semgrep SARIF file was found: run it with --sarif --output semgrep.sarif to share its results. Curmudgeon never runs it."), lvl="ci")
+    bad = f"; {unreadable} result file(s) could not be read" if unreadable else ""
+    if not files and unreadable: state("ci", "blocked", f"{unreadable} CI result file(s) found but none could be read (damaged or cut short)")
+    elif not files: state("ci", NA, "no earlier CI results found (no SARIF or JUnit files to read)")
+    else: state("ci", "fail" if seen else "pass", f"{files} result file(s) read from earlier runs, {seen} problem(s){bad}")
 
 def project_checks(root, timeout=600):
     """Run the commands listed under '## Scripted checks' in .critic/rules.md ("- name: command"). Each one passes on
@@ -324,7 +424,7 @@ FOCUS_REST = r"""() => {
 }"""
 FOCUS_NOW = r"""() => { const e = document.activeElement; if (!e || !e.hasAttribute('data-critic-f')) return null;
   const s = getComputedStyle(e); return [e.getAttribute('data-critic-f'), [s.outlineStyle, s.outlineWidth, s.boxShadow, s.backgroundColor, s.borderColor, s.color, s.textDecorationLine].join('|')]; }"""
-CANDIDATES = "() => [...document.querySelectorAll('button, [role=button], [onclick], a[href], span, div, li')].filter(e => e.getBoundingClientRect().width > 0 && !(e.form && (e.type === 'submit' || e.getAttribute('type') === null && e.tagName === 'BUTTON') && !e.form.checkValidity()) && (e.matches('button,[role=button],[onclick]') || (getComputedStyle(e).cursor === 'pointer' && !e.closest('button,a')))).slice(0, 15).map((e, i) => { e.setAttribute('data-critic-i', i); return (e.getAttribute('aria-label') || e.textContent || e.id || '').trim().slice(0, 40); })"
+CANDIDATES = "() => [...document.querySelectorAll('button, [role=button], [onclick], a[href], span, div, li')].filter(e => e.getBoundingClientRect().width > 0 && !(e.form && (e.type === 'submit' || e.getAttribute('type') === null && e.tagName === 'BUTTON') && !e.form.checkValidity()) && (e.matches('button,[role=button],[onclick]') || (getComputedStyle(e).cursor === 'pointer' && !e.closest('button,a')))).slice(0, 15).map((e, i) => { e.setAttribute('data-critic-i', i); return [(e.getAttribute('aria-label') || e.textContent || e.id || '').trim().slice(0, 40), (" + safe_web.ATTRS_JS + ")(e)]; })"
 SIG = "() => document.body.innerText + '|' + document.querySelectorAll('*').length + '|' + location.href + '|' + [...document.querySelectorAll('[aria-expanded],[aria-pressed],dialog[open]')].map(e => (e.getAttribute('aria-expanded')||'') + (e.getAttribute('aria-pressed')||'') + e.open).join('')"
 
 OBSCURED_JS = r"""() => { const e = document.activeElement; if (!e || e === document.body) return null;
@@ -347,30 +447,48 @@ def guarded(name, fn):
     try: fn()
     except Exception as e: state(name, "blocked", f"{type(e).__name__}: {str(e)[:120]}")
 
+def has_userinfo(url):
+    from urllib.parse import urlsplit
+    try: return "@" in urlsplit(url).netloc
+    except ValueError: return True
+
+def is_local_url(url):
+    """True only for http(s) on this computer: localhost or a loopback address (127.0.0.0/8, ::1), with no user@ part.
+    Parsed, never pattern-matched: http://127.0.0.1:80@evil.example/ is evil.example."""
+    import ipaddress
+    from urllib.parse import urlsplit
+    try: u = urlsplit(url); host = (u.hostname or "").lower()
+    except ValueError: return False
+    if has_userinfo(url) or u.scheme not in ("http", "https"): return False
+    if host == "localhost": return True
+    try: return ipaddress.ip_address(host).is_loopback
+    except ValueError: return False
+
 RUNTIME_CHECKS = ("page", "axe", "console", "keyboard", "focus", "obscured", "screen-reader", "interactive", "responsive", "speed", "screenshots", "visual")
 def runtime(page, src, root, out, axe_arg, interact, allow_live, baseline=None, budget_kb=1500):
-    names = RUNTIME_CHECKS
+    names = RUNTIME_CHECKS; target = None
     if re.match(r"^https?://", page):
-        host = re.sub(r"^https?://([^/:]+).*", r"\1", page)
-        if host not in ("localhost", "127.0.0.1", "::1") and not allow_live:
-            for k in names: state(k, "blocked", "live URL refused; rerun with --allow-live if this is a safe test copy")
-            f("WARN", "live-refused", "runtime", page, "live URL refused: the scan would load a real site (pass --allow-live for a safe test copy)"); return {}
+        if has_userinfo(page):  # http://127.0.0.1@evil.example/ goes to evil.example: never load an address that hides its real host
+            for k in names: state(k, "blocked", "live URL refused: the address carries a user name or password (user@host), which hides the real host")
+            f("WARN", "live-refused", "runtime", page, "live URL refused: an address with user@host is never loaded"); return {}
+        ok, target, why = scope_file.decide(page, root, allow_live, is_local_url(page))
+        if not ok:
+            for k in names: state(k, "blocked", why)
+            f("WARN", "live-refused", "runtime", page, why); return {}
+        if target: log_run(SCAN_ROOT, "network", f"live page {page} (scope target {target['host']}, up to {target['max_requests']} requests, GET/HEAD/OPTIONS only)")
     try: from playwright.sync_api import sync_playwright
     except ImportError:
         for k in names: state(k, "unavailable", "Playwright not installed")
         f("WARN", "no-playwright", "runtime", "setup", "Playwright not installed: runtime checks unavailable; mark runtime findings [UNCERTAIN RISK]"); return {}
     stats, srv = {}, None
-    if re.match(r"^https?://", page): url = page; origin = re.match(r"^(https?://[^/]+)", page).group(1)
+    import safe_web
+    if re.match(r"^https?://", page): url = page; origin = re.match(r"^(https?://[^/]+)", page).group(1); allowed = [safe_web.host_port(page)]
     else:
-        import functools, http.server, threading
         pp = pathlib.Path(page).resolve(); base = src if src.is_dir() and str(pp).startswith(str(src)) else pp.parent
-        class Quiet(http.server.SimpleHTTPRequestHandler):
-            def log_message(self, *a): pass
-        srv = http.server.ThreadingHTTPServer(("127.0.0.1", 0), functools.partial(Quiet, directory=str(base)))
-        threading.Thread(target=srv.serve_forever, daemon=True).start()
-        # the page is served from this computer only (loopback); nothing is sent anywhere else
-        origin = urllib.parse.urlunsplit(("http", "%s:%d" % srv.server_address[:2], "", "", "")); url = origin + "/" + pp.relative_to(base).as_posix()
-    would_send = []
+        # served from this computer only (loopback), never a file whose real path leaves the folder, never a listing
+        srv, origin, hp = safe_web.serve(base); allowed = [hp]; url = origin + "/" + pp.relative_to(base).as_posix()
+    would_send = []; sent = [0]
+    cap = target["max_requests"] if target else None
     from urllib.parse import urlsplit
     o_ = urlsplit(origin); own = (o_.scheme, o_.hostname, o_.port or (443 if o_.scheme == "https" else 80))
     def same_origin(u):
@@ -383,15 +501,21 @@ def runtime(page, src, root, out, axe_arg, interact, allow_live, baseline=None, 
         if req.url.startswith(("data:", "blob:")): return r.continue_()
         if req.method not in ("GET", "HEAD", "OPTIONS") or not same_origin(req.url):
             would_send.append(f"{req.method} {req.url[:100]}"); return r.abort()
+        if cap is not None:
+            sent[0] += 1
+            if sent[0] > cap: would_send.append(f"{req.method} {req.url[:100]} (over the scope's {cap}-request cap)"); return r.abort()
         return r.continue_()
     try:
         with sync_playwright() as pw:
             log_run(SCAN_ROOT, "command", f"Chromium (Playwright, headless) opening {page}")
-            try: b = pw.chromium.launch()
+            try: b = pw.chromium.launch(args=safe_web.launch_args(allowed))  # the boundary: only the page's own origin is reachable
             except Exception as e:
                 for k in names: state(k, "unavailable", f"Chromium would not start: {str(e)[:80]}")
                 return stats
-            ctx = b.new_context(viewport={"width": 1360, "height": 900}); ctx.route("**/*", guard_net)
+            ctx = b.new_context(viewport={"width": 1360, "height": 900}, service_workers="block", accept_downloads=False, permissions=[]); ctx.route("**/*", guard_net)
+            if hasattr(ctx, "route_web_socket"):
+                ctx.route_web_socket("**", lambda ws: would_send.append(f"WebSocket {ws.url[:100]}"))  # never connected, not even to the page's own server: a socket can send anything, and the scan sends nothing
+            ctx.add_init_script("for (const k of ['Worker', 'SharedWorker']) { try { Object.defineProperty(globalThis, k, {value: undefined, writable: false, configurable: false}); } catch (e) {} }")  # a worker's socket can't be seen from outside the page
             pg = ctx.new_page(); errs = []
             pg.on("pageerror", lambda e: errs.append(str(e))); pg.on("console", lambda m: errs.append(m.text) if m.type == "error" else None)
             pg.on("dialog", lambda d: d.dismiss())
@@ -427,7 +551,7 @@ def runtime(page, src, root, out, axe_arg, interact, allow_live, baseline=None, 
                     pg.keyboard.press("Tab"); seen.add(pg.evaluate("() => document.activeElement && document.activeElement !== document.body ? document.activeElement.outerHTML.slice(0, 80) : ''"))
                 got = len([s for s in seen if s]); stats["focusable"] = n; stats["reached_by_tab"] = got
                 if n and got < n: f("FAIL" if got == 0 else "WARN", "tab-reach", "a11y-keyboard", "keyboard", f"Tab reaches {got} of {n} focusable controls")
-                state("keyboard", "fail" if n and got < n else ("pass" if n else "blocked"), f"{got} of {n} reached" if n else "nothing focusable on the page")
+                state("keyboard", "fail" if n and got < n else ("pass" if n else NA), f"{got} of {n} reached" if n else "nothing focusable on the page")
             guarded("keyboard", keyboard)
             def focus():
                 pg.evaluate("() => document.activeElement && document.activeElement.blur()"); pg.mouse.click(1, 1); pg.wait_for_timeout(100)
@@ -472,10 +596,10 @@ def runtime(page, src, root, out, axe_arg, interact, allow_live, baseline=None, 
                 state("screen-reader", *family_state({"a11y-sr"}, "accessibility tree saved as screen-reader.yaml"))
             guarded("screen-reader", screen_reader)
             def interactive():
-                if not interact: state("interactive", "blocked", "--no-interact"); return
+                if not interact: state("interactive", NA, "skipped on request (--no-interact)"); return
                 names_ = pg.evaluate(CANDIDATES); clicked = skipped = 0
-                for i, name in enumerate(names_):
-                    if DESTRUCTIVE.search(name or ""): skipped += 1; continue
+                for i, (name, attrs) in enumerate(names_):
+                    if safe_web.looks_destructive(name, DESTRUCTIVE, attrs): skipped += 1; continue  # its id, link, form action and title too, as in browse.py
                     p2 = ctx.new_page(); e2 = []; p2.on("pageerror", lambda e: e2.append(str(e))); p2.on("dialog", lambda d: d.dismiss())
                     try:
                         p2.goto(url, wait_until="load", timeout=15000); p2.wait_for_timeout(400); p2.evaluate(CANDIDATES)
@@ -522,7 +646,7 @@ def runtime(page, src, root, out, axe_arg, interact, allow_live, baseline=None, 
                 state("speed", *family_state({"perf-rt"}, f"median of 3 loads: {kb:.0f} KB, {req} requests, LCP {lcp:.0f} ms, blocking {blk:.0f} ms (local machine, not a phone on 4G)"))
             guarded("speed", speed)
             def visual():
-                if not baseline: state("visual", "blocked", "no --baseline save|compare"); return
+                if not baseline: state("visual", NA, "no --baseline save|compare"); return
                 bdir = root / ".critic" / "baseline"
                 if baseline == "save":
                     bdir.mkdir(parents=True, exist_ok=True)
@@ -561,13 +685,17 @@ def esc_cell(s): return str(s).replace("\\", "\\\\").replace("|", "\\|").replace
 def main(argv):
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0], formatter_class=argparse.RawDescriptionHelpFormatter, epilog=__doc__.split("\n\n", 1)[1])
     ap.add_argument("src"); ap.add_argument("--root"); ap.add_argument("--page"); ap.add_argument("--out"); ap.add_argument("--axe")
-    ap.add_argument("--exclude", action="append", default=[]); ap.add_argument("--no-interact", action="store_true"); ap.add_argument("--allow-live", action="store_true")
+    ap.add_argument("--exclude", action="append", default=[]); ap.add_argument("--no-interact", action="store_true"); ap.add_argument("--allow-live", metavar="HOST", default=None, help="the owner's typed confirmation for a live target listed in .critic/scope.json")
     ap.add_argument("--online", action="store_true"); ap.add_argument("--mutate", nargs="+", default=[]); ap.add_argument("--test-cmd"); ap.add_argument("--project-checks", action="store_true"); ap.add_argument("--no-project-rules", action="store_true")
+    ap.add_argument("--only", help="a file listing the exact paths (relative to --root) to scan; the background check uses it")
     ap.add_argument("--baseline", choices=("save", "compare")); ap.add_argument("--budget-kb", type=int, default=1500)
     a = ap.parse_args(argv)
-    global NO_PROJECT_RULES, SCAN_ROOT; NO_PROJECT_RULES = a.no_project_rules
+    global NO_PROJECT_RULES, SCAN_ROOT, ONLY; NO_PROJECT_RULES = a.no_project_rules
     SCAN_ROOT = pathlib.Path(a.root or os.environ.get("CRITIC_ROOT") or os.getcwd()).resolve()
     refuse_linked_state(SCAN_ROOT)
+    if a.only:
+        try: ONLY = {x.strip() for x in pathlib.Path(a.only).read_text(encoding="utf-8").splitlines() if x.strip() and not x.strip().startswith(("/", ".."))}
+        except OSError as e: print(f"critic_scan: can't read --only list: {e}", file=sys.stderr); return 2
     log_run(SCAN_ROOT, "script", "critic_scan.py " + " ".join(argv))
     src = pathlib.Path(a.src).resolve()
     if not src.exists(): print(f"critic_scan: {a.src} does not exist", file=sys.stderr); return 2
@@ -577,7 +705,9 @@ def main(argv):
     if led.exists():
         try: FP.extend((json.loads(led.read_text()) or {}).get("false_positives", []))
         except Exception: f("WARN", "ledger-unreadable", "setup", str(led), "ledger unreadable; no false positives suppressed")
-    t = time.time(); nfiles = static(src, root, a.exclude)
+    t = time.time()
+    try: nfiles = static(src, root, a.exclude)
+    except Exception as e: nfiles = 0; state("static", "blocked", f"{type(e).__name__}: {str(e)[:100]}")
     try: scan_deps.scan(root if src.is_dir() else src.parent, f, online=a.online, state=state)
     except Exception as e: state("deps", "blocked", f"{type(e).__name__}: {str(e)[:100]}")
     try: ci_evidence(root, out)
@@ -590,9 +720,9 @@ def main(argv):
         try: stats = runtime(a.page, src, root, out, a.axe, not a.no_interact, a.allow_live, a.baseline, a.budget_kb)
         except Exception as e: state("runtime", "blocked", f"{type(e).__name__}: {str(e)[:120]}")
     else:
-        for k in RUNTIME_CHECKS: state(k, "blocked", "no --page given")
+        for k in RUNTIME_CHECKS: state(k, NA, "no --page given")
     if a.mutate:
-        try: scan_mutation.run(root, a.mutate, f, state, a.test_cmd)
+        try: scan_mutation.run(root, a.mutate, f, state, a.test_cmd, allow_rules=a.project_checks)
         except Exception as e: state("mutation", "blocked", f"{type(e).__name__}: {str(e)[:100]}")
     # fail closed: every check this run asked for must have reported; silence never counts as a pass
     expected = ["static", "structure", "deps", "ci"] + (list(RUNTIME_CHECKS) if a.page else []) + (["mutation"] if a.mutate else [])
@@ -601,13 +731,15 @@ def main(argv):
     order = {"FAIL": 0, "WARN": 1, "NOTE": 2}; R.sort(key=lambda x: (order[x["sev"]], x["area"], x["where"]))
     for i, x in enumerate(R, 1): x["id"] = f"S{i:03d}"
     out.mkdir(parents=True, exist_ok=True)
-    degraded = [k for k, v in CHECKS.items() if v["state"] in ("blocked", "unavailable") and k in expected and not v["note"].startswith(("no --page", "no --baseline", "no package", "no earlier"))]
+    degraded = [k for k, v in CHECKS.items() if v["state"] in ("blocked", "unavailable") and k in expected]  # n/a is never degraded
+    if REQ_ROWS: (out / "requirements.md").write_text(scan_reqs.table(REQ_ROWS), encoding="utf-8")
     (out / "report.json").write_text(json.dumps({"src": str(src), "root": str(root), "files": nfiles, "stats": stats, "checks": CHECKS, "degraded": degraded, "findings": R, "suppressed": SUPPRESSED}, indent=1))
     from critic_findings import to_sarif
     (out / "scan.sarif").write_text(json.dumps(to_sarif([{"category": x["rule"], "impact": {"FAIL": "High", "WARN": "Medium", "NOTE": "Low"}[x["sev"]], "file": x["where"].split(":")[0] if ":" in x["where"] else x["where"],
         "line": int(x["where"].rsplit(":", 1)[1]) if re.search(r":\d+$", x["where"]) else 1, "title": x["what"], "id": x["id"], "verified": "executed" if x["level"] == "runtime" else "traced"} for x in R], tool="critic-scan"), indent=1))
     c = {s: sum(1 for x in R if x["sev"] == s) for s in order}
-    md = [f"# Curmudgeon scripted checks: {src.name}", f"{nfiles} files · {c['FAIL']} FAIL · {c['WARN']} WARN · {c['NOTE']} NOTE · {len(SUPPRESSED)} suppressed · {time.time() - t:.1f} s", ""] + \
+    ped = sum(1 for x in R if x.get("tier") == "pedantic")
+    md = [f"# Curmudgeon scripted checks: {src.name}", f"{nfiles} files · {c['FAIL']} FAIL · {c['WARN']} WARN · {c['NOTE'] - ped} NOTE · {ped} pedantic · {len(SUPPRESSED)} suppressed · {time.time() - t:.1f} s", ""] + \
          ([f"**DEGRADED:** these checks could not run: {', '.join(degraded)}. Anything they cover is unverified.", ""] if degraded else []) + [
           "## Checks", "| Check | State | Note |", "| --- | --- | --- |"] + [f"| {k} | {v['state']} | {esc_cell(v['note'])} |" for k, v in CHECKS.items()] + \
          ["", "## Stats"] + [f"- {k}: {v}" for k, v in stats.items()] + ["", "## Findings", "| ID | Sev | Rule | Level | Where | What | Evidence |", "| --- | --- | --- | --- | --- | --- | --- |"] + \

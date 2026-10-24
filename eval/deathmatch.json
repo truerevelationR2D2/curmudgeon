@@ -1,0 +1,92 @@
+{
+ "note": "The death match is a development benchmark (rulings \u00a75.8, \u00a75.20, \u00a75.22). Every arm runs the same tasks on the same model and is scored by deathmatch.py.",
+ "arms": [
+  {
+   "id": "curmudgeon",
+   "plugin": true,
+   "prompt": "/curmudgeon:review deep . (review only; change no files)",
+   "tools": [
+    "Read",
+    "Grep",
+    "Glob",
+    "Agent",
+    "Task",
+    "Write",
+    "Edit",
+    "LSP",
+    "Bash(python3:*)",
+    "Bash(cd:*)",
+    "Bash(git -C:*)",
+    "Bash(git:*)"
+   ]
+  },
+  {
+   "id": "plain-claude",
+   "prompt": "Review the code in this folder for bugs. For each bug give the file:line, what is wrong, and a concrete input or sequence that makes it fail. Change no files.",
+   "tools": [
+    "Read",
+    "Grep",
+    "Glob"
+   ]
+  },
+  {
+   "id": "code-review",
+   "prompt": "/code-review .",
+   "tools": [
+    "Read",
+    "Grep",
+    "Glob",
+    "Agent",
+    "Task",
+    "Bash(git:*)"
+   ]
+  },
+  {
+   "id": "semgrep",
+   "requires": "semgrep",
+   "command": "semgrep scan --metrics=off --config \"$SEMGREP_RULES\" --text .",
+   "tasks": [
+    "suite1",
+    "suite2"
+   ],
+   "note": "only with your own local rules in $SEMGREP_RULES; never the registry (it would send data out)"
+  }
+ ],
+ "tasks": [
+  {
+   "id": "suite1",
+   "fixture": "fixture",
+   "key": "answer_key.json"
+  },
+  {
+   "id": "suite1-clean",
+   "fixture": "fixture-clean",
+   "clean": true
+  },
+  {
+   "id": "suite2",
+   "fixture": "fixture2",
+   "key": "answer_key2.json"
+  },
+  {
+   "id": "suite2-clean",
+   "fixture": "fixture2-clean",
+   "clean": true
+  },
+  {
+   "id": "suite3",
+   "fixture": "fixture3",
+   "key": "answer_key3.json"
+  },
+  {
+   "id": "suite4",
+   "fixture": "fixture4",
+   "key": "answer_key4.json"
+  },
+  {
+   "id": "suite4-clean",
+   "fixture": "fixture4-clean",
+   "clean": true
+  }
+ ]
+}
