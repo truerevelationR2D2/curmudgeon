@@ -1181,6 +1181,26 @@ def _(d):
     readme = (HERE / "README.md").read_text(); block = readme.split("- **Hooks:**", 1)[1].split("\n## ", 1)[0]
     assert len([l for l in block.splitlines() if l.startswith("  - ")]) == n_hooks, f"the README lists a different number of hooks than hooks.json registers ({n_hooks})"
 
+@test("5.0 SC-15 and SC-71: the funnel names where each missed plant was lost, and the gate's self-test still fails a refute-everything verifier")
+def _(d):
+    E = HERE.parent / "eval"
+    if not (E / "score.py").exists(): return  # the eval kit isn't shipped inside the plugin
+    c = d / ".critic"; c.mkdir()
+    f = lambda file, title: {"file": file, "line": 1, "category": "x", "impact": "High", "title": title, "quote": "", "evidence": "", "failing_case": ""}
+    (c / "findings.jsonl").write_text(json.dumps(f("app.js", "search responses race out of order, no abort")) + "\n")
+    (c / "tally.json").write_text(json.dumps({"kept": [], "retracted": [{"finding": f("app.js", "XSS: title into innerHTML unescaped")}],
+                                               "dropped": [{"finding": f("store.js", "JSON.parse at top level with no try: corrupt storage crashes load")}],
+                                               "rejected": [], "suppressed": []}))
+    (c / "refutations.jsonl").write_text(json.dumps(dict(f("store.js", "pending save lost on close: no flush on beforeunload"), kind="refuted")) + "\n")
+    (c / "reviews").mkdir(); (c / "reviews/review-A.json").write_text(json.dumps([f("store.js", "persist swallows quota errors silently")]))
+    out = subprocess.run([sys.executable, str(E / "score.py"), "--funnel", str(d), "--suite", "1"], capture_output=True, text=True).stdout
+    for stage, plant in (("retracted by the quote check", "D01"), ("dropped on votes", "D02"), ("refuted by a verifier", "D03"),
+                         ("raised, then lost at an unrecorded step", "D05"), ("never raised", "D16")):
+        assert any(l.strip().startswith(stage + ": " + plant) for l in out.splitlines()), (stage, plant, out)
+    assert "1 of 16 planted defects reached" in out, out
+    r = subprocess.run([sys.executable, str(E / "score.py"), "--selftest"], capture_output=True, text=True)
+    assert r.returncode == 0 and "refutes everything FAILS" in r.stdout, r.stdout + r.stderr
+
 if __name__ == "__main__":
     bad = [r for r in RESULTS if not r[1]]
     print(f"\n{len(RESULTS) - len(bad)} of {len(RESULTS)} passed"); sys.exit(1 if bad else 0)

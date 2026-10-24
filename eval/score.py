@@ -9,6 +9,7 @@ usage:
                                            it dropped a real bug
   score.py R1.md R2.md R3.md --suite N --gate [--model ID]   the accept/kill gate on repeat runs: PASS, FAIL or NOT MEASURED
   score.py --selftest                      break the gate on purpose: a verifier that refutes everything must FAIL it
+  score.py --funnel RUN_DIR --suite N      for each planted defect the run missed, the stage where it was lost
 
 Each REVIEW is a teardown (.critic/last-review.md). When a .critic/findings.jsonl sits beside it, the structured
 findings are used; otherwise finding blocks are parsed from the markdown.
@@ -34,9 +35,9 @@ import hashlib, json, math, pathlib, re, statistics, subprocess, sys
 HERE = pathlib.Path(__file__).resolve().parent
 args = sys.argv[1:]
 def opt(name, default=None): return args[args.index(name) + 1] if name in args and args.index(name) + 1 < len(args) else default
-FLAGS_WITH_VALUE = {"--suite", "--refactored", "--baseline", "--clean", "--refutations", "--model", "--labeller"}
+FLAGS_WITH_VALUE = {"--suite", "--refactored", "--baseline", "--clean", "--refutations", "--model", "--labeller", "--funnel"}
 reviews = [a for i, a in enumerate(args) if not a.startswith("--") and (i == 0 or args[i - 1] not in FLAGS_WITH_VALUE)]
-if not reviews and "--label" not in args and "--refutations" not in args and "--selftest" not in args: print(__doc__); sys.exit(2)
+if not reviews and "--label" not in args and "--refutations" not in args and "--selftest" not in args and "--funnel" not in args: print(__doc__); sys.exit(2)
 LABELS = HERE / "fp_labels.json"; labels = json.loads(LABELS.read_text()) if LABELS.exists() else {}
 
 def load(path):
@@ -194,6 +195,44 @@ def score_one(path, suite):
     return dict(path=path, key=key, hits=hits, by_area=by, decoy_hits=decoy_hits, decoy_detail=decoy_detail, unmatched=unmatched, labels=lab, precision=precision,
                 recall=len(hits) / len(key), contract=c, stated=stated, actual=actual, ids=ids, verdict=verdict, tp=tp, fp=fp,
                 impact_misses=impact_misses, decoy_blocking=blocking)
+
+if "--funnel" in args:
+    # Where each missed plant was lost (SC-15; idea from Kodus and Sashiko, rebuilt here): never raised, set aside by a
+    # reviewer, failed the contract, retracted by the quote check, suppressed by a memory, dropped on votes, refuted or
+    # downgraded by a verifier. Reads the run's own .critic/ files; nothing is re-run.
+    run_dir = pathlib.Path(opt("--funnel")); C = run_dir / ".critic"; suite = opt("--suite", "1")
+    key = json.loads((HERE / ("answer_key.json" if suite == "1" else f"answer_key{suite}.json")).read_text())
+    def blk(f): return " ".join(str(f.get(k, "")) for k in ("file", "line", "category", "title", "quote", "evidence", "failing_case", "remediation"))
+    def jl(p): return [json.loads(x) for x in p.read_text().splitlines() if x.strip()] if p.is_file() else []
+    def hit(k, rows): return [r for r in rows if (not k["file"] or k["file"].lower() in blk(r).lower()) and any(re.search(x, blk(r), re.I) for x in k["any"])]
+    final = jl(C / "findings.jsonl")
+    tally = json.loads((C / "tally.json").read_text()) if (C / "tally.json").is_file() else {}
+    raised, aside = [], []
+    for rv in sorted((C / "reviews").glob("review-*.json")) + sorted((C / "history").glob("**/review-*.json")):
+        try: data = json.loads(rv.read_text())
+        except ValueError: continue
+        items = data if isinstance(data, list) else data.get("findings", []) if isinstance(data, dict) else []
+        raised += [x for x in items if isinstance(x, dict)]
+        if isinstance(data, dict): aside += [x for x in data.get("set_aside", []) if isinstance(x, dict)]
+    refs = jl(C / "refutations.jsonl")
+    stages = [("retracted by the quote check", [x["finding"] for x in tally.get("retracted", [])]),
+              ("failed the finding contract", [x["finding"] for x in tally.get("rejected", [])]),
+              ("hidden by a memory (should never happen: memories note, never hide)", [x["finding"] for x in tally.get("suppressed", [])]),
+              ("dropped on votes", [x["finding"] for x in tally.get("dropped", [])]),
+              ("refuted by a verifier", [r.get("finding", r) for r in refs if r.get("kind") == "refuted"]),
+              ("downgraded by a verifier", [r.get("finding", r) for r in refs if r.get("kind") == "downgraded"])]
+    lost = {}
+    for name, k in key.items():
+        if hit(k, final): continue
+        where = next((st for st, rows in stages if hit(k, rows)), None)
+        if not where: where = "set aside by a reviewer" if hit(k, aside) else ("raised, then lost at an unrecorded step" if hit(k, raised) else "never raised")
+        lost[name] = where
+    print(f"Funnel for {run_dir}: {len(key) - len(lost)} of {len(key)} planted defects reached the final findings")
+    for name, where in lost.items(): print(f"  {where}: {name[:90]}")
+    by = {}
+    for w in lost.values(): by[w] = by.get(w, 0) + 1
+    if by: print("By stage: " + ", ".join(f"{w} {n}" for w, n in sorted(by.items(), key=lambda kv: -kv[1])))
+    sys.exit(0)
 
 if "--selftest" in args:
     # Break the gate on purpose (SC-71): runs where a verifier refuted every real bug must FAIL; runs equal to the
