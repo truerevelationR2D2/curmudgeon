@@ -38,7 +38,7 @@ apply:
   records every kept finding in the ledger (new, known or regressed)."""
 import hashlib, json, math, os, pathlib, re, subprocess, sys, time
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
-from critic_findings import IMPACTS, extract_findings, norm_code, relocate_quote, fingerprint, quote_check, read_jsonl, refutation_problem, similar, log_run, append_line, refuse_linked_state, to_sarif, validate, write_jsonl, tokens
+from critic_findings import IMPACTS, extract_findings, norm_code, relocate_quote, fingerprint, quote_check, read_jsonl, refutation_problem, similar, log_run, append_line, refuse_linked_state, to_sarif, validate, write_jsonl, tokens, scrub, redact_finding_text
 
 ROOT = pathlib.Path(os.environ.get("CRITIC_ROOT", os.getcwd())).resolve(); D = ROOT / ".critic"
 
@@ -133,6 +133,11 @@ def tally(paths):
     if "--scan" in paths:
         i = paths.index("--scan"); scan = paths[i + 1] if i + 1 < len(paths) else die("--scan needs a report path"); paths = paths[:i] + paths[i + 2:]
     if not paths: die("tally needs the blind review files (for example .critic/reviews/review-*.json); refusing to count scan rows alone")
+    started = ledger().get("started_at")
+    if started:  # a review file older than this run is left over from an earlier one: counting it would invent votes
+        stale = [p for p in paths if pathlib.Path(p).resolve().parent == (D / "reviews").resolve() and pathlib.Path(p).exists()
+                 and pathlib.Path(p).stat().st_mtime < started - 2]
+        if stale: die(f"refusing to count {', '.join(stale)}: written before this run started, so it is from an earlier run. Remove it, or have a fresh reviewer write it again")
     reviews = [load_review(p) for p in paths]
     n = len(reviews); need = 1 if n == 1 else math.ceil(2 * n / 3)
     # an outside run we can't see never counts as executed: verification decides
@@ -208,7 +213,7 @@ def tally(paths):
         by_file.setdefault(f["file"] or "(no file)", []).append({"id": r, "also": [x for x, _ in mem[1:]], "line": f["line"], "title": f["title"], "quote": f.get("quote", "")[:200]})
     cands = sum(len(v) for v in by_file.values()) if len(roots) > 1 else 0
     (D).mkdir(parents=True, exist_ok=True)
-    (D / "dedup-candidates.json").write_text(json.dumps({"instructions": "Group findings that describe the same underlying issue (same cause, one fix resolves both), within a file or across files. Return {\"groups\": [[id, ...], ...]} listing only merged sets; use the 'id' values.", "findings_by_file": by_file}, indent=1, ensure_ascii=False))
+    (D / "dedup-candidates.json").write_text(json.dumps({"instructions": "Group findings that describe the same underlying issue (same cause, one fix resolves both), within a file or across files. Return {\"groups\": [[id, ...], ...]} listing only merged sets; use the 'id' values.", "findings_by_file": scrub(by_file)}, indent=1, ensure_ascii=False))
     clusters = {}
     for r, ri, f in accepted:
         c = clusters.setdefault(find(r), {"members": [], "reviewers": set(), "scan": False, "outside": False})
@@ -253,8 +258,8 @@ def tally(paths):
         if f["impact"] == "Low" and f.get("votes_ours", f["votes"]) >= need and not f.get("outside_only"): continue  # agreed by OUR reviewers; an outside vote alone never skips verification  # agreed Low findings skip verification to save usage
         if f.get("raised_by") == ["scan"] and f.get("verified") == "executed" and MEASURED.match(str(f.get("category"))): continue  # a measurement, not an interpretation: nothing to reproduce
         packet = {k: f.get(k) for k in ("id", "category", "impact", "file", "line", "quote", "title", "failing_case")}
-        (vd / f"{f['id']}.json").write_text(json.dumps(packet, indent=1, ensure_ascii=False))
-    (D / "tally.json").write_text(json.dumps(out, indent=1, ensure_ascii=False))
+        (vd / f"{f['id']}.json").write_text(json.dumps(scrub(packet), indent=1, ensure_ascii=False))
+    (D / "tally.json").write_text(json.dumps(scrub(out), indent=1, ensure_ascii=False))
     if MEMORY_HITS and (D / "ledger.json").exists():  # keep memories that are in use from retiring
         led = pathlib.Path(__file__).resolve().parent / "critic_ledger.py"
         for n_ in sorted(set(MEMORY_HITS)): subprocess.run([sys.executable, str(led), "memories", "--hit", str(n_)], cwd=ROOT, env=dict(os.environ, CRITIC_ROOT=str(ROOT)), capture_output=True)
@@ -281,9 +286,9 @@ def write_verifier_log():
         except (ValueError, AttributeError, TypeError): continue  # a damaged line never stops apply
     for kind, f, why, rep in VERIFIER_LOG:
         if (run_no, f.get("id"), kind) in seen: continue  # apply run twice on the same verdicts logs each drop once
-        append_line(D / "refutations.jsonl", json.dumps({"run": run_no, "at": time.strftime("%Y-%m-%d %H:%M"), "kind": kind, "id": f.get("id"), "impact": f.get("impact"),
+        append_line(D / "refutations.jsonl", json.dumps(scrub({"run": run_no, "at": time.strftime("%Y-%m-%d %H:%M"), "kind": kind, "id": f.get("id"), "impact": f.get("impact"),
                              "file": f.get("file"), "line": f.get("line"), "title": f.get("title"), "failing_case": f.get("failing_case"),
-                             "why": why, "reproduced": rep, "votes": f.get("votes"), "of": f.get("of")}, ensure_ascii=False) + "\n")
+                             "why": redact_finding_text(why), "reproduced": rep, "votes": f.get("votes"), "of": f.get("of")}), ensure_ascii=False) + "\n")
 
 def apply(paths):
     try: T = json.loads((D / "tally.json").read_text())
@@ -300,9 +305,10 @@ def apply(paths):
             if (D / "verify" / f"{f['id']}.json").exists():
                 notes.append(f"{f['id']}: no verdict returned; kept, confidence lowered"); f["verifier"] = "missing"
             final.append(f); continue
-        kind = str(v.get("verdict", "unclear")).lower(); why = str(v.get("refutation") or v.get("reason") or "")
+        kind = str(v.get("verdict", "unclear")).lower(); raw = str(v.get("refutation") or v.get("reason") or "")
+        why = redact_finding_text(raw)  # a refutation can quote a secret: it is checked raw, stored masked
         if kind == "refuted":
-            prob = refutation_problem(why, f["impact"], v.get("reproduced"), root=ROOT)
+            prob = refutation_problem(raw, f["impact"], v.get("reproduced"), root=ROOT)
             if not prob:
                 refuted.append({"finding": f, "why": why}); VERIFIER_LOG.append(("refuted", f, why, v.get("reproduced"))); continue
             kind = "unclear"; notes.append(f"{f['id']}: refutation not concrete enough to drop it ({prob}); kept")
@@ -320,6 +326,7 @@ def apply(paths):
         f["confidence"] = "confirmed" if ex or (f.get("votes", 1) >= 2 and f.get("verifier") == "confirmed") else \
                           "likely" if f.get("verifier") in ("confirmed",) or f.get("votes", 1) >= 2 else "possible"
     final.sort(key=lambda f: (IMP_RANK[f["impact"]], {"confirmed": 0, "likely": 1, "possible": 2}[f["confidence"]], f["file"], int(f.get("line") or 0)))
+    final = scrub(final); unverified = scrub(unverified)  # a verifier's note can quote a secret too: mask before anything is written
     write_jsonl(D / "findings.jsonl", final)
     write_verifier_log()
     (D / "findings.sarif").write_text(json.dumps(to_sarif(final), indent=1))
@@ -344,7 +351,7 @@ def apply(paths):
     if unverified: md += ["", "## Outside findings not verified (not counted above; run the verifier on their packets, then apply again)"] + \
                         [f"- {f['id']} {f['impact']} {f['file']}:{f.get('line', '')} {f['title'].replace('|', '/')}" for f in unverified]
     if notes: md += ["", "## Notes"] + [f"- {x}" for x in notes]
-    (D / "counts.md").write_text("\n".join(md) + "\n")
+    (D / "counts.md").write_text("\n".join(redact_finding_text(x) for x in md) + "\n")
     led = pathlib.Path(__file__).resolve().parent / "critic_ledger.py"
     if (D / "ledger.json").exists():
         tmp = D / "findings-import.jsonl"; write_jsonl(tmp, final)

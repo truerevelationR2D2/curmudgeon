@@ -81,11 +81,11 @@ def brief(args):
         rc, _ = git_rc("diff", "--quiet", "HEAD", "--", *spec)
         dirty = (rc != 0) + bool(git("ls-files", "--others", "--exclude-standard", "--", *spec))
     pushed = bool(head) and bool(git("branch", "-r", "--contains", head))
-    reviews_ignored = git_rc("check-ignore", "-q", ".critic/reviews/review-A.json")[0] == 0
+    reviews_ignored = all(git_rc("check-ignore", "-q", p)[0] == 0 for p in (".critic/findings.jsonl", ".critic/counts.md"))  # raw reviews are ignored by default; our merged findings are not
     warn = []
     if not head: warn.append("This project has no commit yet: attach the files to the outside reviewer yourself.")
     if dirty: warn.append("Some files in this change have edits that aren't committed, so the outside reviewer can't see them online: commit and push first, or attach the files.")
-    if not reviews_ignored: warn.append("The .critic/ folder isn't git-ignored here. If you commit and push for the outside reviewer, leave .critic/ out (or add it to .gitignore first): otherwise it can read our reviews and the review stops being blind.")
+    if not reviews_ignored: warn.append("The .critic/ folder isn't git-ignored here. If you commit and push for the outside reviewer, leave .critic/ out (or add it to .gitignore first): otherwise it can read our findings and the review stops being blind.")
     if head and not pushed: warn.append("This commit isn't pushed, so the links below won't open: push first, or attach the files.")
     if url and not is_github(url): warn.append("Raw links are made for GitHub only: for this host, attach the files or give the reviewer the repository link.")
     if not url: warn.append("No web link for this repository: attach the files to the outside reviewer yourself.")

@@ -7,9 +7,9 @@ Run the scenarios that apply to the payload type, and only those:
 | Code with no interface (library, script, hook, CLI) | 1–7 and 10, plus bad arguments, missing files, paths with spaces |
 | Document or plan | none: check claims, arithmetic, contradictions and decisions instead |
 
-Run each against the payload. Drive the real app where you can start it: a local HTTP server and Python Playwright, or the Playwright MCP tools when they are connected. Otherwise trace the code, and say "traced" in the ledger line. Record each as one line: scenario → what happens → finding id or "holds".
+Run each against the payload. Drive the real app where you can start it: a local HTTP server and Python Playwright (only if it is already installed; never install it). Otherwise trace the code, and say "traced" in the ledger line. Record each as one line: scenario → what happens → finding id or "holds".
 
-0. **Interactive state check (always first for UI):** every control: does focus look different from rest, does hover, does clicking change anything visible (no dead controls), is there layout shift on load? The scripted checks measures these; you look at the screenshots for what it can't.
+0. **Interactive state check (always first for UI):** every control: does focus look different from rest, does hover, does clicking change anything visible (no dead controls), is there layout shift on load? The scripted checks measure these; you look at the screenshots for what they can't.
 1. **First run, empty:** no data, no settings. What does the user see, and can they act?
 2. **Corrupted or old saved data:** bad JSON, a missing field, a previous version's shape.
 3. **Fast hands:** double-click, two creates in one millisecond, typing during a save.

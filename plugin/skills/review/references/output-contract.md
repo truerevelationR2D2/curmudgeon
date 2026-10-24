@@ -55,7 +55,7 @@ Scenario → what happens → finding id or "holds" (driven or traced).
 
 Low findings may use one line each: `L1 file:line: problem. fix.` They count as Low in the verdict.
 
-## Refactor (`/critic` only)
+## Refactor (full mode only)
 ```xml
 <refactoring_manifest>
 path — finding ids — rewrite | edit | new

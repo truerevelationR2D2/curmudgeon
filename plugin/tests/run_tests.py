@@ -148,7 +148,7 @@ def _(d):
 @test("hooks: contract check blocks a malformed review and passes other agents")
 def _(d):
     write(d, ".critic/reviews/review-A.json", '[{"title": "x"}]')
-    out = run(H / "check_contract.py", cwd=d, stdin=json.dumps({"agent_type": "critic:curmudgeon-reviewer", "cwd": str(d)})).stdout
+    out = run(H / "check_contract.py", cwd=d, stdin=json.dumps({"agent_type": "curmudgeon:curmudgeon-reviewer", "cwd": str(d)})).stdout
     assert '"block"' in out
     assert not run(H / "check_contract.py", cwd=d, stdin=json.dumps({"agent_type": "general-purpose", "cwd": str(d)})).stdout.strip()
 
@@ -835,6 +835,216 @@ def _(d):
     g("init", "-q"); g("config", "user.email", "t@example.com"); g("config", "user.name", "t"); g("add", "-A"); g("commit", "-qm", "tracked ignore")
     r = subprocess.run([sys.executable, "-c", f"import sys; sys.path.insert(0, {str(S)!r}); import critic_findings as c; c.log_run({str(e)!r}, 'script', 'x')"], capture_output=True, text=True)
     assert (e / ".critic/.gitignore").read_text() == "scan/\n" and "left alone" in r.stderr, r.stderr
+
+@test("4.2.2 R-1: --mutate never runs a test command from a cloned repo's rules.md without --project-checks")
+def _(d):
+    marker = d / "RAN_FROM_RULES_MD"
+    write(d, "m.js", "function f(a, b) { return a < b; }\nmodule.exports = f;\n")
+    write(d, ".critic/rules.md", f"# Rules\nTest command: touch {marker}\n")
+    run(S / "critic_scan.py", ".", "--root", ".", "--mutate", "m.js", cwd=d)
+    assert not marker.exists(), "the rules.md test command ran without consent"
+    rep = json.loads((d / ".critic/scan/report.json").read_text())
+    assert rep["checks"]["mutation"]["state"] == "blocked" and "--project-checks" in rep["checks"]["mutation"]["note"], rep["checks"]["mutation"]
+    run(S / "critic_scan.py", ".", "--root", ".", "--mutate", "m.js", "--project-checks", cwd=d)
+    assert marker.exists(), "with --project-checks (the user approved rules.md) the command should run"
+    marker.unlink(); write(d, ".critic/rules.md", "# Rules\n")
+    run(S / "critic_scan.py", ".", "--root", ".", "--mutate", "m.js", "--test-cmd", f"touch {marker}", cwd=d)
+    assert marker.exists(), "a command the user typed with --test-cmd should run"
+
+@test("4.2.2 N-1: reviews left over from an earlier run are never counted as votes")
+def _(d):
+    write(d, "src/app.js", APP)
+    f = finding(category="domain", impact="Medium", line=4, quote="const price = total * 1.0825;", title="Tax rule in render code")
+    run(S / "critic_ledger.py", "start", "review", "--tier", "full", cwd=d)
+    for L in "ABC": write(d, f".critic/reviews/review-{L}.json", json.dumps([f]))
+    run(S / "critic_merge.py", "tally", *[f".critic/reviews/review-{L}.json" for L in "ABC"], cwd=d)
+    assert json.loads((d / ".critic/tally.json").read_text())["kept"][0]["votes"] == 3
+    run(S / "critic_ledger.py", "start", "review", "--tier", "lite", cwd=d)
+    left = sorted(p.name for p in (d / ".critic/reviews").glob("review-*.json")) if (d / ".critic/reviews").exists() else []
+    assert left == [], f"start left the last run's reviews in place: {left}"
+    assert sorted(p.name for p in (d / ".critic/history").rglob("review-*.json")) == ["review-A.json", "review-B.json", "review-C.json"]
+    write(d, ".critic/reviews/review-A.json", "[]")
+    write(d, ".critic/reviews/review-B.json", json.dumps([f])); old = time.time() - 3600; os.utime(d / ".critic/reviews/review-B.json", (old, old))
+    r = run(S / "critic_merge.py", "tally", ".critic/reviews/review-A.json", ".critic/reviews/review-B.json", cwd=d)
+    assert r.returncode != 0 and "earlier run" in (r.stdout + r.stderr), r.stdout + r.stderr
+    run(S / "critic_merge.py", "tally", ".critic/reviews/review-A.json", cwd=d)
+    assert json.loads((d / ".critic/tally.json").read_text())["kept"] == []
+
+@test("4.2.2 N-4: a secret a reviewer quotes is redacted everywhere Curmudgeon writes it, and raw files are git-ignored")
+def _(d):
+    key = FAKE["@LIVE@"]
+    write(d, "app.py", f'import os\nSTRIPE_KEY = "{key}"\n')
+    f = finding(category="secret", impact="Critical", file="app.py", line=2, quote=f'STRIPE_KEY = "{key}"', title=f"Live key {key} in source",
+                evidence=f"app.py:2 holds {key}", failing_case=f"anyone with the repo can charge cards with {key}", remediation="move to env, rotate")
+    run(S / "critic_ledger.py", "start", "review", "--tier", "full", cwd=d)
+    for L in "ABC": write(d, f".critic/reviews/review-{L}.json", json.dumps([f]))
+    run(S / "critic_merge.py", "tally", *[f".critic/reviews/review-{L}.json" for L in "ABC"], cwd=d)
+    t = json.loads((d / ".critic/tally.json").read_text())
+    assert [x["title"].startswith("Live key") for x in t["kept"]] == [True], "the quote check must still pass on the raw quote"
+    fid = t["kept"][0]["id"]
+    sys.path.insert(0, str(S)); import critic_findings
+    assert fid == critic_findings.fingerprint(dict(f, line=2)), "ids are computed from the raw quote, so they stay stable across versions"
+    write(d, "v.json", json.dumps([{"id": fid, "verdict": "confirmed", "reproduced": "traced", "note": f"traced: {key} is live"}]))
+    run(S / "critic_merge.py", "apply", "v.json", cwd=d)
+    leaks = [str(p.relative_to(d)) for p in (d / ".critic").rglob("*") if p.is_file() and not p.is_relative_to(d / ".critic/reviews")
+             and key in p.read_text(errors="replace")]
+    assert leaks == [], f"secret written unredacted to {leaks}"
+    gi = (d / ".critic/.gitignore").read_text().split()
+    for must in ("reviews/", "history/", "outside/", "verify/", "tally.json", "dedup-candidates.json", "findings-import.jsonl"):
+        assert must in gi, f"{must} is not git-ignored: {gi}"
+    L_ = json.loads((d / ".critic/ledger.json").read_text())["findings"][fid]
+    assert "[redacted]" in L_["quote"]
+    r = run(S / "critic_ledger.py", "acted", cwd=d)
+    assert "acted_on" not in json.loads((d / ".critic/ledger.json").read_text())["findings"][fid], "a redacted quote can't prove the code is gone"
+
+@test("4.2.2 review round 1: refutations are masked in counts.md and the ledger, code isn't mangled, round 2 never counts round 1")
+def _(d):
+    key = FAKE["@LIVE@"]
+    write(d, "app.py", f'import os\nSTRIPE_KEY = "{key}"\nif os.environ.get("CI"): STRIPE_KEY = None\n')
+    f = finding(category="secret", impact="High", file="app.py", line=2, quote=f'STRIPE_KEY = "{key}"', title="Live key in source")
+    run(S / "critic_ledger.py", "start", "review", "--tier", "full", cwd=d)
+    for L in "ABC": write(d, f".critic/reviews/review-{L}.json", json.dumps([f]))
+    reviews = [f".critic/reviews/review-{L}.json" for L in "ABC"]
+    run(S / "critic_merge.py", "tally", *reviews, cwd=d); fid = json.loads((d / ".critic/tally.json").read_text())["kept"][0]["id"]
+    write(d, "v1.json", json.dumps([{"id": fid, "verdict": "confirmed", "reproduced": "traced", "note": "traced"}])); run(S / "critic_merge.py", "apply", "v1.json", cwd=d)
+    run(S / "critic_ledger.py", "start", "review", "--tier", "full", cwd=d)
+    for L in "ABC": write(d, f".critic/reviews/review-{L}.json", json.dumps([f]))
+    run(S / "critic_merge.py", "tally", *reviews, cwd=d)
+    write(d, "v2.json", json.dumps([{"id": fid, "verdict": "refuted", "reproduced": "executed",
+          "refutation": f"The value {key} at app.py:2 is replaced by None at app.py:3 in every CI build, so it never ships."}]))
+    run(S / "critic_merge.py", "apply", "v2.json", cwd=d)
+    leaks = [str(p.relative_to(d)) for p in (d / ".critic").rglob("*") if p.is_file() and not (p.is_relative_to(d / ".critic/reviews") or p.is_relative_to(d / ".critic/history"))
+             and key in p.read_text(errors="replace")]
+    assert leaks == [], f"refutation text leaked the secret to {leaks}"
+    sys.path.insert(0, str(S)); import importlib, critic_findings; importlib.reload(critic_findings)
+    for code in ('if (session.token == req.headers.authorization) { return true; }', 'session_id = uuid4().hex', 'password = request.form.get("password")',
+                 'api_key: str = Field(default=None)', 'see plugin/skills/review/scripts/critic_merge.py:339'):
+        assert critic_findings.redact_finding_text(code) == code, f"ordinary code was masked: {critic_findings.redact_finding_text(code)}"
+    hexkey = "a8f5f167" + "f44f4964e6c998dee827110c"
+    assert hexkey not in critic_findings.redact_finding_text(f"Hard-coded key {hexkey} in config"), "an unnamed high-randomness key in prose must be masked"
+    e = d / "r2"; write(e, "src/app.js", APP)
+    g = finding(category="domain", impact="Medium", line=4, quote="const price = total * 1.0825;", title="Tax rule in render code")
+    run(S / "critic_ledger.py", "start", "review", "--tier", "full", cwd=e)
+    for L in "ABC": write(e, f".critic/reviews/review-{L}.json", json.dumps([g]))
+    run(S / "critic_ledger.py", "round", cwd=e)
+    left = sorted(p.name for p in (e / ".critic/reviews").glob("review-*.json"))
+    assert left == [], f"round 2 kept round 1's reviews in place: {left}"
+    write(e, ".critic/reviews/review-A.json", "[]")
+    run(S / "critic_merge.py", "tally", ".critic/reviews/review-A.json", cwd=e)
+    assert json.loads((e / ".critic/tally.json").read_text())["kept"] == []
+
+@test("4.2.2 N-13: a live URL can't pass as local through user@host, and IPv6 loopback is accepted")
+def _(d):
+    write(d, "index.html", "<!doctype html><title>t</title>")
+    def page_note(url):
+        run(S / "critic_scan.py", ".", "--root", ".", "--page", url, cwd=d)
+        return json.loads((d / ".critic/scan/report.json").read_text())["checks"]["page"]["note"]
+    for bad in ("http://127.0.0.1:80@evil.example/", "http://localhost@evil.example/x", "http://user:pw@127.0.0.1.evil.example/"):
+        assert "live URL refused" in page_note(bad), bad
+    for ok in ("http://[::1]:8000/", "http://LOCALHOST:8000/", "http://127.0.0.1:8000/"):
+        assert "live URL refused" not in page_note(ok), ok
+
+@test("4.2.2 small fixes: no stale critic names, all four hooks listed, honest benchmark, grammar, override list")
+def _(d):
+    import re as re_
+    for p in list((HERE / "agents").glob("*.md")) + [HERE / "skills/review/references/output-contract.md"]:
+        t = p.read_text()
+        assert not re_.search(r"(?i)\bthe critic skill\b|\(critic skill|[\s\"`(]/critic[\s`)]", t), p.name
+    readme = (HERE / "README.md").read_text(); top = (HERE.parent / "README.md").read_text()
+    assert readme == top, "the two README copies differ"
+    assert "stop_async" in readme or "background re-scan" in readme.lower(), "the fourth hook (background re-scan) is missing"
+    assert "Each review used three blind reviewers" not in readme
+    assert "30%" in readme and "contract" in readme.lower()
+    assert "The scripted checks measures" not in (HERE / "skills/review/references/sandbox.md").read_text()
+    assert "Playwright MCP" not in (HERE / "skills/review/references/sandbox.md").read_text()
+    run(S / "critic_ledger.py", "start", "review", cwd=d)
+    r = run(S / "critic_ledger.py", "override", "gate", "Curmudgeon", "skip", cwd=d)
+    assert r.returncode != 0 and "owner" in r.stderr, r.stdout + r.stderr
+
+@test("4.2.2 review round 1: a .critic/ review file git already tracks is named in a warning, with the command to untrack it")
+def _(d):
+    subprocess.run(["git", "init", "-q"], cwd=d)
+    write(d, ".critic/reviews/review-A.json", "[]"); write(d, "src/a.py", "x = 1\n")
+    subprocess.run(["git", "add", "-f", ".critic/reviews/review-A.json", "src/a.py"], cwd=d)
+    r = run(S / "critic_ledger.py", "init", cwd=d)
+    assert "git tracks 1 .critic/ file" in r.stderr and ".critic/reviews/review-A.json" in r.stderr, r.stderr
+    assert "git rm -r --cached .critic/reviews" in r.stderr, r.stderr
+    d2 = d / "clean"; d2.mkdir(); subprocess.run(["git", "init", "-q"], cwd=d2)
+    r = run(S / "critic_ledger.py", "init", cwd=d2); assert "git tracks" not in r.stderr, r.stderr
+
+@test("4.2.2 review round 2: named passwords stay masked, ordinary names and paths aren't, unnamed random keys are")
+def _(d):
+    import random, string
+    sys.path.insert(0, str(S)); import importlib, critic_findings; importlib.reload(critic_findings); r = critic_findings.redact_finding_text
+    pw = "hun" + "ter2Xq9"
+    for s in (f"DATABASE_PASSWORD={pw}", f"password: {pw}", f'"password": "{pw}"', f"Authorization: Bearer {pw}abc", f"curl -u admin:{pw} https://x",
+              f"mysql -p{pw} db", f"redis-cli -a {pw}", f"Cookie: sid={pw}", f"--password {pw}", f"postgres://u:{pw}@h/db", f"token = '{pw}'"):
+        assert pw not in r(s), f"a named password was left in: {r(s)}"
+    for s in ("password = form.password", "cookies = req.cookies", 'token = request.headers.get("X-Token")', "auth = HTTPBasicAuth(user, pw)",
+              "password = new_password", "password: str", "see commit 3f2a9c1d4e5b6a7980f1e2d3c4b5a6978e1f2d3c in history",
+              "test_user_login_returns_401_after_3_failed_attempts", "db/migrate/20241024123456_add_users_table.rb:12", "x86_64-unknown-linux-gnu-gcc",
+              "aarch64-apple-darwin23-clang15", "handleOAuth2CallbackForIOS17AndAndroid14", "sha256WithRSAEncryption2048", "ISO8601_UTC_TIMESTAMP_FORMAT_2024",
+              "550e8400-e29b-41d4-a716-446655440000", "DocXMLRPCRequestHandler", "MAX_RETRY_BACKOFF_SECONDS_300"):
+        assert r(s) == s, f"ordinary text was masked: {s} -> {r(s)}"
+    rnd = random.Random(5); A = string.ascii_letters + string.digits
+    keys = ["".join(rnd.choice(A) for _ in range(32)) for _ in range(200)] + ["".join(rnd.choice(A + "+/") for _ in range(40)) for _ in range(100)]
+    missed = sum(1 for k in keys if k in r(f"the value {k} is used"))
+    assert missed <= 9, f"{missed} of {len(keys)} unnamed random keys were left in"
+    write(d, "config/app.env", f"DB_HOST=localhost\nDATABASE_PASSWORD={pw}\n")
+    f = finding(category="secret", impact="High", file="config/app.env", line=2, quote=f"DATABASE_PASSWORD={pw}", title="Database password committed")
+    run(S / "critic_ledger.py", "start", "review", "--tier", "full", cwd=d)
+    for L in "ABC": write(d, f".critic/reviews/review-{L}.json", json.dumps([f]))
+    reviews = [f".critic/reviews/review-{L}.json" for L in "ABC"]
+    run(S / "critic_merge.py", "tally", *reviews, cwd=d); fid = json.loads((d / ".critic/tally.json").read_text())["kept"][0]["id"]
+    write(d, "v.json", json.dumps([{"id": fid, "verdict": "confirmed", "reproduced": "traced", "note": f"DATABASE_PASSWORD={pw} is read at boot"}]))
+    run(S / "critic_merge.py", "apply", "v.json", cwd=d)
+    leaks = [str(p.relative_to(d)) for p in (d / ".critic").rglob("*") if p.is_file() and not (p.is_relative_to(d / ".critic/reviews") or p.is_relative_to(d / ".critic/history"))
+             and pw in p.read_text(errors="replace")]
+    assert leaks == [], f"a named password leaked to {leaks}"
+
+@test("4.2.2 review round 2: a refutation is judged on its raw text, so masking can't turn a real file:line into 'no location'")
+def _(d):
+    reviews = [f".critic/reviews/review-{L}.json" for L in "ABC"]
+    e = d / "mig"; write(e, "db/migrate/20241024123456_add_users_table.rb", "class AddUsers\n  def change\n    add_index :users, :email, unique: true\n  end\nend\n")
+    write(e, "app/models/user.rb", "class User\n  def find(e)\n    where(email: e).first\n  end\nend\n")
+    g = finding(category="performance", impact="Medium", file="app/models/user.rb", line=3, quote="    where(email: e).first", title="Lookup by email has no index")
+    run(S / "critic_ledger.py", "start", "review", "--tier", "full", cwd=e)
+    for L in "ABC": write(e, f".critic/reviews/review-{L}.json", json.dumps([g]))
+    run(S / "critic_merge.py", "tally", *reviews, cwd=e); gid = json.loads((e / ".critic/tally.json").read_text())["kept"][0]["id"]
+    write(e, "v.json", json.dumps([{"id": gid, "verdict": "refuted", "reproduced": "traced",
+          "refutation": "The users.email column has a unique index from db/migrate/20241024123456_add_users_table.rb:3, so the lookup is indexed."}]))
+    out = run(S / "critic_merge.py", "apply", "v.json", cwd=e).stdout
+    assert "refuted 1" in out, f"a valid refutation citing a real migration file was not accepted: {out}"
+
+@test("4.2.2 review round 2: round --reset can repeat a round label, and the earlier archive is never overwritten")
+def _(d):
+    h = d / "arch"; write(h, "src/a.py", "x = 1\n")
+    run(S / "critic_ledger.py", "start", "review", "--tier", "full", cwd=h)
+    write(h, ".critic/reviews/review-A.json", '["v1"]'); run(S / "critic_ledger.py", "round", cwd=h)
+    write(h, ".critic/reviews/review-A.json", '["v2"]'); run(S / "critic_ledger.py", "round", "--reset", cwd=h); run(S / "critic_ledger.py", "round", cwd=h)
+    write(h, ".critic/reviews/review-A.json", '["v3"]'); run(S / "critic_ledger.py", "round", cwd=h)
+    kept = sorted(p.read_text() for p in (h / ".critic/history").rglob("review-A.json"))
+    assert kept == ['["v1"]', '["v2"]', '["v3"]'], f"an archived review was overwritten: {kept}"
+
+@test("4.2.2 review round 3: when in doubt the masking masks (brackets, plain words, Go and PHP forms), and random keys of every case mix are caught")
+def _(d):
+    import random, string
+    sys.path.insert(0, str(S)); import importlib, critic_findings; importlib.reload(critic_findings); r = critic_findings.redact_finding_text
+    pw, word = "hun" + "ter2Xq9", "hun" + "ter"
+    for s, secret in ((f"DATABASE_PASSWORD=Pa({pw})ss!9", pw), (f"DATABASE_PASSWORD=Pa[{pw}]ss9", pw), (f"POSTGRES_PASSWORD={{{pw}}}", pw),
+                      (f"password: Pa0({pw}", pw), (f"password: {word}", word), (f"password = {word}", word), ("password: Correct" + "HorseBatteryStaple", "HorseBattery"),
+                      (f'password := "{pw}"', pw), (f"'password' => '{pw}'", pw), (f"SECRET_KEY=<{pw}>", pw), (f"DB_PASS=${pw}", pw)):
+        assert secret not in r(s), f"a credential was left in: {s} -> {r(s)}"
+    for s in ("API_KEY = settings.API_KEY", "PASSWORD = config.password", "DB_PASSWORD = env.DB_PASSWORD", "password = get_password()",
+              "password = params[:password]", "password: Optional[str] = None", "auth = HTTPBasicAuth(user, pw)", "password = newPassword",
+              "password: ${DB_PASSWORD}", "uses: actions/checkout@" + "b4ffde65f46336ab88eb53be808477a3936bae11",
+              "git checkout " + "b4ffde65f46336ab88eb53be808477a3936bae11", "AES256GCMSHA384CipherSuite", "HTTP2_SETTINGS_MAX_FRAME_SIZE"):
+        assert r(s) == s, f"code was masked: {s} -> {r(s)}"
+    rnd = random.Random(9); U, L, D = string.ascii_uppercase, string.ascii_lowercase, string.digits
+    for alpha, lo, hi, allowed in ((U + D, 20, 40, 8), (L + D, 32, 32, 6), (U + L + D, 20, 40, 10), (L, 20, 40, 25)):
+        keys = ["".join(rnd.choice(alpha) for _ in range(rnd.randint(lo, hi))) for _ in range(400)]
+        missed = sum(1 for k in keys if k in r(f"the value {k} is used"))
+        assert missed <= allowed, f"{missed} of 400 random keys ({alpha[:3]}..., {lo}-{hi} chars) were left in"
 
 if __name__ == "__main__":
     bad = [r for r in RESULTS if not r[1]]

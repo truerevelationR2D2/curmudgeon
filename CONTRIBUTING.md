@@ -20,9 +20,10 @@ Thanks for helping the grump get sharper. A few house rules keep it honest:
 python3 plugin/tests/run_tests.py
 claude plugin validate --strict .
 claude plugin validate --strict plugin
+claude plugin validate --strict --profile directory plugin
 ```
 
-All three must pass.
+All four must pass. The last one checks part of what Anthropic's plugin directory checks.
 
 ## Reporting a wrong finding
 

@@ -5,7 +5,7 @@ description: |
 
   <example>
   Context: The merge script wrote verification packets to .critic/verify/.
-  user: "(critic skill, step 4)"
+  user: "(review skill, step 4)"
   assistant: "Starting curmudgeon-verifier agents on the packets in .critic/verify/."
   <commentary>
   Each finding is checked in isolation, so the draft review can't sway the check.
