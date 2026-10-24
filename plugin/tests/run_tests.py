@@ -897,6 +897,42 @@ def _(d):
     r = run(S / "critic_ledger.py", "acted", cwd=d)
     assert "acted_on" not in json.loads((d / ".critic/ledger.json").read_text())["findings"][fid], "a redacted quote can't prove the code is gone"
 
+@test("4.2.2 review round 1: refutations are masked in counts.md and the ledger, code isn't mangled, round 2 never counts round 1")
+def _(d):
+    key = FAKE["@LIVE@"]
+    write(d, "app.py", f'import os\nSTRIPE_KEY = "{key}"\nif os.environ.get("CI"): STRIPE_KEY = None\n')
+    f = finding(category="secret", impact="High", file="app.py", line=2, quote=f'STRIPE_KEY = "{key}"', title="Live key in source")
+    run(S / "critic_ledger.py", "start", "review", "--tier", "full", cwd=d)
+    for L in "ABC": write(d, f".critic/reviews/review-{L}.json", json.dumps([f]))
+    reviews = [f".critic/reviews/review-{L}.json" for L in "ABC"]
+    run(S / "critic_merge.py", "tally", *reviews, cwd=d); fid = json.loads((d / ".critic/tally.json").read_text())["kept"][0]["id"]
+    write(d, "v1.json", json.dumps([{"id": fid, "verdict": "confirmed", "reproduced": "traced", "note": "traced"}])); run(S / "critic_merge.py", "apply", "v1.json", cwd=d)
+    run(S / "critic_ledger.py", "start", "review", "--tier", "full", cwd=d)
+    for L in "ABC": write(d, f".critic/reviews/review-{L}.json", json.dumps([f]))
+    run(S / "critic_merge.py", "tally", *reviews, cwd=d)
+    write(d, "v2.json", json.dumps([{"id": fid, "verdict": "refuted", "reproduced": "executed",
+          "refutation": f"The value {key} at app.py:2 is replaced by None at app.py:3 in every CI build, so it never ships."}]))
+    run(S / "critic_merge.py", "apply", "v2.json", cwd=d)
+    leaks = [str(p.relative_to(d)) for p in (d / ".critic").rglob("*") if p.is_file() and not (p.is_relative_to(d / ".critic/reviews") or p.is_relative_to(d / ".critic/history"))
+             and key in p.read_text(errors="replace")]
+    assert leaks == [], f"refutation text leaked the secret to {leaks}"
+    sys.path.insert(0, str(S)); import importlib, critic_findings; importlib.reload(critic_findings)
+    for code in ('if (session.token == req.headers.authorization) { return true; }', 'session_id = uuid4().hex', 'password = request.form.get("password")',
+                 'api_key: str = Field(default=None)', 'see plugin/skills/review/scripts/critic_merge.py:339'):
+        assert critic_findings.redact_finding_text(code) == code, f"ordinary code was masked: {critic_findings.redact_finding_text(code)}"
+    hexkey = "a8f5f167" + "f44f4964e6c998dee827110c"
+    assert hexkey not in critic_findings.redact_finding_text(f"Hard-coded key {hexkey} in config"), "an unnamed high-randomness key in prose must be masked"
+    e = d / "r2"; write(e, "src/app.js", APP)
+    g = finding(category="domain", impact="Medium", line=4, quote="const price = total * 1.0825;", title="Tax rule in render code")
+    run(S / "critic_ledger.py", "start", "review", "--tier", "full", cwd=e)
+    for L in "ABC": write(e, f".critic/reviews/review-{L}.json", json.dumps([g]))
+    run(S / "critic_ledger.py", "round", cwd=e)
+    left = sorted(p.name for p in (e / ".critic/reviews").glob("review-*.json"))
+    assert left == [], f"round 2 kept round 1's reviews in place: {left}"
+    write(e, ".critic/reviews/review-A.json", "[]")
+    run(S / "critic_merge.py", "tally", ".critic/reviews/review-A.json", cwd=e)
+    assert json.loads((e / ".critic/tally.json").read_text())["kept"] == []
+
 @test("4.2.2 N-13: a live URL can't pass as local through user@host, and IPv6 loopback is accepted")
 def _(d):
     write(d, "index.html", "<!doctype html><title>t</title>")
@@ -924,6 +960,17 @@ def _(d):
     run(S / "critic_ledger.py", "start", "review", cwd=d)
     r = run(S / "critic_ledger.py", "override", "gate", "Curmudgeon", "skip", cwd=d)
     assert r.returncode != 0 and "owner" in r.stderr, r.stdout + r.stderr
+
+@test("4.2.2 review round 1: a .critic/ review file git already tracks is named in a warning, with the command to untrack it")
+def _(d):
+    subprocess.run(["git", "init", "-q"], cwd=d)
+    write(d, ".critic/reviews/review-A.json", "[]"); write(d, "src/a.py", "x = 1\n")
+    subprocess.run(["git", "add", "-f", ".critic/reviews/review-A.json", "src/a.py"], cwd=d)
+    r = run(S / "critic_ledger.py", "init", cwd=d)
+    assert "git tracks 1 .critic/ file" in r.stderr and ".critic/reviews/review-A.json" in r.stderr, r.stderr
+    assert "git rm -r --cached .critic/reviews" in r.stderr, r.stderr
+    d2 = d / "clean"; d2.mkdir(); subprocess.run(["git", "init", "-q"], cwd=d2)
+    r = run(S / "critic_ledger.py", "init", cwd=d2); assert "git tracks" not in r.stderr, r.stderr
 
 if __name__ == "__main__":
     bad = [r for r in RESULTS if not r[1]]

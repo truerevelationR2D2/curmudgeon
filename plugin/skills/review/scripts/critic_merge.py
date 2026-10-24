@@ -305,7 +305,7 @@ def apply(paths):
             if (D / "verify" / f"{f['id']}.json").exists():
                 notes.append(f"{f['id']}: no verdict returned; kept, confidence lowered"); f["verifier"] = "missing"
             final.append(f); continue
-        kind = str(v.get("verdict", "unclear")).lower(); why = str(v.get("refutation") or v.get("reason") or "")
+        kind = str(v.get("verdict", "unclear")).lower(); why = redact_finding_text(str(v.get("refutation") or v.get("reason") or ""))  # a refutation can quote a secret
         if kind == "refuted":
             prob = refutation_problem(why, f["impact"], v.get("reproduced"), root=ROOT)
             if not prob:
@@ -350,7 +350,7 @@ def apply(paths):
     if unverified: md += ["", "## Outside findings not verified (not counted above; run the verifier on their packets, then apply again)"] + \
                         [f"- {f['id']} {f['impact']} {f['file']}:{f.get('line', '')} {f['title'].replace('|', '/')}" for f in unverified]
     if notes: md += ["", "## Notes"] + [f"- {x}" for x in notes]
-    (D / "counts.md").write_text("\n".join(md) + "\n")
+    (D / "counts.md").write_text("\n".join(redact_finding_text(x) for x in md) + "\n")
     led = pathlib.Path(__file__).resolve().parent / "critic_ledger.py"
     if (D / "ledger.json").exists():
         tmp = D / "findings-import.jsonl"; write_jsonl(tmp, final)

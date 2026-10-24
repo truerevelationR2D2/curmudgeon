@@ -219,22 +219,34 @@ def redact_secrets(text):
         text = rx.sub(fn or (lambda m: m.group(1) + keepq(m.group(2))), text)
     return text
 
-FINDING_TEXT = ("quote", "title", "evidence", "failing_case", "remediation", "note", "refutation", "summary", "what")
+FINDING_TEXT = ("quote", "title", "evidence", "failing_case", "remediation", "note", "refutation", "reason", "why", "summary", "what")
+_KEY_TOKEN = re.compile(r"(?<![\w+=-])[A-Za-z0-9_+=-]{20,}(?![\w+=-])")
+def _entropy(t):
+    import math
+    return -sum(c / len(t) * math.log2(c / len(t)) for c in (t.count(ch) for ch in set(t)))
 def redact_finding_text(text):
-    """Mask secrets in a finding's words before they are stored: every provider key shape and generic credential the
-    secret scan knows (scan_secrets), then the log rules above. The quote check always runs on the raw text first, and
-    ids are computed from it, so masking never retracts a finding or changes its id."""
+    """Mask secrets in a finding's words before they are stored, without mangling ordinary code or prose. Masks: every
+    provider key shape and quoted generic credential the secret scan knows (scan_secrets), the JWT and provider shapes
+    of the log rules, and any other unbroken 20+ character token mixing at least 4 letters and 4 digits with high
+    randomness (an unnamed key). It does not apply the log rules' NAME=value pattern: on code it would mask expressions
+    such as `session.token == req.headers.authorization`. The quote check always runs on the raw text first, and ids
+    are computed from it, so masking never retracts a finding or changes its id."""
     text = str(text)
     try:
         import scan_secrets
-        spans = sorted(scan_secrets.secret_spans(text))
-        out, last = [], 0
-        for a, b in spans:
-            if b <= last: continue
-            a = max(a, last); out.append(text[last:a]); out.append(scan_secrets.mask(text[a:b])); last = b
-        text = "".join(out) + text[last:]
-    except ImportError: pass
-    return redact_secrets(text)
+        spans = sorted(scan_secrets.secret_spans(text)); mask = scan_secrets.mask
+    except ImportError: spans, mask = [], (lambda v: v[:4] + "…[redacted]")
+    out, last = [], 0
+    for a, b in spans:
+        if b <= last: continue
+        a = max(a, last); out.append(text[last:a]); out.append(mask(text[a:b])); last = b
+    text = "".join(out) + text[last:]
+    text = REDACT_RULES[-1][0].sub(REDACT_RULES[-1][1], text)  # JWTs and provider key shapes
+    def unnamed(m):
+        t = m.group(0)
+        if "[redacted]" in t or sum(ch.isdigit() for ch in t) < 4 or sum(ch.isalpha() for ch in t) < 4 or _entropy(t) < 3.5: return t
+        return mask(t)
+    return _KEY_TOKEN.sub(unnamed, text)
 
 def scrub(obj):
     """A copy of findings (or anything holding them) with every finding text field masked. A finding whose quote was
@@ -291,11 +303,31 @@ def ensure_ignored(d):
     sep = "\n" if have and not gi.read_text(encoding="utf-8", errors="replace").endswith("\n") else ""
     with open(gi, "a", encoding="utf-8") as fh: fh.write(sep + head + "".join(x + "\n" for x in missing))
 
+def warn_tracked_state(root):
+    """Ignore rules never apply to a file git already tracks. Warn once per process when the repository tracks any
+    .critic/ file that can hold a raw quote or a log, because writing to it would put that text in the next commit."""
+    if ("tracked-state", str(root)) in _TRACKED: return
+    _TRACKED[("tracked-state", str(root))] = True
+    try:
+        r = subprocess.run(["git", "ls-files", "-z", "--", ".critic"], cwd=root, capture_output=True, timeout=5)
+    except (OSError, subprocess.TimeoutExpired): return
+    if r.returncode != 0: return
+    tracked = [f for f in r.stdout.decode("utf-8", "replace").split("\0") if f]
+    hit = sorted(f for f in tracked for x in IGNORED
+                 if (f[len(".critic/"):].startswith(x) if x.endswith("/") else f == ".critic/" + x))
+    if hit:
+        shown = ", ".join(hit[:8]) + (f" and {len(hit) - 8} more" if len(hit) > 8 else "")
+        print(f"curmudgeon: git tracks {len(hit)} .critic/ file(s) that can hold quoted code or logs ({shown}); ignore rules "
+              "don't cover tracked files, so new text in them would go into your next commit. To stop tracking them "
+              "(your copies stay): git rm -r --cached " + " ".join(sorted({h if h.count('/') == 1 else '/'.join(h.split('/')[:2]) for h in hit})),
+              file=sys.stderr)
+
 def log_run(root, what, detail=""):
     """Append one line to .critic/runlog.jsonl: every script the plugin starts and every outside command it runs, so a
     user can see exactly what ran on their machine. Never fails the caller; trims itself past about 1 MB."""
     try:
         d = pathlib.Path(root) / ".critic"; d.mkdir(exist_ok=True)
+        warn_tracked_state(root)
         p = d / "runlog.jsonl"
         line = json.dumps({"at": time.strftime("%Y-%m-%d %H:%M:%S"), "what": what, "detail": redact_secrets(str(detail)[:4000])[:400]}, ensure_ascii=False) + "\n"
         if p.is_symlink() or state_links(root): return  # never write through a link

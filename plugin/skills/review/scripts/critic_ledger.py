@@ -101,6 +101,17 @@ def rel(p):
 def need(rest, n, usage):
     if len(rest) < n: die("usage: " + usage)
 
+def archive_reviews(L, label):
+    """A new run or round starts with no reviews: earlier ones move to .critic/history/<label>/reviews/, and
+    started_at is reset, so the tally refuses any review file written before it."""
+    rv = D / "reviews"
+    if rv.is_dir() and not rv.is_symlink():
+        olds = [p for p in rv.iterdir() if p.is_file() and not p.is_symlink()]
+        if olds:
+            dest = D / "history" / label / "reviews"; dest.mkdir(parents=True, exist_ok=True)
+            for p in olds: os.replace(p, dest / p.name)
+    L["started_at"] = time.time()
+
 def finding(L, fid):
     if fid not in L["findings"]: die(f"no finding {fid}")
     return L["findings"][fid]
@@ -154,13 +165,7 @@ def main(a):
             try:
                 if not m.get("retired") and (time.time() - time.mktime(time.strptime(m.get("last_used", m.get("made")), "%Y-%m-%d"))) > MEMORY_TTL_DAYS * 86400: m["retired"] = True
             except Exception: pass
-        rv = D / "reviews"  # the last run's reviews must never be counted (or read) in this one: move them aside
-        if rv.is_dir() and not rv.is_symlink():
-            olds = [p for p in rv.iterdir() if p.is_file() and not p.is_symlink()]
-            if olds:
-                dest = D / "history" / f"run-{L['run'] - 1}" / "reviews"; dest.mkdir(parents=True, exist_ok=True)
-                for p in olds: os.replace(p, dest / p.name)
-        L["started_at"] = time.time()
+        archive_reviews(L, f"run-{L['run'] - 1}")
         msg = f"{rest[0]} run {L['run']} started{' (' + tier + ' tier)' if tier else ''}, round 1 of 3"
     elif cmd == "import":
         need(rest, 1, "import FINDINGS.jsonl")
@@ -352,7 +357,7 @@ def main(a):
     elif cmd == "round":
         if rest[:1] == ["--reset"]: L["round"] = 0; msg = "round reset"
         else:
-            L["round"] += 1; save(L)
+            archive_reviews(L, f"run-{L['run']}-round-{L['round']}"); L["round"] += 1; save(L)
             print(f"review round {L['round']} of 3" + (" (verify-only: no new findings without an executed case)" if L["round"] == 3 else ""))
             return 1 if L["round"] > 3 else 0
     elif cmd == "restore":

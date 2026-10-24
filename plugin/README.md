@@ -86,6 +86,7 @@ Drop a JSON file of rules into your project's `.critic/rules/` (or, to contribut
   - Restore copies are exact, so they keep a key that a fix removed until you delete them.
   - On Windows the copies' private folder permission (0700) has no effect.
   - `.gitignore` doesn't stop a Docker build context, a zip or a sync tool from picking up `.critic/`.
+  - Ignore rules don't cover files already committed. If an earlier version let you commit `.critic/` review or ledger files, remove them from git with `git rm --cached` (Curmudgeon warns when it sees tracked ones).
   - The verifier's "no hedging" rule is a word list: it stops "probably" or "seems", but not a confident, wrong refutation that cites a real line. Spot-checks (above) are how you catch those.
 - **Hooks:**
   - Stop: the optional gate, off until you turn it on;
@@ -107,7 +108,7 @@ Measured on 18 October 2026 (version 4.0.0) with the eval kit in `eval/`. The no
 
 After the fix stage, the fixed apps passed 9 of 9 and 12 of 13 browser behaviour tests. The miss was an animation that ignores the reduced-motion setting.
 
-The report format score (`contract` in the eval) is the share of 11 checks on how the written teardown follows its required format: headers, a single verdict, counts that match the findings, evidence on every finding, and so on. It measures the report's form, not whether the findings are right.
+The report format score (`contract` in the eval) is the share of checks on how the written teardown follows its required format (11 checks for a review, 14 for a review and fix, which adds the refactoring manifest, the state ledger and the closure table): headers, a single verdict, counts that match the findings, evidence on every finding, and so on. It measures the report's form, not whether the findings are right.
 
 These are small apps, so treat the numbers as indicative: with 28 findings, "96%" could plausibly be anything from about 82% to 99%. Most of the noise left is in Low findings: true, but not worth anyone's time.
 
