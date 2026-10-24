@@ -41,6 +41,19 @@ def changed(base):
             except OSError: lines[u] = 0
     return files, lines
 
+def hunks(base, files):
+    """The changed line ranges on the new side of the diff, per file: {file: [[start, count], ...]}. Untracked files are
+    wholly new. Used by apply to tell findings this change introduced from ones that were already there (SC-43)."""
+    no_commit = base == "HEAD" and not git("rev-parse", "--verify", "-q", "HEAD").strip()
+    out = {}
+    diff = git("diff", "--cached", "-U0") if no_commit else git("diff", "-U0", base)
+    cur = None
+    for line in diff.splitlines():
+        if line.startswith("+++ "): cur = line[6:] if line.startswith("+++ b/") else None; continue
+        m = re.match(r"@@ -\S+ \+(\d+)(?:,(\d+))? @@", line)
+        if m and cur: out.setdefault(cur, []).append([int(m.group(1)), int(m.group(2) or 1)])
+    return {k: v for k, v in out.items() if k in files}
+
 def main(a):
     refuse_linked_state(ROOT)
     log_run(ROOT, "script", "critic_map.py " + " ".join(a))
@@ -109,7 +122,11 @@ def main(a):
         md += ["", "## Map", "```mermaid", "graph LR"] + [f'  "{u}" --> "{t}"' for u, t in edges] + ["```"]
     md += ["", "## Not reviewed", "_Filled in by Curmudgeon: files skipped for budget, binary or generated files, checks that could not run._"]
     D.mkdir(parents=True, exist_ok=True); (D / "change-map.md").write_text("\n".join(md) + "\n")
-    (D / "change-map.json").write_text(json.dumps({"tier": tier, "files": order, "lines": total, "sensitive": {x: sens[x] for x in files}, "radius": radius, "intent": intent}, indent=1))
+    from_git = "--files" not in a
+    untracked = set(git("ls-files", "--others", "--exclude-standard").splitlines()) if from_git else set()
+    (D / "change-map.json").write_text(json.dumps({"tier": tier, "files": order, "lines": total, "sensitive": {x: sens[x] for x in files}, "radius": radius, "intent": intent,
+        "mode": "diff" if from_git else "files", "base": base if from_git else None,
+        "hunks": hunks(base, files) if from_git else {}, "new_files": sorted(x for x in files if x in untracked)}, indent=1))
     print(json.dumps({"tier": tier, "files": len(files), "lines": total, "sensitive": any_sens, "radius": len(radius)}))
     return 0
 

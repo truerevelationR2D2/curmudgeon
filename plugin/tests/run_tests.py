@@ -1506,6 +1506,24 @@ def _(d):
     assert not ask("Grep", pattern="SECRET", path=".", glob="!.critic") and not ask("Glob", pattern="eval/fx/.critic/**") and not ask("Glob", pattern=".critic/scratch/me/*")
     assert ask("Glob", pattern=".critic/reviews/*")
 
+@test("5.0 SC-43: in a review of a change, findings are marked introduced or pre-existing by script, and a new caller of an old sink counts as introduced")
+def _(d):
+    subprocess.run(["git", "init", "-q"], cwd=d)
+    write(d, "src/app.js", APP); write(d, "src/sink.js", "function show(el, t) {\n  el.innerHTML = t;\n}\n")
+    subprocess.run(["git", "add", "."], cwd=d); subprocess.run(["git", "-c", "user.email=t@example.invalid", "-c", "user.name=t", "commit", "-qm", "base"], cwd=d)
+    write(d, "src/sink.js", "function show(el, t) {\n  el.innerHTML = t;\n}\nshow(document.body, location.hash);\n")
+    run(S / "critic_map.py", cwd=d)
+    cm = json.loads((d / ".critic/change-map.json").read_text()); assert cm["mode"] == "diff" and cm["hunks"].get("src/sink.js"), cm
+    old = finding(category="domain", impact="Medium", line=4, quote="const price = total * 1.0825;", title="Tax rule in render code")
+    new = finding(category="xss", impact="High", file="src/sink.js", line=2, quote="el.innerHTML = t;", title="Sink now fed from location.hash", evidence="src/sink.js:4 passes location.hash to show()")
+    run(S / "critic_ledger.py", "start", "review", "--tier", "full", cwd=d)
+    for L in "ABC": write(d, f".critic/reviews/review-{L}.json", json.dumps([old, new]))
+    run(S / "critic_merge.py", "tally", *[f".critic/reviews/review-{L}.json" for L in "ABC"], cwd=d)
+    write(d, "v.json", "[]"); run(S / "critic_merge.py", "apply", "v.json", cwd=d)
+    rows = {r["category"]: r for r in (json.loads(x) for x in (d / ".critic/findings.jsonl").read_text().splitlines())}
+    assert rows["xss"]["origin"] == "introduced" and rows["domain"]["origin"] == "pre-existing", rows
+    assert "## Pre-existing" in (d / ".critic/counts.md").read_text()
+
 if __name__ == "__main__":
     bad = [r for r in RESULTS if not r[1]]
     print(f"\n{len(RESULTS) - len(bad)} of {len(RESULTS)} passed"); sys.exit(1 if bad else 0)

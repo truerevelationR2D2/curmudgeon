@@ -331,6 +331,27 @@ def revision_stamp(final):
     return {"sha": git("rev-parse", "--short=12", "HEAD") or None, "dirty": bool(git("status", "--porcelain")), "payload_sha256": h.hexdigest(),
             "at": time.strftime("%Y-%m-%d %H:%M:%S")}
 
+def mark_origin(final):
+    """In a review of a change (critic_map.py from a git diff), mark each finding introduced or pre-existing (SC-43),
+    by script: introduced when its line, or any file:line its evidence, failing case or locations cite, falls in a
+    changed hunk, or its file is new. A new caller reaching an old sink therefore counts as introduced. Both kinds are
+    counted; pre-existing ones get their own section."""
+    try: cm = json.loads((D / "change-map.json").read_text())
+    except (OSError, ValueError): return
+    if cm.get("mode") != "diff": return
+    hk, new = cm.get("hunks") or {}, set(cm.get("new_files") or [])
+    def touched(file, line):
+        return file in new or any(a <= line < a + max(c, 1) for a, c in hk.get(file, []))
+    for f in final:
+        locs = [(str(f.get("file") or ""), safe_line(f.get("line")))]
+        for text in (f.get("evidence"), f.get("failing_case"), " ".join(f.get("locations") or [])):
+            locs += [(m.group(1), int(m.group(2))) for m in re.finditer(r"([\w./-]+\.\w+):(\d+)", str(text or ""))]
+        f["origin"] = "introduced" if any(touched(fl, ln) for fl, ln in locs if fl) else "pre-existing"
+
+def safe_line(v):
+    try: return int(v or 0)
+    except (TypeError, ValueError): return 0
+
 def fix_status(f):
     """Whether a finding's remediation can be offered as a fix: usable, partial (it says so), or not offerable (empty,
     the same as the quoted code, or with unbalanced brackets or quotes in its code)."""
@@ -383,6 +404,7 @@ def apply(paths):
                           "likely" if f.get("verifier") in ("confirmed",) or f.get("votes", 1) >= 2 else "possible"
     final.sort(key=lambda f: (IMP_RANK[f["impact"]], {"confirmed": 0, "likely": 1, "possible": 2}[f["confidence"]], f["file"], int(f.get("line") or 0)))
     for f in final: f["fix"] = fix_status(f)  # SC-37: never offer an empty fix, a no-op fix, or one with unbalanced brackets
+    mark_origin(final)
     final = scrub(final); unverified = scrub(unverified)  # a verifier's note can quote a secret too: mask before anything is written
     write_jsonl(D / "findings.jsonl", final)
     write_verifier_log()
@@ -392,6 +414,8 @@ def apply(paths):
           "Counts for the VERDICT (copy exactly): " + " · ".join(f"{k} {v}" for k, v in cnt.items()) + f" · total {len(final)}", "",
           "| ID | Impact | Confidence | Votes | Verifier | Where | Title |", "| --- | --- | --- | --- | --- | --- | --- |"]
     md += [f"| {f['id']} | {f['impact']} | {f['confidence']} | {f.get('votes', 1)}/{f.get('of', 1)} | {f.get('verifier', '-')} | {f['file']}:{f.get('line', '')} | {f['title'].replace('|', '/')} |" for f in final]
+    pre = [f for f in final if f.get("origin") == "pre-existing"]
+    if pre: md += ["", f"## Pre-existing (already there before this change; still counted above): {len(pre)}"] + [f"- {f['id']} {f['impact']} {f['file']}:{f.get('line', '')}" for f in pre]
     nofix = [f for f in final if str(f.get("fix", "")).startswith(("none", "not offerable"))]
     if nofix: md += ["", "## Fixes not to offer (describe the problem; don't present these remediations as fixes)"] + [f"- {f['id']}: {f['fix']}" for f in nofix]
     part = [f for f in final if f.get("fix") == "partial"]
