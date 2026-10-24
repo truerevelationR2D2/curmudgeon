@@ -21,6 +21,7 @@ project's `.critic/rules/` folder (that project's own rules), holds a list of ru
 - **area:** one of safety, errors, state, async, perf, a11y, layout, domain, html, theming, ux, structure, deps.
 - **pattern:** a Python regular expression, matched one line at a time, at most 300 characters.
 - **message:** what's wrong and why it matters, in plain words.
+- **pedantic:** optional `true` for a rule known to be noisy. Its rows are always NOTE, are counted apart as pedantic, and never become findings.
 - **files:** optional list of filename patterns. Leave it out to match every source file. Config files (`.yml`, `.yaml`, `.sql`, `.toml`, Dockerfiles and anything under `.github/`) are read only by a rule whose patterns name them, for example `["*.yml", "*.yaml"]` or `[".github/*"]`, so a rule written for code never fires on configuration.
 
 Rules are data, never code: nothing in a rule file runs. A broken rule or file is reported, not run, and never stops

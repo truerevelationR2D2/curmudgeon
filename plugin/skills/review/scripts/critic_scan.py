@@ -42,12 +42,19 @@ MAX_BYTES = 2_000_000
 SELF = pathlib.Path(__file__).resolve()
 R, CHECKS, SUPPRESSED, FP = [], {}, [], []
 
+# Scripted rows come in two tiers (SC-47, after zizmor's personas; our own list): regular rows can become findings;
+# pedantic rows are known to be noisy, are always NOTE, and are counted apart. A rule file can mark a rule pedantic.
+PEDANTIC = {"long-lines", "long-file", "unused-export", "dead-function", "duplicate-code", "mutation-not-exercised"}
+PEDANTIC_RULES = set()
+
 def f(sev, rule, area, where, what, ev=""):
     for x in FP:
         if x.get("rule") in (rule, rule[5:] if rule.startswith("rule-") else None) and str(x.get("where")) == str(where):  # rulings saved before rule- ids still apply
             SUPPRESSED.append({"rule": rule, "where": where, "what": what, "why": x.get("why", "")}); return
     level = "runtime" if area.startswith(("a11y-", "runtime", "ux", "responsive", "perf-rt", "visual")) else ("ci" if area == "ci" else "source")
-    R.append({"sev": sev, "rule": rule, "area": area, "where": str(where), "what": what, "evidence": ev.strip()[:160], "level": level})
+    tier = "pedantic" if rule in PEDANTIC or rule in PEDANTIC_RULES else "regular"
+    if tier == "pedantic": sev = "NOTE"
+    R.append({"sev": sev, "rule": rule, "area": area, "where": str(where), "what": what, "evidence": ev.strip()[:160], "level": level, "tier": tier})
 
 NA = "n/a"  # not applicable: nothing for this check to look at (no page given, no manifest). Never DEGRADED.
 def state(name, s, note=""): CHECKS[name] = {"state": s, "note": note}
@@ -196,6 +203,7 @@ def load_rule_files(root):
                         budget["rules"] -= 1
                         if budget["rules"] < 0:
                             bad.append(LIMIT + f"project rules stopped partway through {rf.name}: over the limit of 2,000 rules in all"); break
+                    if r.get("pedantic") is True: PEDANTIC_RULES.add("rule-" + rid)  # a rule file may mark a noisy rule pedantic
                     rules.append(("rule-" + rid, sev, area, pat, msg[:200], globs, is_project)); taken.add(rid)
                 except Exception as e: bad.append(f"{rf.name}: rule {r.get('id', '?') if isinstance(r, dict) else '?'} skipped ({str(e)[:80]})")
             if len(items) > 200: bad.append(LIMIT + f"{rf.name}: only the first 200 rules were read")
@@ -667,7 +675,8 @@ def main(argv):
     (out / "scan.sarif").write_text(json.dumps(to_sarif([{"category": x["rule"], "impact": {"FAIL": "High", "WARN": "Medium", "NOTE": "Low"}[x["sev"]], "file": x["where"].split(":")[0] if ":" in x["where"] else x["where"],
         "line": int(x["where"].rsplit(":", 1)[1]) if re.search(r":\d+$", x["where"]) else 1, "title": x["what"], "id": x["id"], "verified": "executed" if x["level"] == "runtime" else "traced"} for x in R], tool="critic-scan"), indent=1))
     c = {s: sum(1 for x in R if x["sev"] == s) for s in order}
-    md = [f"# Curmudgeon scripted checks: {src.name}", f"{nfiles} files · {c['FAIL']} FAIL · {c['WARN']} WARN · {c['NOTE']} NOTE · {len(SUPPRESSED)} suppressed · {time.time() - t:.1f} s", ""] + \
+    ped = sum(1 for x in R if x.get("tier") == "pedantic")
+    md = [f"# Curmudgeon scripted checks: {src.name}", f"{nfiles} files · {c['FAIL']} FAIL · {c['WARN']} WARN · {c['NOTE'] - ped} NOTE · {ped} pedantic · {len(SUPPRESSED)} suppressed · {time.time() - t:.1f} s", ""] + \
          ([f"**DEGRADED:** these checks could not run: {', '.join(degraded)}. Anything they cover is unverified.", ""] if degraded else []) + [
           "## Checks", "| Check | State | Note |", "| --- | --- | --- |"] + [f"| {k} | {v['state']} | {esc_cell(v['note'])} |" for k, v in CHECKS.items()] + \
          ["", "## Stats"] + [f"- {k}: {v}" for k, v in stats.items()] + ["", "## Findings", "| ID | Sev | Rule | Level | Where | What | Evidence |", "| --- | --- | --- | --- | --- | --- | --- |"] + \

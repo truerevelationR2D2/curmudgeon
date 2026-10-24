@@ -1524,6 +1524,26 @@ def _(d):
     assert rows["xss"]["origin"] == "introduced" and rows["domain"]["origin"] == "pre-existing", rows
     assert "## Pre-existing" in (d / ".critic/counts.md").read_text()
 
+@test("5.0 SC-46 and SC-47: Not reviewed is computed from the reviewers' coverage, and noisy scanner rows are pedantic NOTEs counted apart")
+def _(d):
+    write(d, "src/app.js", APP); write(d, "src/other.js", "export const x = 1;\n")
+    run(S / "critic_map.py", "--files", "src/app.js", "src/other.js", cwd=d)
+    g = finding(category="domain", impact="Medium", line=4, quote="const price = total * 1.0825;", title="Tax rule in render code")
+    run(S / "critic_ledger.py", "start", "review", "--tier", "full", cwd=d)
+    for L in "ABC": write(d, f".critic/reviews/review-{L}.json", json.dumps({"findings": [g], "coverage": {"read": ["src/app.js"], "not_reached": []}}))
+    run(S / "critic_merge.py", "tally", *[f".critic/reviews/review-{L}.json" for L in "ABC"], cwd=d)
+    cov = json.loads((d / ".critic/tally.json").read_text())["coverage"]
+    assert cov["known"] and cov["not_reviewed"] == ["src/other.js"], cov
+    write(d, "v.json", "[]"); run(S / "critic_merge.py", "apply", "v.json", cwd=d)
+    assert "Not reviewed (computed from the reviewers' coverage reports): src/other.js" in (d / ".critic/counts.md").read_text()
+    e = d / "p"; write(e, "src/big.js", "\n".join(f"const v{i} = {i};" for i in range(420)) + "\n")
+    write(e, ".critic/rules/r.json", json.dumps([{"id": "noisy", "severity": "WARN", "area": "perf", "pattern": "const v1 ", "message": "m", "pedantic": True}]))
+    run(S / "critic_scan.py", ".", "--root", ".", cwd=e)
+    rows = {r["rule"]: r for r in json.loads((e / ".critic/scan/report.json").read_text())["findings"]}
+    assert rows["long-file"]["tier"] == "pedantic" and rows["long-file"]["sev"] == "NOTE", rows["long-file"]
+    assert rows["rule-noisy"]["tier"] == "pedantic" and rows["rule-noisy"]["sev"] == "NOTE", rows["rule-noisy"]
+    assert " pedantic " in (e / ".critic/scan/report.md").read_text()
+
 if __name__ == "__main__":
     bad = [r for r in RESULTS if not r[1]]
     print(f"\n{len(RESULTS) - len(bad)} of {len(RESULTS)} passed"); sys.exit(1 if bad else 0)

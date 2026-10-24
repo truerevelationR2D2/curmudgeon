@@ -8,7 +8,7 @@
 - Unsure? Write `q:` and the question. Don't hedge.
 
 ## Finding record (what reviewers write, as JSON)
-A review file is `{"findings": [ ...finding records... ], "set_aside": [ {"file", "line", "what", "guard"} ]}`; a plain list of findings is still accepted. `set_aside` lists candidates the reviewer dropped and the guard it relied on: logged in the tally, never counted.
+A review file is `{"findings": [ ...finding records... ], "set_aside": [ {"file", "line", "what", "guard"} ]}`; a plain list of findings is still accepted. `set_aside` lists candidates the reviewer dropped and the guard it relied on: logged in the tally, never counted. `coverage` (`read`, `not_reached`: file paths) is how the script computes the Not reviewed line.
 
 | Field | Meaning |
 | --- | --- |

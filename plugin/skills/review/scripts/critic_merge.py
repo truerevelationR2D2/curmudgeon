@@ -78,6 +78,15 @@ def inside_root(rel):
     try: (ROOT / rel).resolve().relative_to(ROOT); return True
     except (ValueError, OSError): return False
 
+def coverage_report(cov):
+    """Not reviewed, computed by script: payload files (from the change map) that no reviewer reports reading, plus any
+    file a reviewer says it didn't reach. Unknown when reviewers report nothing."""
+    try: payload = [str(x) for x in json.loads((D / "change-map.json").read_text()).get("files", [])]
+    except (OSError, ValueError): payload = []
+    if not cov["read"] and not cov["not_reached"]: return {"known": False, "payload": len(payload)}
+    missing = sorted((set(payload) - cov["read"]) | (cov["not_reached"] - cov["read"]))
+    return {"known": True, "payload": len(payload), "read": len(cov["read"]), "not_reviewed": missing}
+
 def ledger():
     try: return json.loads((D / "ledger.json").read_text())
     except Exception: return {}
@@ -158,17 +167,22 @@ def tally(paths):
                  and pathlib.Path(p).stat().st_mtime < started - 2]
         if stale: die(f"refusing to count {', '.join(stale)}: written before this run started, so it is from an earlier run. Remove it, or have a fresh reviewer write it again")
     reviews = [load_review(p) for p in paths]
+    coverage = {"read": set(), "not_reached": set()}  # files the reviewers say they read, and the ones they didn't reach (SC-46)
     set_aside = []  # candidates a reviewer dropped, with the guard it relied on: logged so the eval can measure self-filtering, never counted
     for p in paths:
         try: v = json.loads(pathlib.Path(p).read_text(encoding="utf-8"))
         except (ValueError, OSError): continue
+        cov = v.get("coverage") if isinstance(v, dict) else None
+        if isinstance(cov, dict):
+            for k_ in ("read", "not_reached"):
+                if isinstance(cov.get(k_), list): coverage[k_] |= {norm_path(str(x)) for x in cov[k_] if isinstance(x, str)}
         aside = v.get("set_aside") if isinstance(v, dict) else None
         if isinstance(aside, list):  # anything else (null, a number) is ignored: the list is only a log
             set_aside += [dict(scrub(x), reviewer=pathlib.Path(p).stem) for x in aside if isinstance(x, dict)]
     n = len(reviews); need = 1 if n == 1 else math.ceil(2 * n / 3)
     # an outside run we can't see never counts as executed: verification decides
     outside_rows = [dict(r, source="outside", verified=r.get("verified") if r.get("verified") == "inferred" else "traced") for r in load_review(outside)] if outside else []
-    L = ledger(); out = {"reviewers": n, "votes_needed": need, "outside": None, "kept": [], "contested": [], "dropped": [], "retracted": [], "rejected": [], "suppressed": [], "set_aside": set_aside}
+    L = ledger(); out = {"reviewers": n, "votes_needed": need, "outside": None, "kept": [], "contested": [], "dropped": [], "retracted": [], "rejected": [], "suppressed": [], "set_aside": set_aside, "coverage": coverage_report(coverage)}
     scanned = scan_rows(scan) if scan else []
     accepted = []  # (raw_id, reviewer_index or None for scan, finding)
     OUTSIDE_RI = len(reviews) + 1
@@ -414,6 +428,9 @@ def apply(paths):
           "Counts for the VERDICT (copy exactly): " + " · ".join(f"{k} {v}" for k, v in cnt.items()) + f" · total {len(final)}", "",
           "| ID | Impact | Confidence | Votes | Verifier | Where | Title |", "| --- | --- | --- | --- | --- | --- | --- |"]
     md += [f"| {f['id']} | {f['impact']} | {f['confidence']} | {f.get('votes', 1)}/{f.get('of', 1)} | {f.get('verifier', '-')} | {f['file']}:{f.get('line', '')} | {f['title'].replace('|', '/')} |" for f in final]
+    cov = T.get("coverage") or {}
+    md += ["", "Not reviewed (computed from the reviewers' coverage reports): " + (", ".join(cov.get("not_reviewed") or []) or "nothing") if cov.get("known")
+           else "", "Not reviewed: unknown (no reviewer reported coverage); say so in the teardown." if not cov.get("known") else ""]
     pre = [f for f in final if f.get("origin") == "pre-existing"]
     if pre: md += ["", f"## Pre-existing (already there before this change; still counted above): {len(pre)}"] + [f"- {f['id']} {f['impact']} {f['file']}:{f.get('line', '')}" for f in pre]
     nofix = [f for f in final if str(f.get("fix", "")).startswith(("none", "not offerable"))]
