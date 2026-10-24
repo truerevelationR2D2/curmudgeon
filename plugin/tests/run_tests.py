@@ -2059,6 +2059,17 @@ def _(d):
     g = finding(category="domain", impact="Medium", line=4, quote="const price = total * 1.0825;", title="t")
     assert not validate(dict(g, difficulty="High", exploit_scenario="x", fix_short="y", fix_long="z")) and validate(dict(g, difficulty="Extreme"))
 
+@test("5.0 SC-18: the planter keeps only mutants a behaviour test proves broken, and writes an answer key for them")
+def _(d):
+    ev = d
+    write(ev, "tiny-clean/calc.py", "def total(xs):\n    return sum(xs)\n\n\ndef is_empty(xs):\n    return len(xs) == 0\n\n\ndef label():\n    return 'ok'\n")
+    write(ev, "behaviour_tiny.py", "import runpy, pathlib\ndef run(d):\n    m = runpy.run_path(str(pathlib.Path(d) / 'calc.py'))\n    return {'empty list is empty': m['is_empty']([]) is True, 'non-empty is not': m['is_empty']([1]) is False}\n")
+    r = run(HERE.parent / "eval" / "planter.py", str(ev / "tiny-clean"), str(ev / "behaviour_tiny.py"), "--out", "tiny", "--max", "5", "--dest", str(ev), cwd=ev)
+    key = json.loads((ev / "answer_key_tiny.json").read_text())
+    assert key and all(v["synthetic"] and v["breaks"] for v in key.values()), (r.stdout, key)
+    assert all("calc.py:" in k for k in key) and (ev / "tiny-1" / "calc.py").read_text() != (ev / "tiny-clean" / "calc.py").read_text()
+    assert not any("label" in k or ":10" in k for k in key), "a change no behaviour check notices is never kept"
+
 if __name__ == "__main__":
     shutil.rmtree(TMP, ignore_errors=True)
     bad = [r for r in RESULTS if not r[1]]

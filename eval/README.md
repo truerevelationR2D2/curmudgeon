@@ -119,3 +119,7 @@ python3 eval/deathmatch.py score eval/runs/<run>
 ```
 
 It is a benchmark for development only, never part of a review (ruling §5.22). It has not been run yet: the first run is the owner's call, because it costs money.
+
+## Growing the kit (SC-18)
+
+`planter.py FIXTURE BEHAVIOUR.py --out NAME` plants one small code change at a time in a clean fixture (the mutation tester's operators, on code only) and keeps a plant only when a behaviour test that passed on the clean fixture now fails. Each kept plant becomes its own fixture with an answer-key entry marked `synthetic`, so synthetic recall is reported apart from recall on hand-written bugs. A trial on `fixture-clean` with `behaviour1.py` kept 3 of the first 28 mutants.
