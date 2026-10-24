@@ -3,7 +3,7 @@
 Python (and Playwright + Chromium for the runtime half; axe-core if present).
 
 usage: critic_scan.py SRC [--root DIR] [--page PAGE.html|URL] [--out DIR] [--axe axe.min.js]
-                          [--exclude GLOB ...] [--no-interact] [--allow-live] [--online]
+                          [--exclude GLOB ...] [--no-interact] [--allow-live HOST] [--online]
                           [--mutate FILE ...] [--test-cmd CMD] [--project-checks] [--no-project-rules] [--baseline save|compare] [--budget-kb N]
 
 Modules (all our own code; the tools named are where the idea came from): secrets (gitleaks), HTML validity (Nu Html
@@ -23,8 +23,10 @@ Only blocked and unavailable make a run DEGRADED. A false positive recorded with
 
 Safety: the click probe never sends anything. Every non-GET request and every request to another origin is aborted
 and reported as "would have sent", controls named like destructive actions are not clicked, and pages that aren't
-on localhost or a file are refused unless --allow-live is given."""
+on localhost or a file are refused unless .critic/scope.json lists the origin and the run carries --allow-live HOST
+(the owner's typed confirmation; scope.py), and then only GET, HEAD and OPTIONS, up to the target's request cap."""
 import argparse, fnmatch, json, os, pathlib, re, signal, subprocess, sys, time, urllib.parse
+import scope as scope_file
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import scan_secrets, scan_html, scan_graph, scan_deps, scan_rules_extra, scan_mutation
 from critic_findings import log_run, refuse_linked_state
@@ -411,14 +413,16 @@ def is_local_url(url):
 
 RUNTIME_CHECKS = ("page", "axe", "console", "keyboard", "focus", "obscured", "screen-reader", "interactive", "responsive", "speed", "screenshots", "visual")
 def runtime(page, src, root, out, axe_arg, interact, allow_live, baseline=None, budget_kb=1500):
-    names = RUNTIME_CHECKS
+    names = RUNTIME_CHECKS; target = None
     if re.match(r"^https?://", page):
-        if not is_local_url(page) and not allow_live:
-            for k in names: state(k, "blocked", "live URL refused; rerun with --allow-live if this is a safe test copy")
-            f("WARN", "live-refused", "runtime", page, "live URL refused: the scan would load a real site (pass --allow-live for a safe test copy)"); return {}
         if has_userinfo(page):  # http://127.0.0.1@evil.example/ goes to evil.example: never load an address that hides its real host
             for k in names: state(k, "blocked", "live URL refused: the address carries a user name or password (user@host), which hides the real host")
             f("WARN", "live-refused", "runtime", page, "live URL refused: an address with user@host is never loaded"); return {}
+        ok, target, why = scope_file.decide(page, root, allow_live, is_local_url(page))
+        if not ok:
+            for k in names: state(k, "blocked", why)
+            f("WARN", "live-refused", "runtime", page, why); return {}
+        if target: log_run(SCAN_ROOT, "network", f"live page {page} (scope target {target['host']}, up to {target['max_requests']} requests, GET/HEAD/OPTIONS only)")
     try: from playwright.sync_api import sync_playwright
     except ImportError:
         for k in names: state(k, "unavailable", "Playwright not installed")
@@ -434,7 +438,8 @@ def runtime(page, src, root, out, axe_arg, interact, allow_live, baseline=None, 
         threading.Thread(target=srv.serve_forever, daemon=True).start()
         # the page is served from this computer only (loopback); nothing is sent anywhere else
         origin = urllib.parse.urlunsplit(("http", "%s:%d" % srv.server_address[:2], "", "", "")); url = origin + "/" + pp.relative_to(base).as_posix()
-    would_send = []
+    would_send = []; sent = [0]
+    cap = target["max_requests"] if target else None
     from urllib.parse import urlsplit
     o_ = urlsplit(origin); own = (o_.scheme, o_.hostname, o_.port or (443 if o_.scheme == "https" else 80))
     def same_origin(u):
@@ -447,6 +452,9 @@ def runtime(page, src, root, out, axe_arg, interact, allow_live, baseline=None, 
         if req.url.startswith(("data:", "blob:")): return r.continue_()
         if req.method not in ("GET", "HEAD", "OPTIONS") or not same_origin(req.url):
             would_send.append(f"{req.method} {req.url[:100]}"); return r.abort()
+        if cap is not None:
+            sent[0] += 1
+            if sent[0] > cap: would_send.append(f"{req.method} {req.url[:100]} (over the scope's {cap}-request cap)"); return r.abort()
         return r.continue_()
     try:
         with sync_playwright() as pw:
@@ -625,7 +633,7 @@ def esc_cell(s): return str(s).replace("\\", "\\\\").replace("|", "\\|").replace
 def main(argv):
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0], formatter_class=argparse.RawDescriptionHelpFormatter, epilog=__doc__.split("\n\n", 1)[1])
     ap.add_argument("src"); ap.add_argument("--root"); ap.add_argument("--page"); ap.add_argument("--out"); ap.add_argument("--axe")
-    ap.add_argument("--exclude", action="append", default=[]); ap.add_argument("--no-interact", action="store_true"); ap.add_argument("--allow-live", action="store_true")
+    ap.add_argument("--exclude", action="append", default=[]); ap.add_argument("--no-interact", action="store_true"); ap.add_argument("--allow-live", metavar="HOST", default=None, help="the owner's typed confirmation for a live target listed in .critic/scope.json")
     ap.add_argument("--online", action="store_true"); ap.add_argument("--mutate", nargs="+", default=[]); ap.add_argument("--test-cmd"); ap.add_argument("--project-checks", action="store_true"); ap.add_argument("--no-project-rules", action="store_true")
     ap.add_argument("--only", help="a file listing the exact paths (relative to --root) to scan; the background check uses it")
     ap.add_argument("--baseline", choices=("save", "compare")); ap.add_argument("--budget-kb", type=int, default=1500)

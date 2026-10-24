@@ -1782,6 +1782,33 @@ def _(d):
     imp = subprocess.run([sys.executable, "-c", f"import sys; sys.path.insert(0, {str(S)!r}); from critic_merge import scan_impact; print(scan_impact('test-const-assert'))"], cwd=d, capture_output=True, text=True).stdout.strip()
     assert imp == "Medium", imp
 
+@test("5.0 SC-49: a live page loads only when scope.json lists its origin and the run carries the typed host; the file is data, strictly read")
+def _(d):
+    write(d, "index.html", "<!doctype html><title>x</title><p>x</p>")
+    def scan(*extra):
+        run(S / "critic_scan.py", ".", "--root", ".", "--page", "http://staging.example.invalid/", *extra, cwd=d)
+        rep = json.loads((d / ".critic/scan/report.json").read_text())
+        return [r["what"] for r in rep["findings"] if r["rule"] == "live-refused"]
+    assert any("no .critic/scope.json" in w for w in scan()), "no scope file: refused"
+    assert any("no .critic/scope.json" in w for w in scan("--allow-live", "staging.example.invalid")), "the old flag alone is not enough"
+    write(d, ".critic/scope.json", json.dumps({"version": 1, "targets": [{"origin": "http://staging.example.invalid", "max_requests": 50, "note": "test copy"}]}))
+    assert any("typed confirmation" in w for w in scan()), "listed but not confirmed this run: refused"
+    assert any("typed confirmation" in w for w in scan("--allow-live", "other.example.invalid")), "the wrong host: refused"
+    assert not scan("--allow-live", "staging.example.invalid"), "listed and confirmed: not refused"
+    run(S / "critic_scan.py", ".", "--root", ".", "--page", "http://evil.example.invalid/", "--allow-live", "evil.example.invalid", cwd=d)
+    assert any("not a target" in r["what"] for r in json.loads((d / ".critic/scan/report.json").read_text())["findings"] if r["rule"] == "live-refused")
+    for bad, why in [({"version": 1, "targets": [{"origin": "http://u:p@staging.example.invalid"}]}, "user name"), ({"version": 1, "targets": [{"origin": "http://staging.example.invalid/admin"}]}, "no path"),
+                     ({"version": 1, "targets": [{"origin": "http://staging.example.invalid", "methods": ["POST"]}]}, "may not have"), ({"version": 1, "targets": [], "allow": "all"}, "may not have"),
+                     ({"version": 1, "targets": [{"origin": "http://staging.example.invalid", "max_requests": 10 ** 6}]}, "max_requests")]:
+        write(d, ".critic/scope.json", json.dumps(bad)); w = scan("--allow-live", "staging.example.invalid")
+        assert any(why in x for x in w), (bad, w)
+    (d / ".critic/scope.json").unlink(); write(d, "elsewhere.json", json.dumps({"version": 1, "targets": [{"origin": "http://staging.example.invalid"}]})); os.symlink(d / "elsewhere.json", d / ".critic/scope.json")
+    r = run(S / "critic_scan.py", ".", "--root", ".", "--page", "http://staging.example.invalid/", "--allow-live", "staging.example.invalid", cwd=d)
+    assert r.returncode == 2 and "link" in r.stderr, "a linked scope file stops the scan: never read through a link"
+    (d / ".critic/scope.json").unlink()
+    run(S / "critic_scan.py", ".", "--root", ".", "--page", "index.html", cwd=d)
+    assert not [r for r in json.loads((d / ".critic/scan/report.json").read_text())["findings"] if r["rule"] == "live-refused"], "a local file never needs a scope"
+
 if __name__ == "__main__":
     shutil.rmtree(TMP, ignore_errors=True)
     bad = [r for r in RESULTS if not r[1]]
