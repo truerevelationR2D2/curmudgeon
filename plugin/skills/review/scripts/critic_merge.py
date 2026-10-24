@@ -220,7 +220,9 @@ def tally(paths):
             if q is False and ri == OUTSIDE_RI:  # another model's viewer may number lines differently: a long quote found on exactly one line is moved there
                 moved = relocate_quote(f, ROOT)
                 if moved: f["line_cited"], f["line"] = f["line"], moved; f["id"] = fingerprint(f); q = True
-            if q is False: out["retracted"].append({"finding": f, "why": "quoted code is not at the cited file:line"}); continue
+            if q is False:  # retracted all the same; the tally only notes when the exact quote is elsewhere in that file (a wrong line number, often from cat -n over several files)
+                elsewhere = relocate_quote(f, ROOT) if ri != OUTSIDE_RI else None
+                out["retracted"].append({"finding": f, "why": "quoted code is not at the cited file:line" + (f" (the exact quote is at line {elsewhere}: a wrong line number, still retracted)" if elsewhere else "")}); continue
             f["quote_checked"] = q is True
             req = f.get("requirement") if isinstance(f.get("requirement"), dict) else None
             if req and req.get("basis") == "stated" and not _cites_real_line(req.get("where"), ROOT):
@@ -469,6 +471,9 @@ def apply(paths):
     if capped: md += ["", "## Capped at Medium (they rest on an inferred requirement, not a stated one; say so in the teardown)"] + [f"- {f['id']}: raised as {f['impact_capped_from']}; inferred from {str((f.get('requirement') or {}).get('why', ''))[:120]}" for f in capped]
     part = [f for f in final if f.get("fix") == "partial"]
     if part: md += ["", "## Partial fixes (label them partial in the teardown)"] + [f"- {f['id']}" for f in part]
+    misnum = [r for r in T["retracted"] if "a wrong line number" in str(r.get("why"))]
+    if misnum: md += ["", f"## Line numbers to check: {len(misnum)} retracted finding(s) quote code that is in the file, at another line",
+                      "Still retracted (the quote check holds a quote to its cited line). Say so in the teardown's Not checked line: a reviewer read with numbering that was off."]
     for name, rows in (("Refuted by verification", refuted), ("Dropped (single vote, not executed)", T["dropped"]), ("Retracted (quote not found)", T["retracted"]),
                        ("Rejected (broke the contract)", T["rejected"]), ("Hidden by your rulings (fp on this exact finding)", T["suppressed"])):
         if rows: md += ["", f"## {name}"] + [f"- {r['finding'].get('id')} {r['finding'].get('file')}:{r['finding'].get('line', '')} {r['finding'].get('title')}: {r['why'] if isinstance(r['why'], str) else '; '.join(r['why'])}" for r in rows]

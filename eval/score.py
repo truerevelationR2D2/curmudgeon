@@ -10,6 +10,8 @@ usage:
   score.py R1.md R2.md R3.md --suite N --gate [--model ID]   the accept/kill gate on repeat runs: PASS, FAIL or NOT MEASURED
   score.py --selftest                      break the gate on purpose: a verifier that refutes everything must FAIL it
   score.py --funnel RUN_DIR --suite N      for each planted defect the run missed, the stage where it was lost
+  options: --plugin DIR (the build that ran, for the stamp), --labels FILE, --baseline FILE, --meta-cost (cost from each
+           run's meta.json, the eval runner's whole-session total, in place of the plugin's own token log)
 
 Each REVIEW is a teardown (.critic/last-review.md). When a .critic/findings.jsonl sits beside it, the structured
 findings are used; otherwise finding blocks are parsed from the markdown.
@@ -42,7 +44,7 @@ sys.path.insert(0, str(HERE))
 import keymatch
 args = sys.argv[1:]
 def opt(name, default=None): return args[args.index(name) + 1] if name in args and args.index(name) + 1 < len(args) else default
-FLAGS_WITH_VALUE = {"--suite", "--refactored", "--baseline", "--clean", "--refutations", "--model", "--labeller", "--funnel", "--labels"}
+FLAGS_WITH_VALUE = {"--suite", "--refactored", "--baseline", "--clean", "--refutations", "--model", "--labeller", "--funnel", "--labels", "--plugin"}
 reviews = [a for i, a in enumerate(args) if not a.startswith("--") and (i == 0 or args[i - 1] not in FLAGS_WITH_VALUE)]
 if not reviews and "--label" not in args and "--refutations" not in args and "--selftest" not in args and "--funnel" not in args: print(__doc__); sys.exit(2)
 LABELS = pathlib.Path(opt("--labels", HERE / "fp_labels.json")); labels = json.loads(LABELS.read_text()) if LABELS.exists() else {}
@@ -83,13 +85,13 @@ def wilson(k, n, z=1.96):
     return (max(0.0, (c - h) / d), min(1.0, (c + h) / d))
 def rate(k, n): lo, hi = wilson(k, n); return f"{k / n:.0%} ({lo:.0%}-{hi:.0%}, {k} of {n})" if n else "not measured (0 judged)"
 
-PLUGIN = HERE.parent / "plugin"
+PLUGIN = pathlib.Path(opt("--plugin", HERE.parent / "plugin"))  # --plugin: the build that ran (an A/B arm), so the stamp names it, not this checkout
 def stamp():
     """What produced this result: plugin version, git SHA (dirty or clean), model, prompt files' hash, labeller."""
     try: version = json.loads((PLUGIN / ".claude-plugin" / "plugin.json").read_text()).get("version")
     except Exception: version = None
     def git(*a):
-        try: return subprocess.run(["git", *a], cwd=HERE.parent, capture_output=True, text=True, timeout=10).stdout.strip()
+        try: return subprocess.run(["git", *a], cwd=PLUGIN.parent, capture_output=True, text=True, timeout=10).stdout.strip()
         except (OSError, subprocess.TimeoutExpired): return ""
     files = sorted(list((PLUGIN / "agents").glob("*.md")) + list((PLUGIN / "skills").glob("*/SKILL.md")) + list((PLUGIN / "skills" / "review" / "references").glob("*.md")))
     h = hashlib.sha256()
@@ -112,8 +114,16 @@ def leak(path, key=None):
     return found
 
 def run_tokens(path):
-    """Tokens the run's agents used, from the run's .critic/cost.jsonl (None when not recorded)."""
-    p = pathlib.Path(path).resolve(); cf = (p.parent if p.parent.name == ".critic" else p.parent / ".critic") / "cost.jsonl"
+    """Tokens the run's agents used, from the run's .critic/cost.jsonl (None when not recorded). With --meta-cost, the
+    whole session's cost from the eval runner's meta.json instead, in millionths of a dollar: the same source for both
+    arms of an A/B, lead and subagents together, whatever each version's own cost hook records."""
+    p = pathlib.Path(path).resolve()
+    if "--meta-cost" in args:
+        run_dir = p.parent.parent if p.parent.name == ".critic" else p.parent
+        try: c = json.loads((run_dir / "meta.json").read_text()).get("cost_usd")
+        except (OSError, ValueError): return None
+        return round(c * 1e6) if isinstance(c, (int, float)) else None
+    cf = (p.parent if p.parent.name == ".critic" else p.parent / ".critic") / "cost.jsonl"
     if not cf.is_file(): return None
     rows = []
     for line in cf.read_text().splitlines():
@@ -432,10 +442,16 @@ _key = json.loads((HERE / ("answer_key.json" if suite_key == "suite1" else f"ans
 leaks = {r: leak(r, _key) for r in reviews}; leaks = {r: v for r, v in leaks.items() if v}
 for r, v in leaks.items(): print(f"ANSWER-KEY LEAK in {r}: {', '.join(v)}")
 toks = [run_tokens(r) for r in reviews]
-if any(t is not None for t in toks): print("Tokens per run: " + ", ".join("unrecorded" if t is None else f"{t:,}" for t in toks))
+if any(t is not None for t in toks):
+    print(("Cost per run: " + ", ".join("unrecorded" if t is None else f"${t / 1e6:.2f}" for t in toks)) if "--meta-cost" in args else
+          ("Tokens per run: " + ", ".join("unrecorded" if t is None else f"{t:,}" for t in toks)))
 if "--set-baseline" in args:
     if leaks: print("refusing to set a baseline from a run that could see the answers"); sys.exit(3)
     entry = dict(now, stamp=st, scoring="strict")
+    if "--meta-cost" in args: entry["cost_unit"] = "usd_millionths"
+    if "--clean" in args and len(reviews) > 1:  # several clean-twin runs: the median false alarms and any BLOCK, not the first run alone
+        cr = [clean_counts(r) for r in reviews]
+        entry.update(fp_clean=statistics.median(x["fp"] for x in cr), false_block=int(any(x["block"] for x in cr)), runs=[{"fp": x["fp"], "block": x["block"]} for x in cr])
     if "--clean" not in args and len(res) > 1: entry["runs"] = [{"precision_k": x["tp"], "precision_n": x["tp"] + x["fp"], "recall_k": len(x["hits"]), "recall_n": len(x["key"]),
                                                                "impact_misses": len(x["impact_misses"]), "decoy_blocking": x["decoy_blocking"]} for x in res]
     if any(t is not None for t in toks): entry["tokens"] = statistics.median([t for t in toks if t is not None])
@@ -476,10 +492,12 @@ if "--gate" in args:
         floor = b.get("decoy_blocking")
         if floor is None and "decoy_block_rate" in b and suite == "3": floor = round(b["decoy_block_rate"] * max(1, len(json.loads((HERE / "decoys3.json").read_text()))))
         if floor is not None and any(x["decoy_blocking"] > floor for x in res): why.append(f"a run flags more decoys at Medium or above than the baseline's {floor} (strict floor)")
-        if b.get("tokens"):
+        if b.get("tokens") and (b.get("cost_unit") == "usd_millionths") != ("--meta-cost" in args):
+            missing.append("cost in the baseline's unit (pass --meta-cost for both the baseline and the gate, or for neither)")
+        elif b.get("tokens"):
             if all(t is not None for t in toks):
                 better = any(x["tp"] / max(1, x["tp"] + x["fp"]) > b.get("precision", 1) + 1e-9 or x["recall"] > b.get("recall", 1) + 1e-9 for x in res)
-                if statistics.median(toks) > 1.10 * b["tokens"] and not better: why.append(f"tokens rose {statistics.median(toks) / b['tokens'] - 1:.0%} with no metric better (cost regression)")
+                if statistics.median(toks) > 1.10 * b["tokens"] and not better: why.append(f"{'cost' if '--meta-cost' in args else 'tokens'} rose {statistics.median(toks) / b['tokens'] - 1:.0%} with no metric better (cost regression)")
             else: missing.append("token counts for every run (the baseline has them; the cost rule can't run)")
     if why: verdict_("FAIL", why)
     if missing: verdict_("NOT MEASURED", sorted(set(missing)) + (["re-record the baseline with --set-baseline from accepted runs"] if any(m.startswith("baseline counts") for m in missing) else []))

@@ -2841,6 +2841,32 @@ def _(d):
     run(S / "critic_merge.py", "tally", "a.json", "b.json", cwd=sb); write(sb, "v.json", "[]"); r = run(S / "critic_merge.py", "apply", "v.json", cwd=sb); assert r.returncode == 0, r.stderr
     cm = (sb / ".critic/counts.md").read_text(); assert "| SB1 | a | first run, empty |" in cm, cm[-800:]
 
+@test("5.0 A/B scoring: the stamp names the build that ran (--plugin), a clean-twin baseline from several runs takes the median, and --meta-cost reads each run's whole-session cost")
+def _(d):
+    EV = HERE.parent / "eval"; fake = d / "arm" / "plugin"; write(fake, ".claude-plugin/plugin.json", json.dumps({"name": "curmudgeon", "version": "9.9.9-test"}))
+    revs = []
+    for i, n in enumerate((0, 2, 4)):
+        r = d / f"run{i}"; write(r, "meta.json", json.dumps({"cost_usd": 1.5 + i}))
+        body = "**CONCERNS** · Counts: 0 Critical, 0 High, %d Medium, 0 Low\n\n" % n + "".join(f"- **C{k}** `app.js:{k + 1}` | **IMPACT: Medium** | finding {i}-{k}\n" for k in range(n))
+        write(r, ".critic/teardown.md", body); revs.append(str(r / ".critic/teardown.md"))
+    out = subprocess.run([sys.executable, str(EV / "score.py"), *revs, "--clean", "1", "--set-baseline", "--baseline", str(d / "bl.json"), "--labels", str(d / "lab.json"), "--plugin", str(fake), "--meta-cost"], capture_output=True, text=True)
+    assert out.returncode == 0, out.stdout + out.stderr
+    b = json.loads((d / "bl.json").read_text())["clean1"]
+    assert b["stamp"]["version"] == "9.9.9-test" and b["fp_clean"] == 2 and b["false_block"] == 0 and b["cost_unit"] == "usd_millionths" and b["tokens"] == 2500000, b
+    assert "Cost per run: $1.50, $2.50, $3.50" in out.stdout, out.stdout
+
+@test("5.0 A/B finding: a quote at another line of its file is still retracted, but the tally says it is a wrong line number, and reviewers are told to number one file at a time")
+def _(d):
+    write(d, "app.js", "\n".join(["// x"] * 40 + ["if (user.roles.indexOf(\"admin\")) {", "  return true;", "}"]) + "\n"); run(S / "critic_ledger.py", "start", "review", cwd=d)
+    bad = finding(file="app.js", line=5, quote='if (user.roles.indexOf("admin")) {', title="canVoid is inverted")
+    write(d, "a.json", json.dumps([bad])); write(d, "b.json", json.dumps([bad]))
+    run(S / "critic_merge.py", "tally", "a.json", "b.json", cwd=d)
+    t = json.loads((d / ".critic/tally.json").read_text())
+    assert not t["kept"] and t["retracted"] and "the exact quote is at line 41" in t["retracted"][0]["why"], t["retracted"]
+    write(d, "v.json", "[]"); assert run(S / "critic_merge.py", "apply", "v.json", cwd=d).returncode == 0
+    cm = (d / ".critic/counts.md").read_text(); assert "Line numbers to check: 2 retracted" in cm, cm[-600:]
+    for a in ("curmudgeon-reviewer.md", "curmudgeon-verifier.md"): assert "grep -n" in (HERE / "agents" / a).read_text() and "cat -n" in (HERE / "agents" / a).read_text()
+
 if __name__ == "__main__":
     shutil.rmtree(TMP, ignore_errors=True)
     bad = [r for r in RESULTS if not r[1]]
