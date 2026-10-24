@@ -1,0 +1,20 @@
+{
+  "mcpServers": {
+    "tracker": {
+      "command": "npx",
+      "args": ["-y", "tracker-mcp@3.2.1"],
+      "env": {
+        "TRACKER_API_TOKEN": "${TRACKER_API_TOKEN}"
+      }
+    },
+    "box": {
+      "command": "docker",
+      "args": ["run", "--rm", "-i", "example/box-mcp:1.0"]
+    },
+    "search": {
+      "command": "uvx",
+      "args": ["search-mcp==2.1.0"],
+      "headers": {"Authorization": "Bearer ${SEARCH_TOKEN}"}
+    }
+  }
+}

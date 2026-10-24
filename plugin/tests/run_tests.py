@@ -1844,6 +1844,13 @@ def _(d):
         r = subprocess.run([sys.executable, "-I", str(S / script), *args], cwd=d, capture_output=True, text=True, env=dict(os.environ, CRITIC_ROOT=str(d)))
         assert r.returncode == 0 and "Traceback" not in r.stderr, (script, r.stderr[-400:])
 
+@test("5.0 SC-52: the agent and MCP configuration lens finds every planted defect, flags no decoy and nothing in the clean twin")
+def _(d):
+    r = run(HERE.parent / "eval" / "lens.py", str(HERE.parent / "eval" / "lens7.json"), "--json", cwd=d); out = json.loads(r.stdout)
+    assert r.returncode == 0 and out["recall"] == "7 of 7" and out["precision"] == "7 of 7" and out["pedantic_rows"] == 1, out
+    write(d, ".mcp.json", "{not json"); run(S / "critic_scan.py", ".", "--root", ".", cwd=d)
+    assert [x["rule"] for x in json.loads((d / ".critic/scan/report.json").read_text())["findings"] if x["area"] == "agent-config"] == ["agent-not-checked"]
+
 if __name__ == "__main__":
     shutil.rmtree(TMP, ignore_errors=True)
     bad = [r for r in RESULTS if not r[1]]

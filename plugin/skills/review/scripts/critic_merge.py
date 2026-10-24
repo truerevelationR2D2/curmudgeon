@@ -130,7 +130,7 @@ def median_impact(xs):
 SCAN_IMPACT = {"eval": "High", "py-eval": "High", "console-error": "High", "click-error": "High", "not-focusable": "High",
                "no-focus-style": "Medium", "focus-obscured": "Medium", "zoom-off": "Medium", "html-nested-interactive": "Medium", "sideways": "Medium",
                "test-const-assert": "Medium", "test-duplicate-name": "Medium",
-               "ci-pwn-request": "Critical", "ci-if-always-true": "Medium"}  # a test that can't fail hides bugs; it isn't one itself
+               "ci-pwn-request": "Critical", "ci-if-always-true": "Medium", "agent-literal-credential": "Critical"}  # a test that can't fail hides bugs; it isn't one itself
 def scan_impact(rule):
     try:
         import scan_secrets
