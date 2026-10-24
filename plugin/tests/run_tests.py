@@ -2615,6 +2615,12 @@ def _(d):
     import safe_web, browse as bw
     for w in ("Clear all", "Reset database", "Discard changes", "Revoke key", "Log out", "Terminate session"): assert safe_web.looks_destructive(w, bw.DESTRUCTIVE), w
 
+@test("5.0 self-review (scanners run): a reviewer may read its brief by path (a brief holds no findings), and still not another review")
+def _(d):
+    run(S / "critic_ledger.py", "start", "review", "--tier", "full", cwd=d); write(d, ".critic/briefs/brief-A.md", "brief"); write(d, ".critic/reviews/review-B.json", "[]")
+    ask = lambda f: run(H / "read_guard.py", cwd=d, stdin=json.dumps({"tool_name": "Read", "tool_input": {"file_path": str(d / f)}, "agent_type": "curmudgeon:curmudgeon-reviewer", "agent_id": "r1", "cwd": str(d)})).stdout
+    assert "deny" not in ask(".critic/briefs/brief-A.md") and "deny" in ask(".critic/reviews/review-B.json")
+
 if __name__ == "__main__":
     shutil.rmtree(TMP, ignore_errors=True)
     bad = [r for r in RESULTS if not r[1]]
