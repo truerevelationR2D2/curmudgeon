@@ -221,15 +221,35 @@ def to_sarif(findings, tool="critic", version="4.0.0"):
 
 def state_links(root):
     """Links inside .critic/ (or .critic itself being one) would let a cloned repository point the plugin's writes at
-    files outside the project. Returns what's wrong; scripts refuse to run until it's empty."""
+    files outside the project. Returns what's wrong; scripts refuse to run until it's empty. Inside an agent's scratch
+    folder, a link that stays inside that folder is allowed (its contents are the agent's own copy and notes)."""
     d = pathlib.Path(root) / ".critic"
     if d.is_symlink(): return [".critic itself is a link"]
     if not d.is_dir(): return []
     bad = []
-    for p in d.rglob("*"):
-        if p.is_symlink(): bad.append(str(p.relative_to(root)))
+    for dirpath, dirs, files in os.walk(d):  # os.walk never follows a link to a folder
+        here = pathlib.Path(dirpath); rel = here.relative_to(d).parts
+        for name in dirs + files:
+            if (here / name).is_symlink(): bad.append(str((here / name).relative_to(root)))
+        # An agent's own scratch folder (.critic/scratch/<id>/, or an archived one under history/) holds its private copy
+        # and notes, and no script writes inside it. A link an agent made there that stays inside that same folder is
+        # its own business (reviewers build test repos in their notes); one that reaches out of it is refused.
+        if rel[-1:] == ("scratch",):
+            for agent in dirs:
+                home = here / agent
+                if home.is_symlink(): continue  # already listed above
+                top = os.path.realpath(home)
+                for dp, ds, fs in os.walk(home):
+                    for nm in ds + fs:
+                        q = pathlib.Path(dp) / nm
+                        if q.is_symlink():
+                            t = os.path.realpath(q)
+                            if t != top and not t.startswith(top + os.sep): bad.append(str(q.relative_to(root)))
+                    if len(bad) >= 5: break
+            dirs[:] = []; continue
+        dirs[:] = [x for x in dirs if not (here / x).is_symlink()]
         if len(bad) >= 5: break
-    return bad
+    return bad[:5]
 
 def refuse_linked_state(root):
     bad = state_links(root)

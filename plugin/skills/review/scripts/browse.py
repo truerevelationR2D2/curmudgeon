@@ -56,10 +56,10 @@ sys.path.insert(0, str(HERE))
 import scope as scope_file
 
 ROOT = pathlib.Path(os.environ.get("CRITIC_ROOT") or re.sub(r"[\\/]\.critic[\\/]scratch(?:[\\/].*)?$", "", os.getcwd()) or os.getcwd()).resolve()
-DESTRUCTIVE = re.compile(r"(?i)\b(delete|remove|destroy|erase|drop|purge|wipe|pay|purchase|buy|checkout|place\s*order|send|transfer|withdraw|submit\s*payment|unsubscribe|cancel\s*(subscription|account)|close\s*account|deactivate)\b")
+DESTRUCTIVE = re.compile(r"(?i)\b(delete|remove|destroy|erase|drop|purge|wipe|clear|reset|discard|revoke|terminate|trash|archive|uninstall|truncate|disable|reject|log\s*out|sign\s*out|pay|purchase|buy|checkout|place\s*order|send|transfer|withdraw|submit\s*payment|unsubscribe|cancel\s*(subscription|account)|close\s*account|deactivate)\b")
 VERBS = {"goto": 1, "click": 1, "type": 2, "select": 2, "check": 1, "press": 1, "wait": 1, "snapshot": 0}
 NAME_JS = """el => { const lab = (el.labels && el.labels[0]) || (el.id ? document.querySelector('label[for="' + CSS.escape(el.id) + '"]') : null);
-  return (el.getAttribute('aria-label') || (lab && lab.innerText) || el.innerText || el.value || el.getAttribute('placeholder') || el.getAttribute('title') || el.getAttribute('name') || '').trim().slice(0, 80); }"""
+  return (el.getAttribute('aria-label') || (lab && lab.innerText) || el.innerText || (el.type === 'password' ? '' : el.value) || el.getAttribute('placeholder') || el.getAttribute('title') || el.getAttribute('name') || '').trim().slice(0, 80); }"""
 LABEL_JS = """() => { const nameOf = """ + NAME_JS + """;
   const sel = 'a[href],button,input,select,textarea,[role=button],[role=link],[role=checkbox],[role=tab],[role=menuitem],[onclick],[tabindex]:not([tabindex="-1"])';
   const out = []; let n = 0;
@@ -120,10 +120,15 @@ def live_count(target, add=0):
     try: led = json.loads(p.read_text()) if p.is_file() and not p.is_symlink() else {}
     except (OSError, ValueError): led = {}
     key = f"{_run_id()} {target}"
-    if add:
+    if not add: return int(led.get(key, 0))
+    import fcntl
+    with open(p.with_suffix(".lock"), "a") as lk:  # read, add and write under one lock, so parallel sessions don't lose counts
+        fcntl.flock(lk, fcntl.LOCK_EX)
+        try: led = json.loads(p.read_text()) if p.is_file() and not p.is_symlink() else {}
+        except (OSError, ValueError): led = {}
         led[key] = int(led.get(key, 0)) + add
-        tmp = p.with_suffix(".tmp"); tmp.write_text(json.dumps(led, indent=1)); os.replace(tmp, p)
-    return int(led.get(key, 0))
+        tmp = p.with_name(f"live-requests.{os.getpid()}.tmp"); tmp.write_text(json.dumps(led, indent=1)); os.replace(tmp, p)
+        return led[key]
 
 def destructive(c):
     import safe_web
@@ -186,7 +191,7 @@ def replay(sess, shot_dir, record=None):
     from playwright.sync_api import sync_playwright
     import difflib, safe_web
     page_arg = sess["page"]; srv = None; sim = simulated(sess)
-    evidence = {"would_have_sent": [], "network": [], "console": [], "refused": None, "wrote": False, "sent": 0, "simulated": sim, "answered": []}
+    evidence = {"would_have_sent": [], "network": [], "console": [], "refused": None, "wrote": False, "sent": 0, "simulated": sim, "answered": [], "dialogs": []}
     is_http = bool(re.match(r"^https?://", page_arg))
     if is_http: url = page_arg; allowed = [safe_web.host_port(url)]
     else:
@@ -204,14 +209,21 @@ def replay(sess, shot_dir, record=None):
         except ValueError: return False
         return "@" not in x.netloc and (x.scheme, x.hostname, port) == own
     def log_sim(rq):
-        line = f"{rq.method} {redact(rq.url)}"; evidence["answered"].append((phase[0], line))
+        body = ""
+        try: body = (rq.post_data or "")[:200]
+        except Exception: pass
+        body = re.sub(r"[A-Za-z0-9_\-]{16,}", lambda m: "…" if re.search(r"\d", m.group(0)) else m.group(0), body)  # token-shaped values masked
+        line = f"{rq.method} {show_url(rq.url)}" + (f"  body: {body}" if body else ""); evidence["answered"].append((phase[0], line))
     def guard(route):
         rq = route.request
         if rq.url.startswith(("data:", "blob:")): return route.continue_()
         if not same(rq.url): evidence["would_have_sent"].append(f"{rq.method} {redact(rq.url)}"); return route.abort()
         is_write = rq.method not in ("GET", "HEAD", "OPTIONS")
         if is_write and sim:  # the simulation answers it: the page sees an OK, the server never sees the request
-            log_sim(rq); return route.fulfill(status=200, content_type="application/json", body="{}")
+            log_sim(rq)
+            if rq.resource_type == "document":  # a form submitted by navigation gets a page back, not JSON
+                return route.fulfill(status=200, content_type="text/html", body="<!doctype html><title>Submitted (simulated)</title><p>The simulation answered this form submission; nothing was sent.</p>")
+            return route.fulfill(status=200, content_type="application/json", body="{}")
         if offline:  # a GET the recordings don't hold: never fetched for real
             evidence["would_have_sent"].append(f"{rq.method} {redact(rq.url)} (not in the recording; record it with: browse.py record PATH)"); return route.abort()
         write_ok = is_write and not live and sess.get("allow_writes")
@@ -245,7 +257,10 @@ def replay(sess, shot_dir, record=None):
         if hasattr(ctx, "route_web_socket"): ctx.route_web_socket("**", ws_guard)
         if sim or live: ctx.add_init_script(WORKERS_OFF_JS)  # a worker's socket can't be seen from outside the page
         pg = ctx.new_page()
-        pg.on("dialog", lambda d: d.dismiss())
+        def on_dialog(dlg):  # in the simulation nothing real is reachable, so a confirm is accepted to show what it guards
+            evidence["dialogs"].append((phase[0], f"{dlg.type} \"{dlg.message[:200]}\" ({'accepted' if sim else 'dismissed'})"))
+            dlg.accept() if sim else dlg.dismiss()
+        pg.on("dialog", on_dialog)
         pg.on("popup", lambda p_: (evidence["would_have_sent"].append(f"popup {redact(p_.url)}"), p_.close()))
         pg.on("console", lambda m: evidence["console"].append(m.text[:200]) if m.type == "error" else None)
         pg.on("pageerror", lambda e: evidence["console"].append(str(e)[:200]))
@@ -270,6 +285,8 @@ def replay(sess, shot_dir, record=None):
                 elif verb in ("click", "type", "select", "check"):
                     c = next((x for x in controls if x["ref"] == args[0]), None)
                     if not c: evidence["refused"] = f"{verb} {args[0]}: no such control on the page now (take a fresh snapshot)"; break
+                    if verb in ("type", "select") and str(c.get("role", "")).lower() in ("password", "hidden", "file"):
+                        evidence["refused"] = f"{verb} {args[0]}: a password, hidden or file field is never filled from model output"; break
                     if not sim and destructive(c): evidence["refused"] = f"{verb} {args[0]}: '{c['name']}' looks destructive (delete, pay, send ...), and this session sends data for real (--allow-writes); it is never used. Without --allow-writes it would run in the simulation"; break
                     r = pg.evaluate(ACT_JS, [args[0], verb, c, pattern if not sim else "(?!)"])  # checked inside the page right before acting
                     if r.get("error"): evidence["refused"] = f"{verb} {args[0]}: " + {"gone": "the control is gone", "changed": f"the control changed since the snapshot ({r.get('field')})", "destructive": "it now looks destructive",
@@ -296,7 +313,10 @@ def replay(sess, shot_dir, record=None):
                 pg.wait_for_timeout(300)
                 try: pg.wait_for_load_state("load", timeout=5000)  # a click or key that navigates finishes before the next look
                 except Exception: pass
-                if not same(pg.url): evidence["refused"] = f"the page left its origin (now {redact(pg.url)}); stopped"; break
+                if not same(pg.url):
+                    missing = [w for w in evidence["would_have_sent"] if "not in the recording" in w]
+                    evidence["refused"] = (f"that page isn't in the recording: {missing[-1].split(' (')[0]} (record it with: browse.py record PATH)" if missing and pg.url.startswith("chrome-error")
+                                           else f"the page left its origin (now {redact(pg.url)}); stopped"); break
                 controls = pg.evaluate(LABEL_JS)
             evidence["url"] = redact(pg.url); evidence["title"] = pg.title()[:120]; evidence["controls"] = controls[:200]
             after_text = body_text(); evidence["text"] = re.sub(r"\s+", " ", after_text)[:600]
@@ -312,7 +332,16 @@ def replay(sess, shot_dir, record=None):
             b.close()
             if srv: srv.shutdown()
     evidence["step_answered"] = [l for ph, l in evidence["answered"] if ph == last_phase]
+    evidence["step_dialogs"] = [l for ph, l in evidence["dialogs"] if ph == last_phase]
     return evidence
+
+def show_url(u):
+    """A URL for the "answered by the simulation" list: query values kept unless they look like tokens."""
+    try:
+        x = urllib.parse.urlsplit(u)
+        q = "&".join(f"{k}={'…' if re.fullmatch(r'[A-Za-z0-9_\-]{16,}', v) and re.search(r'\d', v) else v[:40]}" for k, v in urllib.parse.parse_qsl(x.query, keep_blank_values=True))
+        return urllib.parse.urlunsplit((x.scheme, x.netloc.split("@")[-1], x.path, q, ""))[:200]
+    except ValueError: return u[:200]
 
 def redact(u):
     try:
@@ -334,6 +363,7 @@ def show(ev):
         print(f"expected: {ev['expect']}")
         print("  before: " + ev.get("before", "?") + "   after: " + ev.get("screenshot", "?") + "   (compare them with what you expected; a mismatch is the finding)")
         print("  text that changed:" + ("\n    " + "\n    ".join(ev.get("changed_text") or []) if ev.get("changed_text") else " none"))
+    if ev.get("step_dialogs"): print("dialogs this step:\n  " + "\n  ".join(ev["step_dialogs"][:10]))
     if ev.get("step_answered"): print("this step tried to send (answered by the simulation, never sent):\n  " + "\n  ".join(ev["step_answered"][:20]))
     if ev.get("console"): print("console errors:\n  " + "\n  ".join(ev["console"][:20]))
     if ev.get("would_have_sent"): print("blocked (would have sent):\n  " + "\n  ".join(ev["would_have_sent"][:20]))
@@ -378,6 +408,9 @@ def main(argv):
             rec = sp.parent / f"{sp.stem}-recording-1.har"; sess["recordings"] = []
         ev = replay(sess, sp.parent, record=rec); sess["requests_total"] = ev["sent"]
         if live: live_count(safe_web_hp(page), ev["sent"])
+        if ev.get("error") or ev.get("refused"):  # nothing worth replaying: no session, no recording
+            if rec and rec.exists(): rec.unlink()
+            show(ev); return 2
         if rec: sess["recordings"].append({"path": str(rec.resolve()), "sha256": _sha(rec), "page": "/"})
         if ev.get("wrote"): sess["wrote_at"] = 0
         sp.write_text(json.dumps(sign(sess), indent=1)); show(ev); return 0
@@ -413,9 +446,9 @@ def main(argv):
     ev = replay(sess, sp.parent)
     sess["requests_total"] = sess.get("requests_total", 0) + ev["sent"]
     if live: live_count(safe_web_hp(sess["page"]), ev["sent"])
-    if ev.get("refused"): sess["steps"].pop()  # a refused step is not kept: the record holds only what was done
+    if ev.get("refused") or ev.get("error"): sess["steps"].pop()  # a refused or failed step is not kept: the record holds only what was done
     elif ev.get("wrote"): sess["wrote_at"] = len(sess["steps"])
     sp.write_text(json.dumps(sign(sess), indent=1)); show(ev)
-    return 2 if ev.get("refused") else 0
+    return 2 if ev.get("refused") or ev.get("error") else 0
 
 if __name__ == "__main__": sys.exit(main(sys.argv[1:]))

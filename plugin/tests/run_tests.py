@@ -2577,6 +2577,44 @@ def _(d):
     dm = (HERE.parent / "eval" / "deathmatch.py").read_text(); assert "FileNotFoundError" in dm
     ln = (HERE.parent / "eval" / "lens.py").read_text(); assert "TimeoutExpired" in ln
 
+@test("5.0 self-review (pipeline): a link a reviewer made inside its own scratch notes doesn't stop the scripts, but a link at the scratch folder itself, or anywhere else in .critic, still does")
+def _(d):
+    from critic_findings import state_links
+    run(S / "critic_ledger.py", "start", "review", "--tier", "lite", cwd=d)
+    n = d / ".critic/scratch/agent1/notes/p1"; n.mkdir(parents=True); (n / "f.txt").write_text("x"); os.symlink(n / "f.txt", n / "link")
+    h = d / ".critic/history/run-1/scratch/agent0/notes"; h.mkdir(parents=True); os.symlink(h, h / "loop")
+    assert state_links(d) == [], state_links(d)
+    os.symlink(d / ".critic/scratch/agent1", d / ".critic/scratch/agent2")
+    assert any("agent2" in x for x in state_links(d)), "a scratch folder that is itself a link is refused"
+    (d / ".critic/scratch/agent2").unlink(); os.symlink(d / "elsewhere", d / ".critic/reviews-link")
+    assert any("reviews-link" in x for x in state_links(d))
+
+@test("5.0 self-review (browser): errored steps aren't kept, dialogs are shown and accepted in the simulation, secrets aren't typed or echoed, a form post gets a page, and agents can't write scope.json")
+def _(d):
+    gs = subprocess.run([sys.executable, str(H / "guard_state.py")], input=json.dumps({"tool_name": "Write", "agent_type": "curmudgeon:curmudgeon-reviewer", "tool_input": {"file_path": str(d / ".critic/scope.json")}, "cwd": str(d)}), capture_output=True, text=True)
+    assert "deny" in gs.stdout, "an agent can't write the owner's live-site list"
+    gs = subprocess.run([sys.executable, str(H / "guard_state.py")], input=json.dumps({"tool_name": "Write", "tool_input": {"file_path": str(d / ".critic/scope.json")}, "cwd": str(d)}), capture_output=True, text=True)
+    assert "deny" not in gs.stdout, "the lead, acting for the owner, still can"
+    try: import playwright  # noqa: F401
+    except ImportError: return
+    B = S / "browse.py"
+    write(d, "a/index.html", "<!doctype html><title>A</title><p id=o>start</p>"
+          "<button onclick=\"if (confirm('Delete all notes?')) { fetch('/api/wipe',{method:'POST',body:JSON.stringify({id:2})}); document.getElementById('o').textContent='wiped'; }\">Delete all</button>"
+          "<input type=password id=pw aria-label=Password><input id=nm aria-label=Name>"
+          "<form method=post action='/submit'><button>Send form</button></form>")
+    out = run(B, "start", "a/index.html", "--session", "s/a.json", cwd=d).stdout
+    r = run(B, "step", "select", "e2", "x", "--session", "s/a.json", cwd=d); assert r.returncode == 2
+    assert json.loads((d / "s/a.json").read_text())["steps"] == [], "a step that errors is not kept"
+    out = run(B, "step", "click", "e1", "--session", "s/a.json", cwd=d).stdout
+    assert "Delete all notes?" in out and "wiped" in out and '"id":2' in out, "the confirm is shown and accepted, and the body is listed: " + out
+    r = run(B, "step", "type", "e2", "hunter2", "--session", "s/a.json", cwd=d); assert r.returncode == 2 and "password" in r.stdout.lower(), r.stdout
+    out = run(B, "step", "type", "e3", "bob", "--session", "s/a.json", cwd=d).stdout; assert "hunter2" not in out
+    out = run(B, "step", "click", "e4", "--session", "s/a.json", cwd=d).stdout
+    assert "answered by the simulation" in out and "Submitted" in out and "left its origin" not in out, out
+    r = run(B, "start", "http://127.0.0.1:9/", "--session", "s/dead.json", cwd=d); assert r.returncode == 2 and not (d / "s/dead.json").exists(), r.stdout
+    import safe_web, browse as bw
+    for w in ("Clear all", "Reset database", "Discard changes", "Revoke key", "Log out", "Terminate session"): assert safe_web.looks_destructive(w, bw.DESTRUCTIVE), w
+
 if __name__ == "__main__":
     shutil.rmtree(TMP, ignore_errors=True)
     bad = [r for r in RESULTS if not r[1]]
