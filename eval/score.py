@@ -7,6 +7,8 @@ usage:
   score.py --label                         list unmatched findings from the last scoring for labelling (writes fp_labels.json stubs)
   score.py --refutations .critic/refutations.jsonl   label the verifier's drops (refutation_labels.json) and report how often
                                            it dropped a real bug
+  score.py R1.md R2.md R3.md --suite N --gate [--model ID]   the accept/kill gate on repeat runs: PASS, FAIL or NOT MEASURED
+  score.py --selftest                      break the gate on purpose: a verifier that refutes everything must FAIL it
 
 Each REVIEW is a teardown (.critic/last-review.md). When a .critic/findings.jsonl sits beside it, the structured
 findings are used; otherwise finding blocks are parsed from the markdown.
@@ -19,14 +21,22 @@ Reported:
   behaviour       browser tests on the refactored copy (suites 1 and 2)
   repeats         with several reviews of the same suite: recall range, plants found in every run (pass^k), and the
                   overlap of finding ids between runs (stability)
-Exit 1 when any recorded baseline number drops (precision included, even if recall rose). Exit 2 on bad usage."""
-import json, pathlib, re, statistics, sys
+  intervals       every rate is shown with its 95% Wilson interval and its counts, for example "96% (82-99%, 27 of 28)"
+  impact          a planted Critical or High defect that ends below Medium is an impact miss
+  stamp           plugin version, git SHA, model, a sha256 of the prompt files and the labeller, on every result
+
+Without --gate, a single run is compared point by point with the baseline (indicative only: one run is noisy).
+With --gate (at least 2 runs): FAIL when precision, recall or impact misses are worse than the baseline's 95% interval
+in most runs, when any run flags more decoys at Medium or above than the baseline (strict floor), when any clean-twin
+run says BLOCK (strict floor), or when tokens rise more than 10% with no metric better; NOT MEASURED with fewer than 2
+runs, an answer-key leak, or a baseline without counts for a metric. Exit 0 PASS, 1 FAIL, 2 bad usage, 3 NOT MEASURED."""
+import hashlib, json, math, pathlib, re, statistics, subprocess, sys
 HERE = pathlib.Path(__file__).resolve().parent
 args = sys.argv[1:]
 def opt(name, default=None): return args[args.index(name) + 1] if name in args and args.index(name) + 1 < len(args) else default
-FLAGS_WITH_VALUE = {"--suite", "--refactored", "--baseline", "--clean", "--refutations"}
+FLAGS_WITH_VALUE = {"--suite", "--refactored", "--baseline", "--clean", "--refutations", "--model", "--labeller"}
 reviews = [a for i, a in enumerate(args) if not a.startswith("--") and (i == 0 or args[i - 1] not in FLAGS_WITH_VALUE)]
-if not reviews and "--label" not in args and "--refutations" not in args: print(__doc__); sys.exit(2)
+if not reviews and "--label" not in args and "--refutations" not in args and "--selftest" not in args: print(__doc__); sys.exit(2)
 LABELS = HERE / "fp_labels.json"; labels = json.loads(LABELS.read_text()) if LABELS.exists() else {}
 
 def load(path):
@@ -42,6 +52,47 @@ def load(path):
     if rows:  # one block per structured finding: its fields joined, so matching sees the same words the teardown shows
         blocks = [" ".join(str(r.get(k, "")) for k in ("file", "line", "category", "title", "quote", "evidence", "failing_case", "remediation")) for r in rows]
     return text, rows, blocks
+
+def wilson(k, n, z=1.96):
+    """95% Wilson score interval for k successes in n trials."""
+    if not n: return (0.0, 1.0)
+    p = k / n; d = 1 + z * z / n; c = p + z * z / (2 * n); h = z * math.sqrt(p * (1 - p) / n + z * z / (4 * n * n))
+    return (max(0.0, (c - h) / d), min(1.0, (c + h) / d))
+def rate(k, n): lo, hi = wilson(k, n); return f"{k / n:.0%} ({lo:.0%}-{hi:.0%}, {k} of {n})" if n else "not measured (0 judged)"
+
+PLUGIN = HERE.parent / "plugin"
+def stamp():
+    """What produced this result: plugin version, git SHA (dirty or clean), model, prompt files' hash, labeller."""
+    try: version = json.loads((PLUGIN / ".claude-plugin" / "plugin.json").read_text()).get("version")
+    except Exception: version = None
+    def git(*a):
+        try: return subprocess.run(["git", *a], cwd=HERE.parent, capture_output=True, text=True, timeout=10).stdout.strip()
+        except (OSError, subprocess.TimeoutExpired): return ""
+    files = sorted(list((PLUGIN / "agents").glob("*.md")) + list((PLUGIN / "skills").glob("*/SKILL.md")) + list((PLUGIN / "skills" / "review" / "references").glob("*.md")))
+    h = hashlib.sha256()
+    for f in files: h.update(f.relative_to(PLUGIN).as_posix().encode() + b"\0" + f.read_bytes() + b"\0")
+    return {"version": version, "sha": git("rev-parse", "--short=12", "HEAD") or None, "dirty": bool(git("status", "--porcelain", "--", "plugin")),
+            "model": opt("--model", "unrecorded"), "prompts_sha256": h.hexdigest()[:16], "labeller": opt("--labeller", labels.get("_labeller", "unrecorded"))}
+
+LEAK_FILES = re.compile(r"^(answer_key\d*\.json|decoys\d*\.json|fp_labels\.json|labels-.*\.json|refutation_labels\.json|score\.py|baseline\.json)$")
+def leak(path):
+    """Signs the reviewed copy could see the answers: eval files inside the run folder, or answer-key ids in the review."""
+    p = pathlib.Path(path).resolve(); run_dir = p.parent.parent if p.parent.name == ".critic" else p.parent
+    found = [str(x.relative_to(run_dir)) for x in run_dir.rglob("*") if x.is_file() and LEAK_FILES.match(x.name) and ".git" not in x.parts][:5]
+    text = p.read_text(encoding="utf-8", errors="replace")
+    if re.search(r"answer[_ ]key|\b[DE]\d{2}\b.*planted|planted (defect|flaw)s? list", text, re.I): found.append("the review names the answer key")
+    return found
+
+def run_tokens(path):
+    """Tokens the run's agents used, from the run's .critic/cost.jsonl (None when not recorded)."""
+    p = pathlib.Path(path).resolve(); cf = (p.parent if p.parent.name == ".critic" else p.parent / ".critic") / "cost.jsonl"
+    if not cf.is_file(): return None
+    tot = 0
+    for line in cf.read_text().splitlines():
+        try: r = json.loads(line)
+        except ValueError: continue
+        tot += sum(r.get(k, 0) for k in ("input_tokens", "cache_creation_input_tokens", "cache_read_input_tokens", "output_tokens"))
+    return tot
 
 def match_key(key, blocks):
     hits, used = {}, set()
@@ -133,8 +184,42 @@ def score_one(path, suite):
             elif l_ in ("hallucinated", "nitpick"): by.setdefault(kind, [0, 0])[1] += 1
     c, stated, actual, verdict = contract(review, rows)
     ids = {r.get("id") for r in rows} if rows else set()
+    impact_misses = []  # a planted Critical or High that the review rated below Medium
+    for name, bi in hits.items():
+        want = key[name].get("impact")
+        if want not in ("Critical", "High"): continue
+        got = rows[bi].get("impact") if rows else (re.search(r"\b(Critical|High|Medium|Low)\b", blocks[bi]) or [None, None])[1]
+        if got not in ("Critical", "High", "Medium"): impact_misses.append((name, want, got))
+    blocking = sum(1 for d in decoy_detail if d[1][1] in ("Critical", "High", "Medium"))
     return dict(path=path, key=key, hits=hits, by_area=by, decoy_hits=decoy_hits, decoy_detail=decoy_detail, unmatched=unmatched, labels=lab, precision=precision,
-                recall=len(hits) / len(key), contract=c, stated=stated, actual=actual, ids=ids, verdict=verdict)
+                recall=len(hits) / len(key), contract=c, stated=stated, actual=actual, ids=ids, verdict=verdict, tp=tp, fp=fp,
+                impact_misses=impact_misses, decoy_blocking=blocking)
+
+if "--selftest" in args:
+    # Break the gate on purpose (SC-71): runs where a verifier refuted every real bug must FAIL; runs equal to the
+    # baseline must PASS; one run must be NOT MEASURED; a decoy flagged at Medium must FAIL at once. No model needed.
+    import tempfile
+    key = json.loads((HERE / "answer_key.json").read_text())
+    def text_for(name, k):
+        for cand in [name] + [re.sub(r"\\(.)", r"\1", x) for x in k["any"]]:
+            if any(re.search(x, f"{k['file']} {cand}", re.I) for x in k["any"]): return cand
+        return name
+    def make(dirp, rows):
+        dirp.mkdir(parents=True); (dirp / "last-review.md").write_text("# review\n## VERDICT\n**CONCERNS**\n")
+        (dirp / "findings.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows))
+        return str(dirp / "last-review.md")
+    good = [{"id": f"F-{i}", "file": k["file"] or "app.js", "line": 1, "category": "x", "impact": k.get("impact", "Medium"), "title": text_for(n, k)} for i, (n, k) in enumerate(key.items())]
+    with tempfile.TemporaryDirectory() as t:
+        t = pathlib.Path(t); bl = t / "baseline.json"
+        g = [make(t / f"good{i}", good) for i in range(3)]
+        bad = [make(t / f"refuted{i}", []) for i in range(3)]
+        low = [make(t / f"low{i}", [dict(r, impact="Low") if r.get("impact") in ("Critical", "High") else r for r in good]) for i in range(3)]
+        def go(*a): return subprocess.run([sys.executable, str(pathlib.Path(__file__).resolve()), *a, "--suite", "1", "--baseline", str(bl)], capture_output=True, text=True).returncode
+        checks = [("baseline recorded", go(*g, "--set-baseline") == 0), ("equal runs PASS", go(*g, "--gate") == 0),
+                  ("a verifier that refutes everything FAILS", go(*bad, "--gate") == 1), ("impact misses FAIL", go(*low, "--gate") == 1),
+                  ("one run is NOT MEASURED", go(g[0], "--gate") == 3)]
+    for name, ok in checks: print(f"  {'✓' if ok else '✗'} {name}")
+    sys.exit(0 if all(ok for _, ok in checks) else 1)
 
 if "--refutations" in args:
     # the verifier's drops, judged: a refutation labelled "real" means the verifier talked the review out of a real bug
@@ -169,7 +254,7 @@ if "--clean" in args:
     suite_key = f"clean{opt('--clean')}"
 else:
     suite = opt("--suite", "1"); res = [score_one(r, suite) for r in reviews]; r0 = res[0]
-    print(f"Recall: {len(r0['hits'])}/{len(r0['key'])} planted defects found ({round(100 * r0['recall'])}%)")
+    print(f"Recall: {rate(len(r0['hits']), len(r0['key']))} planted defects found")
     for m in r0["key"]:
         if m not in r0["hits"]: print("  missed:", m)
     if r0["decoy_hits"] or (HERE / f"decoys{suite}.json").exists():
@@ -177,7 +262,8 @@ else:
         print(f"Decoys reported as defects: {len(r0['decoy_hits'])} ({len(blocking)} at Medium or above, {len(r0['decoy_hits']) - len(blocking)} Low)")
         for name, (fid, imp, title) in r0["decoy_detail"]: print(f"  decoy hit: {name}\n      by {fid or '?'} [{imp or '?'}] {title}")
     lb = r0["labels"]
-    print(f"Precision: {r0['precision']:.2f}  (unmatched findings: {len(r0['unmatched'])} — real {lb['real']}, hallucinated {lb['hallucinated']}, nitpick {lb['nitpick']}, unlabelled {lb['unlabelled']})")
+    for name, want, got in r0["impact_misses"]: print(f"  impact miss: {name[:70]} was planted {want}, rated {got or 'unrated'}")
+    print(f"Precision: {rate(r0['tp'], r0['tp'] + r0['fp'])}  (unmatched findings: {len(r0['unmatched'])} — real {lb['real']}, hallucinated {lb['hallucinated']}, nitpick {lb['nitpick']}, unlabelled {lb['unlabelled']})")
     (HERE / ".last-unmatched.json").write_text(json.dumps(r0["unmatched"]))
     if r0["by_area"]:
         print("Precision by kind of finding (true / judged):")
@@ -185,7 +271,9 @@ else:
             print(f"  {k_:<18} {t_}/{t_ + f_}" + (f"  ({t_ / (t_ + f_):.0%})" if t_ + f_ else ""))
     for k, v in r0["contract"].items(): print(f"  {'✓' if v else '✗'} {k}")
     if not r0["contract"]["verdict counts match the findings"]: print(f"    stated {r0['stated'] or 'nothing'}; counted {r0['actual']}")
-    now = {"recall": r0["recall"], "precision": r0["precision"], "contract": sum(r0["contract"].values()) / len(r0["contract"])}
+    now = {"recall": r0["recall"], "precision": r0["precision"], "contract": sum(r0["contract"].values()) / len(r0["contract"]),
+           "recall_k": len(r0["hits"]), "recall_n": len(r0["key"]), "precision_k": r0["tp"], "precision_n": r0["tp"] + r0["fp"],
+           "impact_misses": len(r0["impact_misses"]), "decoy_blocking": r0["decoy_blocking"]}
     if suite == "3":
         nd = max(1, len(json.loads((HERE / "decoys3.json").read_text())))
         now["decoy_rate"] = len(r0["decoy_hits"]) / nd
@@ -212,10 +300,57 @@ else:
     suite_key = f"suite{suite}"
 
 bf = pathlib.Path(opt("--baseline", HERE / "baseline.json")); base = json.loads(bf.read_text()) if bf.exists() else {}
+st = stamp(); print("Stamp: " + ", ".join(f"{k} {v}" for k, v in st.items()))
+leaks = {r: leak(r) for r in reviews}; leaks = {r: v for r, v in leaks.items() if v}
+for r, v in leaks.items(): print(f"ANSWER-KEY LEAK in {r}: {', '.join(v)}")
+toks = [run_tokens(r) for r in reviews]
+if any(t is not None for t in toks): print("Tokens per run: " + ", ".join("unrecorded" if t is None else f"{t:,}" for t in toks))
 if "--set-baseline" in args:
-    base[suite_key] = now; bf.write_text(json.dumps(base, indent=1)); print(f"baseline for {suite_key} set: {now}"); sys.exit(0)
+    if leaks: print("refusing to set a baseline from a run that could see the answers"); sys.exit(3)
+    entry = dict(now, stamp=st)
+    if "--clean" not in args and len(res) > 1: entry["runs"] = [{"precision_k": x["tp"], "precision_n": x["tp"] + x["fp"], "recall_k": len(x["hits"]), "recall_n": len(x["key"]),
+                                                               "impact_misses": len(x["impact_misses"]), "decoy_blocking": x["decoy_blocking"]} for x in res]
+    if any(t is not None for t in toks): entry["tokens"] = statistics.median([t for t in toks if t is not None])
+    base[suite_key] = entry; bf.write_text(json.dumps(base, indent=1)); print(f"baseline for {suite_key} set: {now}"); sys.exit(0)
 b = base.get(suite_key, {})
-lower_is_better = {"fp_clean", "false_block", "decoy_rate", "decoy_block_rate"}
-drops = [k for k, v in now.items() if k in b and ((v > b[k] + 1e-9) if k in lower_is_better else (v + 1e-9 < b[k]))]
+if "--gate" in args:
+    def verdict_(v, why): print(f"GATE: {v}" + ("".join(f"\n  - {w}" for w in why) if why else "")); sys.exit({"PASS": 0, "FAIL": 1, "NOT MEASURED": 3}[v])
+    if leaks: verdict_("NOT MEASURED", ["a run could see the answer key"])
+    if len(reviews) < 2: verdict_("NOT MEASURED", ["the gate needs at least 2 runs (3 recommended)"])
+    if not b: verdict_("NOT MEASURED", [f"no baseline for {suite_key}"])
+    why, missing = [], []
+    if "--clean" in args:
+        runs = []
+        for r in reviews:
+            rv, rws, _ = load(r); imps = [x.get("impact") for x in rws] if rws else re.findall(r"IMPACT:\s*\**\s*(Critical|High|Medium|Low)", rv)
+            runs.append({"fp": sum(1 for x in imps if x in ("Critical", "High", "Medium")), "block": bool(re.search(r"\bBLOCK\b", (re.search(r"VERDICT(.*)", rv, re.S) or [None, ""])[1][:400]))})
+        if any(x["block"] for x in runs): why.append("a clean-twin run says BLOCK (strict floor)")
+        worse = sum(1 for x in runs if x["fp"] > b.get("fp_clean", 0))
+        if worse * 2 > len(runs): why.append(f"more false alarms than the baseline in {worse} of {len(runs)} runs")
+    else:
+        def lower(metric):
+            k, n = b.get(f"{metric}_k"), b.get(f"{metric}_n")
+            if k is None or not n: missing.append(metric); return None
+            return wilson(k, n)[0]
+        for metric in ("precision", "recall"):
+            lo = lower(metric)
+            if lo is None: continue
+            worse = sum(1 for x in res if (x["tp"] / (x["tp"] + x["fp"]) if metric == "precision" and x["tp"] + x["fp"] else (len(x["hits"]) / len(x["key"]) if metric == "recall" else 1.0)) < lo - 1e-9)
+            if worse * 2 > len(res): why.append(f"{metric} below the baseline's 95% interval (lower bound {lo:.0%}) in {worse} of {len(res)} runs")
+        if "impact_misses" in b:
+            worse = sum(1 for x in res if len(x["impact_misses"]) > b["impact_misses"])
+            if worse * 2 > len(res): why.append(f"more impact misses than the baseline in {worse} of {len(res)} runs")
+        else: missing.append("impact_misses")
+        floor = b.get("decoy_blocking")
+        if floor is None and "decoy_block_rate" in b and suite == "3": floor = round(b["decoy_block_rate"] * max(1, len(json.loads((HERE / "decoys3.json").read_text()))))
+        if floor is not None and any(x["decoy_blocking"] > floor for x in res): why.append(f"a run flags more decoys at Medium or above than the baseline's {floor} (strict floor)")
+        if b.get("tokens") and all(t is not None for t in toks):
+            better = any(x["tp"] / max(1, x["tp"] + x["fp"]) > b.get("precision", 1) + 1e-9 or x["recall"] > b.get("recall", 1) + 1e-9 for x in res)
+            if statistics.median(toks) > 1.10 * b["tokens"] and not better: why.append(f"tokens rose {statistics.median(toks) / b['tokens'] - 1:.0%} with no metric better (cost regression)")
+    if why: verdict_("FAIL", why)
+    if missing: verdict_("NOT MEASURED", [f"the baseline has no counts for {', '.join(sorted(set(missing)))}: re-record it with --set-baseline from accepted runs"])
+    verdict_("PASS", [])
+lower_is_better = {"fp_clean", "false_block", "decoy_rate", "decoy_block_rate", "impact_misses", "decoy_blocking"}
+drops = [k for k, v in now.items() if k in b and not k.endswith(("_k", "_n")) and isinstance(v, (int, float)) and ((v > b[k] + 1e-9) if k in lower_is_better else (v + 1e-9 < b[k]))]
 if drops: print("BELOW BASELINE: " + ", ".join(f"{k} {now[k]:.2f} vs {b[k]:.2f}" for k in drops)); sys.exit(1)
 print("at or above baseline" if b else "no baseline recorded yet (run with --set-baseline once the result is accepted)")
