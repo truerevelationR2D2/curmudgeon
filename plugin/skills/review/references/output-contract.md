@@ -8,6 +8,8 @@
 - Unsure? Write `q:` and the question. Don't hedge.
 
 ## Finding record (what reviewers write, as JSON)
+A review file is `{"findings": [ ...finding records... ], "set_aside": [ {"file", "line", "what", "guard"} ]}`; a plain list of findings is still accepted. `set_aside` lists candidates the reviewer dropped and the guard it relied on: logged in the tally, never counted.
+
 | Field | Meaning |
 | --- | --- |
 | `category` | Short kind of problem: xss, data-loss, race, a11y-focus, domain-leak, claim, ai-tell… |

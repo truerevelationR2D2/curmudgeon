@@ -1265,6 +1265,58 @@ def _(d):
             m = _re.search(r"scaffold_script:\s*(\S+)", y)
             if m: assert (c / m.group(1)).exists(), f"{c.name}: scaffold script missing"
 
+@test("5.0 SC-22 and SC-25: the blindness guard denies each role what it must not read (links included), leaves others alone, and refuses forks during a run")
+def _(d):
+    write(d, ".critic/reviews/review-B.json", "[]"); write(d, ".critic/verify/F-1.json", "{}"); write(d, ".critic/ledger.md", "# l"); write(d, "src/a.py", "x = 1\n")
+    write(d, ".critic/scratch/me/notes.txt", "n"); write(d, ".critic/scratch/other/notes.txt", "n"); os.symlink(d / ".critic/reviews", d / "src/peek")
+    def ask(agent, tool, **ti):
+        inp = {"tool_name": tool, "tool_input": ti, "cwd": str(d)}
+        if agent: inp.update(agent_type=agent, agent_id="me")
+        return "deny" in run(H / "read_guard.py", cwd=d, stdin=json.dumps(inp)).stdout
+    R, V, D_ = "curmudgeon:curmudgeon-reviewer", "curmudgeon-verifier", "curmudgeon:curmudgeon-dedup"
+    assert ask(R, "Read", file_path=str(d / ".critic/reviews/review-B.json"))
+    assert ask(R, "Read", file_path=str(d / "src/peek/review-B.json")), "a link into .critic/reviews must be caught"
+    assert ask(R, "Bash", command="cat .critic/tally.json | head")
+    assert ask(R, "Grep", pattern="x", path=".critic/scan")
+    assert ask(R, "Read", file_path=str(d / ".critic/scratch/other/notes.txt"))
+    assert not ask(R, "Read", file_path=str(d / ".critic/scratch/me/notes.txt"))
+    assert not ask(R, "Read", file_path=str(d / "src/a.py"))
+    assert not ask(V, "Read", file_path=str(d / ".critic/verify/F-1.json")) and not ask(V, "Read", file_path=str(d / ".critic/ledger.md"))
+    assert ask(V, "Read", file_path=str(d / ".critic/reviews/review-B.json"))
+    assert ask(D_, "Read", file_path=str(d / ".critic/scan/report.md"))
+    assert not ask(None, "Read", file_path=str(d / ".critic/reviews/review-B.json")), "the main conversation is never limited"
+    assert not ask("general-purpose", "Read", file_path=str(d / ".critic/reviews/review-B.json"))
+    assert not ask(None, "Agent", subagent_type="fork", prompt="x"), "no run is active"
+    run(S / "critic_ledger.py", "start", "review", "--tier", "full", cwd=d)
+    assert ask(None, "Agent", subagent_type="fork", prompt="x"), "a fork during a run must be refused"
+    assert not ask(None, "Agent", subagent_type="curmudgeon:curmudgeon-reviewer", prompt="x")
+
+@test("5.0 SC-23, SC-24, SC-26, SC-27, SC-29, SC-33: private scratch folders, lean blind agents, and a logged set-aside list")
+def _(d):
+    out = run(H / "scratch_dir.py", cwd=d, stdin=json.dumps({"agent_type": "curmudgeon:curmudgeon-reviewer", "agent_id": "a1b2", "cwd": str(d)})).stdout
+    assert (d / ".critic/scratch/a1b2").is_dir() and "additionalContext" in out and "a1b2" in out, out
+    assert not run(H / "scratch_dir.py", cwd=d, stdin=json.dumps({"agent_type": "Explore", "agent_id": "zz", "cwd": str(d)})).stdout.strip()
+    e = d / "linked"; e.mkdir(); (d / "elsewhere").mkdir(); os.symlink(d / "elsewhere", e / ".critic")
+    run(H / "scratch_dir.py", cwd=e, stdin=json.dumps({"agent_type": "curmudgeon-reviewer", "agent_id": "x9", "cwd": str(e)}))
+    assert not (d / "elsewhere/scratch").exists(), "never create through a planted link"
+    import re as _re
+    for a in (HERE / "agents").glob("*.md"):
+        fm = _re.match(r"---\n(.*?)\n---", a.read_text(), _re.S).group(1)
+        for k in ("omitClaudeMd: true", 'disallowedTools: ["mcp__*"]', "maxTurns:", "effort:"): assert k in fm, (a.name, k)
+        assert fm.count("<example>") == 1, a.name
+    g = finding(category="domain", impact="Medium", line=4, quote="const price = total * 1.0825;", title="Tax rule in render code")
+    write(d, "src/app.js", APP); run(S / "critic_ledger.py", "start", "review", "--tier", "full", cwd=d)
+    write(d, ".critic/reviews/review-A.json", json.dumps({"findings": [g], "set_aside": [{"file": "src/app.js", "line": 2, "what": "innerHTML", "guard": "src/app.js:3 escapes it"}]}))
+    run(S / "critic_merge.py", "tally", ".critic/reviews/review-A.json", cwd=d)
+    t = json.loads((d / ".critic/tally.json").read_text())
+    assert t["set_aside"] and t["set_aside"][0]["reviewer"] == "review-A" and len(t["kept"]) + len(t["contested"]) + len(t["dropped"]) == 1, t
+    write(d, ".critic/reviews/review-B.json", json.dumps({"findings": [g], "set_aside": [{"file": "src/app.js", "what": "no guard named"}]}))
+    out = run(H / "check_contract.py", cwd=d, stdin=json.dumps({"agent_type": "curmudgeon-reviewer", "cwd": str(d), "last_assistant_message": "Wrote .critic/reviews/review-B.json"})).stdout
+    assert "guard" in out and "block" in out, out
+    write(d, ".critic/reviews/review-B.json", json.dumps({"findings": [g], "set_aside": []}))
+    out = run(H / "check_contract.py", cwd=d, stdin=json.dumps({"agent_type": "curmudgeon-reviewer", "cwd": str(d), "last_assistant_message": "Wrote .critic/reviews/review-B.json"})).stdout
+    assert "block" not in out, out
+
 if __name__ == "__main__":
     bad = [r for r in RESULTS if not r[1]]
     print(f"\n{len(RESULTS) - len(bad)} of {len(RESULTS)} passed"); sys.exit(1 if bad else 0)

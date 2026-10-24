@@ -151,10 +151,16 @@ def tally(paths):
                  and pathlib.Path(p).stat().st_mtime < started - 2]
         if stale: die(f"refusing to count {', '.join(stale)}: written before this run started, so it is from an earlier run. Remove it, or have a fresh reviewer write it again")
     reviews = [load_review(p) for p in paths]
+    set_aside = []  # candidates a reviewer dropped, with the guard it relied on: logged so the eval can measure self-filtering, never counted
+    for p in paths:
+        try: v = json.loads(pathlib.Path(p).read_text(encoding="utf-8"))
+        except (ValueError, OSError): continue
+        if isinstance(v, dict):
+            set_aside += [dict(scrub(x), reviewer=pathlib.Path(p).stem) for x in v.get("set_aside", []) if isinstance(x, dict)]
     n = len(reviews); need = 1 if n == 1 else math.ceil(2 * n / 3)
     # an outside run we can't see never counts as executed: verification decides
     outside_rows = [dict(r, source="outside", verified=r.get("verified") if r.get("verified") == "inferred" else "traced") for r in load_review(outside)] if outside else []
-    L = ledger(); out = {"reviewers": n, "votes_needed": need, "outside": None, "kept": [], "contested": [], "dropped": [], "retracted": [], "rejected": [], "suppressed": []}
+    L = ledger(); out = {"reviewers": n, "votes_needed": need, "outside": None, "kept": [], "contested": [], "dropped": [], "retracted": [], "rejected": [], "suppressed": [], "set_aside": set_aside}
     scanned = scan_rows(scan) if scan else []
     accepted = []  # (raw_id, reviewer_index or None for scan, finding)
     OUTSIDE_RI = len(reviews) + 1

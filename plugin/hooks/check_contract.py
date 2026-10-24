@@ -17,8 +17,13 @@ def problems_review(root, msg):
     if time.time() - rv[0].stat().st_mtime > 1800: return [f"{rv[0].name} is older than 30 minutes: this run didn't write it"]
     try: rows = json.loads(rv[-1].read_text())
     except Exception as e: return [f"{rv[-1].name} is not valid JSON ({e})"]
-    if not isinstance(rows, list): return [f"{rv[-1].name} must hold a JSON list of findings"]
     errs = []
+    if isinstance(rows, dict):  # {"findings": [...], "set_aside": [...]}: the set-aside list is logged, never counted
+        aside = rows.get("set_aside", [])
+        if not isinstance(aside, list) or any(not isinstance(x, dict) or not str(x.get("guard") or "").strip() for x in aside):
+            errs.append("every set_aside entry must be an object naming the guard it relied on (guard: file:line and why)")
+        rows = rows.get("findings")
+    if not isinstance(rows, list): return [f"{rv[-1].name} must hold a JSON list of findings, or an object with a findings list"]
     for i, f in enumerate(rows):
         e = validate(f) if isinstance(f, dict) else ["not an object"]
         if e: errs.append(f"finding {i + 1} ({(f or {}).get('title', '?') if isinstance(f, dict) else '?'}): {'; '.join(e)}")
