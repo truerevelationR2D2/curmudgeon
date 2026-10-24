@@ -58,7 +58,7 @@ def say_next(st, tier, items):
     rel = lambda p: str(p.relative_to(ROOT))
     if st == "reviewing":
         print(f"next: start {len(items)} curmudgeon:curmudgeon-reviewer agent(s) by name (never a fork), blind, one per letter: "
-              + ", ".join(p.stem[-1] for p in items) + ". Each writes " + ", ".join(rel(p) for p in items) + " (A ranked, B reversed, C shuffled).")
+              + ", ".join(p.stem[-1] for p in items) + ". Give each the text of its brief, unchanged, as its prompt: " + ", ".join(f".critic/briefs/brief-{p.stem[-1]}.md" for p in items) + ". Each writes " + ", ".join(rel(p) for p in items) + ".")
     elif st == "dedup": print(f"next: start curmudgeon:curmudgeon-dedup on {rel(items[0])}; it writes .critic/groups.json. Then run critic_run.py next.")
     elif st == "verify":
         batches = [items[i:i + 5] for i in range(0, len(items), 5)]
@@ -78,6 +78,13 @@ def main(a):
             try: tier = json.loads((D / "change-map.json").read_text()).get("tier") or "full"
             except (OSError, ValueError): tier = "full"
         sh("critic_ledger.py", "start", "review", "--tier", tier)
+        sh("critic_brief.py", "--letters", ",".join(REVIEWERS.get(tier, REVIEWERS["full"])))
+        files = [str(f) for f in (json.loads((D / "change-map.json").read_text()).get("files") or [])] if (D / "change-map.json").exists() else []
+        only = ""
+        if files and not (D / "scan-only.txt").is_symlink():
+            (D / "scan-only.txt").write_text("\n".join(files) + "\n", encoding="utf-8"); only = " --only .critic/scan-only.txt"
+        print(f"now, in the background (Bash with run_in_background), while the reviewers work: python3 {HERE / 'critic_scan.py'} . --root .{only} "
+              "(add --page <page> for a UI). Reviewers can't read its output (their private copies and the read guard), so it no longer waits for them.")
         st, L, tier, items = state(); say_next(st, tier, items); return 0
     if cmd == "status":
         st, L, tier, items = state(); print(f"run {L.get('run', 0)}, tier {tier}, round {L.get('round', 0)}: {st}"); say_next(st, tier, items); return 0

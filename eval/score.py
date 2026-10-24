@@ -148,7 +148,7 @@ def contract(review, rows):
     cu = sum(1 for k in ids if k[0] in "CU")
     c = {
         "no opening filler": not re.search(r"^\W*(great|nice|good|solid|overall|this (is|looks)|thanks|here is|here's|i )", review.strip()[:120], re.I),
-        "all contract headers": all(section(h) is not None for h in ["INTENT GATE", "RISK MAP", "SANDBOX LEDGER", "CRITICAL CODE ARCHITECTURE DEFECTS", "UI/UX", "ANTI-AI", "CLAIMS, NUMBERS", "VERDICT"]),
+        "all contract headers": all((any(section(x) is not None for x in h) if isinstance(h, tuple) else section(h) is not None) for h in ["INTENT GATE", "RISK MAP", "SANDBOX LEDGER", ("CODE AND ARCHITECTURE", "CRITICAL CODE ARCHITECTURE DEFECTS"), "UI/UX", "ANTI-AI", "CLAIMS, NUMBERS", "VERDICT"]),
         "exactly one verdict word": len(set(re.findall(r"\*\*(BLOCK|CONCERNS|CLEAN)\*\*", verdict))) == 1 or len(set(re.findall(r"\b(BLOCK|CONCERNS|CLEAN)\b", verdict))) == 1,
         "verdict counts match the findings": bool(stated) and all(stated.get(s, 0) == actual[s] for s in actual),
         "evidence on every code/UX finding": cu == 0 or len(re.findall(r"\*\*Evidence:?\*\*", review, re.I)) >= cu,

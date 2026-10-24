@@ -27,6 +27,12 @@ Group one issue found in several places into one record. Stable ids are made fro
 ## Banner
 If the judgment and detector passes could not run in separate contexts, the first line is `DEGRADED: single context (<why>)`. If no independent reviewer was possible at all and the user asked for a fresh review, the first line is `BLOCKED: no independent reviewer available` and the review stops there.
 
+## First line: the verdict
+After the banner (if any), the first line is the verdict and the counts, so a reader who stops there has the answer: `**BLOCK** · Counts: 1 Critical, 2 High, 0 Medium, 3 Low` (copied from `.critic/counts.md`; the same word and counts as section 5).
+
+## Quiet mode (`/curmudgeon:review quiet`, or when the user asks for a short review)
+Critical and High findings are written in full. Medium and Low findings are folded into one counted list under their section, one line each with the same id and impact (`- **C4** \`file:line\` | Medium | the defect in a few words`). Every count stays exact; nothing is dropped, only shortened. INTENT GATE, RISK MAP and SANDBOX LEDGER shrink to one line each.
+
 ## Headers (exactly these)
 #### INTENT GATE
 The questions asked and the answers, or "not needed: <why>". If there was a stated intent: **Asked but not done:** … · **Done but not asked:** … (or "none").
@@ -34,7 +40,8 @@ The questions asked and the answers, or "not needed: <why>". If there was a stat
 Files ranked by risk (what saves, renders input, moves money, holds secrets, runs async), with the reading budget spent on each.
 #### SANDBOX LEDGER
 Scenario → what happens → finding id or "holds" (driven or traced).
-#### 1. CRITICAL CODE ARCHITECTURE DEFECTS
+#### 1. CODE AND ARCHITECTURE
+Findings of every impact, worst first.
 - **C1** `file:line` | **IMPACT: Critical** | `F-1a2b3c4d` · confidence confirmed · votes 3/3 | **Defect:** …
 - **Evidence:** what was checked and what was seen, with ids (S012 for a scripted row, SB4 for a sandbox line).
 - **Failing case:** the concrete input or sequence, and the wrong result.

@@ -1615,6 +1615,33 @@ def _(d):
     assert "five solutions, ranked best to worst" in guide and guide.count("\n1. **Remove the need.**") == 1 and "5. **Accept, document and watch.**" in guide
     assert "WHACK-A-MOLE" in (HERE / "skills/fix/SKILL.md").read_text() and "escalation.md" in (HERE / "skills/fix/SKILL.md").read_text()
 
+@test("5.0 SC-30 and SC-32: briefs share one byte-identical prefix and differ only in letter and order; begin prints the scan to run in the background")
+def _(d):
+    for n in "abcdef": write(d, f"src/{n}.js", "export const x = 1;\n")
+    write(d, ".critic/scan/report.md", "SCAN-SECRET"); write(d, ".critic/reviews/review-B.json", '[{"title": "OTHER-REVIEW"}]')
+    run(S / "critic_ledger.py", "decision", "Prices are in cents", cwd=d)
+    out = run(S / "critic_run.py", "begin", "--files", *[f"src/{n}.js" for n in "abcdef"], "--tier", "full", cwd=d).stdout
+    assert "run_in_background" in out and "critic_scan.py . --root . --only .critic/scan-only.txt" in out and ".critic/briefs/brief-B.md" in out, out
+    assert sorted((d / ".critic/scan-only.txt").read_text().split()) == [f"src/{n}.js" for n in "abcdef"]
+    b = {x: (d / f".critic/briefs/brief-{x}.md").read_text() for x in "ABC"}
+    pre = {x: b[x].split("\n---\n")[0] for x in "ABC"}
+    assert pre["A"] == pre["B"] == pre["C"] and "Prices are in cents" in pre["A"], "the shared part must be byte-identical"
+    order = {x: [l.split(". ", 1)[1] for l in b[x].split("\n---\n")[1].splitlines() if l[:1].isdigit()] for x in "ABC"}
+    assert order["B"] == list(reversed(order["A"])) and sorted(order["C"]) == sorted(order["A"]) and order["C"] not in (order["A"], order["B"]), order
+    assert all("SCAN-SECRET" not in t and "OTHER-REVIEW" not in t for t in b.values()), "a brief never carries the scan or another review"
+    first_c = b["C"]; run(S / "critic_brief.py", cwd=d); assert (d / ".critic/briefs/brief-C.md").read_text() == first_c, "the shuffle is seeded by the run: a rerun gives the same order"
+
+@test("5.0 SC-34: the teardown opens with the verdict and counts, has a quiet mode that keeps every count, and the code section is named for what it holds")
+def _(d):
+    oc = (HERE / "skills/review/references/output-contract.md").read_text()
+    assert "## First line: the verdict" in oc and "## Quiet mode" in oc and "#### 1. CODE AND ARCHITECTURE" in oc and "CRITICAL CODE ARCHITECTURE" not in oc
+    assert "quiet" in (HERE / "skills/review/SKILL.md").read_text()
+    body = "**BLOCK** · Counts: 0 Critical, 1 High, 0 Medium, 0 Low\n#### INTENT GATE\nnot needed\n#### RISK MAP\nx\n#### SANDBOX LEDGER\nx\n#### {}\n- **C1** `a.js:1` | **IMPACT: High** | x\n#### 2. UI/UX & INTERACTION FRICTION\nnone\n#### 3. THE \"ANTI-AI\" CLEANUP\nnone\n#### 4. CLAIMS, NUMBERS AND CONSISTENCY\nnone\n#### 5. VERDICT\n- **BLOCK**\n- Counts: 0 Critical, 1 High, 0 Medium, 0 Low\n"
+    for name in ("1. CODE AND ARCHITECTURE", "1. CRITICAL CODE ARCHITECTURE DEFECTS"):
+        r = write(d, "r.md", body.format(name))
+        out = run(HERE.parent / "eval" / "score.py", str(r), "--suite", "1", cwd=d).stdout
+        assert "✓ all contract headers" in out, (name, out[-600:])
+
 if __name__ == "__main__":
     shutil.rmtree(TMP, ignore_errors=True)
     bad = [r for r in RESULTS if not r[1]]
