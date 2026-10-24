@@ -972,6 +972,60 @@ def _(d):
     d2 = d / "clean"; d2.mkdir(); subprocess.run(["git", "init", "-q"], cwd=d2)
     r = run(S / "critic_ledger.py", "init", cwd=d2); assert "git tracks" not in r.stderr, r.stderr
 
+@test("4.2.2 review round 2: named passwords stay masked, ordinary names and paths aren't, unnamed random keys are")
+def _(d):
+    import random, string
+    sys.path.insert(0, str(S)); import importlib, critic_findings; importlib.reload(critic_findings); r = critic_findings.redact_finding_text
+    pw = "hun" + "ter2Xq9"
+    for s in (f"DATABASE_PASSWORD={pw}", f"password: {pw}", f'"password": "{pw}"', f"Authorization: Bearer {pw}abc", f"curl -u admin:{pw} https://x",
+              f"mysql -p{pw} db", f"redis-cli -a {pw}", f"Cookie: sid={pw}", f"--password {pw}", f"postgres://u:{pw}@h/db", f"token = '{pw}'"):
+        assert pw not in r(s), f"a named password was left in: {r(s)}"
+    for s in ("password = form.password", "cookies = req.cookies", 'token = request.headers.get("X-Token")', "auth = HTTPBasicAuth(user, pw)",
+              "password = new_password", "password: str", "see commit 3f2a9c1d4e5b6a7980f1e2d3c4b5a6978e1f2d3c in history",
+              "test_user_login_returns_401_after_3_failed_attempts", "db/migrate/20241024123456_add_users_table.rb:12", "x86_64-unknown-linux-gnu-gcc",
+              "aarch64-apple-darwin23-clang15", "handleOAuth2CallbackForIOS17AndAndroid14", "sha256WithRSAEncryption2048", "ISO8601_UTC_TIMESTAMP_FORMAT_2024",
+              "550e8400-e29b-41d4-a716-446655440000", "DocXMLRPCRequestHandler", "MAX_RETRY_BACKOFF_SECONDS_300"):
+        assert r(s) == s, f"ordinary text was masked: {s} -> {r(s)}"
+    rnd = random.Random(5); A = string.ascii_letters + string.digits
+    keys = ["".join(rnd.choice(A) for _ in range(32)) for _ in range(200)] + ["".join(rnd.choice(A + "+/") for _ in range(40)) for _ in range(100)]
+    missed = sum(1 for k in keys if k in r(f"the value {k} is used"))
+    assert missed <= 9, f"{missed} of {len(keys)} unnamed random keys were left in"
+    write(d, "config/app.env", f"DB_HOST=localhost\nDATABASE_PASSWORD={pw}\n")
+    f = finding(category="secret", impact="High", file="config/app.env", line=2, quote=f"DATABASE_PASSWORD={pw}", title="Database password committed")
+    run(S / "critic_ledger.py", "start", "review", "--tier", "full", cwd=d)
+    for L in "ABC": write(d, f".critic/reviews/review-{L}.json", json.dumps([f]))
+    reviews = [f".critic/reviews/review-{L}.json" for L in "ABC"]
+    run(S / "critic_merge.py", "tally", *reviews, cwd=d); fid = json.loads((d / ".critic/tally.json").read_text())["kept"][0]["id"]
+    write(d, "v.json", json.dumps([{"id": fid, "verdict": "confirmed", "reproduced": "traced", "note": f"DATABASE_PASSWORD={pw} is read at boot"}]))
+    run(S / "critic_merge.py", "apply", "v.json", cwd=d)
+    leaks = [str(p.relative_to(d)) for p in (d / ".critic").rglob("*") if p.is_file() and not (p.is_relative_to(d / ".critic/reviews") or p.is_relative_to(d / ".critic/history"))
+             and pw in p.read_text(errors="replace")]
+    assert leaks == [], f"a named password leaked to {leaks}"
+
+@test("4.2.2 review round 2: a refutation is judged on its raw text, so masking can't turn a real file:line into 'no location'")
+def _(d):
+    reviews = [f".critic/reviews/review-{L}.json" for L in "ABC"]
+    e = d / "mig"; write(e, "db/migrate/20241024123456_add_users_table.rb", "class AddUsers\n  def change\n    add_index :users, :email, unique: true\n  end\nend\n")
+    write(e, "app/models/user.rb", "class User\n  def find(e)\n    where(email: e).first\n  end\nend\n")
+    g = finding(category="performance", impact="Medium", file="app/models/user.rb", line=3, quote="    where(email: e).first", title="Lookup by email has no index")
+    run(S / "critic_ledger.py", "start", "review", "--tier", "full", cwd=e)
+    for L in "ABC": write(e, f".critic/reviews/review-{L}.json", json.dumps([g]))
+    run(S / "critic_merge.py", "tally", *reviews, cwd=e); gid = json.loads((e / ".critic/tally.json").read_text())["kept"][0]["id"]
+    write(e, "v.json", json.dumps([{"id": gid, "verdict": "refuted", "reproduced": "traced",
+          "refutation": "The users.email column has a unique index from db/migrate/20241024123456_add_users_table.rb:3, so the lookup is indexed."}]))
+    out = run(S / "critic_merge.py", "apply", "v.json", cwd=e).stdout
+    assert "refuted 1" in out, f"a valid refutation citing a real migration file was not accepted: {out}"
+
+@test("4.2.2 review round 2: round --reset can repeat a round label, and the earlier archive is never overwritten")
+def _(d):
+    h = d / "arch"; write(h, "src/a.py", "x = 1\n")
+    run(S / "critic_ledger.py", "start", "review", "--tier", "full", cwd=h)
+    write(h, ".critic/reviews/review-A.json", '["v1"]'); run(S / "critic_ledger.py", "round", cwd=h)
+    write(h, ".critic/reviews/review-A.json", '["v2"]'); run(S / "critic_ledger.py", "round", "--reset", cwd=h); run(S / "critic_ledger.py", "round", cwd=h)
+    write(h, ".critic/reviews/review-A.json", '["v3"]'); run(S / "critic_ledger.py", "round", cwd=h)
+    kept = sorted(p.read_text() for p in (h / ".critic/history").rglob("review-A.json"))
+    assert kept == ['["v1"]', '["v2"]', '["v3"]'], f"an archived review was overwritten: {kept}"
+
 if __name__ == "__main__":
     bad = [r for r in RESULTS if not r[1]]
     print(f"\n{len(RESULTS) - len(bad)} of {len(RESULTS)} passed"); sys.exit(1 if bad else 0)

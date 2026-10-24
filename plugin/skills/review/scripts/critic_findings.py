@@ -220,17 +220,71 @@ def redact_secrets(text):
     return text
 
 FINDING_TEXT = ("quote", "title", "evidence", "failing_case", "remediation", "note", "refutation", "reason", "why", "summary", "what")
-_KEY_TOKEN = re.compile(r"(?<![\w+=-])[A-Za-z0-9_+=-]{20,}(?![\w+=-])")
+_NAMED_RULES = (REDACT_RULES[3], REDACT_RULES[4])  # NAME=value, "name": "value", --name value
+_TYPE_WORDS = {"none", "null", "nil", "true", "false", "str", "string", "int", "bytes", "bool", "boolean", "number", "any",
+               "optional", "required", "undefined", "secretstr", "object", "dict", "list"}
+def _literal_value(label, value):
+    """True when the value after a secret-bearing name is written-out data (mask it), False when it is code that only
+    names one (keep it): `password = form.password`, `token = request.headers.get(...)`, `session.token == x`,
+    `api_key: str`. A CONSTANT_CASE name (DATABASE_PASSWORD=...) is env or config style, so its plain value is data."""
+    v = value
+    if v[:1] in "\"'": return len(v) > 2                       # a quoted literal; an empty one holds nothing
+    if v.startswith(("=", "$", "%(", "{{", "<")): return False   # ==, a variable reference or a placeholder
+    if re.search(r"[(\[{]", v): return False                   # a call, subscript or structure: code
+    m = re.search(r"[A-Za-z0-9_.-]+(?=[\"']?\s*[=:]|\s*$|=$)", label.lstrip("-"))
+    name = m.group(0) if m else label
+    env = any(c.isalpha() for c in name) and name == name.upper()
+    bare = v.rstrip(",;)")
+    if re.fullmatch(r"[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)+", bare): return env          # an attribute, unless NAME=value config
+    if re.fullmatch(r"[A-Za-z_$][\w$]*", bare):
+        if bare.lower() in _TYPE_WORDS: return False
+        return env or any(c.isdigit() for c in bare)                                  # a variable name vs hunter2
+    return True
+
+_KEY_TOKEN = re.compile(r"(?<![A-Za-z0-9_+/=-])[A-Za-z0-9_+/=-]{20,}(?![A-Za-z0-9_+/=-])")
+_PIECE = re.compile(r"[A-Z]+(?![a-z])|[A-Z]?[a-z]+|\d+")
+_VOWEL = re.compile(r"[aeiouyAEIOUY]")
+_UUID = re.compile(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")
+_HASH_CONTEXT = re.compile(r"(?i)(?:commit|sha\d*|rev|revision|hash|digest|checksum|tree|blob|ref)\W{0,3}$")
 def _entropy(t):
     import math
     return -sum(c / len(t) * math.log2(c / len(t)) for c in (t.count(ch) for ch in set(t)))
+def _wordy(tok):
+    """True when a long token reads as words: snake_case, kebab-case, CONSTANT_CASE, camelCase, a path or a number, as
+    names, test names, file paths and constants do. A random key rarely does: its letter runs are short, mixed-case and
+    often have no vowel. Tuned on random keys (alphanumeric, hex, base64) against every 20+ character token in Python's
+    standard library: about 0.1% of those are masked."""
+    tok = _UUID.sub("-", tok)  # a uuid is an id, not a key
+    letters = sum(c.isalpha() for c in tok)
+    if letters < 3: return True
+    if "abcdef" in tok.lower() or "0123456" in tok: return True  # an alphabet or digit run, as in a charset constant
+    good = 0
+    for seg in re.split(r"[/_+=.-]+", tok):
+        if not seg: continue
+        if seg.upper() == seg:  # CONSTANT_CASE
+            good += sum(len(r) for r in re.findall(r"[A-Z]{2,}", seg) if _VOWEL.search(r) or len(r) <= 5); continue
+        if seg.lower() == seg and sum(c.isalpha() for c in seg) <= 5:  # a short word or abbreviation: is, fmt, gnu, x86
+            good += sum(c.isalpha() for c in seg); continue
+        for p in _PIECE.findall(seg):
+            if p.isdigit(): continue
+            if (p.islower() or (p[0].isupper() and p[1:].islower())) and len(p) >= 3 and _VOWEL.search(p): good += len(p)
+            elif p.isupper() and 2 <= len(p) <= 8: good += len(p)
+    return good / letters >= 0.75
+def _keylike(tok, before):
+    if "[redacted]" in tok: return False
+    if re.fullmatch(r"[0-9a-f]+|[0-9A-F]+", tok):  # hex: a key from 32 characters, except a commit or hash named as one
+        if len(tok) in (40, 64) and _HASH_CONTEXT.search(before): return False
+        return len(tok) >= 32 and any(c.isalpha() for c in tok) and any(c.isdigit() for c in tok)
+    return not _wordy(tok) and _entropy(tok) >= 3.5
+
 def redact_finding_text(text):
-    """Mask secrets in a finding's words before they are stored, without mangling ordinary code or prose. Masks: every
-    provider key shape and quoted generic credential the secret scan knows (scan_secrets), the JWT and provider shapes
-    of the log rules, and any other unbroken 20+ character token mixing at least 4 letters and 4 digits with high
-    randomness (an unnamed key). It does not apply the log rules' NAME=value pattern: on code it would mask expressions
-    such as `session.token == req.headers.authorization`. The quote check always runs on the raw text first, and ids
-    are computed from it, so masking never retracts a finding or changes its id."""
+    """Mask secrets in a finding's words before they are stored, without mangling ordinary code or prose. Masks every
+    provider key shape and quoted credential the secret scan knows (scan_secrets); every log rule (auth headers,
+    cookies, user:password@, curl -u, mysql -p, redis-cli -a, JWTs, provider shapes); NAME=value and --name value
+    secrets when the value is written-out data rather than code (see _literal_value); and any other 20+ character
+    token that reads as random rather than as words (an unnamed key). Known limit: a plain-word password after a
+    lowercase name (`password: hunter`) reads as a variable and is kept. The quote check always runs on the raw text
+    first, and ids are computed from it, so masking never retracts a finding or changes its id."""
     text = str(text)
     try:
         import scan_secrets
@@ -241,12 +295,13 @@ def redact_finding_text(text):
         if b <= last: continue
         a = max(a, last); out.append(text[last:a]); out.append(mask(text[a:b])); last = b
     text = "".join(out) + text[last:]
-    text = REDACT_RULES[-1][0].sub(REDACT_RULES[-1][1], text)  # JWTs and provider key shapes
-    def unnamed(m):
-        t = m.group(0)
-        if "[redacted]" in t or sum(ch.isdigit() for ch in t) < 4 or sum(ch.isalpha() for ch in t) < 4 or _entropy(t) < 3.5: return t
-        return mask(t)
-    return _KEY_TOKEN.sub(unnamed, text)
+    def keepq(v): return v[0] + "[redacted]" + v[-1] if len(v) > 1 and v[0] in "\"'" and v[-1] == v[0] else "[redacted]"
+    for rule in REDACT_RULES:
+        rx, fn = rule
+        if rule in _NAMED_RULES:
+            text = rx.sub(lambda m: m.group(1) + keepq(m.group(2)) if "[redacted]" not in m.group(2) and _literal_value(m.group(1), m.group(2)) else m.group(0), text)
+        else: text = rx.sub(fn or (lambda m: m.group(1) + keepq(m.group(2))), text)
+    return _KEY_TOKEN.sub(lambda m: mask(m.group(0)) if _keylike(m.group(0), text[max(0, m.start() - 12):m.start()]) else m.group(0), text)
 
 def scrub(obj):
     """A copy of findings (or anything holding them) with every finding text field masked. A finding whose quote was
@@ -312,7 +367,7 @@ def warn_tracked_state(root):
         r = subprocess.run(["git", "ls-files", "-z", "--", ".critic"], cwd=root, capture_output=True, timeout=5)
     except (OSError, subprocess.TimeoutExpired): return
     if r.returncode != 0: return
-    tracked = [f for f in r.stdout.decode("utf-8", "replace").split("\0") if f]
+    tracked = [f for f in r.stdout.decode("utf-8", "replace").split("\0") if f and f != ".critic/runlog.jsonl"]  # runlog_tracked names that one
     hit = sorted(f for f in tracked for x in IGNORED
                  if (f[len(".critic/"):].startswith(x) if x.endswith("/") else f == ".critic/" + x))
     if hit:

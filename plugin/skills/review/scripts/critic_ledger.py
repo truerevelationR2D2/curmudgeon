@@ -108,7 +108,10 @@ def archive_reviews(L, label):
     if rv.is_dir() and not rv.is_symlink():
         olds = [p for p in rv.iterdir() if p.is_file() and not p.is_symlink()]
         if olds:
-            dest = D / "history" / label / "reviews"; dest.mkdir(parents=True, exist_ok=True)
+            dest, k = D / "history" / label / "reviews", 2
+            while dest.exists():  # never overwrite an earlier archive (round --reset can repeat a label)
+                dest = D / "history" / f"{label}-{k}" / "reviews"; k += 1
+            dest.mkdir(parents=True)
             for p in olds: os.replace(p, dest / p.name)
     L["started_at"] = time.time()
 

@@ -305,9 +305,10 @@ def apply(paths):
             if (D / "verify" / f"{f['id']}.json").exists():
                 notes.append(f"{f['id']}: no verdict returned; kept, confidence lowered"); f["verifier"] = "missing"
             final.append(f); continue
-        kind = str(v.get("verdict", "unclear")).lower(); why = redact_finding_text(str(v.get("refutation") or v.get("reason") or ""))  # a refutation can quote a secret
+        kind = str(v.get("verdict", "unclear")).lower(); raw = str(v.get("refutation") or v.get("reason") or "")
+        why = redact_finding_text(raw)  # a refutation can quote a secret: it is checked raw, stored masked
         if kind == "refuted":
-            prob = refutation_problem(why, f["impact"], v.get("reproduced"), root=ROOT)
+            prob = refutation_problem(raw, f["impact"], v.get("reproduced"), root=ROOT)
             if not prob:
                 refuted.append({"finding": f, "why": why}); VERIFIER_LOG.append(("refuted", f, why, v.get("reproduced"))); continue
             kind = "unclear"; notes.append(f"{f['id']}: refutation not concrete enough to drop it ({prob}); kept")
