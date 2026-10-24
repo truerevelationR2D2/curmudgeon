@@ -1956,6 +1956,32 @@ def _(d):
     assert not post("bad.py").strip(), "gate off silences it"
     run(S / "critic_ledger.py", "gate", "async", cwd=d); assert '"block"' in post("bad.py"), "gate async turns it back on"
 
+@test("5.0 SC-67: a stuck agent gets one rope, then a typed STUCK row, a refusal of the repeated action, and a line in counts.md")
+def _(d):
+    write(d, "src/app.js", APP); run(S / "critic_ledger.py", "start", "review", "--tier", "lite", cwd=d)
+    run(H / "scratch_dir.py", cwd=d, stdin=json.dumps({"agent_type": "curmudgeon:curmudgeon-verifier", "agent_id": "v9", "cwd": str(d)}))
+    ws = json.loads((d / ".critic/scratch/v9/workspace.json").read_text())["payload"]
+    call = {"tool_name": "Bash", "tool_input": {"command": f"cd {ws} && node run.js"}, "agent_type": "curmudgeon:curmudgeon-verifier", "agent_id": "v9", "cwd": str(d), "hook_event_name": "PostToolUse"}
+    def post(resp): return run(H / "stuck.py", cwd=d, stdin=json.dumps(dict(call, tool_response=resp))).stdout
+    outs = [post({"stdout": "", "stderr": f"Error: cannot find module at 2026-10-24T05:0{i}:00Z", "exit_code": 1}) for i in range(3)]
+    assert not outs[0].strip() and not outs[1].strip() and "rope (stuck_error_loop)" in outs[2], outs
+    outs = [post({"stderr": "Error: cannot find module", "exit_code": 1}) for _ in range(3)]
+    assert "STUCK (stuck_error_loop)" in outs[-1], outs
+    pre = run(H / "stuck.py", cwd=d, stdin=json.dumps(dict(call, hook_event_name="PreToolUse"))).stdout
+    assert '"deny"' in pre, pre
+    other = run(H / "stuck.py", cwd=d, stdin=json.dumps(dict(call, hook_event_name="PreToolUse", tool_input={"command": f"cd {ws} && ls"}))).stdout
+    assert not other.strip(), "only the repeated action is refused"
+    row = json.loads((d / ".critic/stuck.jsonl").read_text().splitlines()[0]); assert row["type"] == "stuck_error_loop" and row["role"] == "verifier" and row["run"] == 1, row
+    assert not run(H / "stuck.py", cwd=d, stdin=json.dumps(dict(call, agent_type="general-purpose", tool_response={}))).stdout.strip(), "other agents are never watched"
+    pp = {"tool_name": "Read", "agent_type": "curmudgeon:curmudgeon-reviewer", "agent_id": "r9", "cwd": str(d), "hook_event_name": "PostToolUse", "tool_response": "ok"}
+    run(H / "scratch_dir.py", cwd=d, stdin=json.dumps({"agent_type": "curmudgeon:curmudgeon-reviewer", "agent_id": "r9", "cwd": str(d)}))
+    seq = [run(H / "stuck.py", cwd=d, stdin=json.dumps(dict(pp, tool_input={"file_path": f}))).stdout for f in ["a", "b", "a", "b", "a", "b"]]
+    assert "stuck_pingpong" in seq[-1], seq
+    g = finding(category="domain", impact="Medium", line=4, quote="const price = total * 1.0825;", title="Tax rule in render code")
+    write(d, ".critic/reviews/review-A.json", json.dumps([g])); run(S / "critic_merge.py", "tally", ".critic/reviews/review-A.json", cwd=d)
+    write(d, "v.json", "[]"); run(S / "critic_merge.py", "apply", "v.json", cwd=d)
+    assert "## Stuck" in (d / ".critic/counts.md").read_text() and "stuck_error_loop" in (d / ".critic/counts.md").read_text()
+
 if __name__ == "__main__":
     shutil.rmtree(TMP, ignore_errors=True)
     bad = [r for r in RESULTS if not r[1]]
