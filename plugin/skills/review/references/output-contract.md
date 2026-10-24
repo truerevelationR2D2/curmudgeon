@@ -61,6 +61,7 @@ Findings of every impact, worst first.
 - The five fixes worth the most per hour.
 - `Not checked:` everything in scope you did not verify, and why.
 - `Not reviewed:` files skipped for the budget, binary or generated files, and checks that were blocked or unavailable. Mandatory, even when it's "nothing".
+- `Variants:` the confirmed variants from `.critic/variants.md` (full tier), each with its id, impact and place; they are listed apart and are not in the Counts line.
 - Change map: a link to `.critic/change-map.md`, never pasted in.
 
 Low findings may use one line each: `L1 file:line: problem. fix.` They count as Low in the verdict.

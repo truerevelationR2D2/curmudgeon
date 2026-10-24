@@ -1889,6 +1889,27 @@ def _(d):
     rows = {x["rule"]: x for x in json.loads((d / ".critic/scan/report.json").read_text())["findings"] if x["area"] == "operations"}
     assert rows["ops-k8s-no-probes"]["tier"] == "pedantic" and rows["ops-k8s-no-limits"]["where"] == "k8s/app.yaml:6", rows
 
+@test("5.0 SC-56: the variant hunt finds the same pattern elsewhere, and only blind-confirmed variants are reported, apart from the main counts")
+def _(d):
+    write(d, "src/a.js", "function show(el, name) {\n  el.innerHTML = '<b>' + name + '</b>';\n}\n")
+    write(d, "src/b.js", "function card(box, title) {\n  box.title = title;\n  el.innerHTML = '<i>' + name + '</i>';\n}\n")
+    write(d, "src/c.js", "function safe(el, name) {\n  el.textContent = name;\n}\n")
+    run(S / "critic_ledger.py", "start", "review", "--tier", "full", cwd=d)
+    f = {"id": "F-abcdef12", "category": "xss", "impact": "High", "confidence": "confirmed", "file": "src/a.js", "line": 2, "quote": "el.innerHTML = '<b>' + name + '</b>';",
+         "title": "Name rendered as HTML", "failing_case": "name = <img src=x onerror=alert(1)> runs script"}
+    write(d, ".critic/findings.jsonl", json.dumps(f) + "\n")
+    out = run(S / "critic_variants.py", "find", cwd=d).stdout
+    pk = sorted((d / ".critic/verify-variants").glob("*.json")); assert len(pk) == 1, (out, pk)
+    p = json.loads(pk[0].read_text()); assert p["file"] == "src/b.js" and p["line"] == 3 and p["variant_of"] == "F-abcdef12", p
+    write(d, "v.json", json.dumps([{"id": p["id"], "verdict": "unclear", "reproduced": "no"}]))
+    run(S / "critic_variants.py", "apply", "v.json", cwd=d)
+    assert (d / ".critic/variants.jsonl").read_text() == "" and "Not verified (no verdict or unclear; not findings): 1" in (d / ".critic/variants.md").read_text()
+    write(d, "v.json", json.dumps([{"id": p["id"], "verdict": "confirmed", "reproduced": "traced", "entry": "card() is called with a user-supplied title and name", "path": ["src/b.js:3 assigns markup built from name to innerHTML"]}]))
+    run(S / "critic_variants.py", "apply", "v.json", cwd=d)
+    v = [json.loads(x) for x in (d / ".critic/variants.jsonl").read_text().splitlines()]
+    assert len(v) == 1 and v[0]["source"] == "variant" and "Confirmed by blind verification: 1" in (d / ".critic/variants.md").read_text()
+    assert "verify-variants" in (HERE / "hooks" / "read_guard.py").read_text()
+
 if __name__ == "__main__":
     shutil.rmtree(TMP, ignore_errors=True)
     bad = [r for r in RESULTS if not r[1]]
