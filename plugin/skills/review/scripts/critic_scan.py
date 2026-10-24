@@ -61,6 +61,7 @@ def f(sev, rule, area, where, what, ev="", lvl=None):
     level = lvl or ("runtime" if area.startswith(("a11y-", "runtime", "ux", "responsive", "perf-rt", "visual")) else ("ci" if area == "ci" else "source"))
     tier = "pedantic" if rule in PEDANTIC or rule in PEDANTIC_RULES else "regular"
     if tier == "pedantic": sev = "NOTE"
+    ev = scan_secrets.redact_spans(str(ev or "")[:4000])  # every row, not only the secrets rows: a key on a TODO line never reaches a report
     R.append({"sev": sev, "rule": rule, "area": area, "where": str(where), "what": what, "evidence": ev.strip()[:160], "level": level, "tier": tier})
 
 NA = "n/a"  # not applicable: nothing for this check to look at (no page given, no manifest). Never DEGRADED.
@@ -152,14 +153,44 @@ def walk(src, excludes):
             if ".critic" in pathlib.PurePath(r).parts: continue
             items.append(q)
     else: items = [src] if src.is_file() else [p for p in src.rglob("*") if p.is_file()]
+    top = SCAN_ROOT.resolve()
     for p in items:
         try:
             rel_parts = () if ONLY is not None else (p.relative_to(src).parts if src.is_dir() else (p.name,))
             if set(rel_parts) & SKIP or p.resolve() == SELF: continue
             if any(fnmatch.fnmatch(str(p), g) or fnmatch.fnmatch(p.name, g) for g in excludes): continue
-            if p.stat().st_size > MAX_BYTES: continue
+            if not p.resolve().is_relative_to(top):  # a link out of the project (id_rsa.js -> ~/.ssh/id_rsa) is never read into a report
+                LINKS_OUT.append(str(p.relative_to(SCAN_ROOT)) if p.is_relative_to(SCAN_ROOT) else str(p)); continue
+            if p.stat().st_size > MAX_BYTES: NOT_READ.append((p, "over 2 MB")); continue
             yield p
         except OSError: continue
+
+LINKS_OUT = []  # links pointing outside the scan root, skipped
+NOT_READ = []   # (path, why) for files the checks could not read: reported, never silently dropped
+LINE_CAP = 3000  # the line rules read at most this much of one line (minified code and data lines stay linear)
+
+def read_text(p):
+    """A file as text: UTF-8, or UTF-16 with a byte-order mark. None for anything else (reported as not read)."""
+    b = p.read_bytes()
+    if b[:2] in (b"\xff\xfe", b"\xfe\xff"): return b.decode("utf-16")
+    if b[:3] == b"\xef\xbb\xbf": b = b[3:]
+    return b.decode("utf-8")
+
+def big_file_secrets(p, rel, emit, cap=50_000_000):
+    """A file too big for the other checks is still read for secrets, a batch of lines at a time."""
+    base, batch, size = 0, [], 0
+    def flush():
+        def em(sev, rule, area, where, what, ev=""):
+            path, _, ln = str(where).rpartition(":")
+            emit(sev, rule, area, f"{path}:{int(ln) + base}" if ln.isdigit() else where, what, ev)
+        scan_secrets.scan(rel, "\n".join(batch), em)
+    with open(p, "r", encoding="utf-8", errors="replace") as fh:
+        for line in fh:
+            size += len(line)
+            if size > cap: break
+            batch.append(line.rstrip("\n"))
+            if len(batch) >= 5000: flush(); base += len(batch); batch = []
+    if batch: flush()
 
 TEXTS = {}
 CONFIG_TEXTS = {}  # config files: rule files and line rules for their types read them; the code checks don't
@@ -231,8 +262,9 @@ def static(src, root, excludes):
     try: lock_text = lockp.read_text(encoding="utf-8")[:2_000_000] if lockp.is_file() and not lockp.is_symlink() else ""
     except OSError: lock_text = ""
     for p in walk(src, excludes):
-        try: text = p.read_text(encoding="utf-8")
-        except (UnicodeDecodeError, OSError): continue
+        try: text = read_text(p)
+        except UnicodeDecodeError: NOT_READ.append((p, "not UTF-8 or UTF-16 text")); continue
+        except OSError: continue
         try: rel = str(p.resolve().relative_to(root))
         except ValueError: rel = str(p)
         lines = text.split("\n"); texts += 1
@@ -250,7 +282,7 @@ def static(src, root, excludes):
                 CONFIG_TEXTS[rel] = text
                 for i, l in enumerate(lines, 1):
                     for rid, sev, area, rx, msg, exts, fl in RULES:
-                        if exts and p.suffix in exts and re.search(rx, l, fl): f(sev, rid, area, f"{rel}:{i}", msg, l)
+                        if exts and p.suffix in exts and re.search(rx, l[:LINE_CAP], fl): f(sev, rid, area, f"{rel}:{i}", msg, l)
             else: secrets_only[p.suffix.lower() or p.name] = secrets_only.get(p.suffix.lower() or p.name, 0) + 1
             continue
         n += 1; TEXTS[rel] = text
@@ -263,7 +295,8 @@ def static(src, root, excludes):
             f("WARN", "status-unchecked", "errors", rel, "fetch used but no response status is ever checked (errors look like success)")
         view = scan_rules_extra.code_lines(rel, p.suffix, text)  # SC-65: code rules read code, never strings or comments
         for i, l in enumerate(lines, 1):
-            cl = view[i - 1] if view is not None and i - 1 < len(view) else l
+            l = l[:LINE_CAP]
+            cl = (view[i - 1] if view is not None and i - 1 < len(view) else l)[:LINE_CAP]
             for rid, sev, area, rx, msg, exts, fl in RULES:
                 if exts and p.suffix not in exts: continue
                 if not re.search(rx, cl if rid in CODE_ONLY_RULES else l, fl): continue
@@ -274,6 +307,14 @@ def static(src, root, excludes):
         if p.suffix in (".css", ".scss", ".less"): css_detector(rel, text)
         elif p.suffix in MARKUP:
             for blk in re.findall(r"<style[^>]*>(.*?)</style>", text, re.S): css_detector(rel, blk)
+    for lk in sorted(set(LINKS_OUT))[:20]: f("NOTE", "link-not-followed", "structure", lk, "a link pointing outside the project; not followed, so nothing outside the project is read into this report")
+    if len(set(LINKS_OUT)) > 20: f("NOTE", "link-not-followed", "structure", "links", f"{len(set(LINKS_OUT)) - 20} more links outside the project not followed")
+    for q, why in NOT_READ[:50]:
+        try: rel = str(q.resolve().relative_to(root))
+        except ValueError: rel = str(q)
+        if why.startswith("over"): G("scan_secrets", big_file_secrets, rel, f, q, rel, f)
+        f("NOTE", "files-not-read", "structure", rel, f"not read by the checks ({why})" + ("; read for secrets only" if why.startswith("over") else ""))
+    if len(NOT_READ) > 50: f("NOTE", "files-not-read", "structure", "files", f"{len(NOT_READ) - 50} more files not read")
     REQ_ROWS[:] = G("scan_reqs", scan_reqs.check, "requirements", f, req_docs, req_tests, f) or []
     # the plugin's own rule files run here; a project's .critic/rules run in a separate process with a time limit,
     # because anyone who wrote the repository could have written them
@@ -308,7 +349,7 @@ def static(src, root, excludes):
 
 # SC-58: results other tools already produced are read as evidence, under the lens they belong to (our own mapping).
 TOOL_LENS = {"zizmor": "supply-chain", "actionlint": "supply-chain", "poutine": "supply-chain", "scorecard": "supply-chain", "trivy": "supply-chain",
-             "osv-scanner": "supply-chain", "semgrep": "safety", "codeql": "safety", "bandit": "safety", "gitleaks": "secrets", "trufflehog": "secrets",
+             "osv-scanner": "supply-chain", "semgrep": "safety", "codeql": "safety", "bandit": "safety", "gitleaks": "safety", "trufflehog": "safety",
              "eslint": "errors", "ruff": "errors", "squawk": "release", "pint": "operations", "checkov": "operations", "hadolint": "supply-chain"}
 def tool_lens(tool):
     t = str(tool).lower()
@@ -336,8 +377,10 @@ def ci_evidence(root, out=None):
     seen = files = unreadable = 0
     own = {"scan.sarif", "findings.sarif"}
     def mine(p): return ".critic" in p.parts or p.name in own or (out is not None and str(p.resolve()).startswith(str(out.resolve())))
-    for p in list(root.rglob("*.sarif"))[:20]:
-        if set(p.parts) & SKIP or mine(p): continue
+    def rel_skip(p):  # the project's own parts: a project that lives under /build/ or /dist/ is still read
+        try: return bool(set(p.relative_to(root).parts) & SKIP)
+        except ValueError: return True
+    for p in [q for q in root.rglob("*.sarif") if not rel_skip(q) and not mine(q)][:20]:
         try:
             j = json.loads(p.read_text()); files += 1
             for run in j.get("runs", []):
@@ -351,8 +394,7 @@ def ci_evidence(root, out=None):
                         seen += 1; continue
                     f({"error": "WARN"}.get(r.get("level"), "NOTE"), f"ci-{tool}-{r.get('ruleId', '')}", tool_lens(tool), where, f"{tool}: {r.get('message', {}).get('text', '')[:150]}", lvl="ci"); seen += 1
         except Exception: unreadable += 1; continue
-    for p in list(root.rglob("*.xml"))[:40]:
-        if set(p.parts) & SKIP or mine(p): continue
+    for p in [q for q in root.rglob("*.xml") if not rel_skip(q) and not mine(q)][:40]:
         try:
             try: t = ET.parse(p).getroot()
             except ET.ParseError:

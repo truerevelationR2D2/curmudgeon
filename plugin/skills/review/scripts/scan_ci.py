@@ -50,7 +50,7 @@ TAINT = [
     (r"github\.event\.workflow_run\.(?:head_branch|head_commit\.(?:message|author\.(?:email|name))|display_title)", {"workflow_run"}),
     (r"github\.event\.pages\[?[^\]\s}]*\]?\.page_name", {"gollum"}),
 ]
-PR_HEAD = re.compile(r"github\.event\.pull_request\.head\.(?:sha|ref)|github\.head_ref|refs/pull/|github\.event\.workflow_run\.head_(?:sha|branch)|pull_request\.head")
+PR_HEAD = re.compile(r"github\.event\.pull_request\.head\.(?:sha|ref)|github\.event\.pull_request\.merge_commit_sha|github\.head_ref|refs/pull/|github\.event\.workflow_run\.head_(?:sha|branch)|pull_request\.head")
 SHA = re.compile(r"^[0-9a-f]{40}$")
 FIRST_PARTY = {"actions", "github"}
 LINE_RULES = [
@@ -73,6 +73,7 @@ def _upload_takes_hidden(uses, w):
     """upload-artifact leaves hidden files (.git/config among them) out from v4.4 on, unless include-hidden-files is
     true. A pinned SHA can't be dated here, so it is given the benefit of the doubt."""
     if str(w.get("include-hidden-files", "")).strip().lower() == "true": return True
+    if SHA.match(uses.rsplit("@", 1)[1]): return False  # a pinned SHA is never read as a version number (3a1b... is not v3)
     m = re.match(r"v?(\d+)(?:\.(\d+))?", uses.rsplit("@", 1)[1])
     if not m: return False
     major, minor = int(m.group(1)), m.group(2)
@@ -93,6 +94,20 @@ def _line_of(raw, start, needle):
         if needle in raw[i]: return i + 1
     return start
 
+def _exprs(s):
+    """The insides of every ${{ ... }} in s, in one pass (an unclosed ${{ ends the search instead of rescanning)."""
+    out, i = [], 0
+    while True:
+        a = s.find("${{", i)
+        if a < 0: return out
+        b = s.find("}}", a + 3)
+        if b < 0: return out
+        out.append(s[a + 3:b]); i = b + 2
+
+def lock_names(lock_text):
+    """The action names listed in actions.lock, one per line as name@sha: matched exactly, never as a substring."""
+    return {l.strip().split("@", 1)[0] for l in lock_text.splitlines() if l.strip() and not l.lstrip().startswith("#")}
+
 def _walk_jobs(doc):
     jobs = doc.get("jobs")
     if not isinstance(jobs, dict): return
@@ -100,7 +115,7 @@ def _walk_jobs(doc):
         if isinstance(job, dict): yield name, job
 
 def scan_workflow(rel, text, emit, lock_text=""):
-    raw = text.split("\n"); seen = set(); outer = emit
+    raw = text.split("\n"); seen = set(); outer = emit; locked = lock_names(lock_text)
     def emit(sev, rid, area, where, what, ev=""):  # one row per rule and place
         if (rid, where) not in seen: seen.add((rid, where)); outer(sev, rid, area, where, what, ev)
     try: doc = yaml_lite.loads(text)
@@ -118,8 +133,16 @@ def scan_workflow(rel, text, emit, lock_text=""):
             s = v.strip()
             if not (s.startswith("${{") and s.endswith("}}") and s.count("${{") == 1):
                 emit("FAIL", "ci-if-always-true", "supply-chain", f"{rel}:{v.line}", "this if: mixes ${{ }} with other text, so it is a non-empty string and always true: put the whole condition inside one ${{ }}", raw[v.line - 1] if v.line <= len(raw) else "")
+    def pin_check(u, line, note=""):
+        if u.startswith(("./", "docker://")) or "@" not in u: return
+        owner = u.split("/", 1)[0]; ref = u.rsplit("@", 1)[1]; name = u.rsplit("@", 1)[0]
+        if owner not in FIRST_PARTY and not SHA.match(ref) and name not in locked:
+            emit("WARN", "ci-unpinned-action", "supply-chain", f"{rel}:{line}", f"{name} is used by the tag or branch {ref}, which its owner can move: pin a full commit SHA (or list it in .github/workflows/actions.lock){note}", raw[line - 1] if line <= len(raw) else "")
     for jname, job in _walk_jobs(doc):
         check_if(job.get("if"))
+        ju = job.get("uses")
+        if isinstance(ju, str):  # a reusable workflow called by a job: the same pinning rule, and it may get every secret
+            pin_check(ju.strip(), ju.line, "; this job also passes it every secret (secrets: inherit)" if str(job.get("secrets", "")).strip() == "inherit" else "")
         steps = job.get("steps")
         if not isinstance(steps, list): continue
         checkout_keeps_creds = False
@@ -141,13 +164,10 @@ def scan_workflow(rel, text, emit, lock_text=""):
                     path = str(w.get("path", "")).strip()
                     if _upload_takes_hidden(u, w) and (path in (".", "./", "*", "**", "${{ github.workspace }}") or path.startswith(("./**", "**"))):
                         emit("WARN", "ci-upload-checkout", "supply-chain", f"{rel}:{uses.line}", "the whole workspace is uploaded after a checkout that kept its credentials: the token in .git/config ships in the artifact (set persist-credentials: false, or upload only the build output)", raw[uses.line - 1])
-                if not u.startswith(("./", "docker://")) and "@" in u:
-                    owner = u.split("/", 1)[0]; ref = u.rsplit("@", 1)[1]
-                    if owner not in FIRST_PARTY and not SHA.match(ref) and u.split("@")[0] not in lock_text:
-                        emit("WARN", "ci-unpinned-action", "supply-chain", f"{rel}:{uses.line}", f"{u.split('@')[0]} is used by the tag or branch {ref}, which its owner can move: pin a full commit SHA (or list it in .github/workflows/actions.lock)", raw[uses.line - 1])
+                pin_check(u, uses.line)
             run = st.get("run")
             if isinstance(run, str):
-                for expr in re.findall(r"\$\{\{(.*?)\}\}", run, re.S):
+                for expr in _exprs(run):
                     boolean = bool(BOOLEAN_EXPR.fullmatch(expr))  # startsWith(...), a == b: only true or false reaches the script
                     for pat, can in TAINT:
                         if boolean: break
@@ -159,7 +179,7 @@ def scan_workflow(rel, text, emit, lock_text=""):
                         ln = _line_of(raw, run.line, m.group(0))
                         emit(sev, "ci-injection", "supply-chain", f"{rel}:{ln}", f"{m.group(0)} is chosen by whoever opens the pull request, issue or comment, and it is pasted into a shell script: pass it through env: and quote \"$VAR\"", raw[ln - 1] if ln <= len(raw) else "")
                         break
-                    if re.search(r"\bsecrets\.", expr):
+                    if re.search(r"\bsecrets\.", expr) and not boolean:  # secrets.K != '' reaches the script as true or false
                         ln = _line_of(raw, run.line, expr.strip())
                         emit("WARN", "ci-secret-in-run", "supply-chain", f"{rel}:{ln}", "a secret pasted into a run: script can leak through command echo or error output: pass it through env:", raw[ln - 1] if ln <= len(raw) else "")
                 for rid, sev, rx, msg in LINE_RULES:
@@ -191,7 +211,7 @@ def scan_npm_lock(rel, text, emit):
         if not isinstance(meta, dict) or not meta.get("resolved"): continue
         r = str(meta["resolved"])
         if r.startswith("file:") or r.startswith("git+"): continue
-        ln = _line_of(raw, 1, json.dumps(r)[1:-1][:60])
+        ln = _line_of(raw, _line_of(raw, 1, json.dumps(name) + ":"), json.dumps(r)[1:-1][:60])  # from the package's own entry, so two packages never share a line
         if r.startswith("http://") or not re.match(r"https://registry\.npmjs\.org/", r):
             emit("WARN", "npm-resolved-host", "supply-chain", f"{rel}:{ln}", f"{name or '(root)'} is resolved from {r[:80]}: not the public npm registry over https (check it is meant to be)", raw[ln - 1] if ln <= len(raw) else "")
         if not meta.get("integrity"):

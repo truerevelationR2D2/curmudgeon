@@ -21,7 +21,9 @@ def test(name):
         if ONLY and ONLY not in name: return fn
         d = pathlib.Path(tempfile.mkdtemp(prefix="critic-test-"))
         try: fn(d); RESULTS.append((name, True, "")); print("PASS", name)
-        except AssertionError as e: RESULTS.append((name, False, str(e))); print("FAIL", name, "—", e)
+        except AssertionError as e:  # the line number too, so an assert without a message still says which one failed
+            import traceback; ln = traceback.extract_tb(e.__traceback__)[-1].lineno
+            RESULTS.append((name, False, f"line {ln}: {e}")); print("FAIL", name, "—", f"line {ln}: {e}")
         except Exception as e: RESULTS.append((name, False, repr(e))); print("FAIL", name, "—", repr(e))
         finally: shutil.rmtree(d, ignore_errors=True)
         return fn
@@ -2709,6 +2711,43 @@ def _(d):
     led = json.loads((e / ".critic/ledger.json").read_text()); assert not led.get("false_positives") and "auth is out of scope" not in json.dumps(led.get("decisions", [])), led
     assert "auth is out of scope" not in (e / ".critic/briefs/brief-A.md").read_text()
     out = run(S / "critic_run.py", "begin", "--audit", "--files", "a.js", cwd=e).stdout; assert "set aside" not in out, "our own earlier audit is kept"
+
+@test("5.0 self-review (scanners 1): links out of the tree aren't followed, the secrets regex is linear, every row's evidence is redacted, skipped files are reported, and CI checks see more")
+def _(d):
+    out = d / "outside"; out.mkdir(); (out / "id_rsa").write_text("PRIVATE-CONTENT-LINE\n" * 5)
+    p = d / "proj"; p.mkdir(); os.symlink(out / "id_rsa", p / "id_rsa.js"); write(p, "app.js", "const a = 1;\n")
+    write(p, ".critic/rules/all.json", json.dumps([{"id": "every-line", "severity": "NOTE", "area": "structure", "pattern": ".", "message": "m", "files": "*.js"}]))
+    run(S / "critic_scan.py", ".", "--root", ".", "--project-checks", cwd=p)
+    for f_ in (p / ".critic/scan").glob("report.*"): assert "PRIVATE-CONTENT" not in f_.read_text(), f_.name
+    assert any(x["rule"] == "link-not-followed" for x in json.loads((p / ".critic/scan/report.json").read_text())["findings"])
+    import scan_secrets as ss
+    t0 = time.time(); ss.scan("a.js", "a." * 10000, lambda *a: None); assert time.time() - t0 < 2, time.time() - t0
+    rows = []; em = lambda sev, rid, area, where, what, ev="": rows.append((rid, ev))
+    ss.scan("conf.json", '{"db_password": "Zq9xR4!vLm2#Tp8@wK"}', em); assert any(r == "secret-generic" for r, _ in rows), rows
+    rows.clear(); ss.scan(".env", "DB_PASSWORD=Zq9xR4vLm2Tp8wKb7Yh3\n", em); assert any(r == "secret-generic" for r, _ in rows), rows
+    rows.clear(); ss.scan("a.js", '{password: "changeme123456", token: "Zq9xR4vLm2Tp8wKb7Yh3Jd"}', em); assert any(r == "secret-generic" for r, _ in rows), "a placeholder first doesn't hide a real key: " + str(rows)
+    rows.clear(); ss.scan("a.js", 'const t = {token: "testZq9xR4vLm2Tp8wKb7Yh"};', em); assert any(r == "secret-generic" for r, _ in rows), "a real value starting with test is still a value"
+    rows.clear(); ss.scan("docker-compose.yml", "url: postgres://user:${DB_PASSWORD}@db/app\nurl2: postgres://user:<password>@db/app\n", em); assert not rows, rows
+    rows.clear(); ss.scan("docker-compose.yml", "url: postgres://postgres:postgres@localhost/app\n", em); assert rows and rows[0][0] == "secret-db-url-password", rows
+    import critic_scan as cs
+    rows.clear(); line = 'x' * 39000 + ' token: "Zq9xR4vLm2Tp8wKb7Yh3Jd" '; ss.scan("a.js", line, em); assert len([r for r, _ in rows if r == "secret-generic"]) == 1, rows
+    write(p, "k.js", T('const k = "@LIVE@"; console.log(k); // TODO remove\n')); run(S / "critic_scan.py", ".", "--root", ".", cwd=p)
+    allr = (p / ".critic/scan/report.json").read_text() + (p / ".critic/scan/report.md").read_text(); assert T("@LIVE@") not in allr, "no report row carries the key"
+    (p / "big.txt").write_bytes(b"x" * (3 * 1024 * 1024)); (p / "u16.env").write_bytes(T("API_TOKEN=@LIVE@\n").encode("utf-16"))
+    run(S / "critic_scan.py", ".", "--root", ".", cwd=p); rep = json.loads((p / ".critic/scan/report.json").read_text())["findings"]
+    assert any(x["rule"] == "files-not-read" for x in rep) and any(x["rule"].startswith("secret-") and "u16.env" in x["where"] for x in rep), [x["rule"] for x in rep]
+    b = d / "build" / "app"; b.mkdir(parents=True); write(b, "results.sarif", json.dumps({"runs": [{"tool": {"driver": {"name": "eslint"}}, "results": [{"ruleId": "no-x", "level": "error", "message": {"text": "bad"}, "locations": [{"physicalLocation": {"artifactLocation": {"uri": "a.js"}, "region": {"startLine": 1}}}]}]}]})); write(b, "a.js", "x\n")
+    run(S / "critic_scan.py", ".", "--root", ".", cwd=b); assert json.loads((b / ".critic/scan/report.json").read_text())["checks"]["ci"]["state"] != "n/a"
+    C = _mod("scan_ci"); wf = lambda t: [r for _, r, _ in _rows(C.scan_workflow, ".github/workflows/x.yml", t)]
+    assert "ci-pwn-request" in wf("on: pull_request_target\npermissions: {}\njobs:\n  a:\n    runs-on: x\n    steps:\n      - uses: actions/checkout@v4\n        with:\n          ref: ${{ github.event.pull_request.merge_commit_sha }}\n")
+    assert "ci-unpinned-action" in wf("on: push\npermissions: {}\njobs:\n  call:\n    uses: org/repo/.github/workflows/w.yml@main\n    secrets: inherit\n")
+    t0 = time.time(); wf("on: push\njobs:\n  a:\n    runs-on: x\n    steps:\n      - run: |\n          " + "${{ " * 12000 + "\n"); assert time.time() - t0 < 2, time.time() - t0
+    up = "on: push\npermissions: read-all\njobs:\n  b:\n    runs-on: x\n    steps:\n      - uses: actions/checkout@v4\n      - uses: actions/upload-artifact@3a1b2c3d4e5f60718293a4b5c6d7e8f901234567\n        with:\n          path: .\n"
+    assert "ci-upload-checkout" not in wf(up), "a pinned SHA is never read as an old version"
+    assert "ci-secret-in-run" not in wf("on: push\npermissions: {}\njobs:\n  a:\n    runs-on: x\n    steps:\n      - run: echo \"has=${{ secrets.K != '' }}\"\n")
+    assert "ci-unpinned-action" in [r for _, r, _ in _rows(C.scan_workflow, ".github/workflows/x.yml", "on: push\npermissions: {}\njobs:\n  a:\n    runs-on: x\n    steps:\n      - uses: acme/deploy@main\n", E, "acme/deploy-tools@0123456789abcdef0123456789abcdef01234567\n")], "a longer name in the lockfile doesn't cover a shorter one"
+    lock = json.dumps({"packages": {"node_modules/a": {"resolved": "http://evil.example.invalid/x.tgz"}, "node_modules/b": {"resolved": "http://evil.example.invalid/x.tgz"}}}, indent=1)
+    w = [w_ for _, r, w_ in _rows(C.scan_npm_lock, "package-lock.json", lock) if r == "npm-resolved-host"]; assert len(set(w)) == 2, w
 
 if __name__ == "__main__":
     shutil.rmtree(TMP, ignore_errors=True)
