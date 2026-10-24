@@ -1,0 +1,20 @@
+name: triage
+on:
+  pull_request_target:
+    types: [opened, edited]
+permissions:
+  pull-requests: write
+jobs:
+  label:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Greet
+        env:
+          TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          echo "Thanks for: $TITLE"
+      - uses: someorg/labeler@1111111111111111111111111111111111111111
+      - name: Only on open
+        if: ${{ github.event.action == 'opened' }}
+        run: echo opened

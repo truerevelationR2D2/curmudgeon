@@ -1826,6 +1826,17 @@ def _(d):
         except Y.Refused: pass
     assert Y.plain(Y.loads("yes: no\nn: 010\nv: 1.0")) == {"yes": "no", "n": "010", "v": "1.0"}
 
+@test("5.0 SC-51: the CI and supply-chain lens finds every planted defect, flags no decoy and nothing in the clean twin, and refuses to guess at YAML it can't read")
+def _(d):
+    r = run(HERE.parent / "eval" / "lens.py", str(HERE.parent / "eval" / "lens6.json"), "--json", cwd=d); out = json.loads(r.stdout)
+    assert r.returncode == 0 and out["recall"] == "13 of 13" and out["precision"] == "13 of 13", out
+    write(d, ".github/workflows/x.yml", "on: push\nanchors: &a\n  k: v\n")
+    run(S / "critic_scan.py", ".", "--root", ".", cwd=d)
+    rows = [x for x in json.loads((d / ".critic/scan/report.json").read_text())["findings"] if x["area"] == "supply-chain"]
+    assert [(x["rule"], x["where"]) for x in rows] == [("ci-not-checked", ".github/workflows/x.yml:2")], rows
+    imp = subprocess.run([sys.executable, "-c", f"import sys; sys.path.insert(0, {str(S)!r}); from critic_merge import scan_impact; print(scan_impact('ci-pwn-request'))"], cwd=d, capture_output=True, text=True).stdout.strip()
+    assert imp == "Critical", imp
+
 if __name__ == "__main__":
     shutil.rmtree(TMP, ignore_errors=True)
     bad = [r for r in RESULTS if not r[1]]

@@ -28,7 +28,7 @@ on localhost or a file are refused unless .critic/scope.json lists the origin an
 import argparse, fnmatch, json, os, pathlib, re, signal, subprocess, sys, time, urllib.parse
 import scope as scope_file
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
-import scan_secrets, scan_html, scan_graph, scan_deps, scan_rules_extra, scan_mutation
+import scan_secrets, scan_html, scan_graph, scan_deps, scan_rules_extra, scan_mutation, scan_ci
 from critic_findings import log_run, refuse_linked_state
 
 CODE = {".js", ".mjs", ".cjs", ".ts", ".jsx", ".tsx", ".vue", ".svelte", ".html", ".htm"}
@@ -219,6 +219,9 @@ def static(src, root, excludes):
     for b in limits: f("NOTE", "rule-file-limit", "structure", "rules", b)
     for b in rest[:20]: f("NOTE", "rule-file-invalid", "structure", "rules", b)
     if len(rest) > 20: f("NOTE", "rule-file-invalid", "structure", "rules", f"{len(rest) - 20} more rule-file problems not listed")
+    lockp = root / ".github" / "workflows" / "actions.lock"
+    try: lock_text = lockp.read_text(encoding="utf-8")[:2_000_000] if lockp.is_file() and not lockp.is_symlink() else ""
+    except OSError: lock_text = ""
     for p in walk(src, excludes):
         try: text = p.read_text(encoding="utf-8")
         except (UnicodeDecodeError, OSError): continue
@@ -226,6 +229,9 @@ def static(src, root, excludes):
         except ValueError: rel = str(p)
         lines = text.split("\n"); texts += 1
         scan_secrets.scan(rel, text, f)  # every text file, dotfiles and configs included
+        if scan_ci.is_workflow(rel): scan_ci.scan_workflow(rel, text, f, lock_text)  # the CI and supply-chain lens (SC-51)
+        elif scan_ci.wants_text(rel): scan_ci.scan_text(rel, text, f)
+        elif p.name == "package-lock.json": scan_ci.scan_npm_lock(rel, text, f)
         if p.suffix not in SCAN_EXT:
             if is_config(p, rel):
                 CONFIG_TEXTS[rel] = text
@@ -272,7 +278,7 @@ def static(src, root, excludes):
             for row in json.loads(r.stdout or "[]"): f(*row)
         except subprocess.TimeoutExpired: f("WARN", "rule-file-timeout", "structure", ".critic/rules", "the project's rule files took over 20 s and were stopped (a pattern may be too slow); their results are missing")
         except ValueError: f("NOTE", "rule-file-invalid", "structure", ".critic/rules", "the rule runner returned no readable results")
-    if texts: state("static", *family_state({"safety", "errors", "state", "async", "perf", "a11y", "layout", "domain", "html", "theming", "ux", "tests"}, f"{n} source files, {len(CONFIG_TEXTS)} config files, {texts} text files checked for secrets, {len(custom)} rule-file rules"
+    if texts: state("static", *family_state({"safety", "errors", "state", "async", "perf", "a11y", "layout", "domain", "html", "theming", "ux", "tests", "supply-chain"}, f"{n} source files, {len(CONFIG_TEXTS)} config files, {texts} text files checked for secrets, {len(custom)} rule-file rules"
                               + (("; not checked beyond secrets: " + ", ".join(f"{k} {v}" for k, v in sorted(secrets_only.items(), key=lambda kv: -kv[1])[:8])) if secrets_only else "")))
     else: state("static", "blocked", "no readable files found")
     try:

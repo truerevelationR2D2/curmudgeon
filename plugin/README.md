@@ -56,6 +56,7 @@ You can also just say "tear this apart" or "review my work".
    - injection sinks;
    - Python safety, read with Python's own parser, so strings and comments don't trigger false alarms;
    - tests of the tests (Python): tests that check nothing, asserts that can never fail, two tests with one name (one never runs), failures swallowed by a broad `except`, skips with no reason;
+   - CI and supply chain: untrusted text pasted into workflow scripts, `pull_request_target` running a PR's own code, always-true `if:`, missing `permissions:`, actions not pinned by SHA (or in `actions.lock`), secrets pasted into scripts, workspace uploads that carry the token, `curl | sh`, `--extra-index-url`, unpinned base images, and npm lockfile entries from other hosts or without an integrity hash. Workflows are read with a strict YAML reader written for this plugin; a file it can't read safely is reported as not checked;
    - WCAG 2.2 rules;
    - dependency hygiene and licences (strong copyleft such as GPL is flagged; missing, unrecognised and proprietary licences are noted);
    - your own rule files (see "Add your own checks");
