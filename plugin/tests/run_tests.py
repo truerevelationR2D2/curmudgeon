@@ -1158,6 +1158,29 @@ def _(d):
     assert "${CLAUDE_PLUGIN_ROOT}/skills/review/scripts" in sk and (HERE / "skills/review/scripts/critic_scan.py").exists()
     assert len(sk.splitlines()) < 500
 
+@test("5.0 SC-28: agent token costs are read from the transcript once per request, recorded only during a run, and totalled by role")
+def _(d):
+    tr = d / "agent.jsonl"
+    def row(req, out, cw=1000, cr=0, model="claude-test"):
+        return json.dumps({"type": "assistant", "requestId": req, "message": {"model": model, "usage": {"input_tokens": 3, "cache_creation_input_tokens": cw, "cache_read_input_tokens": cr, "output_tokens": out}}})
+    tr.write_text("\n".join([row("r1", 5), row("r1", 300), row("r2", 7, 0, 1000), row("r2", 400, 0, 1000), json.dumps({"type": "user", "message": {"content": "x"}})]) + "\n")
+    hook = {"cwd": str(d), "agent_type": "curmudgeon:curmudgeon-reviewer", "agent_id": "a1", "agent_transcript_path": str(tr)}
+    run(H / "record_cost.py", cwd=d, stdin=json.dumps(hook))
+    assert not (d / ".critic/cost.jsonl").exists(), "no run is active: nothing should be recorded"
+    run(S / "critic_ledger.py", "start", "review", "--tier", "full", cwd=d)
+    run(H / "record_cost.py", cwd=d, stdin=json.dumps(hook))
+    run(H / "record_cost.py", cwd=d, stdin=json.dumps(dict(hook, agent_type="curmudgeon:curmudgeon-verifier", agent_id="v1", agent_transcript_path=str(d / "missing.jsonl"))))
+    rows = [json.loads(x) for x in (d / ".critic/cost.jsonl").read_text().splitlines()]
+    r = rows[0]
+    assert (r["role"], r["requests"], r["input_tokens"], r["cache_creation_input_tokens"], r["cache_read_input_tokens"], r["output_tokens"]) == ("reviewer", 2, 6, 1000, 1000, 700), r
+    assert rows[1]["role"] == "verifier" and "unavailable" in rows[1], rows[1]
+    out = run(S / "critic_ledger.py", "tokens", cwd=d).stdout
+    assert "| reviewer | 1 | 2 | 6 | 1,000 | 1,000 | 700 |" in out and "verifier | 1 (1 unavailable)" in out, out
+    hooks = json.loads((H / "hooks.json").read_text())["hooks"]
+    n_hooks = sum(len(g["hooks"]) for groups in hooks.values() for g in groups)
+    readme = (HERE / "README.md").read_text(); block = readme.split("- **Hooks:**", 1)[1].split("\n## ", 1)[0]
+    assert len([l for l in block.splitlines() if l.startswith("  - ")]) == n_hooks, f"the README lists a different number of hooks than hooks.json registers ({n_hooks})"
+
 if __name__ == "__main__":
     bad = [r for r in RESULTS if not r[1]]
     print(f"\n{len(RESULTS) - len(bad)} of {len(RESULTS)} passed"); sys.exit(1 if bad else 0)

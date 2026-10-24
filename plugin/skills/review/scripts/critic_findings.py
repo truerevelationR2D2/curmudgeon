@@ -344,7 +344,7 @@ def scrub(obj):
 RUNLOG_MAX = 1_000_000
 # Local state that must never be committed: logs, restore copies, and the files that hold reviewers' raw quotes (a
 # quote can contain a secret from the code under review; the outputs Curmudgeon writes itself are masked by scrub()).
-IGNORED = ("runlog.jsonl", "refutations.jsonl", "spotcheck.md", "restore/", "reviews/", "history/", "outside/", "verify/",
+IGNORED = ("runlog.jsonl", "refutations.jsonl", "cost.jsonl", "spotcheck.md", "restore/", "reviews/", "history/", "outside/", "verify/",
            "tally.json", "dedup-candidates.json", "findings-import.jsonl")
 _TRACKED = {}
 def git_tracked(root, rel):

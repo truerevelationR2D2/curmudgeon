@@ -14,6 +14,12 @@
         "hooks": [
           { "type": "command", "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/check_contract.py\"", "timeout": 20 }
         ]
+      },
+      {
+        "matcher": "^(curmudgeon:)?curmudgeon-",
+        "hooks": [
+          { "type": "command", "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/record_cost.py\"", "timeout": 20 }
+        ]
       }
     ],
     "PreToolUse": [

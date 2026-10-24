@@ -92,6 +92,7 @@ Drop a JSON file of rules into your project's `.critic/rules/` (or, to contribut
   - Stop: the optional gate, off until you turn it on;
   - Stop, background re-scan: free scripted checks on files edited since the last review, in one scan with a 5-minute limit, run without blocking, off until you turn it on with `/curmudgeon:gate async`;
   - SubagentStop: checks that each reviewer's and verifier's output follows the contract (it runs only for those two agents);
+  - SubagentStop, cost: during a review run, reads each Curmudgeon agent's own transcript and records its token use in `.critic/cost.jsonl` (`critic_ledger.py tokens` totals it by role). Nothing leaves your machine;
   - PreToolUse: protects `.critic/` state.
 
 ## Benchmarks

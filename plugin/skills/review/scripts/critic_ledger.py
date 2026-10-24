@@ -19,7 +19,7 @@ usage (run from the project root, or set CRITIC_ROOT):
   examples                               print up to 5 recent false positives as few-shot examples for reviewers
   acted                                  for findings open last run: check whether the quoted code is gone (acted on)
   decision "text" [SOURCE] | override "what" "who" "why"   recorded choices; overrides can't be by "author"
-  score NAME VALUE MAX | cost SECONDS [NOTE]
+  score NAME VALUE MAX | cost SECONDS [NOTE] | tokens [--all]   (tokens: what each agent role cost this run)
   stamp [--add] PATH... | stale | round [--reset]   (--add keeps earlier stamps: use it for /curmudgeon:iterate)
   gate on|async|off                      turn the stop checks on or off (the guard blocks editing these files by hand)
   memories --hit N                       record that memory N noted a finding (keeps it from retiring)
@@ -156,7 +156,7 @@ def learn(L, d):
 def main(a):
     if not a or any(x in ("-h", "--help") for x in a): print(__doc__); return 0  # help never changes the ledger
     cmd, rest = a[0], a[1:]; L = load(); msg = "ok"
-    if cmd not in ("show", "check", "stale"): refuse_linked_state(ROOT); log_run(ROOT, "script", "critic_ledger.py " + " ".join(a))
+    if cmd not in ("show", "check", "stale", "tokens"): refuse_linked_state(ROOT); log_run(ROOT, "script", "critic_ledger.py " + " ".join(a))
     if cmd == "init": pass
     elif cmd == "start":
         need(rest, 1, "start review|full [--tier trivial|lite|full]")
@@ -339,6 +339,30 @@ def main(a):
         prev = [x for x in L["scores"] if x["name"] == rest[0]]
         L["scores"].append({"name": rest[0], "value": v, "max": m, "at": time.strftime("%Y-%m-%d %H:%M")})
         msg = f"{rest[0]}: " + (f"{prev[-1]['value']:g}/{prev[-1]['max']:g} → " if prev else "") + f"{v:g}/{m:g}"
+    elif cmd == "tokens":  # what this run's agents cost, from .critic/cost.jsonl (written by the record_cost hook)
+        rows = []
+        cf = D / "cost.jsonl"
+        if cf.is_file() and not cf.is_symlink():
+            for line in cf.read_text(encoding="utf-8", errors="replace").splitlines():
+                try: r_ = json.loads(line)
+                except ValueError: continue
+                if rest[:1] == ["--all"] or r_.get("run") == L["run"]: rows.append(r_)
+        if not rows: print("tokens: unavailable (no agent costs recorded for this run; they need Claude Code's SubagentStop transcript)"); return 0
+        F = ("input_tokens", "cache_creation_input_tokens", "cache_read_input_tokens", "output_tokens")
+        by = {}
+        for r_ in rows:
+            b_ = by.setdefault(r_.get("role", "unknown"), dict.fromkeys(F, 0) | {"agents": 0, "requests": 0, "unavailable": 0})
+            b_["agents"] += 1
+            if r_.get("unavailable"): b_["unavailable"] += 1; continue
+            b_["requests"] += r_.get("requests", 0)
+            for k in F: b_[k] += r_.get(k, 0)
+        print("| role | agents | requests | input | cache write | cache read | output |"); print("| --- | --- | --- | --- | --- | --- | --- |")
+        tot = dict.fromkeys(F, 0)
+        for role, b_ in sorted(by.items()):
+            print(f"| {role} | {b_['agents']}" + (f" ({b_['unavailable']} unavailable)" if b_["unavailable"] else "") + f" | {b_['requests']} | " + " | ".join(f"{b_[k]:,}" for k in F) + " |")
+            for k in F: tot[k] += b_[k]
+        print("| total | | | " + " | ".join(f"{tot[k]:,}" for k in F) + " |")
+        return 0
     elif cmd == "cost":
         need(rest, 1, "cost SECONDS [NOTE]")
         try: L["costs"].append({"run": L["run"], "seconds": float(rest[0]), "note": rest[1] if len(rest) > 1 else ""})
