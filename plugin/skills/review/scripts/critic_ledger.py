@@ -19,7 +19,7 @@ usage (run from the project root, or set CRITIC_ROOT):
   examples                               print up to 5 recent false positives as few-shot examples for reviewers
   acted                                  for findings open last run: check whether the quoted code is gone (acted on)
   decision "text" [SOURCE] | override "what" "who" "why"   recorded choices; overrides can't be by "author"
-  score NAME VALUE MAX | cost SECONDS [NOTE] | tokens [--all] | integrity   (tokens: what each agent role cost this run; integrity: outputs edited since the last apply)
+  score NAME VALUE MAX | cost SECONDS [NOTE] | tokens [--all] | integrity | fresh [ID...]   (fresh: findings whose code changed since the review; tokens: what each agent role cost this run; integrity: outputs edited since the last apply)
   stamp [--add] PATH... | stale | round [--reset]   (--add keeps earlier stamps: use it for /curmudgeon:fix iterate)
   gate on|async|off                      turn the stop checks on or off (the guard blocks editing these files by hand)
   memories --hit N                       record that memory N noted a finding (keeps it from retiring)
@@ -156,7 +156,7 @@ def learn(L, d):
 def main(a):
     if not a or any(x in ("-h", "--help") for x in a): print(__doc__); return 0  # help never changes the ledger
     cmd, rest = a[0], a[1:]; L = load(); msg = "ok"
-    if cmd not in ("show", "check", "stale", "tokens", "integrity"): refuse_linked_state(ROOT); log_run(ROOT, "script", "critic_ledger.py " + " ".join(a))
+    if cmd not in ("show", "check", "stale", "tokens", "integrity", "fresh"): refuse_linked_state(ROOT); log_run(ROOT, "script", "critic_ledger.py " + " ".join(a))
     if cmd == "init": pass
     elif cmd == "start":
         need(rest, 1, "start review|full [--tier trivial|lite|full]")
@@ -344,9 +344,25 @@ def main(a):
         prev = [x for x in L["scores"] if x["name"] == rest[0]]
         L["scores"].append({"name": rest[0], "value": v, "max": m, "at": time.strftime("%Y-%m-%d %H:%M")})
         msg = f"{rest[0]}: " + (f"{prev[-1]['value']:g}/{prev[-1]['max']:g} → " if prev else "") + f"{v:g}/{m:g}"
+    elif cmd == "fresh":  # SC-38: are these findings still about the code on disk? /curmudgeon:fix patch runs this first
+        import critic_findings as cf_
+        rows = cf_.read_jsonl(D / "findings.jsonl") if (D / "findings.jsonl").is_file() else []
+        if not rows: print("fresh: no findings.jsonl (run a review first)"); return 1
+        pick = [r for r in rows if not rest or r.get("id") in rest]
+        if rest and len(pick) < len(set(rest)): print("fresh: unknown id(s): " + ", ".join(sorted(set(rest) - {r.get('id') for r in pick}))); return 1
+        stale = 0
+        for r in pick:
+            if r.get("quote_redacted") or not str(r.get("quote") or "").strip():
+                print(f"fresh: {r.get('id')} can't be checked (no quote, or its quote was masked); re-read {r.get('file')}:{r.get('line')} before fixing"); continue
+            if cf_.quote_check(r, ROOT): continue
+            moved = cf_.relocate_quote(r, ROOT)
+            if moved: print(f"fresh: {r.get('id')} moved to {r.get('file')}:{moved}"); continue
+            print(f"fresh: {r.get('id')} is STALE: its quoted code is no longer at {r.get('file')}:{r.get('line')} (the file changed since the review)"); stale += 1
+        if stale: print(f"fresh: {stale} finding(s) stale; review those files again before fixing them"); return 1
+        print(f"fresh: {len(pick)} finding(s) still match the code on disk"); return 0
     elif cmd == "integrity":  # SC-72: outputs edited since the last apply (detectable, not impossible: see write_manifest)
-        from critic_findings import check_manifest
-        res = check_manifest(D)
+        import critic_findings as cf_
+        res = cf_.check_manifest(D)
         if res is None: print("integrity: no manifest yet (it is written at the end of each critic_merge.py apply)"); return 0
         if not res: print("integrity: every output matches the hashes recorded at the last apply"); return 0
         for name, what in res: print(f"integrity: .critic/{name} {what} since the last apply")

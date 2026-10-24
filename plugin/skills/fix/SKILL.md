@@ -8,7 +8,7 @@ disable-model-invocation: true
 Do what the first word of `$ARGUMENTS` names; the words after it are the target (the finding id or issue for patch, the component for iterate). Arguments: $ARGUMENTS. Work using the review skill's `scripts/` folder (`${CLAUDE_PLUGIN_ROOT}/skills/review/scripts`) from the project root. With no word, or an unknown one, list the four below and stop.
 
 ## patch [id or issue]: fix only that
-1. Find the finding ids in `.critic/ledger.md` or the last review. If the issue isn't there, write it up first as one finding (Evidence, Failing case, Impact).
+1. Find the finding ids in `.critic/ledger.md` or the last review. If the issue isn't there, write it up first as one finding (Evidence, Failing case, Impact). Then run `critic_ledger.py fresh <ids>`: if it says STALE, the code changed since the review, so review that file again before fixing; never fix against an old report.
 2. Save a restore point for the files you'll touch (`critic_ledger.py restore save <files>`), then make the smallest complete fix.
 3. Prove it: replay that finding's failing case, re-run the scan on the file, and run the project's tests. Record the three claims (`critic_ledger.py claim <id> targeted|no-new-defect|behaviour-unchanged "<evidence>"`), then `critic_ledger.py fixed <id> "<how>"`. Report each check as pass, fail, unavailable, blocked or n/a.
 4. Mark it in the ledger and show a diff summary. Change nothing else, even if you notice other problems; list those as new findings instead.

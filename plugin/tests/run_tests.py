@@ -1449,6 +1449,21 @@ def _(d):
     r = run(S / "critic_ledger.py", "round", cwd=d)
     assert "fixed twice" in r.stdout and "open for 3 rounds" in r.stdout, r.stdout
 
+@test("5.0 SC-38: every report records the revision it reviewed, and fresh refuses a finding whose code changed since")
+def _(d):
+    write(d, "src/app.js", APP); g = finding(category="domain", impact="Medium", line=4, quote="const price = total * 1.0825;", title="Tax rule in render code")
+    run(S / "critic_ledger.py", "start", "review", "--tier", "full", cwd=d)
+    for L in "ABC": write(d, f".critic/reviews/review-{L}.json", json.dumps([g]))
+    run(S / "critic_merge.py", "tally", *[f".critic/reviews/review-{L}.json" for L in "ABC"], cwd=d)
+    write(d, "v.json", "[]"); run(S / "critic_merge.py", "apply", "v.json", cwd=d)
+    rev = json.loads((d / ".critic/revision.json").read_text()); assert len(rev["payload_sha256"]) == 64, rev
+    assert "Revision reviewed:" in (d / ".critic/counts.md").read_text()
+    fid = json.loads((d / ".critic/findings.jsonl").read_text().splitlines()[0])["id"]
+    r = run(S / "critic_ledger.py", "fresh", fid, cwd=d); assert r.returncode == 0, r.stdout
+    write(d, "src/app.js", APP.replace("const price = total * 1.0825;", "const price = total * taxRate(region);"))
+    r = run(S / "critic_ledger.py", "fresh", fid, cwd=d)
+    assert r.returncode == 1 and "STALE" in r.stdout, r.stdout
+
 if __name__ == "__main__":
     bad = [r for r in RESULTS if not r[1]]
     print(f"\n{len(RESULTS) - len(bad)} of {len(RESULTS)} passed"); sys.exit(1 if bad else 0)

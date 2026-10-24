@@ -311,6 +311,19 @@ def write_verifier_log():
                              "file": f.get("file"), "line": f.get("line"), "title": f.get("title"), "failing_case": f.get("failing_case"),
                              "why": redact_finding_text(why), "reproduced": rep, "votes": f.get("votes"), "of": f.get("of")}), ensure_ascii=False) + "\n")
 
+def revision_stamp(final):
+    """What these findings were reviewed against (SC-38): the git commit, whether the working tree had uncommitted
+    changes, and a sha256 of the cited files' contents."""
+    def git(*a):
+        try: return subprocess.run(["git", *a], cwd=ROOT, capture_output=True, text=True, timeout=10).stdout.strip()
+        except (OSError, subprocess.TimeoutExpired): return ""
+    h = hashlib.sha256()
+    for f in sorted({str(x.get("file") or "") for x in final}):
+        p = ROOT / f
+        if f and inside_root(f) and p.is_file(): h.update(f.encode() + b"\0" + p.read_bytes() + b"\0")
+    return {"sha": git("rev-parse", "--short=12", "HEAD") or None, "dirty": bool(git("status", "--porcelain")), "payload_sha256": h.hexdigest(),
+            "at": time.strftime("%Y-%m-%d %H:%M:%S")}
+
 def fix_status(f):
     """Whether a finding's remediation can be offered as a fix: usable, partial (it says so), or not offerable (empty,
     the same as the quoted code, or with unbalanced brackets or quotes in its code)."""
@@ -408,6 +421,10 @@ def apply(paths):
             if fid in known and known[fid].get("status") == "open":
                 subprocess.run([sys.executable, str(led), "status", fid, "wontfix", "refuted by verification: " + r["why"][:200]], cwd=ROOT, env=env, capture_output=True)
     print(f"final: {len(final)} finding(s) — " + ", ".join(f"{k} {v}" for k, v in cnt.items()) + f"; refuted {len(refuted)}")
+    rev = revision_stamp(final)
+    (D / "revision.json").write_text(json.dumps(rev, indent=1) + "\n")
+    with open(D / "counts.md", "a", encoding="utf-8") as fh:
+        fh.write(f"\nRevision reviewed: {rev['sha'] or 'not a git repository'}{' (with uncommitted changes)' if rev['dirty'] else ''}; cited files sha256 {rev['payload_sha256'][:16]}.\n")
     write_manifest(D)  # a sha256 of every output, so a later hand edit shows (critic_ledger.py integrity)
     print(f"wrote {D/'findings.jsonl'}, {D/'findings.sarif'}, {D/'counts.md'} (hashes in {D/'manifest.json'})")
     return 0
