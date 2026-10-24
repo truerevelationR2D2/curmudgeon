@@ -5,7 +5,7 @@ description: |
 
   <example>
   Context: critic_merge.py tally listed findings for dedup.
-  user: "(critic skill, step 4)"
+  user: "(review skill, step 4)"
   assistant: "Starting the curmudgeon-dedup agent on .critic/dedup-candidates.json, then rerunning the tally with its groups."
   <commentary>
   Deciding whether two findings are the same issue takes judgment; the counting stays in the script.

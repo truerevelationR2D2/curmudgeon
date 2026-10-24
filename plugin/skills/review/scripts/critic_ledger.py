@@ -108,6 +108,7 @@ def finding(L, fid):
 def quote_present(f):
     q = norm_code(f.get("quote")); file = (f.get("where") or "").rsplit(":", 1)[0]
     if not q or not file: return None
+    if "[redacted]" in str(f.get("quote")): return None  # a masked quote is not the code: it can't show whether the code is gone
     try: return q in norm_code((ROOT / file).read_text(encoding="utf-8", errors="replace"))
     except OSError: return False
 
@@ -153,6 +154,13 @@ def main(a):
             try:
                 if not m.get("retired") and (time.time() - time.mktime(time.strptime(m.get("last_used", m.get("made")), "%Y-%m-%d"))) > MEMORY_TTL_DAYS * 86400: m["retired"] = True
             except Exception: pass
+        rv = D / "reviews"  # the last run's reviews must never be counted (or read) in this one: move them aside
+        if rv.is_dir() and not rv.is_symlink():
+            olds = [p for p in rv.iterdir() if p.is_file() and not p.is_symlink()]
+            if olds:
+                dest = D / "history" / f"run-{L['run'] - 1}" / "reviews"; dest.mkdir(parents=True, exist_ok=True)
+                for p in olds: os.replace(p, dest / p.name)
+        L["started_at"] = time.time()
         msg = f"{rest[0]} run {L['run']} started{' (' + tier + ' tier)' if tier else ''}, round 1 of 3"
     elif cmd == "import":
         need(rest, 1, "import FINDINGS.jsonl")
@@ -314,7 +322,7 @@ def main(a):
         need(rest, 1, "decision \"text\" [SOURCE]"); L["decisions"].append({"text": rest[0], "source": rest[1] if len(rest) > 1 else ""})
     elif cmd == "override":
         need(rest, 3, "override \"what\" \"who\" \"why\"")
-        if rest[1].strip().lower() in ("author", "claude", "critic", "self"): die("an override must come from the owner, not the author")
+        if rest[1].strip().lower() in ("author", "claude", "critic", "curmudgeon", "self"): die("an override must come from the owner, not the author")
         L["overrides"].append({"what": rest[0], "who": rest[1], "why": rest[2], "at": time.strftime("%Y-%m-%d %H:%M")})
     elif cmd == "score":
         need(rest, 3, "score NAME VALUE MAX")

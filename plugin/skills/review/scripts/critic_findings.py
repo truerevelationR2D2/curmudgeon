@@ -219,8 +219,41 @@ def redact_secrets(text):
         text = rx.sub(fn or (lambda m: m.group(1) + keepq(m.group(2))), text)
     return text
 
+FINDING_TEXT = ("quote", "title", "evidence", "failing_case", "remediation", "note", "refutation", "summary", "what")
+def redact_finding_text(text):
+    """Mask secrets in a finding's words before they are stored: every provider key shape and generic credential the
+    secret scan knows (scan_secrets), then the log rules above. The quote check always runs on the raw text first, and
+    ids are computed from it, so masking never retracts a finding or changes its id."""
+    text = str(text)
+    try:
+        import scan_secrets
+        spans = sorted(scan_secrets.secret_spans(text))
+        out, last = [], 0
+        for a, b in spans:
+            if b <= last: continue
+            a = max(a, last); out.append(text[last:a]); out.append(scan_secrets.mask(text[a:b])); last = b
+        text = "".join(out) + text[last:]
+    except ImportError: pass
+    return redact_secrets(text)
+
+def scrub(obj):
+    """A copy of findings (or anything holding them) with every finding text field masked. A finding whose quote was
+    masked is marked quote_redacted, so later steps never treat the masked quote as code to look for."""
+    if isinstance(obj, list): return [scrub(x) for x in obj]
+    if not isinstance(obj, dict): return obj
+    out = {}
+    for k, v in obj.items():
+        if k in FINDING_TEXT and isinstance(v, str):
+            out[k] = redact_finding_text(v)
+            if k == "quote" and out[k] != v: out["quote_redacted"] = True
+        else: out[k] = scrub(v)
+    return out
+
 RUNLOG_MAX = 1_000_000
-IGNORED = ("runlog.jsonl", "refutations.jsonl", "spotcheck.md", "restore/")
+# Local state that must never be committed: logs, restore copies, and the files that hold reviewers' raw quotes (a
+# quote can contain a secret from the code under review; the outputs Curmudgeon writes itself are masked by scrub()).
+IGNORED = ("runlog.jsonl", "refutations.jsonl", "spotcheck.md", "restore/", "reviews/", "history/", "outside/", "verify/",
+           "tally.json", "dedup-candidates.json", "findings-import.jsonl")
 _TRACKED = {}
 def git_tracked(root, rel):
     """True when the repository tracks this file: ignore rules don't apply to a tracked file, so anything written to

@@ -148,7 +148,7 @@ def _(d):
 @test("hooks: contract check blocks a malformed review and passes other agents")
 def _(d):
     write(d, ".critic/reviews/review-A.json", '[{"title": "x"}]')
-    out = run(H / "check_contract.py", cwd=d, stdin=json.dumps({"agent_type": "critic:curmudgeon-reviewer", "cwd": str(d)})).stdout
+    out = run(H / "check_contract.py", cwd=d, stdin=json.dumps({"agent_type": "curmudgeon:curmudgeon-reviewer", "cwd": str(d)})).stdout
     assert '"block"' in out
     assert not run(H / "check_contract.py", cwd=d, stdin=json.dumps({"agent_type": "general-purpose", "cwd": str(d)})).stdout.strip()
 
@@ -835,6 +835,95 @@ def _(d):
     g("init", "-q"); g("config", "user.email", "t@example.com"); g("config", "user.name", "t"); g("add", "-A"); g("commit", "-qm", "tracked ignore")
     r = subprocess.run([sys.executable, "-c", f"import sys; sys.path.insert(0, {str(S)!r}); import critic_findings as c; c.log_run({str(e)!r}, 'script', 'x')"], capture_output=True, text=True)
     assert (e / ".critic/.gitignore").read_text() == "scan/\n" and "left alone" in r.stderr, r.stderr
+
+@test("4.2.2 R-1: --mutate never runs a test command from a cloned repo's rules.md without --project-checks")
+def _(d):
+    marker = d / "RAN_FROM_RULES_MD"
+    write(d, "m.js", "function f(a, b) { return a < b; }\nmodule.exports = f;\n")
+    write(d, ".critic/rules.md", f"# Rules\nTest command: touch {marker}\n")
+    run(S / "critic_scan.py", ".", "--root", ".", "--mutate", "m.js", cwd=d)
+    assert not marker.exists(), "the rules.md test command ran without consent"
+    rep = json.loads((d / ".critic/scan/report.json").read_text())
+    assert rep["checks"]["mutation"]["state"] == "blocked" and "--project-checks" in rep["checks"]["mutation"]["note"], rep["checks"]["mutation"]
+    run(S / "critic_scan.py", ".", "--root", ".", "--mutate", "m.js", "--project-checks", cwd=d)
+    assert marker.exists(), "with --project-checks (the user approved rules.md) the command should run"
+    marker.unlink(); write(d, ".critic/rules.md", "# Rules\n")
+    run(S / "critic_scan.py", ".", "--root", ".", "--mutate", "m.js", "--test-cmd", f"touch {marker}", cwd=d)
+    assert marker.exists(), "a command the user typed with --test-cmd should run"
+
+@test("4.2.2 N-1: reviews left over from an earlier run are never counted as votes")
+def _(d):
+    write(d, "src/app.js", APP)
+    f = finding(category="domain", impact="Medium", line=4, quote="const price = total * 1.0825;", title="Tax rule in render code")
+    run(S / "critic_ledger.py", "start", "review", "--tier", "full", cwd=d)
+    for L in "ABC": write(d, f".critic/reviews/review-{L}.json", json.dumps([f]))
+    run(S / "critic_merge.py", "tally", *[f".critic/reviews/review-{L}.json" for L in "ABC"], cwd=d)
+    assert json.loads((d / ".critic/tally.json").read_text())["kept"][0]["votes"] == 3
+    run(S / "critic_ledger.py", "start", "review", "--tier", "lite", cwd=d)
+    left = sorted(p.name for p in (d / ".critic/reviews").glob("review-*.json")) if (d / ".critic/reviews").exists() else []
+    assert left == [], f"start left the last run's reviews in place: {left}"
+    assert sorted(p.name for p in (d / ".critic/history").rglob("review-*.json")) == ["review-A.json", "review-B.json", "review-C.json"]
+    write(d, ".critic/reviews/review-A.json", "[]")
+    write(d, ".critic/reviews/review-B.json", json.dumps([f])); old = time.time() - 3600; os.utime(d / ".critic/reviews/review-B.json", (old, old))
+    r = run(S / "critic_merge.py", "tally", ".critic/reviews/review-A.json", ".critic/reviews/review-B.json", cwd=d)
+    assert r.returncode != 0 and "earlier run" in (r.stdout + r.stderr), r.stdout + r.stderr
+    run(S / "critic_merge.py", "tally", ".critic/reviews/review-A.json", cwd=d)
+    assert json.loads((d / ".critic/tally.json").read_text())["kept"] == []
+
+@test("4.2.2 N-4: a secret a reviewer quotes is redacted everywhere Curmudgeon writes it, and raw files are git-ignored")
+def _(d):
+    key = FAKE["@LIVE@"]
+    write(d, "app.py", f'import os\nSTRIPE_KEY = "{key}"\n')
+    f = finding(category="secret", impact="Critical", file="app.py", line=2, quote=f'STRIPE_KEY = "{key}"', title=f"Live key {key} in source",
+                evidence=f"app.py:2 holds {key}", failing_case=f"anyone with the repo can charge cards with {key}", remediation="move to env, rotate")
+    run(S / "critic_ledger.py", "start", "review", "--tier", "full", cwd=d)
+    for L in "ABC": write(d, f".critic/reviews/review-{L}.json", json.dumps([f]))
+    run(S / "critic_merge.py", "tally", *[f".critic/reviews/review-{L}.json" for L in "ABC"], cwd=d)
+    t = json.loads((d / ".critic/tally.json").read_text())
+    assert [x["title"].startswith("Live key") for x in t["kept"]] == [True], "the quote check must still pass on the raw quote"
+    fid = t["kept"][0]["id"]
+    sys.path.insert(0, str(S)); import critic_findings
+    assert fid == critic_findings.fingerprint(dict(f, line=2)), "ids are computed from the raw quote, so they stay stable across versions"
+    write(d, "v.json", json.dumps([{"id": fid, "verdict": "confirmed", "reproduced": "traced", "note": f"traced: {key} is live"}]))
+    run(S / "critic_merge.py", "apply", "v.json", cwd=d)
+    leaks = [str(p.relative_to(d)) for p in (d / ".critic").rglob("*") if p.is_file() and not p.is_relative_to(d / ".critic/reviews")
+             and key in p.read_text(errors="replace")]
+    assert leaks == [], f"secret written unredacted to {leaks}"
+    gi = (d / ".critic/.gitignore").read_text().split()
+    for must in ("reviews/", "history/", "outside/", "verify/", "tally.json", "dedup-candidates.json", "findings-import.jsonl"):
+        assert must in gi, f"{must} is not git-ignored: {gi}"
+    L_ = json.loads((d / ".critic/ledger.json").read_text())["findings"][fid]
+    assert "[redacted]" in L_["quote"]
+    r = run(S / "critic_ledger.py", "acted", cwd=d)
+    assert "acted_on" not in json.loads((d / ".critic/ledger.json").read_text())["findings"][fid], "a redacted quote can't prove the code is gone"
+
+@test("4.2.2 N-13: a live URL can't pass as local through user@host, and IPv6 loopback is accepted")
+def _(d):
+    write(d, "index.html", "<!doctype html><title>t</title>")
+    def page_note(url):
+        run(S / "critic_scan.py", ".", "--root", ".", "--page", url, cwd=d)
+        return json.loads((d / ".critic/scan/report.json").read_text())["checks"]["page"]["note"]
+    for bad in ("http://127.0.0.1:80@evil.example/", "http://localhost@evil.example/x", "http://user:pw@127.0.0.1.evil.example/"):
+        assert "live URL refused" in page_note(bad), bad
+    for ok in ("http://[::1]:8000/", "http://LOCALHOST:8000/", "http://127.0.0.1:8000/"):
+        assert "live URL refused" not in page_note(ok), ok
+
+@test("4.2.2 small fixes: no stale critic names, all four hooks listed, honest benchmark, grammar, override list")
+def _(d):
+    import re as re_
+    for p in list((HERE / "agents").glob("*.md")) + [HERE / "skills/review/references/output-contract.md"]:
+        t = p.read_text()
+        assert not re_.search(r"(?i)\bthe critic skill\b|\(critic skill|[\s\"`(]/critic[\s`)]", t), p.name
+    readme = (HERE / "README.md").read_text(); top = (HERE.parent / "README.md").read_text()
+    assert readme == top, "the two README copies differ"
+    assert "stop_async" in readme or "background re-scan" in readme.lower(), "the fourth hook (background re-scan) is missing"
+    assert "Each review used three blind reviewers" not in readme
+    assert "30%" in readme and "contract" in readme.lower()
+    assert "The scripted checks measures" not in (HERE / "skills/review/references/sandbox.md").read_text()
+    assert "Playwright MCP" not in (HERE / "skills/review/references/sandbox.md").read_text()
+    run(S / "critic_ledger.py", "start", "review", cwd=d)
+    r = run(S / "critic_ledger.py", "override", "gate", "Curmudgeon", "skip", cwd=d)
+    assert r.returncode != 0 and "owner" in r.stderr, r.stdout + r.stderr
 
 if __name__ == "__main__":
     bad = [r for r in RESULTS if not r[1]]

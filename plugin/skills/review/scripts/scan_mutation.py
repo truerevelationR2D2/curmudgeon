@@ -3,7 +3,9 @@
 (flip a comparison, swap && and ||, flip a boolean, swap + and -), runs the project's test command, and reports each
 change the tests did not catch. The original file is restored after every mutant, even on errors or Ctrl+C.
 
-The test command comes from --test-cmd or a line "Test command: ..." in .critic/rules.md."""
+The test command comes from --test-cmd, or from a line "Test command: ..." in .critic/rules.md only when the user
+approved that file (--project-checks): a cloned repository can ship its own rules.md, and its command must never run
+without consent."""
 import atexit, pathlib, re, shutil, signal, subprocess, time
 from critic_findings import log_run
 
@@ -12,13 +14,17 @@ OPS = [(r"===", "!=="), (r"!==", "==="), (r"(?<![<>=!])<=(?!=)", "<"), (r"(?<![<
        (r"(?<=[\w)\]])\s\+\s(?=[\w(])", " - "), (r"(?<=[\w)\]])\s-\s(?=[\w(])", " + ")]
 SKIP_LINE = re.compile(r"^\s*(//|#|\*|/\*|import |from |export \{|console\.|<)")
 
-def test_cmd(root, given):
-    if given: return given
+def rules_test_cmd(root):
     p = root / ".critic" / "rules.md"
     if p.exists():
         m = re.search(r"(?im)^\s*test command\s*:\s*(.+)$", p.read_text(encoding="utf-8", errors="replace"))
         if m: return m.group(1).strip().strip("`")
     return None
+
+def test_cmd(root, given, allow_rules=False):
+    """--test-cmd always wins. The rules.md command is used only when the user approved rules.md (--project-checks)."""
+    if given: return given
+    return rules_test_cmd(root) if allow_rules else None
 
 BACKUP_SUFFIX = ".critic-mutation-backup"
 _pending = []
@@ -34,14 +40,18 @@ def recover(root, emit):
         shutil.copy2(b, orig); b.unlink()
         emit("WARN", "mutation-recovered", "tests", str(orig.relative_to(root)), "an earlier mutation run was interrupted; the original file was restored from its backup", "")
 
-def run(root, files, emit, state, given_cmd=None, cap=30, timeout=120):
+def run(root, files, emit, state, given_cmd=None, cap=30, timeout=120, allow_rules=False):
     recover(root, emit)
     atexit.register(_restore_pending)
     for sig in (signal.SIGTERM, signal.SIGHUP, signal.SIGINT):
         try: signal.signal(sig, lambda *a: (_restore_pending(), (_ for _ in ()).throw(SystemExit(130))))
         except (ValueError, OSError): pass
-    cmd = test_cmd(root, given_cmd)
-    if not cmd: state("mutation", "blocked", "no test command (add 'Test command: …' to .critic/rules.md or pass --test-cmd)"); return
+    cmd = test_cmd(root, given_cmd, allow_rules)
+    if not cmd:
+        if rules_test_cmd(root):
+            state("mutation", "blocked", "rules.md names a test command, but it runs only with --project-checks, after the user has read and approved that file (a cloned repository can ship its own); or pass --test-cmd")
+        else: state("mutation", "blocked", "no test command (pass --test-cmd, or add 'Test command: …' to .critic/rules.md and run with --project-checks)")
+        return
     log_run(root, "command", f"mutation testing: {cmd} (once as a baseline, then once per mutant, up to {cap})")
     base = subprocess.run(cmd, shell=True, cwd=root, capture_output=True, timeout=timeout)
     if base.returncode != 0: state("mutation", "blocked", "the test command fails before any mutation; fix the tests first"); return

@@ -347,14 +347,33 @@ def guarded(name, fn):
     try: fn()
     except Exception as e: state(name, "blocked", f"{type(e).__name__}: {str(e)[:120]}")
 
+def has_userinfo(url):
+    from urllib.parse import urlsplit
+    try: return "@" in urlsplit(url).netloc
+    except ValueError: return True
+
+def is_local_url(url):
+    """True only for http(s) on this computer: localhost or a loopback address (127.0.0.0/8, ::1), with no user@ part.
+    Parsed, never pattern-matched: http://127.0.0.1:80@evil.example/ is evil.example."""
+    import ipaddress
+    from urllib.parse import urlsplit
+    try: u = urlsplit(url); host = (u.hostname or "").lower()
+    except ValueError: return False
+    if has_userinfo(url) or u.scheme not in ("http", "https"): return False
+    if host == "localhost": return True
+    try: return ipaddress.ip_address(host).is_loopback
+    except ValueError: return False
+
 RUNTIME_CHECKS = ("page", "axe", "console", "keyboard", "focus", "obscured", "screen-reader", "interactive", "responsive", "speed", "screenshots", "visual")
 def runtime(page, src, root, out, axe_arg, interact, allow_live, baseline=None, budget_kb=1500):
     names = RUNTIME_CHECKS
     if re.match(r"^https?://", page):
-        host = re.sub(r"^https?://([^/:]+).*", r"\1", page)
-        if host not in ("localhost", "127.0.0.1", "::1") and not allow_live:
+        if not is_local_url(page) and not allow_live:
             for k in names: state(k, "blocked", "live URL refused; rerun with --allow-live if this is a safe test copy")
             f("WARN", "live-refused", "runtime", page, "live URL refused: the scan would load a real site (pass --allow-live for a safe test copy)"); return {}
+        if has_userinfo(page):  # http://127.0.0.1@evil.example/ goes to evil.example: never load an address that hides its real host
+            for k in names: state(k, "blocked", "live URL refused: the address carries a user name or password (user@host), which hides the real host")
+            f("WARN", "live-refused", "runtime", page, "live URL refused: an address with user@host is never loaded"); return {}
     try: from playwright.sync_api import sync_playwright
     except ImportError:
         for k in names: state(k, "unavailable", "Playwright not installed")
@@ -592,7 +611,7 @@ def main(argv):
     else:
         for k in RUNTIME_CHECKS: state(k, "blocked", "no --page given")
     if a.mutate:
-        try: scan_mutation.run(root, a.mutate, f, state, a.test_cmd)
+        try: scan_mutation.run(root, a.mutate, f, state, a.test_cmd, allow_rules=a.project_checks)
         except Exception as e: state("mutation", "blocked", f"{type(e).__name__}: {str(e)[:100]}")
     # fail closed: every check this run asked for must have reported; silence never counts as a pass
     expected = ["static", "structure", "deps", "ci"] + (list(RUNTIME_CHECKS) if a.page else []) + (["mutation"] if a.mutate else [])

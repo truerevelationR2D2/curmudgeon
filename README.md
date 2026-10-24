@@ -77,31 +77,39 @@ Drop a JSON file of rules into your project's `.critic/rules/` (or, to contribut
 
 ## What it runs, reads and sends
 
-- **Runs:** its own Python scripts, plus your project's test command if you opt in to mutation testing (the command is set in `.critic/rules.md`). Every script a review starts and every outside command or network call it starts itself (git, npm, a Chromium launch, your test or check commands when asked, the opt-in OSV lookup) is listed in `.critic/runlog.jsonl`. The requests a page makes inside the browser aren't listed one by one. Tokens, passwords, keys, cookies and signed-URL signatures are masked. The log is git-ignored, and if your repository already tracks it, nothing is written to it and you're told why. In the browser checks it serves your files on `127.0.0.1` and blocks any request that leaves that origin. It never clicks a control that submits a form or sends data.
+- **Runs:** its own Python scripts, plus a test command if you opt in to mutation testing: one you type with `--test-cmd`, or the one in `.critic/rules.md` only when you also pass `--project-checks` (a cloned repository can ship its own rules.md, so Curmudgeon shows you its commands and asks first). Every script a review starts and every outside command or network call it starts itself (git, npm, a Chromium launch, your test or check commands when asked, the opt-in OSV lookup) is listed in `.critic/runlog.jsonl`. The requests a page makes inside the browser aren't listed one by one. Tokens, passwords, keys, cookies and signed-URL signatures are masked. The log is git-ignored, and if your repository already tracks it, nothing is written to it and you're told why. In the browser checks it serves your files on `127.0.0.1` and blocks any request that leaves that origin. It never clicks a control that submits a form or sends data.
 - **Reads:** the files under review, and your CI's SARIF or JUnit output if present. It never reads its own earlier output as evidence.
-- **Writes:** only inside `.critic/`, unless you ask for fixes. Before a fix it saves exact copies of the files it will change in `.critic/restore/` (private to you, git-ignored, never read by any report), so rollback is exact. If your code holds keys, so do those copies. A guard hook blocks direct edits to `.critic/` state.
+- **Writes:** only inside `.critic/`, unless you ask for fixes. Before a fix it saves exact copies of the files it will change in `.critic/restore/` (private to you, git-ignored, never read by any report), so rollback is exact. If your code holds keys, so do those copies. A guard hook blocks direct edits to `.critic/` state. Each run moves the last run's raw reviews to `.critic/history/`, so they are never counted again. The raw reviews and other files that hold reviewers' exact quotes are git-ignored; everything Curmudgeon writes itself has secrets masked.
 - **Sends:** nothing, by default. It declares no connectors or MCP servers, and it never contacts another AI: the outside reviewer is something you paste to and from yourself, only if you said yes. Two opt-in flags reach the network: `--online` sends package names and versions to the free OSV vulnerability API (`api.osv.dev`), and `--allow-live` lets the page check load a live URL you give it. Without them, the page checks serve files only on this computer and block any request that would leave it. Secrets found in your code are redacted in every report.
 - **Personal data:** Curmudgeon collects, stores and sends no personal data for itself: no accounts, tracking or analytics. If the code you review contains personal data, the quoted lines, screenshots and restore copies it keeps in your local `.critic/` folder can include it. That folder stays on your machine.
+- **Limits:**
+  - Restore copies are exact, so they keep a key that a fix removed until you delete them.
+  - On Windows the copies' private folder permission (0700) has no effect.
+  - `.gitignore` doesn't stop a Docker build context, a zip or a sync tool from picking up `.critic/`.
+  - The verifier's "no hedging" rule is a word list: it stops "probably" or "seems", but not a confident, wrong refutation that cites a real line. Spot-checks (above) are how you catch those.
 - **Hooks:**
   - Stop: the optional gate, off until you turn it on;
+  - Stop, background re-scan: free scripted checks on files edited since the last review, run without blocking, off until you turn it on with `/curmudgeon:gate async`;
   - SubagentStop: checks that each reviewer's output follows the contract;
   - PreToolUse: protects `.critic/` state.
 
 ## Benchmarks
 
-Measured on 18 October 2026 with the eval kit in `eval/`. Each review used three blind reviewers. An independent model labelled every finding that didn't match a planted bug; it read and ran the code without seeing the answer keys.
+Measured on 18 October 2026 (version 4.0.0) with the eval kit in `eval/`. The notes app was a single-context review and fix; the orders dashboard used three blind reviewers. The release record doesn't say how many reviewers the decoy-app and clean-twin runs used. An independent model labelled every finding that didn't match a planted bug; it read and ran the code without seeing the answer keys. All numbers are as recorded in `eval/baseline.json`.
 
-| Test | Planted bugs found | Share of findings that are real bugs |
-|---|---|---|
-| Notes app (16 planted bugs), review and fix | 16/16 | 96% |
-| Orders dashboard (27 planted bugs) | 27/27 | 95% |
-| Decoy app (9 decoys that look buggy but aren't, 2 real bugs) | 2/2 | No decoy flagged at Medium or above; 3 flagged at Low |
+| Test | Planted bugs found | Share of findings that are real bugs | Report format score |
+|---|---|---|---|
+| Notes app (16 planted bugs), review and fix | 16/16 | 96% (27 of 28) | 100% |
+| Orders dashboard (27 planted bugs) | 27/27 | 95% (35 of 37) | 45% |
+| Decoy app (9 decoys that look buggy but aren't, 2 real bugs) | 2/2 | 30%: no decoy flagged at Medium or above; 3 decoys and several true-but-trivial nitpicks flagged at Low | 45% |
 | Clean twin of the notes app | – | 0 false alarms; both findings were real bugs nobody planted |
 | Clean twin of the dashboard | – | 1 trivial finding; the other 7 were real bugs nobody planted |
 
 After the fix stage, the fixed apps passed 9 of 9 and 12 of 13 browser behaviour tests. The miss was an animation that ignores the reduced-motion setting.
 
-These are small apps, so treat the numbers as indicative. Most of the noise left is in Low findings: true, but not worth anyone's time.
+The report format score (`contract` in the eval) is the share of 11 checks on how the written teardown follows its required format: headers, a single verdict, counts that match the findings, evidence on every finding, and so on. It measures the report's form, not whether the findings are right.
+
+These are small apps, so treat the numbers as indicative: with 28 findings, "96%" could plausibly be anything from about 82% to 99%. Most of the noise left is in Low findings: true, but not worth anyone's time.
 
 Curmudgeon also reviewed its own code. A fresh reviewer then checked each round of fixes, five rounds in all. The rounds turned up real bugs in its own scripts (two of them Critical), and each now has a regression test.
 

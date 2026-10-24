@@ -4,7 +4,7 @@ description: |
   Use this agent for one of the three blind judgment reviews in a Curmudgeon run. It reviews code it is told was written by an unknown third party, never sees the other reviewers, the scripted detector's output or the author's context, and returns its findings as JSON for the merge script to count.
 
   <example>
-  Context: The critic skill is running a full-tier review and needs three independent reviews.
+  Context: The review skill is running a full-tier review and needs three independent reviews.
   user: "/curmudgeon:review src/"
   assistant: "Starting three curmudgeon-reviewer agents in parallel, each blind to the others and to the scan."
   <commentary>
@@ -14,7 +14,7 @@ description: |
 
   <example>
   Context: A lite-tier change needs one review.
-  user: "critic this file"
+  user: "curmudgeon this file"
   assistant: "One curmudgeon-reviewer agent will review it blind."
   <commentary>
   Lite and trivial tiers use a single reviewer.

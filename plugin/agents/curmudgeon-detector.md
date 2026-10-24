@@ -4,8 +4,8 @@ description: |
   Use this agent for the evidence half of a Curmudgeon review. It runs the scripted checks (static rules, design detector, axe-core, keyboard, focus, hover, dead controls, layout shift, phone width, screenshots), checks the evidence is usable, and reports only what the scripts saw, with evidence ids.
 
   <example>
-  Context: The critic skill is running a full review and needs the free scripted checks.
-  user: "/critic src/ --page dist/index.html"
+  Context: The review skill is running a full review and needs the free scripted checks.
+  user: "/curmudgeon:review src/ --page dist/index.html"
   assistant: "I'll start the curmudgeon-detector agent to run the scripted checks while the reviewer works separately."
   <commentary>
   Deterministic checks run in their own context so they don't anchor the judgment review.
