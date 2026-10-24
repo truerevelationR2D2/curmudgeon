@@ -383,11 +383,12 @@ def main(a):
     elif cmd == "gate":
         need(rest, 1, "gate on|async|off")
         D.mkdir(parents=True, exist_ok=True)
-        if rest[0] == "on": (D / "gate").write_text(""); msg = "stop gate on"
-        elif rest[0] == "async": (D / "gate-async").write_text(""); msg = "background stop check on"
+        if rest[0] == "on": (D / "gate").write_text(""); (D / "watch-off").unlink(missing_ok=True); msg = "stop gate on"
+        elif rest[0] == "async": (D / "gate-async").write_text(""); (D / "watch-off").unlink(missing_ok=True); msg = "background stop check on"
         elif rest[0] == "off":
             for n_ in ("gate", "gate-async", "gate-count"): (D / n_).unlink(missing_ok=True)
-            msg = "stop checks off"
+            (D / "watch-off").write_text("")  # also silences the while-you-work scan (SC-62)
+            msg = "stop checks off, and the while-you-work scan"
         else: die("gate on|async|off")
         print(msg); return 0
     elif cmd == "decision":

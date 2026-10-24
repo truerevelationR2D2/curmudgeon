@@ -1937,6 +1937,25 @@ def _(d):
     note = [x for x in rows if x["rule"] == "semgrep-present"]
     assert note and "config .semgrep.yml" in note[0]["what"] and note[0]["tier"] == "pedantic" and "read as evidence" in note[0]["what"], note
 
+@test("5.0 SC-62: the while-you-work scan hands a FAIL in the file just written back to Claude, once per version, and stays quiet when off, outside a Curmudgeon project or for its own agents")
+def _(d):
+    write(d, "app.py", "x = 1\n")
+    def post(rel, agent=None):
+        inp = {"tool_name": "Write", "tool_input": {"file_path": str(d / rel)}, "cwd": str(d)}
+        if agent: inp["agent_type"] = agent
+        return run(H / "scan_on_write.py", cwd=d, stdin=json.dumps(inp)).stdout
+    write(d, "bad.py", "KEY = '@LIVE@'\n")
+    assert not post("bad.py").strip(), "no ledger: not a Curmudgeon project yet, so silent"
+    run(S / "critic_ledger.py", "start", "review", "--tier", "lite", cwd=d)
+    out = post("bad.py"); assert '"block"' in out and "bad.py:1" in out, out
+    assert not post("bad.py").strip(), "the same problem in the same version is shown once"
+    write(d, "bad.py", "KEY = '@LIVE@'\n# touched\n"); assert '"block"' in post("bad.py"), "a new version shows it again"
+    assert not post("app.py").strip() and not post("bad.py", agent="curmudgeon:curmudgeon-verifier").strip()
+    assert not (d / ".critic/scan/report.json").exists(), "the review's scan report is never written by the watcher"
+    run(S / "critic_ledger.py", "gate", "off", cwd=d); write(d, "bad.py", "KEY = '@LIVE@'\n# again\n")
+    assert not post("bad.py").strip(), "gate off silences it"
+    run(S / "critic_ledger.py", "gate", "async", cwd=d); assert '"block"' in post("bad.py"), "gate async turns it back on"
+
 if __name__ == "__main__":
     shutil.rmtree(TMP, ignore_errors=True)
     bad = [r for r in RESULTS if not r[1]]
