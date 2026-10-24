@@ -127,8 +127,14 @@ def validate(f):
 
 LOCATION = re.compile(r"([\w./-]+\.\w+):(\d+)")
 HEDGE = re.compile(r"(?i)\b(i (?:do not|don't) think|i think|i believe|i guess|i assume|i suspect|i doubt|presumably|apparently|supposedly|seems?|probably|maybe|perhaps|possibly|unlikely|not sure|unclear|afaict|as far as i (?:can )?(?:tell|know|see)|likely (?:fine|ok|safe)|looks? (?:fine|ok|safe)|should be (?:fine|ok|safe))\b")
+WORKSPACE_PREFIX = re.compile(r"(?:(?:[A-Za-z]:)?[^\s'\"`(\[]*?[\\/])?\.critic[\\/]scratch[\\/][A-Za-z0-9_-]{1,64}[\\/]payload[\\/]")
+def strip_workspace(text):
+    """A blind agent works in a private copy of the project (hooks/workspace.py); a path it cites inside that copy is the
+    same path in the project, so the copy's prefix is removed before any check."""
+    return WORKSPACE_PREFIX.sub("", str(text or ""))
+
 def _cites_real_line(text, root):
-    locs = LOCATION.findall(str(text or ""))
+    locs = LOCATION.findall(strip_workspace(text))
     if not locs: return False
     if root is None: return True
     rt = pathlib.Path(root).resolve()

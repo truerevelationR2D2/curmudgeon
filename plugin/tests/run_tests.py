@@ -6,9 +6,10 @@ import json, os, pathlib, shutil, subprocess, sys, tempfile, time
 HERE = pathlib.Path(__file__).resolve().parent.parent
 S = HERE / "skills" / "review" / "scripts"; H = HERE / "hooks"
 RESULTS = []
+TMP = tempfile.mkdtemp(prefix="critic-tmp-")  # the hooks' TMPDIR, so agent workspaces made by tests are removed with it
 
 def run(script, *a, cwd, stdin=None, env=None):
-    e = dict(os.environ, CRITIC_ROOT=str(cwd), **(env or {}))
+    e = dict(os.environ, CRITIC_ROOT=str(cwd), TMPDIR=TMP); e.update(env or {})
     return subprocess.run([sys.executable, str(script), *a], cwd=cwd, capture_output=True, text=True, input=stdin, env=e, timeout=300)
 
 def test(name):
@@ -1408,7 +1409,7 @@ def _(d):
     from critic_findings import validate
     assert validate(dict(g, preconditions=3)) and not validate(g)
 
-@test("5.0 card-C review: the guard covers .critic itself, searches from above it, case, Bash globs, cd and links, and no longer blocks payload or search text")
+@test("5.0 card-C review: the guard covers .critic itself, searches from above it, case, globs and links, and no longer blocks payload or search text; with no workspace, Bash is off")
 def _(d):
     write(d, ".critic/reviews/review-B.json", '[{"title": "SECRET-B"}]'); write(d, "src/a.py", "x = 1\n"); write(d, "eval/fixture3/.critic/ledger.json", "{}")
     (d / ".critic/scratch/me").mkdir(parents=True); os.symlink(d / ".critic/reviews", d / ".critic/scratch/me/r"); os.symlink(d / ".critic", d / "src/link")
@@ -1423,8 +1424,7 @@ def _(d):
         assert ask(tool, **ti), f"should be denied: {tool} {ti}"
     for tool, ti in [("Grep", {"pattern": "x", "path": ".", "glob": "!.critic/**"}), ("Grep", {"pattern": "\\.critic/reviews", "path": "plugin"}), ("Grep", {"pattern": "x", "path": "src"}),
                      ("Read", {"file_path": "eval/fixture3/.critic/ledger.json"}), ("Read", {"file_path": "src/a.py"}), ("Glob", {"pattern": "**/*.py"}),
-                     ("Bash", {"command": "grep -rn --exclude-dir=.critic title ."}), ("Bash", {"command": "rg title ."}), ("Bash", {"command": "grep -n '.critic/reviews' src/a.py"}),
-                     ("Bash", {"command": "python3 .critic/scratch/me/probe.py"}), ("Read", {"file_path": ".critic/rules.md"})]:
+                     ("Read", {"file_path": ".critic/rules.md"})]:
         assert not ask(tool, **ti), f"should be allowed: {tool} {ti}"
     assert not ask("Read", agent="curmudgeon:curmudgeon-verifier", file_path=".critic/verify/F-1.json")
     assert ask("Read", agent="curmudgeon:curmudgeon-verifier", file_path=".critic/reviews/review-B.json")
@@ -1487,24 +1487,63 @@ def _(d):
     f = json.loads((d / ".critic/ledger.json").read_text())["findings"][first]
     assert "acted_on" not in f and f.get("acted_pending"), f
 
-@test("5.0 card-C round 2: the Bash check judges real paths (sh -c, python -c, xargs, links), targets of recursive searches, and spares honest work")
+@test("5.0 §5.29 structural blindness: each reviewer works in a private frozen copy without .critic, its Bash runs there, and the copy is gone at stop")
 def _(d):
-    write(d, ".critic/reviews/review-B.json", '[{"title": "SECRET-B"}]'); write(d, "src/a.py", "x = 1\n"); write(d, "eval/fx/.critic/reviews/r.json", "{}")
-    write(d, ".critic/scratch/me/notes.txt", "n"); os.symlink(d / ".critic", d / "src/link")
-    def ask(tool, **ti):
-        return "deny" in run(H / "read_guard.py", cwd=d, stdin=json.dumps({"tool_name": tool, "tool_input": ti, "cwd": str(d), "agent_type": "curmudgeon:curmudgeon-reviewer", "agent_id": "me"})).stdout
-    deny = ["sh -c 'cat .critic/reviews/review-B.json'", "bash -c \"cat .critic/reviews/review-B.json\"", "python3 -c \"print(open('.critic/reviews/review-B.json').read())\"",
-            "node -e \"require('fs').readFileSync('.critic/reviews/review-B.json')\"", "find . -type f | xargs grep -l SECRET", "grep -n foo $(find . -name '*.json')",
-            "grep -rn --exclude-dir=.critic a . && grep -rn SECRET .", "cat src/link/reviews/review-B.json", "cd src/link && cat reviews/review-B.json", "cat .cri*/reviews/*",
-            "cat .*/reviews/review-B.json", "cat .crit\"\"ic/reviews/review-B.json", "grep -rn SECRET src/link", "cp -r . /tmp/x"]
-    allow = ["grep -rn foo src", "grep -rn foo eval/fx", "find src -name '*.py' -exec grep -n foo {} +", "cat eval/fx/.critic/reviews/*.json", "ls .critic/scratch/me/*",
-             "cat .critic/scratch/me/*.txt", "grep -n -A 2 '.critic/reviews' src/a.py", "rg -n -g '*.py' '.critic/reviews' src", "git log --grep=.critic/reviews",
-             "grep -rn --exclude-dir=.critic SECRET .", "rg SECRET .", "find . -not -path '*/.critic/*' -name '*.py'"]
-    for c in deny: assert ask("Bash", command=c), f"should be denied: {c}"
-    for c in allow: assert not ask("Bash", command=c), f"should be allowed: {c}"
-    assert ask("Grep", pattern="SECRET", path="..", glob="!.critic/**") and ask("Grep", pattern="SECRET", path="/")
-    assert not ask("Grep", pattern="SECRET", path=".", glob="!.critic") and not ask("Glob", pattern="eval/fx/.critic/**") and not ask("Glob", pattern=".critic/scratch/me/*")
-    assert ask("Glob", pattern=".critic/reviews/*")
+    p = d / "proj"; write(p, ".critic/reviews/review-B.json", '[{"title": "SECRET-B"}]'); write(p, ".critic/scan/report.md", "SCAN"); write(p, ".critic/rules.md", "r")
+    write(p, "src/a.py", "x = 1\n"); write(p, "eval/fx/.critic/reviews/r.json", "{}"); write(p, ".git/config", "[core]"); write(p, "node_modules/lib/index.js", "1")
+    write(p, "big.bin", "x" * (5 * 1024 * 1024 + 1)); os.symlink(p / ".critic", p / "src/link"); os.symlink(p, p / "src/up"); os.symlink(p / "src/a.py", p / "src/alias.py")
+    def start(agent, aid):
+        out = run(H / "scratch_dir.py", cwd=p, stdin=json.dumps({"agent_type": agent, "agent_id": aid, "cwd": str(p)})).stdout
+        return json.loads(out)["hookSpecificOutput"]["additionalContext"]
+    msg = start("curmudgeon:curmudgeon-reviewer", "me")
+    rec = json.loads((p / ".critic/scratch/me/workspace.json").read_text()); ws = pathlib.Path(rec["payload"])
+    assert ws.is_dir() and str(ws) in msg and "cd " in msg and ws == (p / ".critic/scratch/me/payload").resolve(), msg
+    assert (ws / "src/a.py").read_text() == "x = 1\n" and (ws / "eval/fx/.critic/reviews/r.json").exists(), "the payload, fixtures' own .critic folders included, is copied"
+    assert not (ws / ".critic").exists() and not (ws / ".git").exists() and not (ws / "big.bin").exists() and "big.bin" in msg
+    assert not os.path.lexists(ws / "src/link") and not os.path.lexists(ws / "src/up"), "links back into .critic or to the project itself are dropped"
+    assert (ws / "src/alias.py").resolve() == (ws / "src/a.py").resolve(), "a link inside the project points at the same file in the copy"
+    assert (ws / "node_modules").is_symlink(), "dependency folders are linked so tests can run"
+    start("curmudgeon:curmudgeon-reviewer", "other"); other = json.loads((p / ".critic/scratch/other/workspace.json").read_text())["payload"]
+    def ask(tool, aid="me", agent="curmudgeon:curmudgeon-reviewer", **ti):
+        return "deny" in run(H / "read_guard.py", cwd=p, stdin=json.dumps({"tool_name": tool, "tool_input": ti, "cwd": str(p), "agent_type": agent, "agent_id": aid})).stdout
+    c = f"cd {ws} && "
+    for cmd in ["cat .critic/reviews/review-B.json", "grep -rn SECRET .", f"cd {p} && cat .critic/reviews/review-B.json", c + f"cat {p}/.critic/reviews/review-B.json",
+                c + f"grep -rn SECRET {p}", c + "cd - && grep -rn SECRET .", c + "cat $OLDPWD/.critic/reviews/review-B.json", c + "cat $CLAUDE_PROJECT_DIR/.critic/scan/report.md",
+                c + f"cat {other}/src/a.py", c + "cat node_modules/../.critic/reviews/review-B.json", f"cd {other} && ls", c + "cat ../../../reviews/review-B.json",
+                c + "grep -rn SECRET ../..", c + "cat ../../*/payload/src/a.py", c + "grep -rn SECRET node_modules/..", c + "cat ../../../*/review-B.json", c + "rg SECRET --file=../../../scan/report.md"]:
+        assert ask("Bash", command=cmd), f"should be denied: {cmd}"
+    for cmd in [c + "grep -rn SECRET .", c + "rg --hidden SECRET", c + "python3 -m pytest -q", c + "cat eval/fx/.critic/reviews/r.json", f"cd '{ws}' && ls -la",
+                c + f"python3 {rec['notes']}/probe.py", c + "node node_modules/lib/index.js", c + f"cp src/a.py {rec['notes']}/", c + "grep -n '.critic/reviews' src/a.py",
+                c + "git log --oneline -3", c + f"cat {p}/src/a.py", c + "ls ../notes"]:
+        assert not ask("Bash", command=cmd), f"should be allowed: {cmd}"
+    assert ask("Grep", pattern="SECRET") and ask("Grep", pattern="SECRET", path=str(p)) and ask("Grep", pattern="x", path=str(p / ".critic/scratch")), "searches from the project or above the workspaces are refused"
+    assert ask("Read", file_path=other + "/src/a.py") and ask("Glob", pattern="*/payload/src/*.py", path=str(p / ".critic/scratch"))
+    assert not ask("Grep", pattern="SECRET", path=str(ws)) and not ask("Read", file_path=str(ws / "src/a.py")) and not ask("Glob", pattern="**/*.py", path=str(ws))
+    assert not ask("Read", file_path=str(p / "src/a.py")) and ask("Read", file_path=str(p / ".critic/reviews/review-B.json")) and not ask("Read", file_path=str(p / ".critic/rules.md"))
+    assert ask("Bash", aid="nobody", command=f"cd {ws} && ls"), "an agent with no workspace has no Bash"
+    (pathlib.Path(rec["notes"]) / "probe.py").write_text("print(1)\n")
+    run(H / "workspace_stop.py", cwd=p, stdin=json.dumps({"agent_type": "curmudgeon:curmudgeon-reviewer", "agent_id": "me", "cwd": str(p)}))
+    assert not ws.exists() and (p / ".critic/scratch/me/notes/probe.py").exists(), "the copy is deleted at stop and the notes are kept"
+    assert "workspace" not in start("curmudgeon:curmudgeon-dedup", "dd") and not (p / ".critic/scratch/dd/workspace.json").exists(), "dedup reads one file; it needs no copy"
+    from critic_findings import strip_workspace
+    assert strip_workspace(f"{ws}/src/a.py:1 sets x") == "src/a.py:1 sets x"
+    run(S / "critic_ledger.py", "start", "review", "--tier", "full", cwd=p)
+    assert not list((p / ".critic/history").glob("*/scratch/*/payload")), "a copy left behind is deleted at the next run's start, never archived"
+    e = d / "linked"; write(e, "src/a.py", "x\n"); (e / ".critic").mkdir(); (d / "away").mkdir(); os.symlink(d / "away", e / ".critic/scratch")
+    out = run(H / "scratch_dir.py", cwd=e, stdin=json.dumps({"agent_type": "curmudgeon-verifier", "agent_id": "v1", "cwd": str(e)})).stdout
+    assert not list((d / "away").iterdir()), "never build a copy through a planted link"
+
+@test("5.0 §5.29 live-run find: the contract check never echoes another review's words, and refuses a review file older than the agent")
+def _(d):
+    write(d, ".critic/reviews/review-B.json", '[{"title": "SECRET-B"}]'); write(d, "src/a.py", "x = 1\n")
+    time.sleep(2.5)  # older than the agent's start by more than the 2 s allowed for coarse file clocks
+    run(H / "scratch_dir.py", cwd=d, stdin=json.dumps({"agent_type": "curmudgeon:curmudgeon-reviewer", "agent_id": "me", "cwd": str(d)}))
+    out = run(H / "check_contract.py", cwd=d, stdin=json.dumps({"agent_type": "curmudgeon:curmudgeon-reviewer", "agent_id": "me", "cwd": str(d),
+              "last_assistant_message": "I could not read .critic/reviews/review-B.json"})).stdout
+    assert "SECRET-B" not in out and "not written by you" in out, out
+    write(d, ".critic/reviews/review-A.json", '[{"title": "MINE"}]')
+    out = run(H / "check_contract.py", cwd=d, stdin=json.dumps({"agent_type": "curmudgeon:curmudgeon-reviewer", "agent_id": "me", "cwd": str(d), "last_assistant_message": ".critic/reviews/review-A.json"})).stdout
+    assert "finding 1:" in out and "MINE" not in out, out
 
 @test("5.0 SC-43: in a review of a change, findings are marked introduced or pre-existing by script, and a new caller of an old sink counts as introduced")
 def _(d):
@@ -1544,6 +1583,22 @@ def _(d):
     assert rows["rule-noisy"]["tier"] == "pedantic" and rows["rule-noisy"]["sev"] == "NOTE", rows["rule-noisy"]
     assert " pedantic " in (e / ".critic/scan/report.md").read_text()
 
+@test("5.0 SC-31: critic_run.py walks a run from begin to teardown, running each scripted step and naming the agents to start")
+def _(d):
+    write(d, "src/app.js", APP)
+    out = run(S / "critic_run.py", "begin", "--files", "src/app.js", "--tier", "full", cwd=d).stdout
+    assert "curmudgeon:curmudgeon-reviewer" in out and "A, B, C" in out, out
+    g = finding(category="domain", impact="Medium", line=4, quote="const price = total * 1.0825;", title="Tax rule in render code")
+    for L in "ABC": write(d, f".critic/reviews/review-{L}.json", json.dumps([g]))
+    out = run(S / "critic_run.py", "next", cwd=d).stdout
+    assert "kept 1" in out and "curmudgeon:curmudgeon-verifier" in out and ".critic/verify/" in out, out
+    fid = json.loads((d / ".critic/tally.json").read_text())["kept"][0]["id"]
+    write(d, ".critic/verdicts/1.json", json.dumps([{"id": fid, "verdict": "confirmed", "reproduced": "traced", "entry": "render() runs on every update", "path": ["src/app.js:4 multiplies by the tax rate inside render"]}]))
+    out = run(S / "critic_run.py", "next", cwd=d).stdout
+    assert "final: 1 finding" in out and "write the teardown" in out, out
+    assert "teardown" in run(S / "critic_run.py", "status", cwd=d).stdout
+
 if __name__ == "__main__":
+    shutil.rmtree(TMP, ignore_errors=True)
     bad = [r for r in RESULTS if not r[1]]
     print(f"\n{len(RESULTS) - len(bad)} of {len(RESULTS)} passed"); sys.exit(1 if bad else 0)

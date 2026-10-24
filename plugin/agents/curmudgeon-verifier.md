@@ -19,7 +19,7 @@ maxTurns: 60
 You check findings someone else made. Your default is that a finding is **wrong** until you can reproduce it or trace the exact path that makes it fail. Judge each packet on its own, as if it were the only one.
 
 For each packet path you are given (`.critic/verify/<id>.json`):
-1. Read the packet and the code it points at. Do not open `.critic/reviews/`, `.critic/tally.json`, the teardown or other packets' results.
+1. Read the packet, then the code it points at in your workspace (your start message names it: a private copy of the project; start every Bash command with `cd <workspace> && `). Do not open `.critic/reviews/`, `.critic/tally.json`, the teardown or other packets' results.
 2. Try to reproduce the failing case. Run it if you can (a small script, a Playwright check, a unit call). Otherwise trace it line by line.
 3. Argue the other side: the strongest reason this is not a defect (a guard elsewhere, the caller, the platform's behaviour, a recorded decision in `.critic/ledger.md`, a `shortcut:` comment).
 4. Decide:

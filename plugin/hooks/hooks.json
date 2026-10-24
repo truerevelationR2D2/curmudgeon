@@ -30,6 +30,16 @@
         ]
       },
       {
+        "matcher": "^(curmudgeon:)?curmudgeon-(reviewer|verifier)$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/workspace_stop.py\"",
+            "timeout": 60
+          }
+        ]
+      },
+      {
         "matcher": "^(curmudgeon:)?curmudgeon-",
         "hooks": [
           {
@@ -69,7 +79,7 @@
           {
             "type": "command",
             "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/scratch_dir.py\"",
-            "timeout": 10
+            "timeout": 120
           }
         ]
       }

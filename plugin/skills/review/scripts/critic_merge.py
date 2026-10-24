@@ -38,7 +38,7 @@ apply:
   records every kept finding in the ledger (new, known or regressed)."""
 import hashlib, json, math, os, pathlib, re, subprocess, sys, time
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
-from critic_findings import IMPACTS, extract_findings, norm_code, relocate_quote, fingerprint, quote_check, read_jsonl, refutation_problem, confirmation_problem, security_refutation_problem, similar, log_run, append_line, refuse_linked_state, to_sarif, validate, write_jsonl, tokens, scrub, redact_finding_text, write_manifest
+from critic_findings import IMPACTS, extract_findings, norm_code, relocate_quote, fingerprint, quote_check, read_jsonl, refutation_problem, confirmation_problem, security_refutation_problem, similar, log_run, append_line, refuse_linked_state, to_sarif, validate, write_jsonl, tokens, scrub, redact_finding_text, write_manifest, strip_workspace
 
 ROOT = pathlib.Path(os.environ.get("CRITIC_ROOT", os.getcwd())).resolve(); D = ROOT / ".critic"
 
@@ -49,7 +49,7 @@ MEASURED = re.compile(r"^(axe-(?!incomplete)|no-focus-style|not-focusable|focus-
 def die(m): print(f"critic_merge: {m}", file=sys.stderr); sys.exit(2)
 
 def norm_path(p):
-    p = str(p or "").strip().replace("\\", "/")
+    p = strip_workspace(str(p or "").strip()).replace("\\", "/")
     try:
         q = pathlib.Path(p)
         if q.is_absolute(): p = str(q.resolve().relative_to(ROOT))

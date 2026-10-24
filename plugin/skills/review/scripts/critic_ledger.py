@@ -170,6 +170,9 @@ def main(a):
             except Exception: pass
         archive_reviews(L, f"run-{L['run'] - 1}")
         sc = D / "scratch"  # the last run's agent scratch folders move aside too: a new run's agents start empty
+        if sc.is_dir() and not sc.is_symlink():
+            for pl in sc.glob("*/payload"):  # an agent's copy of the project (hooks/workspace.py) left by a stop that never ran: a copy, never history
+                if pl.is_dir() and not pl.is_symlink() and not pl.parent.is_symlink(): shutil.rmtree(pl, ignore_errors=True)
         if sc.is_dir() and not sc.is_symlink() and any(sc.iterdir()):
             dest = D / "history" / f"run-{L['run'] - 1}" / "scratch"; k = 2
             while dest.exists(): dest = D / "history" / f"run-{L['run'] - 1}-{k}" / "scratch"; k += 1

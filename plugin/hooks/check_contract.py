@@ -8,12 +8,24 @@ try: from critic_findings import validate, refutation_problem, confirmation_prob
 except Exception as _e:  # a broken install must say so, not fail open silently
     print(json.dumps({"systemMessage": f"Curmudgeon contract check skipped: its scripts could not be loaded ({type(_e).__name__}: {_e}). Reinstall the plugin."})); sys.exit(0)
 
-def problems_review(root, msg):
+def started_at(root, agent_id):
+    """When this agent started: its workspace record (hooks/workspace.py), else None. Read directly, not through
+    workspace.info, because the stop hook that deletes the copy runs at the same time as this one."""
+    try:
+        sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent)); import workspace
+        h = workspace.home_for(root, agent_id); p = h / "workspace.json" if h else None
+        if not p or p.is_symlink() or not p.is_file(): return None
+        v = json.loads(p.read_text()).get("made_at"); return float(v) if isinstance(v, (int, float)) else None
+    except Exception: return None
+
+def problems_review(root, msg, agent_id=None):
     d = root / ".critic" / "reviews"
     named = re.findall(r"review-([A-Za-z0-9]+)\.json", msg or "")
     if named: rv = [d / f"review-{named[-1]}.json"]  # the file this reviewer says it wrote
     else: return ["the reply must name the review file it wrote (.critic/reviews/review-<letter>.json)"]
     if not rv[0].exists(): return [f"{rv[0].name} was not written"]
+    began = started_at(root, agent_id)
+    if began and rv[0].stat().st_mtime < began - 2: return [f"{rv[0].name} was not written by you (it is older than your start); write your own review file"]
     if time.time() - rv[0].stat().st_mtime > 1800: return [f"{rv[0].name} is older than 30 minutes: this run didn't write it"]
     try: rows = json.loads(rv[-1].read_text())
     except Exception as e: return [f"{rv[-1].name} is not valid JSON ({e})"]
@@ -26,7 +38,7 @@ def problems_review(root, msg):
     if not isinstance(rows, list): return [f"{rv[-1].name} must hold a JSON list of findings, or an object with a findings list"]
     for i, f in enumerate(rows):
         e = validate(f) if isinstance(f, dict) else ["not an object"]
-        if e: errs.append(f"finding {i + 1} ({(f or {}).get('title', '?') if isinstance(f, dict) else '?'}): {'; '.join(e)}")
+        if e: errs.append(f"finding {i + 1}: {'; '.join(e)}")  # never its title: if a reviewer named another's file, the message must not carry that review's words
     return errs[:8]
 
 def problems_verdict(msg, root=None):
@@ -57,7 +69,7 @@ def main():
     if data.get("stop_hook_active"): return 0
     kind = str(data.get("agent_type") or "")
     root = pathlib.Path(data.get("cwd") or ".")
-    if kind.endswith("curmudgeon-reviewer"): errs = problems_review(root, data.get("last_assistant_message", ""))
+    if kind.endswith("curmudgeon-reviewer"): errs = problems_review(root, data.get("last_assistant_message", ""), data.get("agent_id"))
     elif kind.endswith("curmudgeon-verifier"): errs = problems_verdict(data.get("last_assistant_message", ""), root)
     else: return 0
     if errs:
