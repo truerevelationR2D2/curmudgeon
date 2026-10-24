@@ -382,6 +382,35 @@ def scrub(obj):
         else: out[k] = scrub(v)
     return out
 
+MANIFEST_FILES = ("findings.jsonl", "findings.sarif", "counts.md", "tally.json", "refutations.jsonl", "ledger.json", "ledger.md")
+def write_manifest(d):
+    """Record a sha256 of each output a review wrote (SC-72, roadmap item 14), so a later hand edit is visible. It makes
+    tampering detectable, not impossible: anyone who can edit the outputs can also rewrite the manifest, which is why
+    the manifest also records its own time and the run, and why `integrity` is a check, not a lock."""
+    d = pathlib.Path(d); man = {"written": time.strftime("%Y-%m-%d %H:%M:%S"), "files": {}}
+    try: man["run"] = json.loads((d / "ledger.json").read_text()).get("run")
+    except Exception: man["run"] = None
+    for name in MANIFEST_FILES:
+        p = d / name
+        if p.is_file() and not p.is_symlink(): man["files"][name] = hashlib.sha256(p.read_bytes()).hexdigest()
+    if not (d / "manifest.json").is_symlink(): (d / "manifest.json").write_text(json.dumps(man, indent=1) + "\n")
+    return man
+
+def check_manifest(d):
+    """Files changed, added or removed since the last manifest: [(name, what)]. None when there is no manifest."""
+    d = pathlib.Path(d); mp = d / "manifest.json"
+    if not mp.is_file() or mp.is_symlink(): return None
+    try: man = json.loads(mp.read_text())
+    except ValueError: return [("manifest.json", "unreadable")]
+    out = []
+    for name, h in man.get("files", {}).items():
+        p = d / name
+        if not p.is_file(): out.append((name, "removed"))
+        elif hashlib.sha256(p.read_bytes()).hexdigest() != h: out.append((name, "changed"))
+    for name in MANIFEST_FILES:
+        if name not in man.get("files", {}) and (d / name).is_file(): out.append((name, "added"))
+    return out
+
 RUNLOG_MAX = 1_000_000
 # Local state that must never be committed: logs, restore copies, and the files that hold reviewers' raw quotes (a
 # quote can contain a secret from the code under review; the outputs Curmudgeon writes itself are masked by scrub()).

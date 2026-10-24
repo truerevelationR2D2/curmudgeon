@@ -19,7 +19,7 @@ usage (run from the project root, or set CRITIC_ROOT):
   examples                               print up to 5 recent false positives as few-shot examples for reviewers
   acted                                  for findings open last run: check whether the quoted code is gone (acted on)
   decision "text" [SOURCE] | override "what" "who" "why"   recorded choices; overrides can't be by "author"
-  score NAME VALUE MAX | cost SECONDS [NOTE] | tokens [--all]   (tokens: what each agent role cost this run)
+  score NAME VALUE MAX | cost SECONDS [NOTE] | tokens [--all] | integrity   (tokens: what each agent role cost this run; integrity: outputs edited since the last apply)
   stamp [--add] PATH... | stale | round [--reset]   (--add keeps earlier stamps: use it for /curmudgeon:fix iterate)
   gate on|async|off                      turn the stop checks on or off (the guard blocks editing these files by hand)
   memories --hit N                       record that memory N noted a finding (keeps it from retiring)
@@ -156,7 +156,7 @@ def learn(L, d):
 def main(a):
     if not a or any(x in ("-h", "--help") for x in a): print(__doc__); return 0  # help never changes the ledger
     cmd, rest = a[0], a[1:]; L = load(); msg = "ok"
-    if cmd not in ("show", "check", "stale", "tokens"): refuse_linked_state(ROOT); log_run(ROOT, "script", "critic_ledger.py " + " ".join(a))
+    if cmd not in ("show", "check", "stale", "tokens", "integrity"): refuse_linked_state(ROOT); log_run(ROOT, "script", "critic_ledger.py " + " ".join(a))
     if cmd == "init": pass
     elif cmd == "start":
         need(rest, 1, "start review|full [--tier trivial|lite|full]")
@@ -339,6 +339,13 @@ def main(a):
         prev = [x for x in L["scores"] if x["name"] == rest[0]]
         L["scores"].append({"name": rest[0], "value": v, "max": m, "at": time.strftime("%Y-%m-%d %H:%M")})
         msg = f"{rest[0]}: " + (f"{prev[-1]['value']:g}/{prev[-1]['max']:g} → " if prev else "") + f"{v:g}/{m:g}"
+    elif cmd == "integrity":  # SC-72: outputs edited since the last apply (detectable, not impossible: see write_manifest)
+        from critic_findings import check_manifest
+        res = check_manifest(D)
+        if res is None: print("integrity: no manifest yet (it is written at the end of each critic_merge.py apply)"); return 0
+        if not res: print("integrity: every output matches the hashes recorded at the last apply"); return 0
+        for name, what in res: print(f"integrity: .critic/{name} {what} since the last apply")
+        return 1
     elif cmd == "tokens":  # what this run's agents cost, from .critic/cost.jsonl (written by the record_cost hook)
         rows = []
         cf = D / "cost.jsonl"

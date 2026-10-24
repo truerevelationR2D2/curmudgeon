@@ -38,7 +38,7 @@ apply:
   records every kept finding in the ledger (new, known or regressed)."""
 import hashlib, json, math, os, pathlib, re, subprocess, sys, time
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
-from critic_findings import IMPACTS, extract_findings, norm_code, relocate_quote, fingerprint, quote_check, read_jsonl, refutation_problem, confirmation_problem, security_refutation_problem, similar, log_run, append_line, refuse_linked_state, to_sarif, validate, write_jsonl, tokens, scrub, redact_finding_text
+from critic_findings import IMPACTS, extract_findings, norm_code, relocate_quote, fingerprint, quote_check, read_jsonl, refutation_problem, confirmation_problem, security_refutation_problem, similar, log_run, append_line, refuse_linked_state, to_sarif, validate, write_jsonl, tokens, scrub, redact_finding_text, write_manifest
 
 ROOT = pathlib.Path(os.environ.get("CRITIC_ROOT", os.getcwd())).resolve(); D = ROOT / ".critic"
 
@@ -390,7 +390,8 @@ def apply(paths):
             if fid in known and known[fid].get("status") == "open":
                 subprocess.run([sys.executable, str(led), "status", fid, "wontfix", "refuted by verification: " + r["why"][:200]], cwd=ROOT, env=env, capture_output=True)
     print(f"final: {len(final)} finding(s) — " + ", ".join(f"{k} {v}" for k, v in cnt.items()) + f"; refuted {len(refuted)}")
-    print(f"wrote {D/'findings.jsonl'}, {D/'findings.sarif'}, {D/'counts.md'}")
+    write_manifest(D)  # a sha256 of every output, so a later hand edit shows (critic_ledger.py integrity)
+    print(f"wrote {D/'findings.jsonl'}, {D/'findings.sarif'}, {D/'counts.md'} (hashes in {D/'manifest.json'})")
     return 0
 
 def show():

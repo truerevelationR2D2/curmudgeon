@@ -1370,6 +1370,20 @@ def _(d):
     o = run(H / "check_contract.py", cwd=d, stdin=json.dumps({"agent_type": "curmudgeon-verifier", "cwd": str(d), "last_assistant_message": msg})).stdout
     assert "block" in o and "unclear" in o, o
 
+@test("5.0 SC-72: apply records a hash of every output, and integrity names any file edited afterwards")
+def _(d):
+    write(d, "src/app.js", APP); g = finding(category="domain", impact="Medium", line=4, quote="const price = total * 1.0825;", title="Tax rule in render code")
+    run(S / "critic_ledger.py", "start", "review", "--tier", "full", cwd=d)
+    for L in "ABC": write(d, f".critic/reviews/review-{L}.json", json.dumps([g]))
+    run(S / "critic_merge.py", "tally", *[f".critic/reviews/review-{L}.json" for L in "ABC"], cwd=d)
+    write(d, "v.json", "[]"); run(S / "critic_merge.py", "apply", "v.json", cwd=d)
+    man = json.loads((d / ".critic/manifest.json").read_text())
+    assert {"findings.jsonl", "counts.md", "tally.json", "ledger.json"} <= set(man["files"]), man
+    r = run(S / "critic_ledger.py", "integrity", cwd=d); assert r.returncode == 0 and "matches" in r.stdout, r.stdout
+    c = d / ".critic/counts.md"; c.write_text(c.read_text().replace("Medium 1", "Medium 0"))
+    r = run(S / "critic_ledger.py", "integrity", cwd=d)
+    assert r.returncode == 1 and "counts.md changed" in r.stdout, r.stdout
+
 if __name__ == "__main__":
     bad = [r for r in RESULTS if not r[1]]
     print(f"\n{len(RESULTS) - len(bad)} of {len(RESULTS)} passed"); sys.exit(1 if bad else 0)
