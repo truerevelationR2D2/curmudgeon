@@ -41,6 +41,10 @@ def similar(a, b):
     qa, qb = norm_code(a.get("quote")), norm_code(b.get("quote"))
     if qa and qb and (qa in qb or qb in qa) and same_kind: return True  # same code, same kind of problem
     close = abs(safe_int(a.get("line")) - safe_int(b.get("line"))) <= 5
+    for s_, o_ in ((a, b), (b, a)):  # a reviewer restating a scripted row: the row's flagged line is in the reviewer's quote
+        if s_.get("source") == "scan" and o_.get("source") != "scan" and close:
+            seen_, q_ = norm_code(s_.get("failing_case")), norm_code(o_.get("quote"))
+            if len(seen_) >= 6 and q_ and (seen_ in q_ or q_ in seen_): return True
     return jac >= 0.5 and close or jac >= 0.7
 
 def quote_check(f, root):

@@ -118,7 +118,8 @@ def scan_impact(rule):
         import scan_secrets
         secret = {rid for rid, sev, *_ in scan_secrets.PROVIDERS if sev == "FAIL"} | {"private-key", "db-url-password"}
     except Exception: secret = set()
-    return "Critical" if rule in secret else SCAN_IMPACT.get(rule, "High")
+    base = rule[len("secret-"):] if rule.startswith("secret-") else rule  # the secret scan reports its rules as secret-<id>
+    return "Critical" if rule.startswith("secret-") and base in secret else SCAN_IMPACT.get(rule, "High")
 
 def scan_rows(path):
     try: rep = json.loads(pathlib.Path(path).read_text())

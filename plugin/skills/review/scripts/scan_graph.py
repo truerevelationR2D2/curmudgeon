@@ -55,18 +55,32 @@ def resolve(src_rel, spec, files):
     return None
 
 def python_graph(py):
-    """Module-level imports between the Python files in scope, read with ast (imports inside functions are left out:
-    they are how Python code breaks a cycle on purpose). Relative imports resolve from the file's folder; absolute
-    ones match a dotted path that only one file in scope can be. Files that don't parse add no edges."""
-    names = {}
-    for r in py:
+    """Module-level imports between the Python files in scope, read with ast. Left out, because Python code uses them to
+    break a cycle on purpose: imports inside functions, under `if TYPE_CHECKING:`, and under `if __name__ == "__main__":`.
+    Each file gets the module name Python would give it: its path from the first folder up that isn't a package (has no
+    __init__.py). An absolute import matches that full name only, so `import calendar` never lands on a local
+    app/components/calendar.py; a bare top-level name (a script beside other scripts) matches only from the same
+    folder. Relative imports resolve from the file's package. Files that don't parse add no edges."""
+    have = set(py)
+    def modname(r):
         parts = list(pathlib.PurePosixPath(r).with_suffix("").parts)
         if parts[-1] == "__init__": parts = parts[:-1]
-        for k in range(len(parts)):
-            names.setdefault(".".join(parts[k:]), set()).add(r)
-    def unique(dotted):
-        hit = names.get(dotted)
-        return next(iter(hit)) if hit and len(hit) == 1 else None
+        k = len(pathlib.PurePosixPath(r).parent.parts)
+        while k > 0 and "/".join(pathlib.PurePosixPath(r).parent.parts[:k]) + "/__init__.py" in have: k -= 1
+        return ".".join(parts[k:]), "/".join(pathlib.PurePosixPath(r).parent.parts[:k])
+    names = {}
+    for r in py:
+        n, base = modname(r)
+        if n: names.setdefault(n, []).append((r, base))
+    def find(dotted, src):
+        hits = names.get(dotted, [])
+        if "." not in dotted:  # a top-level script module: only a sibling script can import it by that name
+            folder = str(pathlib.PurePosixPath(src).parent) if str(pathlib.PurePosixPath(src).parent) != "." else ""
+            hits = [h for h in hits if h[1] == folder]
+        return hits[0][0] if len(hits) == 1 else None
+    def guarded(test):
+        t = ast.unparse(test) if hasattr(ast, "unparse") else ""
+        return t in ("TYPE_CHECKING", "typing.TYPE_CHECKING") or re.fullmatch(r"__name__\s*==\s*['\"]__main__['\"]", t) is not None
     graph = {r: set() for r in py}
     for r, t in py.items():
         try: tree = ast.parse(t)
@@ -74,24 +88,24 @@ def python_graph(py):
         pkg = list(pathlib.PurePosixPath(r).parent.parts)
         def top(nodes):
             for n in nodes:
-                if isinstance(n, (ast.If, ast.Try)) or type(n).__name__ == "TryStar":
-                    yield from top(getattr(n, "body", []) + getattr(n, "orelse", []) + [x for h in getattr(n, "handlers", []) for x in h.body] + getattr(n, "finalbody", []))
+                if isinstance(n, ast.If):
+                    if not guarded(n.test): yield from top(n.body)
+                    yield from top(n.orelse)
+                elif isinstance(n, ast.Try) or type(n).__name__ == "TryStar":
+                    yield from top(n.body + n.orelse + [x for h in n.handlers for x in h.body] + n.finalbody)
                 elif isinstance(n, (ast.Import, ast.ImportFrom)): yield n
         for n in top(tree.body):
-            cands = []
-            if isinstance(n, ast.Import): cands = [a.name for a in n.names]
-            elif n.level:
+            if isinstance(n, ast.ImportFrom) and n.level:
                 base = pkg[: len(pkg) - (n.level - 1)] if n.level > 1 else pkg
                 mod = base + (n.module.split(".") if n.module else [])
-                cands = [".".join(mod + [a.name]) for a in n.names] + [".".join(mod)]
-                for c in cands:
-                    path = "/".join(c.split("."))
-                    for tgt in (path + ".py", path + "/__init__.py"):
-                        if tgt in py and tgt != r: graph[r].add(tgt); break
+                for c in [mod + [a.name] for a in n.names] + [mod]:
+                    path = "/".join(c)
+                    tgt = next((x for x in (path + ".py", path + "/__init__.py") if x in have and x != r), None)
+                    if tgt: graph[r].add(tgt); break
                 continue
-            else: cands = [f"{n.module}.{a.name}" for a in n.names] + [n.module]
+            cands = [a.name for a in n.names] if isinstance(n, ast.Import) else [f"{n.module}.{a.name}" for a in n.names] + [n.module]
             for c in cands:
-                tgt = unique(c)
+                tgt = find(c, r)
                 if tgt and tgt != r: graph[r].add(tgt); break
     return graph
 

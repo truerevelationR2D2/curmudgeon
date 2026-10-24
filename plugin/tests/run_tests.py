@@ -1118,22 +1118,20 @@ def _(d):
     st = json.loads((e / ".critic/scan/report.json").read_text())["checks"]["structure"]
     assert st["state"] == "n/a", st
 
-@test("5.0 SC-10: a scripted FAIL gets its rule's impact (a live key is Critical), and a reviewer who restates it keeps the script's evidence")
+@test("5.0 SC-10: a scripted FAIL gets its rule's impact (a live key from the real scanner is Critical), and a reviewer who restates it keeps the script's evidence")
 def _(d):
-    write(d, "src/a.js", "x = 1;\ny = 2;\neval(input);\nz = 3;\n"); write(d, "src/k.js", "const k = 1;\n")
-    write(d, "scan.json", json.dumps({"findings": [
-        {"sev": "FAIL", "rule": "stripe-key", "area": "secrets", "where": "src/k.js:1", "what": "Stripe live secret key", "evidence": "sk_l…[redacted]", "level": "source", "id": "S001"},
-        {"sev": "FAIL", "rule": "eval", "area": "safety", "where": "src/a.js:3", "what": "eval runs input", "evidence": "eval(input);", "level": "source", "id": "S002"},
-        {"sev": "FAIL", "rule": "zoom-off", "area": "a11y", "where": "src/a.js:1", "what": "zoom disabled", "evidence": "", "level": "runtime", "id": "S003"}]}))
+    write(d, "src/a.js", "x = 1;\ny = 2;\neval(input);\nz = 3;\n")
+    write(d, "src/k.js", 'const k = "@LIVE@";\nconst u = "postgres://app:' + 'Hunter2pw@db/x";\n')
+    run(S / "critic_scan.py", ".", "--root", ".", cwd=d)
     g = finding(category="injection", impact="High", file="src/a.js", line=3, quote="eval(input);", title="eval runs user input")
     write(d, ".critic/reviews/review-A.json", json.dumps([g])); write(d, ".critic/reviews/review-B.json", json.dumps([g])); write(d, ".critic/reviews/review-C.json", "[]")
-    run(S / "critic_merge.py", "tally", ".critic/reviews/review-A.json", ".critic/reviews/review-B.json", ".critic/reviews/review-C.json", "--scan", "scan.json", cwd=d)
+    run(S / "critic_merge.py", "tally", ".critic/reviews/review-A.json", ".critic/reviews/review-B.json", ".critic/reviews/review-C.json", "--scan", ".critic/scan/report.json", cwd=d)
     t = json.loads((d / ".critic/tally.json").read_text())
     by = {k["category"]: k for k in t["kept"]}
-    assert by["stripe-key"]["impact"] == "Critical", by["stripe-key"]
-    assert by["zoom-off"]["impact"] == "Medium", by["zoom-off"]
+    assert by["secret-stripe-key"]["impact"] == "Critical", by.get("secret-stripe-key")
+    assert by["secret-db-url-password"]["impact"] == "Critical", by.get("secret-db-url-password")
     ev = by["injection"]
-    assert ev.get("scan_evidence") == ["scripted row S002 (eval)"] and ev["votes"] == 2, ev
+    assert ev.get("scan_evidence") and "(eval)" in ev["scan_evidence"][0] and ev["votes"] == 2, ev
 
 @test("5.0 SC-11: the background check scans every changed file in one bounded run, and SubagentStop only fires for reviewers and verifiers")
 def _(d):
@@ -1200,6 +1198,54 @@ def _(d):
     assert "1 of 16 planted defects reached" in out, out
     r = subprocess.run([sys.executable, str(E / "score.py"), "--selftest"], capture_output=True, text=True)
     assert r.returncode == 0 and "refutes everything FAILS" in r.stdout, r.stdout + r.stderr
+
+@test("5.0 card-A review: --only scans changed files even under build/ or vendor/, and never a path that leaves the root")
+def _(d):
+    root = d / "p"; write(root, "tools/build/deploy.js", 'const k = "@LIVE@";\n'); write(root, "src/ok.js", "const a = 1;\n")
+    write(d, "outside/creds.js", 'const k = "@LIVE@";\n'); os.symlink(d / "outside", root / "linkdir")
+    write(root, "only.txt", "tools/build/deploy.js\nsrc/ok.js\nsrc/../../outside/creds.js\nlinkdir/creds.js\n")
+    run(S / "critic_scan.py", str(root), "--root", str(root), "--only", str(root / "only.txt"), cwd=root)
+    where = [r["where"] for r in json.loads((root / ".critic/scan/report.json").read_text())["findings"] if r["rule"].startswith("secret-")]
+    assert any(w.startswith("tools/build/deploy.js") for w in where), where
+    assert not any("outside" in w or "linkdir" in w for w in where), f"--only read a file outside the root: {where}"
+
+@test("5.0 card-A review: Python imports resolve the way Python does (stdlib names, TYPE_CHECKING and __main__ blocks make no edges)")
+def _(d):
+    write(d, "app/__init__.py", ""); write(d, "app/core/__init__.py", ""); write(d, "app/components/__init__.py", "")
+    write(d, "app/core/schedule.py", "import calendar\n\ndef days():\n    return calendar.mdays\n")
+    write(d, "app/components/calendar.py", "from app.core.schedule import days\n")
+    write(d, "svc/__init__.py", "")
+    write(d, "svc/order.py", "from typing import TYPE_CHECKING\nif TYPE_CHECKING:\n    from svc.customer import Customer\n\ndef total():\n    return 1\n")
+    write(d, "svc/customer.py", "from svc.order import total\nif __name__ == '__main__':\n    import svc.order\n")
+    write(d, "tools/a.py", "import b\n"); write(d, "tools/b.py", "import a\n")
+    run(S / "critic_scan.py", ".", "--root", ".", cwd=d)
+    rows = [(r["rule"], r["where"]) for r in json.loads((d / ".critic/scan/report.json").read_text())["findings"] if r["rule"] in ("import-cycle", "boundary")]
+    assert not any(w.startswith(("app/", "svc/")) for _r, w in rows), f"a false edge: {rows}"
+    assert ("import-cycle", "tools/a.py") in rows, f"sibling scripts that import each other are a real cycle: {rows}"
+
+@test("5.0 card-A review: CI result files that exist but can't be read make the CI check blocked, not n/a")
+def _(d):
+    write(d, "src/a.js", "const a = 1;\n"); write(d, "reports/semgrep.sarif", '{"runs": [{"tool": {"driver": {"name": "semgrep"}}, "results": [')
+    write(d, "reports/junit.xml", '<testsuite name="t"><testcase name="x"><failure message="boom"')
+    run(S / "critic_scan.py", ".", "--root", ".", cwd=d)
+    rep = json.loads((d / ".critic/scan/report.json").read_text())
+    assert rep["checks"]["ci"]["state"] == "blocked" and "ci" in rep["degraded"], (rep["checks"]["ci"], rep["degraded"])
+
+@test("5.0 card-A review: mutation blanks strings without adding spaces, breaks Vue/Svelte inside the script, and nothing to mutate is n/a")
+def _(d):
+    sys.path.insert(0, str(S)); import importlib, scan_mutation, re as _re; importlib.reload(scan_mutation)
+    import pathlib as _pl
+    v = scan_mutation.code_view(_pl.Path("x.tsx"), 'const seen: Map<string, "a" | "b"> = new Map();\nconst el = <p className="hint"> {hint}</p>;\n')
+    assert not [l for l in v for pat, _r in scan_mutation.OPS if _re.search(pat, l)], v
+    sb = scan_mutation.sanity_break(".vue", "<template><p>x</p></template>\n<script setup>\nconst a = 1;\n</script>\n")
+    assert sb.index("throw new Error") > sb.index("<script setup>"), sb
+    subprocess.run(["git", "init", "-q"], cwd=d)
+    write(d, "calc.py", "def lt(a, b):\n    return a < b\n"); write(d, "test_calc.py", "from calc import lt\nassert lt(1, 2) and not lt(2, 1) and not lt(1, 1)\n")
+    subprocess.run(["git", "add", "."], cwd=d); subprocess.run(["git", "-c", "user.email=t@example.invalid", "-c", "user.name=t", "commit", "-qm", "c"], cwd=d)
+    write(d, "calc.py", "# helpers\ndef lt(a, b):\n    return a < b\n")
+    run(S / "critic_scan.py", ".", "--root", ".", "--mutate", "calc.py", "--test-cmd", f"{sys.executable} test_calc.py", cwd=d)
+    rep = json.loads((d / ".critic/scan/report.json").read_text())
+    assert rep["checks"]["mutation"]["state"] == "n/a" and "mutation" not in rep["degraded"], rep["checks"]["mutation"]
 
 if __name__ == "__main__":
     bad = [r for r in RESULTS if not r[1]]

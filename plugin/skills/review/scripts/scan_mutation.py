@@ -28,7 +28,8 @@ SKIP_LINE = re.compile(r"^\s*(import |from \S+ import |export \{|export type |ty
 JS = {".js", ".mjs", ".cjs", ".ts", ".jsx", ".tsx", ".vue", ".svelte"}
 
 def code_view(path, src):
-    """The file's lines with every string and comment blanked out (same length, same positions), so a mutation can
+    """The file's lines with every string and comment blanked out with underscores (same length, same positions; not
+    spaces, which the comparison rules read as operator spacing), so a mutation can
     only ever land on code: never inside "a < b" or after a # or //. Python uses its own tokenizer; JS and TS use a
     small scanner for quotes, template strings and comments. Other languages return None: not mutated."""
     lines = src.split("\n")
@@ -42,7 +43,7 @@ def code_view(path, src):
                 (r0, c0), (r1, c1) = t.start, t.end
                 for r in range(r0, r1 + 1):
                     row = out[r - 1]; a_ = c0 if r == r0 else 0; b_ = c1 if r == r1 else len(row)
-                    for c in range(a_, min(b_, len(row))): row[c] = " "
+                    for c in range(a_, min(b_, len(row))): row[c] = "_"
         except (tokenize.TokenError, SyntaxError, IndentationError): return None
         return ["".join(r) for r in out]
     if path.suffix in JS:
@@ -50,19 +51,19 @@ def code_view(path, src):
         while i < n:
             c, nx = chars[i], (chars[i + 1] if i + 1 < n else "")
             if st is None:
-                if c == "/" and nx == "/": st = "line"; chars[i] = chars[i + 1] = " "; i += 2; continue
-                if c == "/" and nx == "*": st = "block"; chars[i] = chars[i + 1] = " "; i += 2; continue
-                if c in "'\"`": st = c; chars[i] = " "; i += 1; continue
+                if c == "/" and nx == "/": st = "line"; chars[i] = chars[i + 1] = "_"; i += 2; continue
+                if c == "/" and nx == "*": st = "block"; chars[i] = chars[i + 1] = "_"; i += 2; continue
+                if c in "'\"`": st = c; chars[i] = "_"; i += 1; continue
             elif st == "line":
                 if c == "\n": st = None
-                else: chars[i] = " "
+                else: chars[i] = "_"
             elif st == "block":
-                if c == "*" and nx == "/": chars[i] = chars[i + 1] = " "; st = None; i += 2; continue
-                if c != "\n": chars[i] = " "
+                if c == "*" and nx == "/": chars[i] = chars[i + 1] = "_"; st = None; i += 2; continue
+                if c != "\n": chars[i] = "_"
             else:  # inside a quote
-                if c == "\\": chars[i] = " "; (chars.__setitem__(i + 1, " ") if i + 1 < n and chars[i + 1] != "\n" else None); i += 2; continue
-                if c == st: st = None; chars[i] = " "
-                elif c != "\n": chars[i] = " "
+                if c == "\\": chars[i] = "_"; (chars.__setitem__(i + 1, "_") if i + 1 < n and chars[i + 1] != "\n" else None); i += 2; continue
+                if c == st: st = None; chars[i] = "_"
+                elif c != "\n": chars[i] = "_"
                 if st in ("'", '"') and c == "\n": st = None
             i += 1
         return "".join(chars).split("\n")
@@ -79,6 +80,13 @@ def changed_lines(root, rel):
     return got or None
 
 SANITY = {".py": 'raise SystemExit("curmudgeon mutation sanity check")\n', **{e: 'throw new Error("curmudgeon mutation sanity check");\n' for e in JS}}
+def sanity_break(suffix, src):
+    """The file with a line that makes loading it fail, or None when there is no safe place for one. A Vue or Svelte
+    component gets it inside its first <script> block (text outside a script block is markup, not code)."""
+    if suffix in (".vue", ".svelte"):
+        m = re.search(r"<script\b[^>]*>", src)
+        return src[:m.end()] + "\n" + SANITY[suffix] + src[m.end():] if m else None
+    return SANITY[suffix] + src if suffix in SANITY else None
 
 def rules_test_cmd(root):
     p = root / ".critic" / "rules.md"
@@ -137,8 +145,9 @@ def run(root, files, emit, state, given_cmd=None, cap=30, timeout=120, allow_rul
         only = changed_lines(root, rel)
         backup = p.with_name(p.name + BACKUP_SUFFIX); shutil.copy2(p, backup); _pending.append((p, backup))
         try:
-            if p.suffix in SANITY:  # break the file on purpose: if the tests still pass, they never load it
-                p.write_text(SANITY[p.suffix] + src, encoding="utf-8"); caught = go(limit); p.write_text(src, encoding="utf-8")
+            broken = sanity_break(p.suffix, src)
+            if broken is not None:  # break the file on purpose: if the tests still pass, they never load it
+                p.write_text(broken, encoding="utf-8"); caught = go(limit); p.write_text(src, encoding="utf-8")
                 if not caught:
                     emit("WARN", "mutation-not-exercised", "tests", rel, "the tests still pass when this file is broken on purpose: the test command never loads it, so its mutants were not run", "")
                     continue
@@ -163,4 +172,6 @@ def run(root, files, emit, state, given_cmd=None, cap=30, timeout=120, allow_rul
         emit("WARN", "mutant-survived", "tests", f"{rel}:{ln}", f"the tests still pass when `{before}` becomes `{after}`: this behaviour is untested", "")
     score = round(100 * killed / tried) if tried else 0
     extra = ("; " + "; ".join(notes[:5])) if notes else ""
-    state("mutation", "pass" if tried and not survivors else ("fail" if survivors else "blocked"), f"{tried} mutants, {killed} caught ({score}%), {time.time() - t0:.0f} s{extra}")
+    if not tried and not survivors:  # the check ran; there was nothing to mutate on the lines in scope
+        state("mutation", "n/a", f"nothing to mutate in the lines in scope{extra}"); return
+    state("mutation", "pass" if not survivors else "fail", f"{tried} mutants, {killed} caught ({score}%), {time.time() - t0:.0f} s{extra}")

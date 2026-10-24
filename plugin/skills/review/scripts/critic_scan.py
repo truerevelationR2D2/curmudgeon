@@ -126,13 +126,19 @@ def css_detector(rel, text):
 
 ONLY = None  # set by --only: the exact files (paths relative to --root) to scan, for the background check
 def walk(src, excludes):
-    if ONLY is not None:
-        items = [SCAN_ROOT / r for r in sorted(ONLY) if (SCAN_ROOT / r).is_file() and not (SCAN_ROOT / r).is_symlink()]
-        src = SCAN_ROOT
+    if ONLY is not None:  # exact files someone changed: scanned even under build/ or vendor/, never outside the root
+        top = SCAN_ROOT.resolve(); items = []
+        for r in sorted(ONLY):
+            q = SCAN_ROOT / r
+            try: real = q.resolve()
+            except OSError: continue
+            if ".." in pathlib.PurePath(r).parts or not real.is_relative_to(top) or real != top / pathlib.PurePath(r) or not q.is_file(): continue
+            if ".critic" in pathlib.PurePath(r).parts: continue
+            items.append(q)
     else: items = [src] if src.is_file() else [p for p in src.rglob("*") if p.is_file()]
     for p in items:
         try:
-            rel_parts = p.relative_to(src).parts if src.is_dir() else (p.name,)
+            rel_parts = () if ONLY is not None else (p.relative_to(src).parts if src.is_dir() else (p.name,))
             if set(rel_parts) & SKIP or p.resolve() == SELF: continue
             if any(fnmatch.fnmatch(str(p), g) or fnmatch.fnmatch(p.name, g) for g in excludes): continue
             if p.stat().st_size > MAX_BYTES: continue
@@ -272,7 +278,7 @@ def ci_evidence(root, out=None):
     """Read results that earlier test or lint runs already left in the project, instead of re-running them.
     Curmudgeon's own outputs (anything under .critic/ or the --out folder) are never read back as evidence."""
     import xml.etree.ElementTree as ET
-    seen = files = 0
+    seen = files = unreadable = 0
     own = {"scan.sarif", "findings.sarif"}
     def mine(p): return ".critic" in p.parts or p.name in own or (out is not None and str(p.resolve()).startswith(str(out.resolve())))
     for p in list(root.rglob("*.sarif"))[:20]:
@@ -285,11 +291,14 @@ def ci_evidence(root, out=None):
                     loc = (r.get("locations") or [{}])[0].get("physicalLocation", {})
                     where = f"{loc.get('artifactLocation', {}).get('uri', '')}:{loc.get('region', {}).get('startLine', '')}"
                     f({"error": "WARN"}.get(r.get("level"), "NOTE"), f"ci-{tool}-{r.get('ruleId', '')}", "ci", where, f"{tool}: {r.get('message', {}).get('text', '')[:150]}"); seen += 1
-        except Exception: continue
+        except Exception: unreadable += 1; continue
     for p in list(root.rglob("*.xml"))[:40]:
         if set(p.parts) & SKIP or mine(p): continue
         try:
-            t = ET.parse(p).getroot()
+            try: t = ET.parse(p).getroot()
+            except ET.ParseError:
+                if re.search(r"<testsuites?\b", p.read_text(encoding="utf-8", errors="replace")[:4000]): unreadable += 1
+                continue
             if t.tag not in ("testsuite", "testsuites"): continue
             files += 1
             for tc in t.iter("testcase"):
@@ -297,8 +306,10 @@ def ci_evidence(root, out=None):
                 if bad is not None:
                     f("WARN", "ci-test-failure", "ci", str(p.relative_to(root)), f"test failing in the last recorded run: {tc.get('classname', '')} {tc.get('name', '')}", (bad.get("message") or "")[:120]); seen += 1
         except Exception: continue
-    if not files: state("ci", NA, "no earlier CI results found (no SARIF or JUnit files to read)")
-    else: state("ci", "fail" if seen else "pass", f"{files} result file(s) read from earlier runs, {seen} problem(s)")
+    bad = f"; {unreadable} result file(s) could not be read" if unreadable else ""
+    if not files and unreadable: state("ci", "blocked", f"{unreadable} CI result file(s) found but none could be read (damaged or cut short)")
+    elif not files: state("ci", NA, "no earlier CI results found (no SARIF or JUnit files to read)")
+    else: state("ci", "fail" if seen else "pass", f"{files} result file(s) read from earlier runs, {seen} problem(s){bad}")
 
 def project_checks(root, timeout=600):
     """Run the commands listed under '## Scripted checks' in .critic/rules.md ("- name: command"). Each one passes on
