@@ -1920,6 +1920,23 @@ def _(d):
     for a in ("curmudgeon-reviewer.md", "curmudgeon-verifier.md"): assert '"LSP"' in (HERE / "agents" / a).read_text()
     assert "LSP" in json.loads((H / "hooks.json").read_text())["hooks"]["PreToolUse"][1]["matcher"]
 
+@test("5.0 SC-58 and SC-64: other tools' SARIF is read under the right lens, a line both tools flag is one row, and Semgrep in use is noticed but never run")
+def _(d):
+    write(d, "app.py", "import os\n\ndef run(cmd):\n    os.system(cmd)\n")
+    sarif = {"runs": [{"tool": {"driver": {"name": "Semgrep OSS"}}, "results": [
+        {"ruleId": "python.lang.security.audit.dangerous-system-call", "level": "error", "message": {"text": "os.system with a variable"}, "locations": [{"physicalLocation": {"artifactLocation": {"uri": "app.py"}, "region": {"startLine": 4}}}]},
+        {"ruleId": "python.flask.debug", "level": "warning", "message": {"text": "debug on"}, "locations": [{"physicalLocation": {"artifactLocation": {"uri": "app.py"}, "region": {"startLine": 1}}}]}]},
+        {"tool": {"driver": {"name": "zizmor"}}, "results": [{"ruleId": "template-injection", "level": "error", "message": {"text": "x"}, "locations": [{"physicalLocation": {"artifactLocation": {"uri": ".github/workflows/a.yml"}, "region": {"startLine": 9}}}]}]}]}
+    write(d, "semgrep.sarif", json.dumps(sarif)); write(d, ".semgrep.yml", "rules: []\n")
+    run(S / "critic_scan.py", ".", "--root", ".", cwd=d)
+    rows = json.loads((d / ".critic/scan/report.json").read_text())["findings"]
+    at4 = [x for x in rows if x["where"] == "app.py:4"]
+    assert len(at4) == 1 and at4[0].get("also_found_by") == "Semgrep OSS" and at4[0]["area"] == "safety", at4
+    z = [x for x in rows if "zizmor" in x["rule"]]; assert z and z[0]["area"] == "supply-chain" and z[0]["level"] == "ci", z
+    s1 = [x for x in rows if x["where"] == "app.py:1" and "Semgrep" in x["what"]]; assert s1 and s1[0]["area"] == "safety", s1
+    note = [x for x in rows if x["rule"] == "semgrep-present"]
+    assert note and "config .semgrep.yml" in note[0]["what"] and note[0]["tier"] == "pedantic" and "read as evidence" in note[0]["what"], note
+
 if __name__ == "__main__":
     shutil.rmtree(TMP, ignore_errors=True)
     bad = [r for r in RESULTS if not r[1]]

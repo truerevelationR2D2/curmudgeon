@@ -124,6 +124,15 @@ jobs:
 
 For a stricter pipeline, pin each action to a full commit SHA, as this repository's own `ci.yml` does. Keep the API key in a repository secret, never in the file.
 
+## Using Semgrep or other scanners with it
+
+Curmudgeon is free and runs its own checks, written for this plugin. It never installs or runs another scanner. If you already use one, it fills in around it instead of doing the same work twice:
+
+- **Results you already produce are evidence.** Leave a SARIF file anywhere in the project (for example `semgrep --sarif --output semgrep.sarif`, or zizmor, actionlint, CodeQL, Bandit, gitleaks, Trivy, hadolint, squawk, pint), and the scan reads it under the matching lens: Semgrep, CodeQL and Bandit under safety, zizmor, actionlint and Trivy under supply chain, and so on (`TOOL_LENS` in `critic_scan.py`).
+- **One row per line, credited to both.** When Curmudgeon's own check and the other tool flag the same line under the same lens, the report keeps one row and notes `also_found_by`.
+- **Semgrep is noticed, never run.** A Semgrep config, a CI step that runs it, or `semgrep` on your PATH is reported in a note. Curmudgeon never reads Semgrep's login files: whether you pay for it can't be seen, and isn't needed. If there is no Semgrep SARIF, the note says how to produce one.
+- **Room to integrate more.** To add a tool, add its name and lens to `TOOL_LENS` with a test, as `CONTRIBUTING.md` describes. Anything that would send code or results off your machine needs your yes first.
+
 ## Add your own checks
 
 Drop a JSON file of rules into your project's `.critic/rules/` (or, to contribute one for everyone, into `plugin/skills/review/rules/`). Each rule is an id, a severity, an area, a regular expression matched line by line, a message, and optional file patterns; see `plugin/skills/review/rules/README.md`. Rules are data, never code, and their rows are reported as `rule-<id>`, so they can't pose as built-in checks. A project's rule files must be plain files (at most 256 KB each, 50 files and 2,000 rules in all); they run in a separate process with a 20-second limit and at most 50 matches per rule, and they can warn but never fail, so a slow, greedy or hostile rule file can't hang a review or flood it with findings. The background stop check skips them.

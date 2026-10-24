@@ -47,14 +47,14 @@ REQ_ROWS = []  # the requirement-to-test table (SC-55), written beside the repor
 
 # Scripted rows come in two tiers (SC-47, after zizmor's personas; our own list): regular rows can become findings;
 # pedantic rows are known to be noisy, are always NOTE, and are counted apart. A rule file can mark a rule pedantic.
-PEDANTIC = {"long-lines", "long-file", "unused-export", "dead-function", "duplicate-code", "mutation-not-exercised", "test-sleep", "test-unseeded-random", "agent-headless-mcp", "mig-drop-rename", "ops-k8s-no-probes", "ops-k8s-no-limits"}
+PEDANTIC = {"long-lines", "long-file", "unused-export", "dead-function", "duplicate-code", "mutation-not-exercised", "test-sleep", "test-unseeded-random", "agent-headless-mcp", "mig-drop-rename", "ops-k8s-no-probes", "ops-k8s-no-limits", "semgrep-present"}
 PEDANTIC_RULES = set()
 
-def f(sev, rule, area, where, what, ev=""):
+def f(sev, rule, area, where, what, ev="", lvl=None):
     for x in FP:
         if x.get("rule") in (rule, rule[5:] if rule.startswith("rule-") else None) and str(x.get("where")) == str(where):  # rulings saved before rule- ids still apply
             SUPPRESSED.append({"rule": rule, "where": where, "what": what, "why": x.get("why", "")}); return
-    level = "runtime" if area.startswith(("a11y-", "runtime", "ux", "responsive", "perf-rt", "visual")) else ("ci" if area == "ci" else "source")
+    level = lvl or ("runtime" if area.startswith(("a11y-", "runtime", "ux", "responsive", "perf-rt", "visual")) else ("ci" if area == "ci" else "source"))
     tier = "pedantic" if rule in PEDANTIC or rule in PEDANTIC_RULES else "regular"
     if tier == "pedantic": sev = "NOTE"
     R.append({"sev": sev, "rule": rule, "area": area, "where": str(where), "what": what, "evidence": ev.strip()[:160], "level": level, "tier": tier})
@@ -298,6 +298,29 @@ def static(src, root, excludes):
     except Exception as e: state("structure", "blocked", f"{type(e).__name__}: {str(e)[:100]}")
     return n
 
+# SC-58: results other tools already produced are read as evidence, under the lens they belong to (our own mapping).
+TOOL_LENS = {"zizmor": "supply-chain", "actionlint": "supply-chain", "poutine": "supply-chain", "scorecard": "supply-chain", "trivy": "supply-chain",
+             "osv-scanner": "supply-chain", "semgrep": "safety", "codeql": "safety", "bandit": "safety", "gitleaks": "secrets", "trufflehog": "secrets",
+             "eslint": "errors", "ruff": "errors", "squawk": "release", "pint": "operations", "checkov": "operations", "hadolint": "supply-chain"}
+def tool_lens(tool):
+    t = str(tool).lower()
+    return next((v for k, v in TOOL_LENS.items() if k in t), "ci")
+
+def semgrep_presence(root):
+    """SC-64: signs the user already runs Semgrep. Never runs it, never reads its login files. Returns a list of signs."""
+    import shutil as _sh
+    signs = []
+    for name in (".semgrep.yml", ".semgrep.yaml", ".semgrep", "semgrep.yml", ".semgrepignore"):
+        if (root / name).exists(): signs.append(f"config {name}")
+    wf = root / ".github" / "workflows"
+    if wf.is_dir():
+        for p in sorted(wf.glob("*.y*ml"))[:50]:
+            try:
+                if re.search(r"(?i)\bsemgrep\b", p.read_text(encoding="utf-8", errors="replace")): signs.append(f"CI step in {p.relative_to(root)}"); break
+            except OSError: pass
+    if _sh.which("semgrep"): signs.append("semgrep on PATH")
+    return signs
+
 def ci_evidence(root, out=None):
     """Read results that earlier test or lint runs already left in the project, instead of re-running them.
     Curmudgeon's own outputs (anything under .critic/ or the --out folder) are never read back as evidence."""
@@ -314,7 +337,11 @@ def ci_evidence(root, out=None):
                 for r in run.get("results", [])[:50]:
                     loc = (r.get("locations") or [{}])[0].get("physicalLocation", {})
                     where = f"{loc.get('artifactLocation', {}).get('uri', '')}:{loc.get('region', {}).get('startLine', '')}"
-                    f({"error": "WARN"}.get(r.get("level"), "NOTE"), f"ci-{tool}-{r.get('ruleId', '')}", "ci", where, f"{tool}: {r.get('message', {}).get('text', '')[:150]}"); seen += 1
+                    if any(x["where"] == where and x["area"] == tool_lens(tool) for x in R):  # our own check already flagged this line: one row, credited to both
+                        for x in R:
+                            if x["where"] == where and x["area"] == tool_lens(tool): x["also_found_by"] = tool
+                        seen += 1; continue
+                    f({"error": "WARN"}.get(r.get("level"), "NOTE"), f"ci-{tool}-{r.get('ruleId', '')}", tool_lens(tool), where, f"{tool}: {r.get('message', {}).get('text', '')[:150]}", lvl="ci"); seen += 1
         except Exception: unreadable += 1; continue
     for p in list(root.rglob("*.xml"))[:40]:
         if set(p.parts) & SKIP or mine(p): continue
@@ -330,6 +357,10 @@ def ci_evidence(root, out=None):
                 if bad is not None:
                     f("WARN", "ci-test-failure", "ci", str(p.relative_to(root)), f"test failing in the last recorded run: {tc.get('classname', '')} {tc.get('name', '')}", (bad.get("message") or "")[:120]); seen += 1
         except Exception: continue
+    sg = semgrep_presence(root)
+    if sg:
+        have = any("semgrep" in x["rule"].lower() or "semgrep" in str(x.get("also_found_by", "")).lower() for x in R)
+        f("NOTE", "semgrep-present", "ci", "semgrep", "Semgrep is in use here (" + ", ".join(sg) + "). " + ("Its SARIF results are read as evidence, and a line both tools flag is one row." if have else "No Semgrep SARIF file was found: run it with --sarif --output semgrep.sarif to share its results. Curmudgeon never runs it."), lvl="ci")
     bad = f"; {unreadable} result file(s) could not be read" if unreadable else ""
     if not files and unreadable: state("ci", "blocked", f"{unreadable} CI result file(s) found but none could be read (damaged or cut short)")
     elif not files: state("ci", NA, "no earlier CI results found (no SARIF or JUnit files to read)")
