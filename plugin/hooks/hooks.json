@@ -10,6 +10,7 @@
     ],
     "SubagentStop": [
       {
+        "matcher": "^(curmudgeon:)?curmudgeon-(reviewer|verifier)$",
         "hooks": [
           { "type": "command", "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/check_contract.py\"", "timeout": 20 }
         ]

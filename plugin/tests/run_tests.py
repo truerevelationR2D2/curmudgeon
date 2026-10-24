@@ -1135,6 +1135,23 @@ def _(d):
     ev = by["injection"]
     assert ev.get("scan_evidence") == ["scripted row S002 (eval)"] and ev["votes"] == 2, ev
 
+@test("5.0 SC-11: the background check scans every changed file in one bounded run, and SubagentStop only fires for reviewers and verifiers")
+def _(d):
+    subprocess.run(["git", "init", "-q"], cwd=d); write(d, "base.js", "const a = 1;\n")
+    subprocess.run(["git", "add", "."], cwd=d); subprocess.run(["git", "-c", "user.email=t@example.invalid", "-c", "user.name=t", "commit", "-qm", "base"], cwd=d)
+    write(d, ".critic/gate-async", "on\n"); write(d, "src/a.js", "eval(input);\n"); write(d, "src/b.js", "const ok = 1;\n"); write(d, "untouched.js", "eval(x);\n")
+    subprocess.run(["git", "add", "untouched.js"], cwd=d); subprocess.run(["git", "-c", "user.email=t@example.invalid", "-c", "user.name=t", "commit", "-qm", "u"], cwd=d)
+    r = subprocess.run([sys.executable, str(H / "stop_async.py")], input=json.dumps({"cwd": str(d)}), capture_output=True, text=True, cwd=d)
+    assert r.returncode == 2 and "src/a.js" in r.stderr and "untouched.js" not in r.stderr, (r.returncode, r.stderr)
+    dirs = sorted(p.name for p in (d / ".critic/scan-async").iterdir())
+    assert dirs == ["all"], f"expected one scan for all changed files, got {dirs}"
+    src = (H / "stop_async.py").read_text()
+    assert "timeout=10" in src and "DEADLINE" in src, "git calls and the whole check must be time-limited"
+    hooks = json.loads((H / "hooks.json").read_text())["hooks"]
+    m = hooks["SubagentStop"][0].get("matcher", "")
+    import re as _re
+    assert _re.fullmatch(m, "curmudgeon:curmudgeon-reviewer") and _re.fullmatch(m, "curmudgeon-verifier") and not _re.fullmatch(m, "general-purpose"), m
+
 if __name__ == "__main__":
     bad = [r for r in RESULTS if not r[1]]
     print(f"\n{len(RESULTS) - len(bad)} of {len(RESULTS)} passed"); sys.exit(1 if bad else 0)

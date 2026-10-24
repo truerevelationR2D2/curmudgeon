@@ -124,8 +124,12 @@ def css_detector(rel, text):
     if re.search(r"(?<!-)(color|background)\s*:\s*#(?:[0-9a-f]{3}){1,2}\b", text, re.I) and not re.search(r"--[\w-]+\s*:", text):
         f("NOTE", "raw-hex", "theming", rel, "colours are raw hex values with no tokens (custom properties)")
 
+ONLY = None  # set by --only: the exact files (paths relative to --root) to scan, for the background check
 def walk(src, excludes):
-    items = [src] if src.is_file() else [p for p in src.rglob("*") if p.is_file()]
+    if ONLY is not None:
+        items = [SCAN_ROOT / r for r in sorted(ONLY) if (SCAN_ROOT / r).is_file() and not (SCAN_ROOT / r).is_symlink()]
+        src = SCAN_ROOT
+    else: items = [src] if src.is_file() else [p for p in src.rglob("*") if p.is_file()]
     for p in items:
         try:
             rel_parts = p.relative_to(src).parts if src.is_dir() else (p.name,)
@@ -604,11 +608,15 @@ def main(argv):
     ap.add_argument("src"); ap.add_argument("--root"); ap.add_argument("--page"); ap.add_argument("--out"); ap.add_argument("--axe")
     ap.add_argument("--exclude", action="append", default=[]); ap.add_argument("--no-interact", action="store_true"); ap.add_argument("--allow-live", action="store_true")
     ap.add_argument("--online", action="store_true"); ap.add_argument("--mutate", nargs="+", default=[]); ap.add_argument("--test-cmd"); ap.add_argument("--project-checks", action="store_true"); ap.add_argument("--no-project-rules", action="store_true")
+    ap.add_argument("--only", help="a file listing the exact paths (relative to --root) to scan; the background check uses it")
     ap.add_argument("--baseline", choices=("save", "compare")); ap.add_argument("--budget-kb", type=int, default=1500)
     a = ap.parse_args(argv)
-    global NO_PROJECT_RULES, SCAN_ROOT; NO_PROJECT_RULES = a.no_project_rules
+    global NO_PROJECT_RULES, SCAN_ROOT, ONLY; NO_PROJECT_RULES = a.no_project_rules
     SCAN_ROOT = pathlib.Path(a.root or os.environ.get("CRITIC_ROOT") or os.getcwd()).resolve()
     refuse_linked_state(SCAN_ROOT)
+    if a.only:
+        try: ONLY = {x.strip() for x in pathlib.Path(a.only).read_text(encoding="utf-8").splitlines() if x.strip() and not x.strip().startswith(("/", ".."))}
+        except OSError as e: print(f"critic_scan: can't read --only list: {e}", file=sys.stderr); return 2
     log_run(SCAN_ROOT, "script", "critic_scan.py " + " ".join(argv))
     src = pathlib.Path(a.src).resolve()
     if not src.exists(): print(f"critic_scan: {a.src} does not exist", file=sys.stderr); return 2

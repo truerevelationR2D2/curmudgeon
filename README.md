@@ -90,8 +90,8 @@ Drop a JSON file of rules into your project's `.critic/rules/` (or, to contribut
   - The verifier's "no hedging" rule is a word list: it stops "probably" or "seems", but not a confident, wrong refutation that cites a real line. Spot-checks (above) are how you catch those.
 - **Hooks:**
   - Stop: the optional gate, off until you turn it on;
-  - Stop, background re-scan: free scripted checks on files edited since the last review, run without blocking, off until you turn it on with `/curmudgeon:gate async`;
-  - SubagentStop: checks that each reviewer's output follows the contract;
+  - Stop, background re-scan: free scripted checks on files edited since the last review, in one scan with a 5-minute limit, run without blocking, off until you turn it on with `/curmudgeon:gate async`;
+  - SubagentStop: checks that each reviewer's and verifier's output follows the contract (it runs only for those two agents);
   - PreToolUse: protects `.critic/` state.
 
 ## Benchmarks
