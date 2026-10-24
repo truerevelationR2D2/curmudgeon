@@ -92,6 +92,15 @@ def hunks(base, files):
         if m and cur: out.setdefault(cur, []).append([int(m.group(1)), int(m.group(2) or 1)])
     return {k: v for k, v in out.items() if k in files}
 
+TRAILER = re.compile(r"(?im)^\s*(?:[A-Za-z][\w-]*-by|Co-authored-by|Claude-Session|Change-Id|Session|Author|Committer|Cc)\s*:.*$")
+def anonymise(text):
+    """A commit message without who wrote it: trailers (Co-Authored-By, Signed-off-by, session links ...) and email
+    addresses are removed, so the stated intent can go to blind reviewers."""
+    text = TRAILER.sub("", text or "")
+    text = re.sub(r"<?[\w.+-]+@[\w-]+(?:\.[\w-]+)+>?", "", text)
+    text = re.sub(r"https?://\S*(?:session|/u/|/users?/)\S*", "", text, flags=re.I)
+    return re.sub(r"\n{3,}", "\n\n", text).strip()
+
 def main(a):
     refuse_linked_state(ROOT)
     log_run(ROOT, "script", "critic_map.py " + " ".join(a))
@@ -128,6 +137,7 @@ def main(a):
     elif not intent and "--files" in a and not git("status", "--porcelain", "--", ".", ":(exclude).critic").strip():
         intent = "From the last commit message: " + git("log", "-1", "--pretty=%s%n%n%b").strip()  # files as committed: the last commit is what they are
     # an uncommitted change has no stated intent: the last commit's message describes the commit before it
+    intent = anonymise(intent)  # it goes into every blind reviewer's brief: never who wrote the change
     def sensitive(x):
         words = {m.lower() for m in SENSITIVE.findall(x)} | {m.lower() for m in SENSITIVE_PATH.findall(x)}
         if (ROOT / x).is_file() and (ROOT / x).suffix not in (".css", ".scss", ".md"):

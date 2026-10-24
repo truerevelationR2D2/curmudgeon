@@ -4,7 +4,7 @@ a tripwire against an agent "fixing" its own score, not a lock: shell commands a
 Only active in projects that have a .critic/ folder. Fails open (allows) on any error."""
 import json, os, pathlib, re, sys
 
-PROTECTED = {"ledger.json", "ledger.md", "gate", "gate-count", "gate-async", "findings.jsonl", "findings.sarif", "tally.json", "counts.md", "async-shown.json", "refutations.jsonl", "runlog.jsonl", "spotcheck.md"}
+PROTECTED = {"ledger.json", "ledger.md", "decisions.md", "gate", "gate-count", "gate-async", "findings.jsonl", "findings.sarif", "tally.json", "counts.md", "async-shown.json", "refutations.jsonl", "runlog.jsonl", "spotcheck.md"}
 PROTECTED_DIRS = {"baseline", "verify", "restore", "private"}
 AGENT_PROTECTED = {"scope.json"}  # private: the browser driver's signing key and live-request ledger
 

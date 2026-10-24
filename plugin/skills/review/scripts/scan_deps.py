@@ -11,6 +11,7 @@ def _lock_npm(p):
     out = []
     for path, meta in (j.get("packages") or {}).items():
         if not path or not isinstance(meta, dict) or not meta.get("version"): continue
+        if "node_modules/" not in path or meta.get("link"): continue  # a workspace folder (packages/internal-x) is not a registry package, and its path never goes to OSV
         out.append(("npm", path.split("node_modules/")[-1], meta["version"], meta.get("dev", False)))
     if not out:
         for name, meta in (j.get("dependencies") or {}).items():
@@ -118,7 +119,7 @@ def scan(root, emit, online=False, state=None):
         for sect in ("dependencies", "devDependencies", "optionalDependencies"):
             for n, v in (j.get(sect) or {}).items():
                 v = str(v)
-                if v in ("*", "latest", "") or v.startswith(">="): emit("WARN", "deps-unpinned", "deps", rel, f"`{n}` accepts any future version ({v or 'empty'}): a bad release goes straight in", "")
+                if v in ("*", "latest", "") or (v.startswith(">") and "<" not in v): emit("WARN", "deps-unpinned", "deps", rel, f"`{n}` accepts any future version ({v or 'empty'}): a bad release goes straight in", "")
                 elif re.match(r"^(git|https?|github:|file:)", v) or "/" in v and not v.startswith("@"): emit("NOTE", "deps-url", "deps", rel, f"`{n}` comes from a URL or repo ({v[:60]}), not the registry", "")
         if not (pj.parent / "package-lock.json").exists() and not (pj.parent / "yarn.lock").exists() and not (pj.parent / "pnpm-lock.yaml").exists() and (j.get("dependencies") or j.get("devDependencies")):
             emit("NOTE", "deps-no-lock", "deps", rel, "no lockfile: installs can differ from machine to machine", "")

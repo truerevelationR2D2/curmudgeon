@@ -11,7 +11,7 @@ Be an outside Staff Engineer and Lead Product Designer hired by someone who susp
 
 **Base directory.** `<scripts>` below is `${CLAUDE_PLUGIN_ROOT}/skills/review/scripts` and `references/` sits beside it (if that path shows unexpanded, use this skill's folder, shown when it loads). Run scripts from the project root as `python3 <scripts>/<name>.py`. Pass absolute paths to agents.
 
-**The short way.** `critic_run.py begin [--tier …] [--files …]` maps the change, starts the run, writes the briefs and prints the scan command and the agents to start; after each batch of agents finishes, `critic_run.py next` runs the next scripted step (tally, tally with groups, apply) and prints what comes after; `critic_run.py status` says where the run stands. The steps below say what each part does and what only you can decide.
+**The short way.** `critic_run.py begin [--fix] [--tier …] [--files …]` (`--fix` in full mode, when the user asked for fixes, so the stop gate holds open Critical and High findings to the run) maps the change, starts the run, writes the briefs and prints the scan command and the agents to start; after each batch of agents finishes, `critic_run.py next` runs the next scripted step (tally, tally with groups, apply) and prints what comes after; `critic_run.py status` says where the run stands. The steps below say what each part does and what only you can decide.
 
 ## Modes
 | Typed | Does |
@@ -44,7 +44,7 @@ No payload: ask for one in one line.
 3. Name the payload type (UI, code with no UI, document or plan) and what's out of scope (vendored code, builds, lockfiles).
 4. **Pre-mortem** (recall aid only): write one line, "It's a week after release and this broke. Incident title: …", and put it on the risk map. It creates no finding without a case.
 5. Set the reading budget from the tier: trivial, the changed files only; lite, plus the blast radius; full, plus the risk map's top files.
-6. Full mode: `critic_ledger.py restore save --ids <finding ids> <files>` before any change. Don't commit unless the user asks.
+6. Full mode: `critic_ledger.py restore save --ids ID,ID <files>` (finding ids, comma-separated) before any change. Don't commit unless the user asks.
 
 ## Step 1: Intent gate and intent check
 - **Gate:** ask before building only when the refactor is expensive **and** the intent is unclear. Ask one round of at most three numbered questions, each with a recommended answer that "yes" accepts. Look facts up instead of asking. Record the answers with `critic_ledger.py decision`. Review mode never waits; it lists open questions as `q:` lines.
@@ -68,7 +68,7 @@ Reviewers from one model family share blind spots: in two double-blind tests, an
 ## Step 4: Count, check, verify
 1. `critic_merge.py tally .critic/reviews/review-*.json --scan .critic/scan/report.json`. The script:
    - rejects findings that break the contract, and retracts any whose quote isn't at its file:line;
-   - hides only what the owner ruled a false positive by its exact id (`fp <id>`), and lists those under "Hidden by your rulings"; learned memories never hide anything: a finding that looks like past dismissals stays in, counted, with a note (never on a Critical), listed under "Looks like your past dismissals";
+   - hides only what the owner ruled a false positive by its exact id (`fp <id>`), and lists those under "Hidden by your rulings"; learned memories never hide anything: a finding that looks like past dismissals stays in, counted, with a note (never on a Critical or High), listed under "Looks like your past dismissals";
    - clusters the same issue across reviewers;
    - keeps 2-of-3 votes, single votes with an executed case, and scanner FAILs (an outside reviewer's agreement counts as one more vote);
    - sends single Critical/High traced votes, and any Critical/High/Medium finding with nothing the script could check (no confirmed quote, not executed, one vote), to verification as contested;

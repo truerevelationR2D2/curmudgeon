@@ -41,6 +41,7 @@ def main(a):
         i = a.index("--depth")
         try: depth = int(a[i + 1]); a = a[:i] + a[i + 2:]
         except (IndexError, ValueError): print("ast_view: --depth needs a number", file=sys.stderr); return 2
+    if not a: print(__doc__); return 2
     p = pathlib.Path(a[0])
     if p.suffix not in (".py", ".pyi", ".pyw"): print(f"ast_view: no parser for {p.suffix or 'this file'} (only Python has one here); read the code itself"); return 3
     try: src = p.read_text(encoding="utf-8", errors="replace")
@@ -52,6 +53,7 @@ def main(a):
         try:
             lo, _, hi = a[1].partition("-"); lo = int(lo); hi = int(hi) if hi else lo
         except ValueError: print("ast_view: the range is LINE or START-END", file=sys.stderr); return 2
+        if hi < lo: print("ast_view: the range is LINE or START-END, with START <= END", file=sys.stderr); return 2
     picked = []
     def visit(n):
         for c in ast.iter_child_nodes(n):

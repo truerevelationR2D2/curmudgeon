@@ -3,14 +3,14 @@
 What every reviewer and verifier writes, and how it reads. Reviewers read this file, not the whole output contract: the teardown's layout (`output-contract.md`) is the lead's job.
 
 ## Writing rules (how the review reads)
-- The first line is a finding or the banner. No greeting, no summary of what the work does, no praise, no recap, no closer. No "just", "really", "basically", "simply".
+- The first line is a finding or the banner (in the teardown: the banner, then the verdict line, as `output-contract.md` sets out). No greeting, no summary of what the work does, no praise, no recap, no closer. No "just", "really", "basically", "simply".
 - Short sentences, active voice, one term per thing. Code, paths, commands and errors stay exact.
 - Never drop "not", "never", "no", "only" or "except" to save words.
 - **Security findings and anything irreversible get full, plain sentences**, never shorthand.
 - Unsure? Write `q:` and the question. Don't hedge.
 
 ## Finding record (what reviewers write, as JSON)
-A review file is `{"findings": [ ...finding records... ], "set_aside": [ {"file", "line", "what", "guard"} ]}`; a plain list of findings is still accepted. `set_aside` lists candidates the reviewer dropped and the guard it relied on: logged in the tally, never counted. `coverage` (`read`, `not_reached`: file paths) is how the script computes the Not reviewed line.
+A review file is `{"findings": [ ...finding records... ], "set_aside": [ {"file", "line", "what", "guard"} ], "sandbox": [ {"scenario", "happens", "result", "how"} ]}`; `sandbox` holds one line per scenario from `sandbox.md` (result "holds" or the finding's title, how driven or traced), numbered SB1, SB2 ... by the script into `.critic/counts.md`; a plain list of findings is still accepted. `set_aside` lists candidates the reviewer dropped and the guard it relied on: logged in the tally, never counted. `coverage` (`read`, `not_reached`: file paths) is how the script computes the Not reviewed line.
 
 | Field | Meaning |
 | --- | --- |

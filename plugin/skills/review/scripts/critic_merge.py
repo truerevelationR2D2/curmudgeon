@@ -78,6 +78,8 @@ def inside_root(rel):
     try: (ROOT / rel).resolve().relative_to(ROOT); return True
     except (ValueError, OSError): return False
 
+def cell_(t): return str(t).replace("|", "/").replace("\n", " ")
+
 def coverage_report(cov):
     """Not reviewed, computed by script: payload files (from the change map) that no reviewer reports reading, plus any
     file a reviewer says it didn't reach. Unknown when reviewers report nothing."""
@@ -171,6 +173,7 @@ def tally(paths):
         if stale: die(f"refusing to count {', '.join(stale)}: written before this run started, so it is from an earlier run. Remove it, or have a fresh reviewer write it again")
     reviews = [load_review(p) for p in paths]
     coverage = {"read": set(), "not_reached": set()}  # files the reviewers say they read, and the ones they didn't reach (SC-46)
+    sandbox = []  # sandbox scenario lines: numbered SB1, SB2 ... here, so the teardown's SANDBOX LEDGER has a source (SC: self-review D C6)
     set_aside = []  # candidates a reviewer dropped, with the guard it relied on: logged so the eval can measure self-filtering, never counted
     for p in paths:
         try: v = json.loads(pathlib.Path(p).read_text(encoding="utf-8"))
@@ -182,10 +185,18 @@ def tally(paths):
         aside = v.get("set_aside") if isinstance(v, dict) else None
         if isinstance(aside, list):  # anything else (null, a number) is ignored: the list is only a log
             set_aside += [dict(scrub(x), reviewer=pathlib.Path(p).stem) for x in aside if isinstance(x, dict)]
+        sb = v.get("sandbox") if isinstance(v, dict) else None
+        if isinstance(sb, list):
+            for x in sb[:40]:
+                if not isinstance(x, dict) or not str(x.get("scenario") or "").strip(): continue
+                x = {k: redact_finding_text(str(x.get(k) or "")) for k in ("scenario", "happens", "result", "how")}  # a key typed into a scenario is masked like any finding text
+                sandbox.append({"id": f"SB{len(sandbox) + 1}", "reviewer": pathlib.Path(p).stem[-1:], "scenario": str(x.get("scenario"))[:200],
+                                "happens": str(x.get("happens") or "")[:300], "result": str(x.get("result") or "")[:120],
+                                "how": "driven" if str(x.get("how") or "").lower() == "driven" else "traced"})
     n = len(reviews); need = 1 if n == 1 else math.ceil(2 * n / 3)
     # an outside run we can't see never counts as executed: verification decides
     outside_rows = [dict(r, source="outside", verified=r.get("verified") if r.get("verified") == "inferred" else "traced") for r in load_review(outside)] if outside else []
-    L = ledger(); out = {"reviewers": n, "votes_needed": need, "outside": None, "kept": [], "contested": [], "dropped": [], "retracted": [], "rejected": [], "suppressed": [], "set_aside": set_aside, "coverage": coverage_report(coverage)}
+    L = ledger(); out = {"reviewers": n, "votes_needed": need, "outside": None, "kept": [], "contested": [], "dropped": [], "retracted": [], "rejected": [], "suppressed": [], "set_aside": set_aside, "sandbox": sandbox, "coverage": coverage_report(coverage)}
     scanned = scan_rows(scan) if scan else []
     accepted = []  # (raw_id, reviewer_index or None for scan, finding)
     OUTSIDE_RI = len(reviews) + 1
@@ -442,6 +453,10 @@ def apply(paths):
     cov = T.get("coverage") or {}
     md += ["", "Not reviewed (computed from the reviewers' coverage reports): " + (", ".join(cov.get("not_reviewed") or []) or "nothing") if cov.get("known")
            else "", "Not reviewed: unknown (no reviewer reported coverage); say so in the teardown." if not cov.get("known") else ""]
+    sbx = T.get("sandbox") or []
+    md += ["", "## Sandbox ledger (copy these lines; cite them as SB ids)", "| SB | Reviewer | Scenario | What happens | Result | How |", "| --- | --- | --- | --- | --- | --- |"] + \
+          [f"| {x['id']} | {x['reviewer']} | {cell_(x['scenario'])} | {cell_(x['happens'])} | {cell_(x['result'])} | {x['how']} |" for x in sbx] if sbx else \
+          ["", "## Sandbox ledger", "No reviewer recorded a sandbox line: write \"none recorded\" in the teardown, never invent one."]
     pre = [f for f in final if f.get("origin") == "pre-existing"]
     if pre: md += ["", f"## Pre-existing (already there before this change; still counted above): {len(pre)}"] + [f"- {f['id']} {f['impact']} {f['file']}:{f.get('line', '')}" for f in pre]
     nofix = [f for f in final if str(f.get("fix", "")).startswith(("none", "not offerable"))]

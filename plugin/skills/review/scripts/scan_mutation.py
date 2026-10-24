@@ -48,6 +48,12 @@ def code_view(path, src):
         return ["".join(r) for r in out]
     if path.suffix in JS:
         out, st, i, n, chars = [], None, 0, len(src), list(src)
+        if path.suffix in (".vue", ".svelte"):  # only <script> blocks are code; template text and CSS are never mutated
+            keep = [False] * n
+            for m in re.finditer(r"(<script\b[^>]*>)(.*?)(</script\s*>)", src, re.S | re.I):
+                for k in range(m.start(2), m.end(2)): keep[k] = True
+            for k in range(n):
+                if not keep[k] and chars[k] != "\n": chars[k] = "_"
         while i < n:
             c, nx = chars[i], (chars[i + 1] if i + 1 < n else "")
             if st is None:
@@ -104,8 +110,10 @@ BACKUP_SUFFIX = ".critic-mutation-backup"
 _pending = []
 def _restore_pending(*_):
     for p, backup in list(_pending):
-        if backup.exists(): shutil.copy2(backup, p); backup.unlink(missing_ok=True)
-        _pending.remove((p, backup))
+        try:
+            if backup.exists(): shutil.copy2(backup, p); backup.unlink(missing_ok=True)
+        except OSError: pass  # restored already (a signal arrived during the finally); never raise from here
+        if (p, backup) in _pending: _pending.remove((p, backup))
 
 def recover(root, emit):
     """A run that was killed earlier leaves backups beside the files: put them back before doing anything else."""
@@ -115,6 +123,7 @@ def recover(root, emit):
         emit("WARN", "mutation-recovered", "tests", str(orig.relative_to(root)), "an earlier mutation run was interrupted; the original file was restored from its backup", "")
 
 def run(root, files, emit, state, given_cmd=None, cap=30, timeout=120, allow_rules=False):
+    files = list(files)
     recover(root, emit)
     atexit.register(_restore_pending)
     for sig in (signal.SIGTERM, signal.SIGHUP, signal.SIGINT):
@@ -130,15 +139,22 @@ def run(root, files, emit, state, given_cmd=None, cap=30, timeout=120, allow_rul
     import os
     env = dict(os.environ, PYTHONDONTWRITEBYTECODE="1")  # a stale .pyc from an earlier mutant can never fake a survivor
     def go(limit):
-        try: return subprocess.run(cmd, shell=True, cwd=root, capture_output=True, timeout=limit, env=env).returncode != 0
-        except subprocess.TimeoutExpired: return True
+        """True when the tests fail (the mutant is caught). The command runs in its own process group, so a mutant
+        that hangs is stopped with everything it started, not only the shell."""
+        pr = subprocess.Popen(cmd, shell=True, cwd=root, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, env=env, start_new_session=True)
+        try: return pr.wait(timeout=limit) != 0
+        except subprocess.TimeoutExpired:
+            try: os.killpg(pr.pid, signal.SIGKILL)
+            except OSError: pass
+            pr.wait(); return True
     t0 = time.time()
     try: base = subprocess.run(cmd, shell=True, cwd=root, capture_output=True, timeout=timeout, env=env)
     except subprocess.TimeoutExpired: state("mutation", "blocked", f"the test command took over {timeout} s before any mutation"); return
     if base.returncode != 0: state("mutation", "blocked", "the test command fails before any mutation; fix the tests first"); return
     limit = min(timeout, max(10.0, 5 * (time.time() - t0)))  # a mutant that hangs counts as caught, after 5x the clean run
-    tried = killed = 0; survivors = []; notes = []
-    for rel in files:
+    tried = killed = 0; survivors = []; notes = []; not_mutated = []
+    for n_file, rel in enumerate(files):
+        if tried >= cap: not_mutated = list(files[n_file:]); break  # the cap is spent: say which files were left, never run them
         p = (root / rel).resolve(); src = p.read_text(encoding="utf-8"); lines = src.split("\n")
         view = code_view(p, src)
         if view is None: notes.append(f"{rel}: not mutated (no parser for this file type, or it does not parse)"); continue
@@ -166,11 +182,14 @@ def run(root, files, emit, state, given_cmd=None, cap=30, timeout=120, allow_rul
                     else: survivors.append((rel, i + 1, line.strip()[:80], mutated.strip()[:80]))
             if only is not None: notes.append(f"{rel}: {len(only)} changed line(s) only")
         finally:
-            shutil.copy2(backup, p); backup.unlink(missing_ok=True)
+            if backup.exists(): shutil.copy2(backup, p); backup.unlink(missing_ok=True)  # a signal handler may have restored it already
             if (p, backup) in _pending: _pending.remove((p, backup))
     for rel, ln, before, after in survivors[:20]:
         emit("WARN", "mutant-survived", "tests", f"{rel}:{ln}", f"the tests still pass when `{before}` becomes `{after}`: this behaviour is untested", "")
     score = round(100 * killed / tried) if tried else 0
+    if not_mutated:
+        emit("NOTE", "mutation-cap-reached", "tests", not_mutated[0], f"the mutant cap ({cap}) was reached: {len(not_mutated)} file(s) not mutated ({', '.join(map(str, not_mutated[:5]))}); raise the cap to test them", "")
+        notes.insert(0, f"cap of {cap} reached, {len(not_mutated)} file(s) not mutated")
     extra = ("; " + "; ".join(notes[:5])) if notes else ""
     if not tried and not survivors:  # the check ran; there was nothing to mutate on the lines in scope
         state("mutation", "n/a", f"nothing to mutate in the lines in scope{extra}"); return

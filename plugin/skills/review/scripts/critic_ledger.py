@@ -4,7 +4,7 @@ happened to each (new, known, fixed, regressed, acted on), decisions, false posi
 claims, scores, fingerprints, rounds, restore points, gate overrides and run costs, between runs and sessions.
 
 usage (run from the project root, or set CRITIC_ROOT):
-  init | start review|full [--tier trivial|lite|full]   begin a run (round 1; records mode and tier)
+  init | start review|full|audit [--tier trivial|lite|full]   begin a run (round 1; records mode and tier; an audit refuses fixes)
   import FINDINGS.jsonl                  record merged findings by stable id: new, known (still there) or regressed
   add ID SCORE WHERE "summary" [--verified]   record one finding by hand (round 3 accepts only --verified)
   status ID open|wontfix|refuted "note" update a finding (refuted: set by the merge script after a verifier's refutation;
@@ -91,9 +91,15 @@ def render(L):
           "", "## Restore points", *[f"- {r['at']}: {r['dir']} ({len(r['files'])} files)" for r in L["restore"][-5:]]]
     return "\n".join(md) + "\n"
 
+def render_decisions(L):
+    """The recorded decisions alone, for the verifier: no statuses, notes, dismissals or memories, which could sway a
+    blind check (memories note findings for the owner; they never reach a verifier)."""
+    return "\n".join(["# Recorded decisions", "Choices the owner made on purpose. Respect them; they are not defects to re-argue.", "",
+                      *([f"- {d['text']} ({d.get('source', '')})" for d in L["decisions"]] or ["_None recorded._"])]) + "\n"
+
 def save(L):
     md = render(L); D.mkdir(parents=True, exist_ok=True)
-    for path, body in ((F, json.dumps(L, indent=1, ensure_ascii=False)), (D / "ledger.md", md)):
+    for path, body in ((F, json.dumps(L, indent=1, ensure_ascii=False)), (D / "ledger.md", md), (D / "decisions.md", render_decisions(L))):
         tmp = path.with_name(path.name + ".tmp"); tmp.write_text(body, encoding="utf-8"); os.replace(tmp, path)
 
 def rel(p):
@@ -183,10 +189,12 @@ def main(a):
     if not a or any(x in ("-h", "--help") for x in a): print(__doc__); return 0  # help never changes the ledger
     cmd, rest = a[0], a[1:]; L = load(); msg = "ok"
     if cmd not in ("show", "check", "stale", "tokens", "integrity", "fresh"): refuse_linked_state(ROOT); log_run(ROOT, "script", "critic_ledger.py " + " ".join(a))
+    if cmd in ("fixed", "claim", "restore") and L.get("mode") == "audit":
+        die("this run is an audit of someone else's system: it changes nothing, so nothing is fixed, claimed or restored here (start a review of your own code to fix)")
     if cmd == "init": pass
     elif cmd == "start":
-        need(rest, 1, "start review|full [--tier trivial|lite|full]")
-        if rest[0] not in ("review", "full"): die("start review|full")
+        need(rest, 1, "start review|full|audit [--tier trivial|lite|full]")
+        if rest[0] not in ("review", "full", "audit"): die("start review|full|audit")
         tier = rest[rest.index("--tier") + 1] if "--tier" in rest and rest.index("--tier") + 1 < len(rest) else ""
         if tier and tier not in ("trivial", "lite", "full"): die("tier must be trivial, lite or full")
         L["mode"], L["round"], L["tier"] = rest[0], 1, tier; L["run"] += 1
@@ -255,7 +263,7 @@ def main(a):
                     if sid not in L["findings"]: sid = by_fp2.get(fp2_(f_) or "", sid)
                     if sid: seen_now.add(sid)
         except (OSError, ValueError): pass
-        if L.get("tier") == "full" and L.get("mode") in ("review", "full"):  # a full review that didn't raise a finding again
+        if L.get("tier") == "full" and L.get("mode") in ("review", "full", "audit"):  # a full review that didn't raise a finding again
             for k_, v_ in L["findings"].items():
                 if k_ not in seen_now and v_.get("status") in ("open", "fixed") and v_.get("first_run", L["run"]) < L["run"]:
                     v_.setdefault("absent_in_full_runs", [])
@@ -286,8 +294,10 @@ def main(a):
         need(rest, 2, "fixed ID \"how verified\" [--untested]")
         f = finding(L, rest[0]); missing = [c for c in CLAIMS if c not in f["claims"]]
         if missing and "--untested" not in rest: die(f"not fixed yet: missing claim(s) {', '.join(missing)}. Run the checks, or pass --untested to record it as untested")
+        again = f.get("status") == "fixed" and f.get("fixed_run") == L["run"]  # fix, then approve: one fix, never "marked fixed twice"
         f.update(status="fixed", note=rest[1] + (" [untested: " + ", ".join(missing) + "]" if missing else ""), fixed_run=L["run"], regressed=False)
-        f["history"].append(f"run {L['run']}: fixed{' (untested)' if missing else ''}")
+        if not again: f["history"].append(f"run {L['run']}: fixed{' (untested)' if missing else ''}")
+        else: msg = f"{rest[0]} was already marked fixed in this run; note updated, history unchanged"
     elif cmd == "defer":
         need(rest, 3, "defer ID impossible|conflicts|worse \"note\"")
         f = finding(L, rest[0])

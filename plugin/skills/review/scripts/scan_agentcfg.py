@@ -28,7 +28,21 @@ claude_desktop_config.json, read as JSON (a file that isn't valid JSON is report
 import json, pathlib, re
 
 FILES = {".mcp.json", ".claude/settings.json", ".claude/settings.local.json", ".cursor/mcp.json", ".vscode/mcp.json", "claude_desktop_config.json"}
-SECRET_KEY = re.compile(r"(?i)(token|secret|passw|api[_-]?key|apikey|private[_-]?key|access[_-]?key|auth|credential|bearer)")
+CRED_PARTS = {"token", "tokens", "secret", "secrets", "password", "passwd", "passwords", "pwd", "pass", "key", "keys", "apikey", "auth",
+              "credential", "credentials", "bearer", "pat", "privatekey", "accesskey", "secretkey", "apitoken", "authtoken"}
+
+def _parts(k):
+    """A key name split into whole words: GIT_AUTHOR_EMAIL -> git, author, email; apiKey -> api, key."""
+    return [w.lower() for w in re.findall(r"[A-Z]?[a-z0-9]+|[A-Z]+(?![a-z])", re.sub(r"[^A-Za-z0-9]+", " ", k))]
+
+class _SecretKey:
+    """A key with a credential word as a whole part (SENDGRID_KEY, AUTH_TOKEN, apiKey), never inside another word
+    (AUTHOR, MONKEY, PASSAGE); a public key is not a secret."""
+    @staticmethod
+    def search(k):
+        ps = _parts(str(k))
+        return bool(set(ps) & CRED_PARTS) and "public" not in ps
+SECRET_KEY = _SecretKey()
 RUNNERS = {"npx": re.compile(r"(?<!^)@[\^~=]?\d"), "bunx": re.compile(r"(?<!^)@[\^~=]?\d"), "uvx": re.compile(r"==\d|(?<!^)@\d"), "pipx": re.compile(r"==\d|(?<!^)@\d")}
 
 def wants(rel):
@@ -41,7 +55,7 @@ def _line(raw, needle, start=0):
     return 1
 
 REF = r"\$\{?[A-Za-z_][A-Za-z0-9_]*\}?|\$\{(?:env|input|secret|config):[A-Za-z_][\w.-]*\}|\{\{\s*[\w.]+\s*\}\}|<[^>]+>"
-NOT_CREDENTIAL_KEY = re.compile(r"(?i)_(mode|type|kind|method|file|path|dir|endpoint|host|port|scope|scopes|provider|name|enabled|timeout|region|version)$")
+NOT_CREDENTIAL_KEY = re.compile(r"(?i)_(mode|type|kind|method|file|path|dir|endpoint|host|port|scope|scopes|provider|name|enabled|timeout|region|version|email|domain|user|username|url|uri|id|header|prefix|length|ttl|expiry|expires)$")
 
 def _is_reference(v):
     """An environment or input reference (${X}, ${env:X}, ${input:id}, {{x}}, <placeholder>), alone or after a scheme
@@ -103,7 +117,14 @@ def scan(rel, text, emit, seen_names):
             ln = _line(raw, '"command"', start)
             emit("WARN", "agent-privileged-docker", "agent-config", f"{rel}:{ln}", f"{name} runs a container with host-level access (privileged, host network, the Docker socket or / mounted): the container can take over the machine", raw[ln - 1])
         if base in RUNNERS:
-            pkgs = [a for a in args if not a.startswith("-")]
+            pkgs, skip = [], False
+            for i, a in enumerate(args):  # pipx run PKG, uvx --python 3.12 PKG: skip the subcommand and option values
+                if skip: skip = False; continue
+                if a.startswith("-"):
+                    skip = "=" not in a and a in ("--python", "-p", "--from", "--with", "--spec", "--index-url", "--index", "-i", "--pip-args", "--package")
+                    continue
+                if base == "pipx" and not pkgs and a == "run": continue
+                pkgs.append(a)
             if pkgs and not RUNNERS[base].search(pkgs[0]):
                 ln = _line(raw, json.dumps(pkgs[0]), start)
                 emit("NOTE", "agent-unpinned-runner", "agent-config", f"{rel}:{ln}", f"{name}: {base} {pkgs[0]} has no version, so the newest release runs on every start (pin it; that fixes only the top-level package)", raw[ln - 1])

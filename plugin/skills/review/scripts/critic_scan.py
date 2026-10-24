@@ -51,7 +51,7 @@ REQ_ROWS = []  # the requirement-to-test table (SC-55), written beside the repor
 
 # Scripted rows come in two tiers (SC-47, after zizmor's personas; our own list): regular rows can become findings;
 # pedantic rows are known to be noisy, are always NOTE, and are counted apart. A rule file can mark a rule pedantic.
-PEDANTIC = {"long-lines", "long-file", "unused-export", "dead-function", "duplicate-code", "mutation-not-exercised", "test-sleep", "test-unseeded-random", "agent-headless-mcp", "mig-drop-rename", "ops-k8s-no-probes", "ops-k8s-no-limits", "semgrep-present"}
+PEDANTIC = {"long-lines", "long-file", "unused-export", "dead-function", "duplicate-code", "mutation-not-exercised", "test-sleep", "test-unseeded-random", "agent-headless-mcp", "mig-drop-rename", "mig-sql-not-read", "ops-k8s-no-probes", "ops-k8s-no-limits", "semgrep-present"}
 PEDANTIC_RULES = set()
 
 def f(sev, rule, area, where, what, ev="", lvl=None):

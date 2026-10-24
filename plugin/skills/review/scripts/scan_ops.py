@@ -53,7 +53,10 @@ def scan_python(rel, text, emit):
         if isinstance(node, ast.Call):
             f = node.func
             fname = f.attr if isinstance(f, ast.Attribute) else (f.id if isinstance(f, ast.Name) else "")
-            owner = f.value.id if isinstance(f, ast.Attribute) and isinstance(f.value, ast.Name) else ""
+            # the receiver's own name: logger.info, self.logger.info, current_app.logger.info, logging.getLogger(x).info
+            rv = f.value if isinstance(f, ast.Attribute) else None
+            owner = (rv.id if isinstance(rv, ast.Name) else rv.attr if isinstance(rv, ast.Attribute)
+                     else ("log" if isinstance(rv, ast.Call) and getattr(rv.func, "attr", getattr(rv.func, "id", "")) in ("getLogger", "get_logger") else "")) if rv is not None else ""
             if fname in LOG_CALLS and (fname == "print" or re.search(r"(?i)log", owner) or owner in ("logging",)):
                 hits = [n for a in list(node.args) + [k.value for k in node.keywords] for n in _names(a) if secretish(n)]
                 if hits:
@@ -94,7 +97,7 @@ def scan_yaml(rel, text, emit, root):
                 ln = r.key_lines.get("alert", r.line)
                 if not link:
                     emit("WARN", "ops-alert-no-runbook", "operations", f"{rel}:{ln}", f"alert {r['alert']} has no runbook_url annotation: whoever is paged has nothing to follow", raw[ln - 1])
-                elif not re.match(r"(?i)^[a-z][a-z0-9+.-]*://", str(link)):
+                elif not re.match(r"(?i)^[a-z][a-z0-9+.-]*://", str(link)) and "{{" not in str(link) and "$" not in str(link):  # a templated link is filled in when the alert fires
                     target = str(link).split("#")[0]
                     base = pathlib.Path(root)
                     cands = [base / target.lstrip("/"), base / pathlib.PurePosixPath(rel).parent / target]

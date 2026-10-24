@@ -259,7 +259,18 @@ def state_links(root):
         if len(bad) >= 5: break
     return bad[:5]
 
+def in_scratch():
+    """True when this process runs inside an agent's private workspace (.critic/scratch/...)."""
+    return bool(re.search(r"[\\/]\.critic[\\/]scratch(?:[\\/]|$)", os.getcwd()))
+
 def refuse_linked_state(root):
+    """Every script that changes the run's state calls this first. It refuses (exit 2) when .critic holds a link, and
+    when it is started from inside an agent's workspace: a reviewer who runs critic_ledger.py start there would
+    otherwise reset the real run, since the scripts find the project above .critic/scratch."""
+    if in_scratch():
+        print("critic: refusing to run from inside an agent's workspace (.critic/scratch): this script changes the review's own state, "
+              "which only the lead does. A reviewer or verifier may run the project's code and ast_view.py or browse.py, never the run's scripts.", file=sys.stderr)
+        sys.exit(2)
     bad = state_links(root)
     if bad:
         what = ".critic itself is a link" if "itself" in bad[0] else ", ".join(bad) + (" is a link" if len(bad) == 1 else " are links") + " inside .critic/"

@@ -2,7 +2,7 @@
 
 ## Writing rules and the finding record
 
-In `finding-record.md` (reviewers read only that file). Every rule there applies to the teardown too.
+In `finding-record.md` (reviewers read only that file). Every rule there applies to the teardown too, with two exceptions this file sets: the teardown's first line is the banner or the verdict, and the hooks below close it (they are not a closer in the banned sense).
 
 ## Banner
 If the judgment and detector passes could not run in separate contexts, the first line is `DEGRADED: single context (<why>)`. If no independent reviewer was possible at all and the user asked for a fresh review, the first line is `BLOCKED: no independent reviewer available` and the review stops there.
@@ -19,7 +19,7 @@ The questions asked and the answers, or "not needed: <why>". If there was a stat
 #### RISK MAP
 Files ranked by risk (what saves, renders input, moves money, holds secrets, runs async), with the reading budget spent on each.
 #### SANDBOX LEDGER
-Scenario → what happens → finding id or "holds" (driven or traced).
+Scenario → what happens → finding id or "holds" (driven or traced): copied from the "Sandbox ledger" table in `.critic/counts.md` (SB ids numbered by the script). With no lines there, write "none recorded"; never invent one.
 #### 1. CODE AND ARCHITECTURE
 Findings of every impact, worst first.
 - **C1** `file:line` | **IMPACT: Critical** | `F-1a2b3c4d` · confidence confirmed · votes 3/3 | **Defect:** …
@@ -64,6 +64,8 @@ ROUND: n of 3
 Then the **Closure table**: id | status (fixed, deferred, won't fix) | where | how verified (scripted row gone, test added, scenario replayed). Every check result is one of pass, fail, unavailable, blocked or n/a.
 
 ## Hooks (end every response)
+After an audit (`begin --audit`, someone else's system): no hooks. An audit changes nothing, and `/curmudgeon:fix` refuses to run on one.
+
 After a review (no files changed):
 - `/curmudgeon:review fix` to fix every finding.
 - `/curmudgeon:fix patch [id]` to fix only that one.

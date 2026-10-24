@@ -24,7 +24,9 @@ def test(name):
         except AssertionError as e:  # the line number too, so an assert without a message still says which one failed
             import traceback; ln = traceback.extract_tb(e.__traceback__)[-1].lineno
             RESULTS.append((name, False, f"line {ln}: {e}")); print("FAIL", name, "—", f"line {ln}: {e}")
-        except Exception as e: RESULTS.append((name, False, repr(e))); print("FAIL", name, "—", repr(e))
+        except Exception as e:
+            import traceback; ln = next((f.lineno for f in reversed(traceback.extract_tb(e.__traceback__)) if f.filename == __file__), "?")
+            RESULTS.append((name, False, f"line {ln}: {e!r}")); print("FAIL", name, "—", f"line {ln}: {e!r}")
         finally: shutil.rmtree(d, ignore_errors=True)
         return fn
     return deco
@@ -1289,7 +1291,7 @@ def _(d):
     assert ask(R, "Read", file_path=str(d / ".critic/scratch/other/notes.txt"))
     assert not ask(R, "Read", file_path=str(d / ".critic/scratch/me/notes.txt"))
     assert not ask(R, "Read", file_path=str(d / "src/a.py"))
-    assert not ask(V, "Read", file_path=str(d / ".critic/verify/F-1.json")) and not ask(V, "Read", file_path=str(d / ".critic/ledger.md"))
+    assert not ask(V, "Read", file_path=str(d / ".critic/verify/F-1.json")) and not ask(V, "Read", file_path=str(d / ".critic/decisions.md")) and ask(V, "Read", file_path=str(d / ".critic/ledger.md"))  # decisions only: ledger.md holds dismissal notes
     assert ask(V, "Read", file_path=str(d / ".critic/reviews/review-B.json"))
     assert ask(D_, "Read", file_path=str(d / ".critic/scan/report.md"))
     assert not ask(None, "Read", file_path=str(d / ".critic/reviews/review-B.json")), "the main conversation is never limited"
@@ -2748,6 +2750,96 @@ def _(d):
     assert "ci-unpinned-action" in [r for _, r, _ in _rows(C.scan_workflow, ".github/workflows/x.yml", "on: push\npermissions: {}\njobs:\n  a:\n    runs-on: x\n    steps:\n      - uses: acme/deploy@main\n", E, "acme/deploy-tools@0123456789abcdef0123456789abcdef01234567\n")], "a longer name in the lockfile doesn't cover a shorter one"
     lock = json.dumps({"packages": {"node_modules/a": {"resolved": "http://evil.example.invalid/x.tgz"}, "node_modules/b": {"resolved": "http://evil.example.invalid/x.tgz"}}}, indent=1)
     w = [w_ for _, r, w_ in _rows(C.scan_npm_lock, "package-lock.json", lock) if r == "npm-resolved-host"]; assert len(set(w)) == 2, w
+
+@test("5.0 self-review (scanners 2): credential names are whole words, every import is an edge, media without controls isn't interactive, migrations read sql= and text(), loggers on self count, methods aren't eval, and the mutation run stops cleanly")
+def _(d):
+    A = _mod("scan_agentcfg")
+    mcp = lambda env: json.dumps({"mcpServers": {"git": {"command": "node", "args": ["s.js"], "env": env}}}, indent=1)
+    assert not [r for _, r, _ in _rows(A.scan, ".mcp.json", mcp({"GIT_AUTHOR_EMAIL": "bot@example.com", "AUTHOR": "Ryan Smith Writer"}), E, {}) if r == "agent-literal-credential"]
+    assert "agent-literal-credential" in [r for _, r, _ in _rows(A.scan, ".mcp.json", mcp({"SENDGRID_KEY": "SG.live_value_here_123"}), E, {})]
+    pin = lambda args: [w for _, r, w in _rows(A.scan, ".mcp.json", json.dumps({"mcpServers": {"x": {"command": args[0], "args": args[1:]}}}, indent=1), E, {}) if r == "agent-unpinned-runner"]
+    assert not pin(["pipx", "run", "pkg==1.2.3"]) and not pin(["uvx", "--python", "3.12", "pkg@1.0"]) and pin(["uvx", "--python", "3.12", "pkg"])
+    G = _mod("scan_graph")
+    g = G.python_graph({"pkg/a.py": "from . import b, c\n", "pkg/b.py": "x = 1\n", "pkg/c.py": "from . import a\n", "pkg/__init__.py": ""})
+    assert g["pkg/a.py"] == {"pkg/b.py", "pkg/c.py"}, g
+    big = {f"m{i}.js": "".join(f"export function f{i}_{k}() {{ return {k}; }}\n" for k in range(10)) for i in range(200)}
+    t0 = time.time(); _rows(G.scan, d, big); assert time.time() - t0 < 3, time.time() - t0
+    rows = _rows(G.scan, d, {"lib.js": "export function used() { return 1; }\n", "main.js": "import * as api from './lib.js';\napi.used();\n"})
+    assert not [w for _, r, w in rows if r == "dead-function"], rows
+    H = _mod("scan_html"); hr = lambda t: [r for _, r, _ in _rows(H.scan, "a.html", t)]
+    assert "html-nested-interactive" not in hr('<a href="/w"><video src="x.mp4" muted loop></video></a>')
+    assert "html-nested-interactive" in hr('<a href="/w"><video src="x.mp4" controls></video></a>')
+    assert "html-content-model" not in hr("<p>one\n<div>two</div>\n<span>x</span>")
+    M = _mod("scan_migrations"); mr = lambda t: [r for _, r, _ in _rows(M.scan, "app/migrations/0002_x.py", t)]
+    dj = "from django.db import migrations\nclass Migration(migrations.Migration):\n    operations = [migrations.RunSQL(sql=%s, reverse_sql='DROP INDEX i')]\n"
+    assert "mig-index-blocking" in mr(dj % '"CREATE INDEX i ON big (c)"') and "mig-index-blocking" in mr(dj % '["CREATE INDEX i ON big (c)"]')
+    al = "def upgrade():\n    op.execute(sa.text('CREATE INDEX i ON big (c)'))\n\ndef downgrade():\n    ...\n"
+    assert {"mig-index-blocking", "mig-irreversible"} <= set(mr(al)), mr(al)
+    assert "mig-constraint-validate" in mr("def upgrade():\n    op.execute('ALTER TABLE big ADD CONSTRAINT a CHECK (x > 0) NOT VALID, ADD CONSTRAINT b CHECK (y > 0)')\n\ndef downgrade():\n    op.execute('x')\n")
+    O = _mod("scan_ops")
+    assert "ops-log-secret" in [r for _, r, _ in _rows(O.scan, "svc.py", "class A:\n    def login(self, password):\n        self.logger.info('login %s', password)\n", E, str(d))]
+    assert not [r for _, r, _ in _rows(O.scan, "alerts.yml", "groups:\n  - name: g\n    rules:\n      - alert: Down\n        annotations:\n          runbook_url: '{{ $labels.runbook }}'\n", E, str(d)) if r.startswith("ops-runbook")]
+    P = _mod("scan_python"); pr = lambda rel, t: [r for _, r, _ in _rows(P.scan, rel, t)]
+    assert "py-eval" not in pr("a.py", "get_session().exec(stmt)\nclients[0].eval(s)\n") and "py-eval" in pr("a.py", "eval(s)\n")
+    assert "py-assert-guard" not in pr("tests/test_a.py", "def test_a():\n    assert user.is_valid\n")
+    Q = _mod("scan_reqs"); rq = _rows(Q.check, {"docs/req.md": "## REQ-1\ntext\n## REQ-2: other\n"}, {"tests/test_a.py": "# covers REQ-1\n"}, E)
+    assert "req-undefined" not in [r for _, r, _ in rq], rq
+    X = _mod("scan_rules_extra"); xr = lambda suf, t: [r for _, r, _ in _rows(X.scan, "a" + suf, suf, t)]
+    assert "outerhtml" in xr(".js", "row.outerHTML = '<tr><td>' + comment.text + '</td></tr>';\n") and "outerhtml" not in xr(".js", "row.outerHTML = '<b>x</b>';\n")
+    assert "autoplay" not in xr(".html", "<video muted autoplay loop></video>\n") and "target-blank" not in xr(".html", '<a rel="noopener" target="_blank" href="/x">x</a>\n')
+    assert "hover-only" not in xr(".css", "@media (hover:hover) { .a { color: red } }\n")
+    TT = _mod("scan_tests"); tr = lambda t: [r for _, r, _ in _rows(TT.scan, "tests/test_a.py", t)]
+    assert "test-no-assert" in tr("def test_a():\n    cart.checkout()\n") and "test-no-assert" in tr("def test_b():\n    def helper():\n        return 1\n    helper()\n")
+    MU = _mod("scan_mutation")
+    view = MU.code_view(pathlib.Path("x.vue"), "<template>\n  <p>Sign in and continue</p>\n</template>\n<script>\nexport const ok = a && b;\n</script>\n<style>\n.a > .b { color: red }\n</style>\n")
+    assert "and" not in view[1] and ">" not in view[7] and "&&" in view[4], view
+    m = d / "mut"; m.mkdir()
+    for n in ("a", "b"): write(m, f"{n}.py", "def f(x, y):\n    return x < y\n")
+    write(m, "t.py", "import a, b\nfor m in (a, b):\n    assert m.f(1, 2) is True and m.f(2, 1) is False and m.f(2, 2) is False\n")
+    rows, st = [], {}
+    MU.run(m, ["a.py", "b.py"], lambda *a: rows.append(a), lambda k, s, n="": st.update({k: (s, n)}), given_cmd="python3 t.py", cap=1, timeout=60)
+    assert any(r[1] == "mutation-cap-reached" for r in rows) and "not mutated" in st["mutation"][1], (rows, st)
+    h = d / "hang"; h.mkdir(); write(h, "a.py", "a, b = 1, 2\nok = a < b\n")
+    MU.run(h, ["a.py"], lambda *a: None, lambda *a: None, given_cmd="python3 a.py >/dev/null && if grep -q ' <= ' a.py; then sleep 60 & echo $! > child.pid; wait; fi", cap=5, timeout=3)
+    pid = int((h / "child.pid").read_text())
+    try: alive = "\tZ" not in pathlib.Path(f"/proc/{pid}/status").read_text().split("State:")[1][:4]  # a killed orphan can linger as a zombie, unreaped
+    except (OSError, IndexError): alive = False
+    if alive: os.kill(pid, 9)
+    assert not alive, "a hung mutant's child process is stopped with it"
+    AV = run(S / "ast_view.py", "--depth", "3", cwd=d); assert AV.returncode == 2 and "Traceback" not in AV.stderr, AV.stderr
+    write(d, "v.py", "x = 1\ny = 2\n"); AV = run(S / "ast_view.py", str(d / "v.py"), "2-1", cwd=d); assert AV.returncode == 2, AV.stdout
+
+@test("5.0 self-review (skills and docs): the run's scripts refuse to run from a workspace, the verifier reads decisions only, approve never marks a fix twice, the intent names no author, an audit can't be fixed, --fix records full mode, and sandbox lines get SB ids")
+def _(d):
+    write(d, "src/app.js", APP); run(S / "critic_ledger.py", "start", "review", cwd=d)
+    sc = d / ".critic/scratch/A"; sc.mkdir(parents=True)
+    r = run(S / "critic_ledger.py", "start", "review", cwd=sc); assert r.returncode == 2 and "workspace" in r.stderr, (r.returncode, r.stderr)
+    assert json.loads((d / ".critic/ledger.json").read_text())["run"] == 1, "a reviewer's start never reset the real run"
+    assert run(S / "critic_merge.py", "tally", "x.json", cwd=sc).returncode == 2
+    run(S / "critic_ledger.py", "decision", "prices are rounded on purpose", "owner", cwd=d)
+    run(S / "critic_ledger.py", "add", "F-1", "Medium", "src/app.js:1", "a thing", cwd=d); run(S / "critic_ledger.py", "dismiss", "F-1", "intended", "owner said so", cwd=d)
+    dec = (d / ".critic/decisions.md").read_text(); assert "rounded on purpose" in dec and "owner said so" not in dec and "memories" not in dec.lower(), dec
+    ask = lambda path: "deny" in run(H / "read_guard.py", cwd=d, stdin=json.dumps({"tool_name": "Read", "tool_input": {"file_path": path}, "cwd": str(d), "agent_type": "curmudgeon:curmudgeon-verifier", "agent_id": "v1"})).stdout
+    assert ask(".critic/ledger.md") and not ask(".critic/decisions.md")
+    run(S / "critic_ledger.py", "add", "F-2", "High", "src/app.js:2", "b thing", cwd=d)
+    for c in ("targeted", "no-new-defect", "behaviour-unchanged"): run(S / "critic_ledger.py", "claim", "F-2", c, "test_x", cwd=d)
+    run(S / "critic_ledger.py", "fixed", "F-2", "test_x", cwd=d); run(S / "critic_ledger.py", "fixed", "F-2", "approve", cwd=d)
+    assert sum("fixed" in h for h in json.loads((d / ".critic/ledger.json").read_text())["findings"]["F-2"]["history"]) == 1
+    g = d / "g"; g.mkdir(); write(g, "a.py", "x = 1\n")
+    for c in (["init", "-q"], ["add", "-A"], ["-c", "user.email=e@example.invalid", "-c", "user.name=e", "commit", "-qm", "Fix the parser\n\nCo-Authored-By: Some Person <person@example.invalid>\nSigned-off-by: Some Person <person@example.invalid>"]):
+        subprocess.run(["git", *c], cwd=g, capture_output=True)
+    run(S / "critic_map.py", "--files", "a.py", cwd=g); it = json.loads((g / ".critic/change-map.json").read_text())["intent"]
+    assert "Fix the parser" in it and "Some Person" not in it and "example.invalid" not in it, it
+    a = d / "aud"; a.mkdir(); write(a, "a.js", "x\n"); run(S / "critic_run.py", "begin", "--audit", "--files", "a.js", cwd=a)
+    run(S / "critic_ledger.py", "add", "F-3", "High", "a.js:1", "c", cwd=a)
+    assert run(S / "critic_ledger.py", "fixed", "F-3", "x", "--untested", cwd=a).returncode != 0, "an audit refuses fixes"
+    fx = d / "fx"; fx.mkdir(); write(fx, "a.js", "x\n"); run(S / "critic_run.py", "begin", "--fix", "--files", "a.js", cwd=fx)
+    assert json.loads((fx / ".critic/ledger.json").read_text())["mode"] == "full"
+    sb = d / "sb"; sb.mkdir(); write(sb, "src/app.js", APP); run(S / "critic_ledger.py", "start", "review", cwd=sb)
+    write(sb, "a.json", json.dumps({"findings": [finding()], "sandbox": [{"scenario": "first run, empty", "happens": "shows an empty list", "result": "holds", "how": "driven"}]}))
+    write(sb, "b.json", json.dumps({"findings": [finding()]}))
+    run(S / "critic_merge.py", "tally", "a.json", "b.json", cwd=sb); write(sb, "v.json", "[]"); r = run(S / "critic_merge.py", "apply", "v.json", cwd=sb); assert r.returncode == 0, r.stderr
+    cm = (sb / ".critic/counts.md").read_text(); assert "| SB1 | a | first run, empty |" in cm, cm[-800:]
 
 if __name__ == "__main__":
     shutil.rmtree(TMP, ignore_errors=True)

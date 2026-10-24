@@ -16,7 +16,7 @@ be Critical or High on its own: the script caps it at Medium and says so."""
 import pathlib, re
 
 ID = re.compile(r"\b(?:REQ|FR|NFR|US|AC|SPEC)-\d+\b")
-DEFINE = re.compile(r"^\s*(?:[-*+]\s+|\d+[.)]\s+|#{1,6}\s+|\|\s*)?(?:\*\*|__|`)?((?:REQ|FR|NFR|US|AC|SPEC)-\d+)(?:\*\*|__|`)?\s*(?:[:.)|\-–—]|\s)")
+DEFINE = re.compile(r"^\s*(?:[-*+]\s+|\d+[.)]\s+|#{1,6}\s+|\|\s*)?(?:\*\*|__|`)?((?:REQ|FR|NFR|US|AC|SPEC)-\d+)(?:\*\*|__|`)?(?=\s*(?:[:.)|\-–—]|\s|$))")  # an id alone on its line (## REQ-12) defines it too
 DOC_EXT = {".md", ".rst", ".txt", ".adoc", ".feature"}
 
 def is_doc(rel): return pathlib.PurePosixPath(rel.replace("\\", "/")).suffix.lower() in DOC_EXT

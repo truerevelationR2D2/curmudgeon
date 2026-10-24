@@ -4,8 +4,9 @@ scripted step itself, and prints what the lead must do next: which agents to sta
 in critic_merge.py and the ledger; the models still write the reviews, the dedup groups and the verdicts.
 
 usage:
-  critic_run.py begin [--audit] [--tier trivial|lite|full] [--base GIT_REF] [--files PATH ...] [--intent TEXT]
-        start a run (critic_ledger.py start) and map the change (critic_map.py); prints the reviewers to start
+  critic_run.py begin [--audit | --fix] [--tier trivial|lite|full] [--base GIT_REF] [--files PATH ...] [--intent TEXT]
+        start a run (critic_ledger.py start) and map the change (critic_map.py); prints the reviewers to start. --fix
+        records a full-mode run (review and fix), so the stop gate holds open Critical and High findings to it
   critic_run.py next [--apply-now]
         look at the run and do the next step: the first tally, the tally with the dedup groups, or apply (verdict files
         go in .critic/verdicts/*.json); prints the next agents to start, or that the teardown can be written
@@ -89,15 +90,17 @@ def say_next(st, tier, items):
 def main(a):
     if not a or a[0] in ("-h", "--help"): print(__doc__); return 0
     cmd, rest = a[0], a[1:]
+    if cmd in ("begin", "next"):
+        from critic_findings import refuse_linked_state; refuse_linked_state(ROOT)
     if cmd == "begin":
-        audit = "--audit" in rest; rest = [x for x in rest if x != "--audit"]
+        audit = "--audit" in rest; fix = "--fix" in rest and not audit; rest = [x for x in rest if x not in ("--audit", "--fix")]
         tier = rest[rest.index("--tier") + 1] if "--tier" in rest and rest.index("--tier") + 1 < len(rest) else ""
         if audit:
             tier = "full"
             mine = D / "audit-owner.json"  # written by an earlier begin --audit here: that ledger is ours, unless the repository shipped the marker
             shipped = subprocess.run(["git", "ls-files", "--error-unmatch", ".critic/audit-owner.json"], cwd=ROOT, capture_output=True).returncode == 0
             ours = mine.is_file() and not mine.is_symlink() and not shipped
-            foreign = [n for n in ("ledger.json", "ledger.md", "scope.json") if (D / n).is_file()] if not ours else []
+            foreign = [n for n in ("ledger.json", "ledger.md", "decisions.md", "scope.json") if (D / n).is_file()] if not ours else []
             if foreign:  # the audited repository's own records are its owner's, not the auditor's: never their decisions, rulings or scope
                 aside = D / "history" / ("audited-repo-" + time.strftime("%Y%m%d-%H%M%S")); aside.mkdir(parents=True, exist_ok=True)
                 for n in foreign: (D / n).rename(aside / n)
@@ -116,7 +119,7 @@ def main(a):
         if not tier:
             try: tier = json.loads((D / "plan.json").read_text()).get("tier") or "full"
             except (OSError, ValueError): tier = "full"
-        sh("critic_ledger.py", "start", "review", "--tier", tier)
+        sh("critic_ledger.py", "start", "audit" if audit else ("full" if fix else "review"), "--tier", tier)
         sh("critic_brief.py", "--letters", ",".join(REVIEWERS.get(tier, REVIEWERS["full"])))
         files = [str(f) for f in (json.loads((D / "change-map.json").read_text()).get("files") or [])] if (D / "change-map.json").exists() else []
         only = ""

@@ -22,7 +22,15 @@ conftest.py, and never one decorated as a pytest fixture.
   test-unseeded-random   NOTE  random or the clock read in a test with no seed or freeze in the file (pedantic)."""
 import ast, pathlib, re
 
-CHECKER = re.compile(r"^(assert|check|verify|expect|ensure|validate|must|should)", re.I)
+CHECKER = re.compile(r"^(?:[Aa]ssert|[Cc]heck|[Vv]erify|[Ee]xpect|[Ee]nsure|[Vv]alidate|[Mm]ust|[Ss]hould)(?:$|[A-Z0-9_])")  # a whole word: checkout() and mustache() are not checks
+
+def _own_nodes(fn):
+    """The nodes of a function's own body, not of functions, lambdas or classes defined inside it."""
+    inner = (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda, ast.ClassDef)
+    stack = [c for c in fn.body if not isinstance(c, inner)]
+    while stack:
+        n = stack.pop(); yield n
+        stack += [c for c in ast.iter_child_nodes(n) if not isinstance(c, inner)]
 PEDANTIC = {"test-sleep", "test-unseeded-random"}
 
 def is_test_file(rel):
@@ -105,7 +113,7 @@ def scan(rel, text, emit):
     def check_test(fn):
         if any(_skip_without_reason(d) for d in fn.decorator_list):
             hit("NOTE", "test-skip-no-reason", fn, f"{fn.name} is skipped with no reason: say why, and when it can run again")
-        returns_value = any(isinstance(x, ast.Return) and x.value is not None for x in ast.walk(fn))  # a helper or decorator factory named test*, not a test
+        returns_value = any(isinstance(x, ast.Return) and x.value is not None for x in _own_nodes(fn))  # a helper or decorator factory named test*, not a test
         if not _checks(fn) and not returns_value and not any(_name(d).split(".")[-1] in ("skip", "skipif", "xfail") or (isinstance(d, ast.Call) and _name(d.func).split(".")[-1] in ("skip", "skipif", "xfail")) for d in fn.decorator_list):
             hit("WARN", "test-no-assert", fn, f"{fn.name} checks nothing (no assert, no assertion call, no pytest.raises): it passes whatever the code does")
         for node in ast.walk(fn):

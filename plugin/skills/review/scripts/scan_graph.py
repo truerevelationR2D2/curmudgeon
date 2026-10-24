@@ -2,7 +2,7 @@
 knip (dead code, unused exports) and jscpd (copy-paste); none of their code or rule text is used.
 
 Layer rules: by default files are placed in layers by folder or file name (ui: ui, components, views, pages,
-screens, app; domain: domain, model(s), core, logic, rules; data: data, api, store, repository, db, services, client).
+screens, widgets; domain: domain, model(s), core, logic, rules; data: data, api, store, repository, db, services, client).
 domain -> ui and data -> ui imports are flagged. Projects can override in .critic/rules.md:
     ## Boundaries
     layer ui: src/components/** src/views/**
@@ -98,15 +98,23 @@ def python_graph(py):
             if isinstance(n, ast.ImportFrom) and n.level:
                 base = pkg[: len(pkg) - (n.level - 1)] if n.level > 1 else pkg
                 mod = base + (n.module.split(".") if n.module else [])
-                for c in [mod + [a.name] for a in n.names] + [mod]:
+                def rel_find(c):
                     path = "/".join(c)
-                    tgt = next((x for x in (path + ".py", path + "/__init__.py") if x in have and x != r), None)
-                    if tgt: graph[r].add(tgt); break
+                    return next((x for x in (path + ".py", path + "/__init__.py") if x in have and x != r), None)
+                hits = [t for t in (rel_find(mod + [a.name]) for a in n.names) if t]  # every imported name: from . import b, c is two edges
+                if not hits and rel_find(mod): hits = [rel_find(mod)]
+                graph[r].update(hits)
                 continue
-            cands = [a.name for a in n.names] if isinstance(n, ast.Import) else [f"{n.module}.{a.name}" for a in n.names] + [n.module]
-            for c in cands:
-                tgt = find(c, r)
-                if tgt and tgt != r: graph[r].add(tgt); break
+            if isinstance(n, ast.Import):  # import b, c: one edge per module
+                for a in n.names:
+                    tgt = find(a.name, r)
+                    if tgt and tgt != r: graph[r].add(tgt)
+                continue
+            hits = [t for t in (find(f"{n.module}.{a.name}", r) for a in n.names) if t and t != r]
+            if not hits:
+                t = find(n.module, r)
+                if t and t != r: hits = [t]
+            graph[r].update(hits)
     return graph
 
 def scan(root, texts, emit):
@@ -150,6 +158,10 @@ def scan(root, texts, emit):
     for comp in out: emit("WARN", "import-cycle", "structure", comp[0], "import cycle: " + " → ".join(comp + [comp[0]]), "")
     # unused exports (module code only) and unreferenced functions (all code)
     all_text = "\n".join(texts.values())
+    import collections
+    bare, dotted = collections.Counter(), collections.Counter()  # counted once, looked up per name (was a regex over the whole project per name)
+    for m in re.finditer(r"(\.)?(?<![\w$])([A-Za-z_$][\w$]*)", all_text): (dotted if m.group(1) else bare)[m.group(2)] += 1
+    exported = {(r, m.group(1)) for r, t in js.items() for m in EXPORT_NAMED.finditer(t)}
     imported_names = set()
     for t in js.values():
         for m in re.finditer(r"import\s+(?:(\w+)\s*,?\s*)?(?:\{([^}]*)\})?\s*from", t):
@@ -161,13 +173,13 @@ def scan(root, texts, emit):
         for r, t in js.items():
             for m in EXPORT_NAMED.finditer(t):
                 name = m.group(1)
-                if name not in imported_names and len(re.findall(rf"(?<![\w$]){re.escape(name)}(?![\w$])", all_text)) <= 1:
+                if name not in imported_names and bare[name] + dotted[name] <= 1:
                     emit("NOTE", "unused-export", "structure", f"{r}:{t[:m.start()].count(chr(10)) + 1}", f"export `{name}` is never imported or used", "")
     for r, t in js.items():
         for m in DEFS.finditer(t):
             name = m.group(1) or m.group(2)
             if not name or name.startswith("_") or name in ("main", "init", "setup"): continue
-            if len(re.findall(rf"(?<![\w$.]){re.escape(name)}(?![\w$])", all_text)) <= 1:  # \b fails on names like $
+            if bare[name] + (dotted[name] if (r, name) in exported else 0) <= 1:  # an exported function may be called as api.name()
                 emit("NOTE", "dead-function", "structure", f"{r}:{t[:m.start()].count(chr(10)) + 1}", f"`{name}` is defined but never used", "")
     # copy-paste: 6-line windows of normalised, non-trivial lines
     W, seen, dups = 6, {}, []

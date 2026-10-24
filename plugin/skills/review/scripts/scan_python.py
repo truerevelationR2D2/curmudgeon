@@ -3,6 +3,7 @@ patterns, so strings, comments and look-alike names no longer cause false alarms
 text-pattern rules, which stay as the fallback for files that don't parse (for example Python 2 code).
 Idea from Bandit (Apache-2.0); our own code, no rule text copied."""
 import ast
+import scan_tests
 
 SAFE_YAML_LOADERS = {f"yaml{m}.{c}" for m in ("", ".loader", ".cyaml") for c in ("SafeLoader", "CSafeLoader", "BaseLoader", "CBaseLoader")}
 STAR_RISKY = {"tempfile": ("mktemp",), "os": ("system", "popen"), "builtins": ("eval", "exec"), "yaml": ("load",),
@@ -17,7 +18,8 @@ def _name(node):
     """Dotted name of a call target: os.system, subprocess.run, eval ..."""
     parts = []
     while isinstance(node, ast.Attribute): parts.append(node.attr); node = node.value
-    if isinstance(node, ast.Name): parts.append(node.id)
+    if not isinstance(node, ast.Name): return ""  # get_session().exec, clients[0].eval: a method, never the builtin
+    parts.append(node.id)
     return ".".join(reversed(parts))
 
 def _kw(call, name):
@@ -83,7 +85,7 @@ def scan(rel, text, emit):
             broad = node.type is None or (isinstance(node.type, ast.Name) and node.type.id in ("Exception", "BaseException"))
             if broad and len(node.body) == 1 and isinstance(node.body[0], ast.Pass):
                 hit("WARN", "py-bare-except-pass", "errors", node, "every error is swallowed here (the user is never told)")
-        elif isinstance(node, ast.Assert):
+        elif isinstance(node, ast.Assert) and not scan_tests.is_test_file(rel):  # asserts are how tests check
             src = ast.unparse(node.test).lower()
             if any(w in src for w in ("auth", "permission", "user", "admin", "valid")):
                 hit("NOTE", "py-assert-guard", "errors", node, "assert used as a guard: it disappears under python -O")

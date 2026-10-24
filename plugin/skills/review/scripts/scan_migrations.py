@@ -13,7 +13,8 @@ migrations.RunSQL (Django). Statements are split on semicolons outside quotes, w
                                 the whole table under a lock (add it NOT VALID, then VALIDATE CONSTRAINT separately).
   mig-irreversible        WARN  a migration that can't be rolled back: an Alembic downgrade() that does nothing, or a
                                 Django RunPython or RunSQL with no reverse.
-  mig-drop-rename         NOTE  (pedantic) DROP or RENAME of a column or table: code still deployed may use the old name."""
+  mig-drop-rename         NOTE  (pedantic) DROP or RENAME of a column or table: code still deployed may use the old name.
+  mig-sql-not-read        NOTE  (pedantic) op.execute or RunSQL given SQL built at run time: it can't be read here."""
 import ast, pathlib, re
 
 DOLLAR = re.compile(r"\$[A-Za-z_]*\$")
@@ -89,7 +90,7 @@ def check_sql(rel, sql, emit, first_line=1, created=None):
         for col in _add_clauses(rest):
             if re.search(r"(?i)\bnot\s+null\b", col) and not re.search(r"(?i)\bdefault\b|\bgenerated\b", col) and not re.match(r"(?i)add\s+(?:column\s+(?:if\s+not\s+exists\s+)?)?(?!column\b)[\w\"]+\s+(?:small|big)?serial\d?\b", col) and not re.match(r"(?i)add\s+constraint", col):
                 emit("WARN", "mig-not-null-no-default", "release", f"{rel}:{ln}", f"a NOT NULL column with no DEFAULT is added to {table}: it fails if the table has rows (add it nullable or with a default, backfill, then set NOT NULL)", f[:160])
-        if re.search(r"(?i)add\s+constraint\s+\S+\s+(foreign\s+key|check)\b", rest) and not re.search(r"(?i)\bnot\s+valid\b", rest):
+        if any(re.search(r"(?i)add\s+constraint\s+\S+\s+(foreign\s+key|check)\b", c) and not re.search(r"(?i)\bnot\s+valid\b", c) for c in _add_clauses(rest)):  # per clause: NOT VALID on one doesn't cover another
             emit("WARN", "mig-constraint-validate", "release", f"{rel}:{ln}", f"a constraint is added to {table} without NOT VALID: the whole table is checked under a lock (add NOT VALID, then VALIDATE CONSTRAINT separately)", f[:160])
         if re.search(r"(?i)\bdrop\s+column\b|\brename\s+(column\s+)?[\w\"]+\s+to\b|\brename\s+to\b", rest):
             emit("NOTE", "mig-drop-rename", "release", f"{rel}:{ln}", f"a column of {table} is dropped or renamed: code still deployed may use it (expand, migrate, then contract)", f[:160])
@@ -101,7 +102,26 @@ def _str(node):
 
 def _does_nothing(fn):
     body = [s for s in fn.body if not (isinstance(s, ast.Expr) and isinstance(s.value, ast.Constant) and isinstance(s.value.value, str))]
-    return all(isinstance(s, ast.Pass) for s in body)
+    return all(isinstance(s, ast.Pass) or (isinstance(s, ast.Expr) and isinstance(s.value, ast.Constant) and s.value.value is Ellipsis) for s in body)  # pass or ...
+
+def _sql_args(node):
+    """The SQL strings a call passes (first argument or sql=), from a literal, a list or tuple of them ((sql, params)
+    pairs too), or wrapped in text() / sa.text(). Returns (strings with their nodes, True when something wasn't literal)."""
+    arg = node.args[0] if node.args else next((k.value for k in node.keywords if k.arg == "sql"), None)
+    if arg is None: return [], False
+    out, opaque = [], False
+    def take(n):
+        nonlocal opaque
+        if isinstance(n, ast.Call) and (getattr(n.func, "attr", None) == "text" or getattr(n.func, "id", None) == "text") and n.args: return take(n.args[0])
+        if isinstance(n, (ast.List, ast.Tuple)):
+            if isinstance(n, ast.Tuple) and len(n.elts) == 2 and _str(n.elts[0]) and not _str(n.elts[1]): return take(n.elts[0])  # (sql, params)
+            for e in n.elts: take(e)
+            return
+        s = _str(n)
+        if s: out.append((s, n))
+        else: opaque = True
+    take(arg)
+    return out, opaque
 
 def check_python(rel, text, emit):
     """Alembic and Django migrations: irreversible steps, and the SQL they run."""
@@ -141,9 +161,10 @@ def check_python(rel, text, emit):
                 emit("WARN", "mig-irreversible", "release", f"{rel}:{node.lineno}", "RunPython with no reverse_code: this migration can't be rolled back (pass a reverse, or migrations.RunPython.noop when nothing needs undoing)", text.split("\n")[node.lineno - 1])
             if name == "RunSQL" and len(node.args) < 2 and not any(k.arg == "reverse_sql" for k in node.keywords):
                 emit("WARN", "mig-irreversible", "release", f"{rel}:{node.lineno}", "RunSQL with no reverse_sql: this migration can't be rolled back", text.split("\n")[node.lineno - 1])
-            if name in ("execute", "RunSQL") and node.args:
-                sql = _str(node.args[0])
-                if sql: check_sql(rel, sql, emit, node.args[0].lineno, created)
+            if name in ("execute", "RunSQL"):
+                strings, opaque = _sql_args(node)
+                for sql, n in strings: check_sql(rel, sql, emit, n.lineno, created)
+                if opaque: emit("NOTE", "mig-sql-not-read", "release", f"{rel}:{node.lineno}", f"{name}() is passed SQL built at run time: the release lens can't read it (check it by hand)", text.split("\n")[node.lineno - 1])
 
 def wants(rel):
     p = pathlib.PurePosixPath(rel.replace("\\", "/"))
