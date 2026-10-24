@@ -118,6 +118,9 @@ def validate(f):
         for k in ("evidence", "failing_case"):
             if not str(f.get(k) or "").strip(): errs.append(f"missing {k} (no case, no finding)")
     if f.get("verified") not in VERIFIED: errs.append("verified must be executed, traced or inferred")
+    if "difficulty" in f and f["difficulty"] not in ("Low", "Medium", "High"): errs.append("difficulty must be Low, Medium or High (audit mode: how hard the failure is to trigger)")
+    for k in ("exploit_scenario", "fix_short", "fix_long"):  # optional, audit mode (after Trail of Bits' report format)
+        if k in f and not isinstance(f[k], str): errs.append(f"{k} must be text when given")
     if "requirement" in f:  # optional (SC-55): the requirement the finding rests on, stated (with where) or inferred (with why)
         r = f["requirement"]
         if not isinstance(r, dict) or r.get("basis") not in ("stated", "inferred"): errs.append("requirement must be an object with basis stated or inferred")

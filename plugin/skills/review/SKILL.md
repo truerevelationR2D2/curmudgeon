@@ -20,6 +20,7 @@ Be an outside Staff Engineer and Lead Product Designer hired by someone who susp
 | `/curmudgeon:review fix [payload]`, "curmudgeon and fix", "review and fix it" | **Full mode**: steps 0–8. Changing files needs the word *fix* or an explicit request |
 | `/curmudgeon:review deep [payload]` | Forces the full tier (three reviewers) whatever the size |
 | `/curmudgeon:review quiet [payload]` | Same review, shorter teardown: Critical and High in full, Medium and Low one line each, every count exact (`references/output-contract.md`, quiet mode) |
+| `/curmudgeon:review audit [payload]` | **Audit mode**, for someone else's system: the full tier, audit not repair (no file is changed even if asked to fix; offer fixes as text), `critic_run.py begin --audit` (rules of engagement, and a warning when the repository ships `.mcp.json`), active checks only within `.critic/scope.json`, and findings with `difficulty`, `exploit_scenario`, `fix_short` and `fix_long` (`references/output-contract.md`) |
 | `/curmudgeon:fix approve`, `/curmudgeon:fix iterate [part]`, `/curmudgeon:fix patch [id]`, `/curmudgeon:fix rollback`, `/curmudgeon:gate on\|off\|async` | Two separate skills (`fix`, `gate`); run only when typed |
 
 No payload: ask for one in one line.

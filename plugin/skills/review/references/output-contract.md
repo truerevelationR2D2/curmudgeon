@@ -22,6 +22,7 @@ A review file is `{"findings": [ ...finding records... ], "set_aside": [ {"file"
 | `verified` | `executed` (you ran it and saw it fail), `traced` (followed the code path), or `inferred` |
 | `remediation` | The structural fix, in one or two sentences |
 | `requirement` | Optional. What the finding rests on when it is about intent or behaviour: `{"basis": "stated", "where": "docs/spec.md:12"}` when a document says it (the script checks the line exists), or `{"basis": "inferred", "why": "what you inferred it from"}`. A finding that rests on an inferred requirement is capped at Medium by the script: inferred is never presented as stated |
+| `difficulty`, `exploit_scenario`, `fix_short`, `fix_long` | Audit mode (after Trail of Bits' report format): how hard the failure is to trigger (Low, Medium or High), who could trigger it and how, the quick fix, and the lasting fix (often a rule file or a test that keeps the bug class out). Optional elsewhere |
 
 Group one issue found in several places into one record. Stable ids are made from the file, category and quote, so the same issue keeps its id across runs.
 

@@ -34,6 +34,7 @@ You need Python 3.9 or later. The browser checks also need Playwright with Chrom
 | `/curmudgeon:review fix [what]` | Reviews, then fixes. Each fix must pass a re-check before it counts. |
 | `/curmudgeon:review deep [what]` | Forces the full three-reviewer run, whatever the size of the change. |
 | `/curmudgeon:review quiet [what]` | The same review with a shorter teardown: Critical and High in full, Medium and Low one line each. Every count stays exact. |
+| `/curmudgeon:review audit [what]` | Audits someone else's system: the full review, changing nothing, with rules of engagement (active tests only on what `.critic/scope.json` lists), stated-versus-inferred requirements, and findings that give difficulty, an exploit scenario and short- and long-term fixes. |
 | `/curmudgeon:fix patch [id]` | Fixes one finding. |
 | `/curmudgeon:fix iterate [part]` | Goes deeper on one part, or tries another approach. |
 | `/curmudgeon:fix approve` | Keeps the last refactor. |

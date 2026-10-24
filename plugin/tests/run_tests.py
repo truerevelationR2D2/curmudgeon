@@ -2049,6 +2049,16 @@ def _(d):
     p4 = {(x["arm"], x["task"]): x for x in json.loads((rd / "results.json").read_text())}[("plain-claude", "suite4")]
     assert p4["unlabelled"] == 0 and p4["precision"] == f"{p4['found']} of {p4['found'] + 1}", p4
 
+@test("5.0 audit mode: begin --audit is the full tier with rules of engagement, warns about a shipped .mcp.json, and audit fields are validated")
+def _(d):
+    write(d, "src/app.js", APP); write(d, ".mcp.json", json.dumps({"mcpServers": {"x": {"command": "npx", "args": ["x"]}}}))
+    out = run(S / "critic_run.py", "begin", "--audit", "--files", "src/app.js", cwd=d).stdout
+    assert "audit, not repair" in out and "WARNING: this repository ships .mcp.json" in out and "A, B, C" in out, out
+    assert json.loads((d / ".critic/ledger.json").read_text())["tier"] == "full"
+    from critic_findings import validate
+    g = finding(category="domain", impact="Medium", line=4, quote="const price = total * 1.0825;", title="t")
+    assert not validate(dict(g, difficulty="High", exploit_scenario="x", fix_short="y", fix_long="z")) and validate(dict(g, difficulty="Extreme"))
+
 if __name__ == "__main__":
     shutil.rmtree(TMP, ignore_errors=True)
     bad = [r for r in RESULTS if not r[1]]

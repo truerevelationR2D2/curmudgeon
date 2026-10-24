@@ -4,7 +4,7 @@ scripted step itself, and prints what the lead must do next: which agents to sta
 in critic_merge.py and the ledger; the models still write the reviews, the dedup groups and the verdicts.
 
 usage:
-  critic_run.py begin [--tier trivial|lite|full] [--base GIT_REF] [--files PATH ...] [--intent TEXT]
+  critic_run.py begin [--audit] [--tier trivial|lite|full] [--base GIT_REF] [--files PATH ...] [--intent TEXT]
         start a run (critic_ledger.py start) and map the change (critic_map.py); prints the reviewers to start
   critic_run.py next [--apply-now]
         look at the run and do the next step: the first tally, the tally with the dedup groups, or apply (verdict files
@@ -90,7 +90,17 @@ def main(a):
     if not a or a[0] in ("-h", "--help"): print(__doc__); return 0
     cmd, rest = a[0], a[1:]
     if cmd == "begin":
+        audit = "--audit" in rest; rest = [x for x in rest if x != "--audit"]
         tier = rest[rest.index("--tier") + 1] if "--tier" in rest and rest.index("--tier") + 1 < len(rest) else ""
+        if audit:
+            tier = "full"
+            print("audit mode (someone else's system): audit, not repair; nothing is changed. Rules of engagement:")
+            print("  - active checks beyond this computer only for origins in .critic/scope.json, confirmed per run with --allow-live HOST" + (" (scope.json present)" if (D / "scope.json").is_file() else " (no scope.json: nothing beyond this computer is loaded)"))
+            print("  - every requirement is stated (with its file:line) or inferred (capped at Medium)")
+            print("  - findings carry difficulty, an exploit scenario, a short-term and a long-term fix")
+            if (ROOT / ".mcp.json").is_file():
+                print("  - WARNING: this repository ships .mcp.json. Its servers start without a prompt in claude -p, SDK and cloud runs: "
+                      "audit it with --strict-mcp-config, or block them with disabledMcpjsonServers, before running anything headless here.")
         map_args = [x for i, x in enumerate(rest) if not (x == "--tier" or (i and rest[i - 1] == "--tier"))]
         sh("critic_map.py", *map_args)
         sh("critic_plan.py")  # SC-69: the job plan (tier, agents, lenses, expected cost); the user may change it
