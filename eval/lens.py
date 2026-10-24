@@ -11,7 +11,7 @@ It copies the fixture and the clean twin to a temporary folder, runs critic_scan
               fixture (pedantic rows are counted apart and never count either way)
   decoys      regular rows from this lens in a decoy file (must be 0)
   clean twin  regular rows from this lens in the clean twin (must be 0)
-Exit 0 when recall is 100% and decoys and clean-twin rows are 0; 1 otherwise; 2 on bad usage."""
+Exit 0 when recall and precision are both 100% and decoys and clean-twin rows are 0; 1 otherwise; 2 on bad usage."""
 import json, pathlib, shutil, subprocess, sys, tempfile
 
 HERE = pathlib.Path(__file__).resolve().parent
@@ -39,7 +39,7 @@ def main(a):
            "precision": f"{len(true_rows)} of {len(reg)}", "false_rows": [f"{x['rule']} {x['where']}" for x in reg if x not in true_rows],
            "decoy_rows": [f"{x['rule']} {x['where']}" for x in decoy], "clean_twin_rows": [f"{x['rule']} {x['where']}" for x in clean_reg],
            "pedantic_rows": sum(1 for x in got if x.get("tier") == "pedantic")}
-    ok = not out["missed"] and not out["decoy_rows"] and not out["clean_twin_rows"]
+    ok = not out["missed"] and not out["false_rows"] and not out["decoy_rows"] and not out["clean_twin_rows"]  # precision first: one wrong row fails the lens
     out["verdict"] = "PASS" if ok else "FAIL"
     if "--json" in a: print(json.dumps(out, indent=1))
     else:

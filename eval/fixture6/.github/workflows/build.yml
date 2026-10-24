@@ -19,3 +19,4 @@ jobs:
         with:
           name: everything
           path: .
+          include-hidden-files: true

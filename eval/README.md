@@ -94,7 +94,7 @@ Each scripted lens ships with a planted-defect fixture, a clean twin and decoys,
 python3 eval/lens.py eval/lens5.json
 ```
 
-`lens5.json` is the tests-of-the-tests lens (SC-48): `fixture5/` has seven planted defects in `tests/test_cart.py`, `fixture5-clean/` is the same project with the tests fixed, and `tests/test_helpers_ok.py` (in both) holds fourteen correct tests and a decorator factory named `test`, all of which only look suspicious. The check passes only with every planted defect found at its file and line, no regular row in the decoy file and none in the clean twin. The script tests run it, and also feed it a wrong answer key to prove it can fail.
+`lens5.json` is the tests-of-the-tests lens (SC-48): `fixture5/` has seven planted defects in `tests/test_cart.py`, `fixture5-clean/` is the same project with the tests fixed, and `tests/test_helpers_ok.py` (in both) holds fourteen correct tests and a decorator factory named `test`, all of which only look suspicious. The check passes only with every planted defect found at its file and line, no other regular row (precision is checked first: one wrong row fails the lens), none in the decoy file and none in the clean twin. The script tests run it, and also feed it a wrong answer key to prove it can fail.
 
 `lens6.json` is the CI and supply-chain lens (SC-51): `fixture6/` has thirteen planted defects across two workflows, a requirements file, a Dockerfile and an npm lockfile; `fixture6-clean/` fixes them; five decoy files (a safe `pull_request` workflow, a safe `pull_request_target` one, an `--index-url` requirements file, a digest-pinned Dockerfile and a script that mentions `curl | sh` only in a comment) must stay silent.
 
@@ -110,7 +110,7 @@ python3 eval/lens.py eval/lens5.json
 
 ## The death match (development benchmark, SC-70)
 
-`deathmatch.py` runs the same tasks (`deathmatch.json`: suites 1 to 4 and their clean twins) on the same model through each arm: Curmudgeon, plain Claude, `/code-review`, and specialist tools only where they are already installed and only on the tasks they claim. Every arm is scored by one scorer: blocks that match a planted defect count toward recall, every block on a clean twin is a false alarm, and anything else stays unlabelled until labelled in the run's `labels.json`, so precision is NOT MEASURED until then. Cost, tokens and wall time come from Claude Code's own JSON result.
+`deathmatch.py` runs the same tasks (`deathmatch.json`: suites 1 to 4 and their clean twins) on the same model through each arm: Curmudgeon, plain Claude, `/code-review`, and specialist tools only where they are already installed and only on the tasks they claim. Every arm is scored by one scorer, and every block has the same two parts for every arm: where it points (file:line, quoted code) and what it claims (title and failing case; in a free-form reply, the item without its Fix: text). A block counts toward recall only when a planted defect's file is where it points and the plant's pattern is in the claim, never in fix advice. On a clean twin a block that cites a file:line (or is labelled false) is a false alarm; a heading or "no issues" line is not. Anything else stays unlabelled until labelled in the run's `labels.json`, so precision is NOT MEASURED until then. A run that failed, timed out or wrote nothing is shown with its error and scored NOT MEASURED, never as a clean result. Cost, tokens and wall time come from Claude Code's own JSON result.
 
 ```
 python3 eval/deathmatch.py plan                 # what would run; no model calls

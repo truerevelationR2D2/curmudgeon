@@ -2,19 +2,26 @@
 standard-library Python, so the CI, agent-config and operations lenses can read YAML without installing anything.
 
 It refuses rather than guesses. Anchors (&), aliases (*), tags (!), directives (%), several documents in one file,
-complex keys (?), multi-line plain or quoted scalars, tabs in indentation and duplicate keys all raise Refused with the
-line number, and the lens then reports "not checked: <file>:<line>" instead of a finding built on a wrong reading.
+complex keys (?), multi-line quoted scalars, tabs in indentation (tabs inside a block scalar are text), duplicate keys
+and nesting deeper than 64 levels all raise Refused with the line number, and the lens then reports "not checked:
+<file>:<line>" instead of a finding built on a wrong reading.
 
 Every scalar stays a string, exactly as written: `on` is "on", `yes` is "yes", `010` is "010" (PyYAML's default loader
 turns the workflow key `on` into True). An empty value is "". Mappings and sequences carry the line they start on, and
 each key and item its own line, for findings.
 
-Measured on 24 Oct 2026 against PyYAML 6.0.3's BaseLoader (which also keeps every scalar a string), on the 6,191 YAML
-files under 200 KB found on the build machine: 2,489 read identically, 3,698 refused (3,394 of them for tags, mostly
-Google Cloud SDK files), 0 read differently, and 4 PyYAML itself couldn't parse. The 114 CI, Compose and Kubernetes
-files among them were used to close three gaps (quoted sequence items, multi-line plain values, flow lists over several
-lines), so they are not held out: 97 identical, 17 refused, 0 different. The script tests pin the behaviour with
-plugin/tests/yaml/*.yml and their expected output, so no PyYAML is needed to run them."""
+Measured against PyYAML 6.0.3's BaseLoader (which also keeps every scalar a string). The first claim here, "0 read
+differently", was wrong: a blind review (24 Oct 2026) found four block-scalar cases read differently (keep and clip at
+the end of the file, a folded scalar starting with a blank line, spaces past the indentation on a blank line inside a
+literal, an over-indented leading blank line), plus a byte-order mark read into the first key. All are fixed or refused,
+and it was measured again on 24 Oct 2026 after the fixes:
+- 6,191 YAML files under 200 KB on the build machine: 2,489 read identically, 3,698 refused (3,394 of them for tags,
+  mostly Google Cloud SDK files), 0 read differently, 4 PyYAML itself couldn't parse. The 114 CI, Compose and
+  Kubernetes files among them were used to close gaps, so they are not held out.
+- 75,000 generated documents (the reviewer's fuzzer, three seeds): 0 read differently, 0 crashes. The only inputs read
+  here that PyYAML rejects hold a tab inside a plain value, which YAML 1.2 allows.
+The script tests pin the behaviour with plugin/tests/yaml/*.yml and their expected output, so no PyYAML is needed to
+run them."""
 import re
 
 class Refused(ValueError):
@@ -61,14 +68,18 @@ def _strip_comment(text):
 def _plain(text, line, in_flow=False):
     v = _strip_comment(text)
     if v[:1] in ("&", "*", "!"): raise Refused(line, {"&": "an anchor", "*": "an alias", "!": "a tag"}[v[0]] + " (not read, so as not to guess)")
-    if v[:1] in ("@", "`"): raise Refused(line, f"a plain value can't start with {v[0]}")
+    if v[:1] in ("@", "`", "%"): raise Refused(line, f"a plain value can't start with {v[0]}")
+    if not in_flow and (v == "-" or v.startswith("- ")): raise Refused(line, "a - item where a value fits")
     if v[:1] in ("|", ">"): raise Refused(line, "a block scalar where only a plain value fits")
     if not in_flow and re.search(r":\s", v + " ") and not v.startswith(("http://", "https://")) and re.search(r":(\s|$)", v): raise Refused(line, "a colon inside a plain value (quote it)")
     return v
 
+MAX_DEPTH = 64  # deeper nesting is refused: no real workflow, Compose file or manifest needs it, and Python's own
+                # recursion limit would otherwise end the whole scan
+
 def _flow(text, line):
     """Parse a one-line flow collection at the start of text; returns (node, rest)."""
-    pos = [0]
+    pos = [0]; depth = [0]
     def ws():
         while pos[0] < len(text) and text[pos[0]] in " \t": pos[0] += 1
     def item():
@@ -83,9 +94,11 @@ def _flow(text, line):
         pos[0] += len(raw)
         return _s(_plain(raw.strip(), line, in_flow=True), line)
     def seq():
+        depth[0] += 1
+        if depth[0] > MAX_DEPTH: raise Refused(line, f"nesting deeper than {MAX_DEPTH} levels")
         pos[0] += 1; out = YSeq(); out.line = line
         ws()
-        if text[pos[0]:pos[0] + 1] == "]": pos[0] += 1; return out
+        if text[pos[0]:pos[0] + 1] == "]": pos[0] += 1; depth[0] -= 1; return out
         while True:
             v = item(); ws()
             if text[pos[0]:pos[0] + 1] == ":": raise Refused(line, "a key: value pair inside [ ] (not read)")
@@ -93,14 +106,16 @@ def _flow(text, line):
             c = text[pos[0]:pos[0] + 1]
             if c == ",":
                 pos[0] += 1; ws()
-                if text[pos[0]:pos[0] + 1] == "]": pos[0] += 1; return out
+                if text[pos[0]:pos[0] + 1] == "]": pos[0] += 1; depth[0] -= 1; return out
                 continue
-            if c == "]": pos[0] += 1; return out
+            if c == "]": pos[0] += 1; depth[0] -= 1; return out
             raise Refused(line, "a [ ] list it can't read on one line")
     def mp():
+        depth[0] += 1
+        if depth[0] > MAX_DEPTH: raise Refused(line, f"nesting deeper than {MAX_DEPTH} levels")
         pos[0] += 1; out = YMap(); out.line = line
         ws()
-        if text[pos[0]:pos[0] + 1] == "}": pos[0] += 1; return out
+        if text[pos[0]:pos[0] + 1] == "}": pos[0] += 1; depth[0] -= 1; return out
         while True:
             k = item(); ws()
             if text[pos[0]:pos[0] + 1] == ":": pos[0] += 1; v = item(); ws()
@@ -111,29 +126,56 @@ def _flow(text, line):
             c = text[pos[0]:pos[0] + 1]
             if c == ",":
                 pos[0] += 1; ws()
-                if text[pos[0]:pos[0] + 1] == "}": pos[0] += 1; return out
+                if text[pos[0]:pos[0] + 1] == "}": pos[0] += 1; depth[0] -= 1; return out
                 continue
-            if c == "}": pos[0] += 1; return out
+            if c == "}": pos[0] += 1; depth[0] -= 1; return out
             raise Refused(line, "a { } map it can't read on one line")
     node = item(); rest = text[pos[0]:]
     if _strip_comment(rest).strip(): raise Refused(line, "text after a closing bracket")
     return node, ""
 
+def _bracket_depth(t, st):
+    """Track [ ] and { } depth across the lines of a flow collection, outside quotes and comments, so the collection is
+    parsed once when it closes (st = [depth, quote, previous non-space character]); linear in the text."""
+    i, n = 0, len(t)
+    while i < n:
+        c = t[i]
+        if st[1] == "'":
+            if c == "'":
+                if t[i + 1:i + 2] == "'": i += 2; continue
+                st[1] = None
+        elif st[1] == '"':
+            if c == "\\": i += 2; continue
+            if c == '"': st[1] = None
+        elif c == "#" and (i == 0 or t[i - 1] in " \t"): break
+        elif c in "'\"" and st[2] in "[{,:": st[1] = c
+        elif c in "[{": st[0] += 1
+        elif c in "]}": st[0] -= 1
+        if not c.isspace(): st[2] = c
+        i += 1
+    return st[0]
+
 def loads(text):
     """Read one YAML document. Raises Refused for anything outside the subset."""
+    if text.startswith("\ufeff"): text = text[1:]  # a byte-order mark is not part of the first key
     raw = text.split("\n")
+    eof_nl = len(raw) > 1 and raw[-1] == ""
+    if eof_nl: raw.pop()  # the empty string after the final line break is not a line
     lines = []  # (indent, content, lineno) for content lines; block scalars read raw lines directly
-    started = False
+    tabs, in_block = [], set()  # lines with a tab in their indentation; lines a block scalar used (tabs are text there)
+    started = ended = False
     for n, l in enumerate(raw, 1):
         if l.startswith("%"): raise Refused(n, "a directive (%)")
         s = l.rstrip()
+        if ended and s.strip() and not s.lstrip().startswith("#"): raise Refused(n, "content after the end of the document (...)")
         if s in ("---", "...") or s.startswith("--- ") or s.startswith("... "):
+            if s.startswith("..."): ended = True; continue
             if s.startswith("---") and started: raise Refused(n, "a second document in one file")
             if s.startswith("---") and s[3:].strip() and not s[3:].strip().startswith("#"): raise Refused(n, "content on the --- line")
             started = True; continue
         if not s.strip() or s.lstrip().startswith("#"): continue
         ind = len(s) - len(s.lstrip(" "))
-        if s[ind:ind + 1] == "\t": raise Refused(n, "a tab in the indentation")
+        if s[ind:ind + 1] == "\t": tabs.append(n)
         lines.append([ind, s[ind:], n]); started = True
     if not lines: return _s("", 1)
     pos = [0]
@@ -144,32 +186,40 @@ def loads(text):
         style, chomp, digit = m.group(1), m.group(2) or m.group(4), m.group(3)
         body = []; j = n  # raw line index after the header (n is 1-based, so raw[n] is the next line)
         content_ind = parent_ind + int(digit) if digit else None
+        lead_ws = 0  # the widest blank line before the first content line
         while j < len(raw):
             l = raw[j].rstrip("\r")
-            if l.strip() == "": body.append(""); j += 1; continue
+            if l.strip() == "":
+                if content_ind is None: lead_ws = max(lead_ws, len(l)); body.append("")
+                else: body.append(l[content_ind:] if len(l) > content_ind else "")  # spaces past the indentation are text
+                j += 1; continue
             ind = len(l) - len(l.lstrip(" "))
             if content_ind is None:
                 if ind <= parent_ind: break
                 content_ind = ind
+                if lead_ws > content_ind: raise Refused(j + 1, "a blank line before a block scalar's text is indented more than the text (not read, so as not to guess)")
             if ind < content_ind: break
             body.append(l[content_ind:]); j += 1
+        in_block.update(range(n + 1, j + 1))
         while pos[0] < len(lines) and lines[pos[0]][2] <= j: pos[0] += 1  # skip the content lines the scalar used
         trail = len(body) - len(list(__import__("itertools").takewhile(lambda x: x == "", reversed(body))))
         core, tail = body[:trail], body[trail:]
         if style == "|": textv = "\n".join(core)
-        else:
-            out = []; prev_more = False
-            for k, l in enumerate(core):
-                more = l.startswith(" ") or l == ""
-                if k == 0: out.append(l)
-                elif l == "": out.append("\n")
-                elif more or prev_more: out.append("\n" + l)
-                else: out.append((" " if out and not out[-1].endswith("\n") else "") + l)
-                prev_more = l.startswith(" ")
+        else:  # folding, as YAML does it: leading blank lines are line breaks; a single break between two ordinary lines
+            out = []; k = 0  # is a space; n blank lines between them are n breaks; a more-indented line keeps its breaks
+            while k < len(core) and core[k] == "": out.append("\n"); k += 1
+            prev, blank = None, 0
+            for l in core[k:]:
+                if l == "": blank += 1; continue
+                if prev is not None:
+                    if l[:1] in " \t" or prev[:1] in " \t": out.append("\n" * (blank + 1))
+                    else: out.append("\n" * blank if blank else " ")
+                out.append(l); prev, blank = l, 0
             textv = "".join(out)
+        at_eof = j >= len(raw) and not eof_nl  # the last line of the file has no line break of its own
         if chomp == "-": pass
-        elif chomp == "+": textv += "\n" * (1 + len(tail)) if core else "\n" * len(tail)
-        else: textv += "\n" if core else ""
+        elif chomp == "+": textv += "\n" * max(0, (1 if core else 0) + len(tail) - (1 if at_eof else 0))
+        elif core and not (at_eof and not tail): textv += "\n"
         return _s(textv, n)
 
     def folded_plain(first, ind, n):
@@ -179,6 +229,7 @@ def loads(text):
         while pos[0] < len(lines) and lines[pos[0]][0] > ind:
             _, t, ln = lines[pos[0]]
             if re.search(r":(\s|$)", t) or re.search(r"(^|\s)#", t) or t[:1] in "'\"[{|>&*!": raise Refused(ln, "a multi-line value it can't read safely (quote it)")
+            if any(raw[k].lstrip().startswith("#") for k in range(last, ln - 1)): raise Refused(ln, "a multi-line value broken by a comment line")
             gap = sum(1 for k in range(last, ln - 1) if not raw[k].strip())
             parts.append("\n" * gap if gap else " "); parts.append(t.rstrip()); last = ln; pos[0] += 1
         out = "".join(parts)
@@ -197,12 +248,14 @@ def loads(text):
             return _s("", n)
         if r[0] in "|>": return block_scalar(r, ind, n)
         if r[0] in "[{":
-            text = r
+            text = r; st = [0, None, "["]; _bracket_depth(r, st)
             while True:
-                try: v, _ = _flow(text, n); return v
-                except Refused as e:
-                    if "continues on the next line" not in e.why or pos[0] >= len(lines) or lines[pos[0]][0] < ind: raise  # the closing bracket may sit at the key's own column
-                    text += " " + lines[pos[0]][1]; pos[0] += 1
+                if st[0] <= 0 or pos[0] >= len(lines) or lines[pos[0]][0] < ind or lines[pos[0]][0] == ind and lines[pos[0]][1][:1] not in "]}":
+                    try: v, _ = _flow(text, n); return v
+                    except Refused as e:
+                        if "continues on the next line" not in e.why or pos[0] >= len(lines) or lines[pos[0]][0] < ind or lines[pos[0]][0] == ind and lines[pos[0]][1][:1] not in "]}": raise  # only the closing bracket may sit at the key's own column
+                if lines[pos[0]][2] in tabs: raise Refused(lines[pos[0]][2], "a tab in the indentation")
+                text += " " + lines[pos[0]][1]; _bracket_depth(lines[pos[0]][1], st); pos[0] += 1
         if r[0] in "'\"":
             v, tail = _quoted(r, n)
             if _strip_comment(tail).strip(): raise Refused(n, "text after a quoted value")
@@ -231,7 +284,14 @@ def loads(text):
         if re.search(r"\s#", " " + k): raise Refused(n, "a comment inside a key")
         return k, text[m.start() + 1:]
 
+    depth = [0]
+
+    def deeper():
+        depth[0] += 1
+        if depth[0] > MAX_DEPTH: raise Refused(lines[pos[0]][2], f"nesting deeper than {MAX_DEPTH} levels")
+
     def mapping(ind):
+        deeper()
         out = YMap(); out.line = lines[pos[0]][2]
         while pos[0] < len(lines) and lines[pos[0]][0] == ind and not re.match(r"-(\s|$)", lines[pos[0]][1]):
             _, text, n = lines[pos[0]]
@@ -242,9 +302,11 @@ def loads(text):
             in_map.append(True); v = value(rest, ind, n); in_map.pop()
             out[_s(k, n)] = v; out.key_lines[k] = n
         if pos[0] < len(lines) and lines[pos[0]][0] > ind: raise Refused(lines[pos[0]][2], "indentation it doesn't expect")
+        depth[0] -= 1
         return out
 
     def sequence(ind):
+        deeper()
         out = YSeq(); out.line = lines[pos[0]][2]
         while pos[0] < len(lines) and lines[pos[0]][0] == ind and re.match(r"-(\s|$)", lines[pos[0]][1]):
             _, text, n = lines[pos[0]]
@@ -260,6 +322,7 @@ def loads(text):
             else:
                 pos[0] += 1; in_map.append(False); v = value("", ind, n); in_map.pop()
             out.append(v); out.item_lines.append(n)
+        depth[0] -= 1
         return out
 
     def node(ind):
@@ -272,8 +335,17 @@ def loads(text):
         return mapping(ind)
 
     first = lines[0][0]
-    doc = node(first)
-    if pos[0] < len(lines): raise Refused(lines[pos[0]][2], "indentation it doesn't expect")
+    try:
+        doc = node(first)
+        if pos[0] < len(lines): raise Refused(lines[pos[0]][2], "indentation it doesn't expect")
+    except Refused as e:
+        bad = [t for t in tabs if t not in in_block and t <= e.line]
+        if bad: raise Refused(bad[0], "a tab in the indentation")
+        raise
+    except RecursionError:
+        raise Refused(1, "nesting too deep to read")
+    bad = [t for t in tabs if t not in in_block]
+    if bad: raise Refused(bad[0], "a tab in the indentation")
     return doc
 
 def plain(node):

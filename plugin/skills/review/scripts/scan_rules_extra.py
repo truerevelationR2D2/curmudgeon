@@ -3,6 +3,7 @@
 No rule text from those projects is used."""
 import re
 import pathlib
+import os
 import scan_python, scan_tests
 
 CODE = {".js", ".mjs", ".cjs", ".ts", ".jsx", ".tsx", ".vue", ".svelte", ".html", ".htm"}
@@ -60,6 +61,16 @@ def code_lines(rel, suffix, text):
         return scan_mutation.code_view(pathlib.PurePath(rel), text)
     except Exception: return None
 
+def guarded(name, fn, rel, emit, *a):
+    """Run one lens on one file. A crash (a RecursionError on a hostile file, a bug) is reported as a row and the scan
+    goes on: a broken lens never hides the others, and never passes silently. CRITIC_TEST_CRASH_LENS=<name> makes that
+    lens crash, so the script tests can prove this."""
+    try:
+        if os.environ.get("CRITIC_TEST_CRASH_LENS") == name: raise RuntimeError("crash requested by CRITIC_TEST_CRASH_LENS")
+        return fn(*a)
+    except Exception as e:
+        emit("WARN", "lens-crashed", "structure", rel, f"the {name} check crashed on this file ({type(e).__name__}: {str(e)[:80]}); its rows for this file are missing")
+
 def scan(rel, suffix, text, emit):
     lines = text.split("\n")
     parsed = False
@@ -67,8 +78,7 @@ def scan(rel, suffix, text, emit):
         try: scan_python.scan(rel, text, emit); parsed = True  # the parser-based checks replace the text patterns
         except (SyntaxError, ValueError, RecursionError): pass  # unparseable file: fall back to the text patterns below
         if parsed and scan_tests.is_test_file(rel):
-            try: scan_tests.scan(rel, text, emit)  # the tests-of-the-tests lens (SC-48)
-            except (SyntaxError, ValueError, RecursionError): pass
+            guarded("scan_tests", scan_tests.scan, rel, emit, rel, text, emit)  # the tests-of-the-tests lens (SC-48)
     view = code_lines(rel, suffix, text)
     for i, l in enumerate(lines, 1):
         if len(l) > 3000: continue

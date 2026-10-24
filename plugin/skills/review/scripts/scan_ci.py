@@ -7,8 +7,12 @@ GitHub workflows (.github/workflows/*.yml|yaml):
   ci-injection          FAIL  an attacker-controlled value (a PR or issue title, a comment, a branch name, a commit
                               message ...) pasted into a run: script with ${{ }}, when the workflow's trigger can supply
                               it; WARN on plain pull_request, where the author of the PR already controls the code.
+                              Not when the expression can only be true or false (startsWith, endsWith, contains, a
+                              comparison).
   ci-pwn-request        FAIL  pull_request_target or workflow_run checks out the pull request's own code (head sha or
-                              ref): untrusted code runs with the base repository's secrets and write token.
+                              ref): untrusted code runs with the base repository's secrets and write token. Not when
+                              the job's or step's if: lets only this repository's own commits through (workflow_run
+                              event == 'push', or head repository == github.repository, with no ||).
   ci-if-always-true     FAIL  an if: that mixes ${{ }} with other text, so it is a non-empty string and always true.
   ci-no-permissions     WARN  a risky trigger (pull_request_target, workflow_run, issue_comment, issues) with no
                               permissions: block anywhere, so the token gets the repository's default (often write).
@@ -17,12 +21,14 @@ GitHub workflows (.github/workflows/*.yml|yaml):
   ci-secret-in-run      WARN  ${{ secrets.X }} pasted into a run: script (it can leak through command echo, process
                               lists or error output; pass it through env: instead).
   ci-upload-checkout    WARN  an artifact upload of the whole workspace after a checkout that keeps credentials: the
-                              token in .git/config ships inside the artifact.
+                              token in .git/config ships inside the artifact. Only for upload-artifact before v4.4,
+                              or with include-hidden-files: true (v4.4 on leaves hidden files out).
   ci-not-checked        NOTE  a workflow the strict reader refused, with the line and why.
 Anywhere (workflow run: scripts, shell scripts, Dockerfiles, requirement files):
   curl-pipe-shell       WARN  curl or wget piped into sh or bash: whatever the server sends runs.
   pip-extra-index       WARN  --extra-index-url: a package name on the public index can win over your private one.
-  docker-latest         NOTE  FROM image:latest or with no tag: the build changes under you.
+  docker-latest         NOTE  FROM image:latest or with no tag: the build changes under you (a FROM naming an
+                              earlier stage of the same Dockerfile is not an image).
 Lockfiles:
   npm-resolved-host     WARN  a package-lock.json entry resolved from somewhere other than registry.npmjs.org, or
                               over plain http.
@@ -51,6 +57,28 @@ LINE_RULES = [
     ("curl-pipe-shell", "WARN", re.compile(r"\b(?:curl|wget)\b[^|\n]*\|\s*(?:sudo\s+)?(?:ba|z|da)?sh\b"), "curl or wget piped into a shell: whatever the server sends runs (download, check a hash, then run)"),
     ("pip-extra-index", "WARN", re.compile(r"--extra-index-url\b"), "--extra-index-url: a same-named package on the public index can win over your private one (use --index-url, or pin hashes)"),
 ]
+
+SAME_REPO_GUARD = re.compile(r"github\.event\.workflow_run\.event\s*==\s*'push'|github\.event\.workflow_run\.head_repository\.full_name\s*==\s*github\.repository"
+                             r"|github\.event\.pull_request\.head\.repo\.full_name\s*==\s*github\.repository|github\.repository\s*==\s*github\.event\.(?:workflow_run\.head_repository|pull_request\.head\.repo)\.full_name")
+
+def _same_repo_only(*conds):
+    """An if: that lets only this repository's own commits through (a push, or a head repository equal to this one),
+    joined with && only, so no || can open it again."""
+    for c in conds:
+        c = str(c or "")
+        if SAME_REPO_GUARD.search(c) and "||" not in c: return True
+    return False
+
+def _upload_takes_hidden(uses, w):
+    """upload-artifact leaves hidden files (.git/config among them) out from v4.4 on, unless include-hidden-files is
+    true. A pinned SHA can't be dated here, so it is given the benefit of the doubt."""
+    if str(w.get("include-hidden-files", "")).strip().lower() == "true": return True
+    m = re.match(r"v?(\d+)(?:\.(\d+))?", uses.rsplit("@", 1)[1])
+    if not m: return False
+    major, minor = int(m.group(1)), m.group(2)
+    return major < 4 or major == 4 and minor is not None and int(minor) < 4
+
+BOOLEAN_EXPR = re.compile(r"\s*!?\s*(?:startsWith|endsWith|contains)\s*\(.*\)\s*|[^|&]*(?:==|!=|<=|>=)[^|&]*", re.S)
 
 def triggers(doc):
     on = doc.get("on", doc.get(True, ""))
@@ -104,14 +132,14 @@ def scan_workflow(rel, text, emit, lock_text=""):
                 if u.startswith("actions/checkout@"):
                     w = st.get("with") if isinstance(st.get("with"), dict) else {}
                     ref = str(w.get("ref", "")) + " " + str(w.get("repository", ""))
-                    if trig & {"pull_request_target", "workflow_run"} and PR_HEAD.search(ref):
+                    if trig & {"pull_request_target", "workflow_run"} and PR_HEAD.search(ref) and not _same_repo_only(job.get("if"), st.get("if")):
                         ln = _line_of(raw, uses.line, "ref:") if "ref" in w else uses.line
                         emit("FAIL", "ci-pwn-request", "supply-chain", f"{rel}:{ln}", f"{' and '.join(sorted(trig & {'pull_request_target', 'workflow_run'}))} checks out the pull request's own code: it then runs with this repository's secrets and write token", raw[ln - 1] if ln <= len(raw) else "")
                     checkout_keeps_creds = str(w.get("persist-credentials", "true")).strip().lower() != "false"
                 elif u.startswith("actions/upload-artifact@") and checkout_keeps_creds:
                     w = st.get("with") if isinstance(st.get("with"), dict) else {}
                     path = str(w.get("path", "")).strip()
-                    if path in (".", "./", "*", "**", "${{ github.workspace }}") or path.startswith(("./**", "**")):
+                    if _upload_takes_hidden(u, w) and path in (".", "./", "*", "**", "${{ github.workspace }}") or path.startswith(("./**", "**")):
                         emit("WARN", "ci-upload-checkout", "supply-chain", f"{rel}:{uses.line}", "the whole workspace is uploaded after a checkout that kept its credentials: the token in .git/config ships in the artifact (set persist-credentials: false, or upload only the build output)", raw[uses.line - 1])
                 if not u.startswith(("./", "docker://")) and "@" in u:
                     owner = u.split("/", 1)[0]; ref = u.rsplit("@", 1)[1]
@@ -120,7 +148,9 @@ def scan_workflow(rel, text, emit, lock_text=""):
             run = st.get("run")
             if isinstance(run, str):
                 for expr in re.findall(r"\$\{\{(.*?)\}\}", run, re.S):
+                    boolean = bool(BOOLEAN_EXPR.fullmatch(expr))  # startsWith(...), a == b: only true or false reaches the script
                     for pat, can in TAINT:
+                        if boolean: break
                         m = re.search(pat, expr)
                         if not m: continue
                         hit = trig & can
@@ -139,6 +169,7 @@ def scan_workflow(rel, text, emit, lock_text=""):
 def scan_text(rel, text, emit):
     """Shell scripts, Dockerfiles and requirement files: the line rules, and docker-latest."""
     name = pathlib.PurePosixPath(rel).name
+    stages = {m.group(1).lower() for m in re.finditer(r"(?im)^\s*FROM\s+(?:--platform=\S+\s+)?\S+\s+AS\s+(\S+)", text)}  # FROM build uses a stage, not an image
     for i, l in enumerate(text.split("\n"), 1):
         if len(l) > 2000 or l.lstrip().startswith("#"): continue
         for rid, sev, rx, msg in LINE_RULES:
@@ -147,7 +178,7 @@ def scan_text(rel, text, emit):
             m = re.match(r"\s*FROM\s+(?:--platform=\S+\s+)?(\S+)", l, re.I)
             if m:
                 img = m.group(1)
-                if img.lower() != "scratch" and "@sha256:" not in img and "$" not in img and (img.endswith(":latest") or ":" not in img.rsplit("/", 1)[-1]):
+                if img.lower() != "scratch" and img.lower() not in stages and "@sha256:" not in img and "$" not in img and (img.endswith(":latest") or ":" not in img.rsplit("/", 1)[-1]):
                     emit("NOTE", "docker-latest", "supply-chain", f"{rel}:{i}", f"{img} has no fixed tag: the build changes when the image does (pin a version, or a digest)", l)
 
 def scan_npm_lock(rel, text, emit):

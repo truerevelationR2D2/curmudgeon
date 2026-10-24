@@ -3,7 +3,8 @@ can't run, or hide failures. Our own rules and code; the ideas come from pytest 
 (Apache-2.0) and the test-smell literature. TSDetect (GPL-3.0) was read for ideas only, nothing taken.
 
 Which files: test_*.py, *_test.py, conftest.py, and any .py file under a folder named test or tests.
-What a test is: a function named test* at module level, or a method named test* in a class.
+What a test is: a function named test* at module level, or a method named test* in a class; never a function in
+conftest.py, and never one decorated as a pytest fixture.
 
   test-no-assert         WARN  a test with no assert, no assertion call, no pytest.raises/warns/fail and no raise: it passes
                                whatever the code does. A call to a helper whose name says it checks (assert*, check*,
@@ -14,7 +15,8 @@ What a test is: a function named test* at module level, or a method named test* 
   test-duplicate-name    FAIL  two tests with the same name in one module or class: the later one replaces the earlier,
                                which never runs.
   test-swallowed-error   WARN  a test that catches Exception, BaseException, AssertionError or everything and then does
-                               nothing (pass, continue, ...): a failure inside it can't fail the test.
+                               nothing (pass, continue, ...): a failure inside it can't fail the test. Not the
+                               expect-a-raise idiom (an else: that fails, and no check inside the try).
   test-skip-no-reason    NOTE  a skip with no reason (pytest.mark.skip(), unittest.skip with none, pytest.skip()).
   test-sleep             NOTE  time.sleep in a test (pedantic: slow and timing-dependent).
   test-unseeded-random   NOTE  random or the clock read in a test with no seed or freeze in the file (pedantic)."""
@@ -53,6 +55,22 @@ def _checks(fn):
                 if isinstance(it.context_expr, ast.Call) and _name(it.context_expr.func).split(".")[-1] in ("raises", "warns", "assertRaises", "assertWarns", "assertRaisesRegex", "assertLogs"): return True
     return False
 
+def _is_fixture(fn):
+    """@pytest.fixture, @fixture or @pytest.fixture(...): a fixture named test_* is set-up code, never collected as a test."""
+    return any(_name(d.func if isinstance(d, ast.Call) else d).split(".")[-1] in ("fixture", "yield_fixture") for d in fn.decorator_list)
+
+def _fails_when_nothing_raised(t):
+    """try: f() / except E: pass / else: fail(...): the classic expect-a-raise idiom. The else: runs only when nothing was
+    raised, and fails the test then, so the empty handler is the passing path, not a swallowed failure. The try body
+    must hold no check of its own (an assert there would be swallowed)."""
+    def checks(stmts):
+        for s in stmts:
+            for n in ast.walk(s):
+                if isinstance(n, (ast.Assert, ast.Raise)): return True
+                if isinstance(n, ast.Call) and (CHECKER.match(_name(n.func).split(".")[-1]) or _name(n.func).split(".")[-1] == "fail"): return True
+        return False
+    return bool(t.orelse) and checks(t.orelse) and not checks(t.body)
+
 def _skip_without_reason(dec):
     if isinstance(dec, ast.Call):
         n = _name(dec.func)
@@ -72,10 +90,12 @@ def scan(rel, text, emit):
         ln = getattr(node, "lineno", 1)
         emit(sev, rid, "tests", f"{rel}:{ln}", msg, lines[ln - 1] if 0 < ln <= len(lines) else "")
 
+    conftest = pathlib.PurePosixPath(rel.replace("\\", "/")).name == "conftest.py"  # pytest collects no tests from conftest.py
+
     def scope(body, where):
         seen = {}
         for node in body:
-            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name.startswith("test"):
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name.startswith("test") and not conftest and not _is_fixture(node):
                 if node.name in seen:
                     hit("FAIL", "test-duplicate-name", node, f"test {node.name} is defined twice in {where}: this one replaces the one at line {seen[node.name]}, which never runs")
                 seen[node.name] = node.lineno
@@ -103,7 +123,7 @@ def scan(rel, text, emit):
                     hit("NOTE", "test-sleep", node, "sleep in a test: slow, and it fails or passes by timing; wait for the condition instead")
                 elif not seeded and (_name(node.func).startswith("random.") or _name(node.func) in ("datetime.now", "datetime.datetime.now", "datetime.utcnow", "time.time", "date.today")):
                     hit("NOTE", "test-unseeded-random", node, f"{_name(node.func)} in a test with no seed or frozen clock in the file: the result can change between runs")
-            elif isinstance(node, ast.Try):
+            elif isinstance(node, ast.Try) and not _fails_when_nothing_raised(node):
                 for h in node.handlers:
                     broad = h.type is None or _name(h.type) in ("Exception", "BaseException", "AssertionError") or \
                             isinstance(h.type, ast.Tuple) and any(_name(e) in ("Exception", "BaseException", "AssertionError") for e in h.type.elts)

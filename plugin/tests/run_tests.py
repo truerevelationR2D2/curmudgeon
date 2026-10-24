@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
-"""Tests for Curmudgeon's scripts. No test framework needed: python3 tests/run_tests.py (exit 1 on any failure).
+"""Tests for Curmudgeon's scripts. No test framework needed: python3 tests/run_tests.py (exit 1 on any failure;
+CRITIC_TEST_ONLY=<text> runs only the tests whose name contains it).
 Each test builds its own scratch project in a temp folder and runs the real scripts against it."""
 import json, os, pathlib, re, shutil, subprocess, sys, tempfile, time
 
 HERE = pathlib.Path(__file__).resolve().parent.parent
 S = HERE / "skills" / "review" / "scripts"; H = HERE / "hooks"
+sys.path.insert(0, str(S))  # tests import the scripts directly (from critic_findings import validate, ...)
 RESULTS = []
 TMP = tempfile.mkdtemp(prefix="critic-tmp-")  # the hooks' TMPDIR, so agent workspaces made by tests are removed with it
 
@@ -12,8 +14,11 @@ def run(script, *a, cwd, stdin=None, env=None):
     e = dict(os.environ, CRITIC_ROOT=str(cwd), TMPDIR=TMP); e.update(env or {})
     return subprocess.run([sys.executable, str(script), *a], cwd=cwd, capture_output=True, text=True, input=stdin, env=e, timeout=300)
 
+ONLY = os.environ.get("CRITIC_TEST_ONLY", "")  # run only the tests whose name contains this text
+
 def test(name):
     def deco(fn):
+        if ONLY and ONLY not in name: return fn
         d = pathlib.Path(tempfile.mkdtemp(prefix="critic-test-"))
         try: fn(d); RESULTS.append((name, True, "")); print("PASS", name)
         except AssertionError as e: RESULTS.append((name, False, str(e))); print("FAIL", name, "—", e)
@@ -2126,6 +2131,155 @@ def _(d):
     for _ in range(6): run(H / "stuck.py", cwd=d, stdin=json.dumps(same))
     for _ in range(3): run(H / "stuck.py", cwd=d, stdin=json.dumps(same))
     assert len((d / ".critic/stuck.jsonl").read_text().splitlines()) == 2, "one row per episode, not one per call"
+
+def _mod(name):
+    sys.path.insert(0, str(S)); import importlib; return importlib.import_module(name)
+E = object()  # where _rows puts its collecting emit() in a lens call (last, when not given)
+def _rows(fn, *a):
+    out = []; em = lambda sev, rid, area, where, what, ev="": out.append((sev, rid, where))
+    fn(*[em if x is E else x for x in a]) if E in a else fn(*a, em); return out
+
+@test("5.0 card-E review B #1: the agent-config lens reads ${input:..} and ${env:..} after Bearer as references, and paths and mode words aren't credentials")
+def _(d):
+    A = _mod("scan_agentcfg")
+    def rules(cfg, rel=".mcp.json"): return [r for _, r, _ in _rows(A.scan, rel, json.dumps(cfg, indent=1), E, {})]
+    assert "agent-literal-credential" not in rules({"servers": {"github": {"type": "http", "url": "https://api.example.invalid/mcp/", "headers": {"Authorization": "Bearer ${input:github_mcp_pat}"}}}}, ".vscode/mcp.json")
+    assert "agent-literal-credential" not in rules({"mcpServers": {"x": {"command": "x", "headers": {"Authorization": "Bearer ${env:API_TOKEN}"}}}})
+    for k, v in [("GOOGLE_APPLICATION_CREDENTIALS", "/Users/me/.config/gcloud/application_default_credentials.json"), ("AUTH_MODE", "service-account"),
+                 ("TOKEN_FILE", "~/.config/x/token.json"), ("AUTH_TYPE", "oauth-device"), ("SECRETS_PATH", "C:\\Users\\me\\secrets.json"), ("AUTH_URI", "https://auth.example.invalid/o/oauth2")]:
+        assert "agent-literal-credential" not in rules({"mcpServers": {"x": {"command": "x", "env": {k: v}}}}), (k, v)
+    assert "agent-literal-credential" in rules({"mcpServers": {"x": {"command": "x", "env": {"API_TOKEN": "Zq9xEXAMPLEEXAMPLE7731"}}}}), "a real literal is still found"
+    assert "agent-literal-credential" in rules({"mcpServers": {"x": {"command": "x", "headers": {"Authorization": "Bearer Zq9xEXAMPLEEXAMPLE7731"}}}})
+
+@test("5.0 card-E review B #2, #3, #19, #20, #21: the YAML reader drops a byte-order mark, refuses deep nesting, reads block scalars as YAML does, allows tabs inside them, and reads long flow lists in linear time")
+def _(d):
+    Y = _mod("yaml_lite")
+    assert Y.plain(Y.loads("\ufeffon: push\n")) == {"on": "push"}
+    for bad in ["k: " + "[" * 1200 + "]" * 1200, "\n".join(" " * i + f"k{i}:" for i in range(3000)) + " x"]:
+        try: Y.loads(bad); assert False, "deep nesting must be refused"
+        except Y.Refused: pass
+    for text, want in [("a: |+\n  x\n", "x\n"), ("a: |\n  x", "x"), ("a: |+\n  x\n\n", "x\n\n"), ("k: >\n\n  lead\n", "\nlead\n"),
+                       ("a: |\n    x\n      \n    y\n", "x\n  \ny\n"), ("a: >\n  one\n  two\n\n  three\n", "one two\nthree\n")]:
+        assert Y.plain(Y.loads(text))["a" if text.startswith("a") else "k"] == want, (text, Y.plain(Y.loads(text)), want)
+    try: Y.loads("k: |\n    \n  # com\n"); assert False, "an over-indented leading blank line is refused, not guessed"
+    except Y.Refused: pass
+    wf = "on: push\njobs:\n  a:\n    runs-on: x\n    steps:\n      - run: |\n          cat <<-EOF\n          \tindented with tab\n          EOF\n"
+    assert Y.plain(Y.loads(wf))["jobs"]["a"]["steps"][0]["run"] == "cat <<-EOF\n\tindented with tab\nEOF\n"
+    try: Y.loads("a:\n\tb: 1\n"); assert False, "a tab in structural indentation is still refused"
+    except Y.Refused as e: assert "tab" in e.why
+    t0 = time.time(); doc = Y.loads("k: [\n" + "".join(f"  item{i},\n" for i in range(4000)) + "]\n")
+    assert len(doc["k"]) == 4000 and time.time() - t0 < 3, time.time() - t0
+    w = d / ".github/workflows"; w.mkdir(parents=True); (w / "x.yml").write_text("on: push\njobs:\n  a:\n    runs-on: " + "[" * 1500 + "]" * 1500 + "\n")
+    (d / "app.js").write_text("const x = 1;\n")
+    r = run(S / "critic_scan.py", ".", "--root", ".", cwd=d)
+    rep = json.loads((d / ".critic/scan/report.json").read_text())
+    assert any(x["rule"] == "ci-not-checked" for x in rep["findings"]), [x["rule"] for x in rep["findings"]]
+    (w / "bom.yml").write_text("\ufeffon: pull_request_target\njobs:\n  a:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/checkout@v4\n        with:\n          ref: ${{ github.event.pull_request.head.sha }}\n")
+    run(S / "critic_scan.py", ".", "--root", ".", cwd=d)
+    assert any(x["rule"] == "ci-pwn-request" for x in json.loads((d / ".critic/scan/report.json").read_text())["findings"]), "a workflow saved with a BOM is still read"
+
+@test("5.0 card-E review B #3: a lens that crashes on one file is reported and the rest of the scan still runs")
+def _(d):
+    write(d, "app.js", APP); write(d, "tests/test_x.py", "def test_x():\n    pass\n")
+    r = run(S / "critic_scan.py", ".", "--root", ".", cwd=d, env={"CRITIC_TEST_CRASH_LENS": "scan_tests"})
+    rep = json.loads((d / ".critic/scan/report.json").read_text()); rules = {x["rule"] for x in rep["findings"]}
+    assert "lens-crashed" in rules and "test-no-assert" not in rules and len(rules - {"lens-crashed"}) > 0, rules
+
+@test("5.0 card-E review B #4-#7: CI rules know upload-artifact v4.4+, a guarded workflow_run, boolean-only expressions and Docker stage names")
+def _(d):
+    C = _mod("scan_ci")
+    def rules(text): return [r for _, r, _ in _rows(C.scan_workflow, ".github/workflows/x.yml", text)]
+    up = "on: push\npermissions: read-all\njobs:\n  b:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/checkout@v4\n      - uses: actions/upload-artifact@{v}\n        with:\n          name: site\n          path: .\n{extra}"
+    assert "ci-upload-checkout" not in rules(up.format(v="v4", extra="")), "v4 now resolves to 4.4+, which leaves .git out"
+    assert "ci-upload-checkout" not in rules(up.format(v="v5", extra=""))
+    assert "ci-upload-checkout" in rules(up.format(v="v4", extra="          include-hidden-files: true\n"))
+    assert "ci-upload-checkout" in rules(up.format(v="v3", extra="")) and "ci-upload-checkout" in rules(up.format(v="v4.3.6", extra=""))
+    wr = ("on:\n  workflow_run:\n    workflows: [CI]\n    types: [completed]\npermissions:\n  contents: read\njobs:\n  deploy:\n    if: {guard}\n    runs-on: ubuntu-latest\n    steps:\n"
+          "      - uses: actions/checkout@v4\n        with:\n          ref: ${{{{ github.event.workflow_run.head_sha }}}}\n      - run: ./deploy.sh\n")
+    assert "ci-pwn-request" not in rules(wr.format(guard="github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push'"))
+    assert "ci-pwn-request" not in rules(wr.format(guard="github.event.workflow_run.head_repository.full_name == github.repository"))
+    assert "ci-pwn-request" in rules(wr.format(guard="github.event.workflow_run.conclusion == 'success'")), "an unguarded one is still FAIL"
+    inj = "on: pull_request_target\npermissions: {{}}\njobs:\n  l:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo \"x=${{{{ {e} }}}}\"\n"
+    assert "ci-injection" not in rules(inj.format(e="startsWith(github.event.pull_request.title, 'chore')"))
+    assert "ci-injection" not in rules(inj.format(e="github.event.pull_request.title == 'x'"))
+    assert "ci-injection" in rules(inj.format(e="github.event.pull_request.title"))
+    assert "ci-injection" in rules(inj.format(e="github.event.pull_request.title || 'none'")), "|| returns the value itself"
+    rows = _rows(C.scan_text, "Dockerfile", "FROM node:20-alpine AS build\nRUN make\nFROM build AS test\nFROM nginx\n")
+    assert [w for _, r, w in rows if r == "docker-latest"] == ["Dockerfile:4"], rows
+
+@test("5.0 card-E review B #8, #9: conftest fixtures aren't tests, and try/except/else-fail is a real check")
+def _(d):
+    Tm = _mod("scan_tests")
+    conf = "import pytest\n\n@pytest.fixture\ndef test_app():\n    app = make()\n    yield app\n\n@pytest.fixture()\ndef test_client(test_app):\n    yield test_app.client()\n"
+    assert not _rows(Tm.scan, "tests/conftest.py", conf)
+    assert not [r for _, r, _ in _rows(Tm.scan, "tests/test_f.py", conf) if r == "test-no-assert"], "a fixture named test_* is not a test anywhere"
+    idiom = "import unittest\nclass P(unittest.TestCase):\n    def test_rejects(self):\n        try:\n            parse('{')\n        except Exception:\n            pass\n        else:\n            self.fail('accepted')\n"
+    assert not [r for _, r, _ in _rows(Tm.scan, "tests/test_p.py", idiom) if r == "test-swallowed-error"]
+    bad = "def test_x():\n    try:\n        assert f() == 1\n    except Exception:\n        pass\n"
+    assert [r for _, r, _ in _rows(Tm.scan, "tests/test_p.py", bad) if r == "test-swallowed-error"], "a swallowed assert is still found"
+
+@test("5.0 card-E review B #10: req-undefined only fires for an id family the project defines")
+def _(d):
+    R = _mod("scan_reqs")
+    assert not _rows(R.check, {}, {"tests/test_geo.py": 'assert subdivision_name("FR-75") == "Paris"'})
+    assert not _rows(R.check, {"docs/req.md": "- REQ-1: login works\n"}, {"tests/test_geo.py": 'assert name("FR-75") == "Paris"  # REQ-1'}), "FR- isn't a family this project uses"
+    assert [r for _, r, _ in _rows(R.check, {"docs/req.md": "- REQ-1: login works\n"}, {"tests/test_a.py": "# covers REQ-2\n"})] == ["req-undefined", "req-untested"]
+
+@test("5.0 card-E review B #11-#13: migrations know op.create_table, types with commas, serial columns, and split big SQL in linear time")
+def _(d):
+    M = _mod("scan_migrations")
+    al = ("def upgrade():\n    op.create_table('users', sa.Column('id', sa.Integer))\n    op.execute(\"CREATE INDEX ix_users_name ON users (name)\")\n\ndef downgrade():\n    op.drop_table('users')\n")
+    assert not [r for _, r, _ in _rows(M.scan, "alembic/versions/1.py", al) if r == "mig-index-blocking"]
+    dj = "class Migration(migrations.Migration):\n    operations = [migrations.CreateModel(name='Note', fields=[]), migrations.RunSQL('CREATE INDEX ix ON app_note (t)', 'DROP INDEX ix')]\n"
+    assert not [r for _, r, _ in _rows(M.scan, "app/migrations/0001.py", dj) if r == "mig-index-blocking"]
+    assert "mig-not-null-no-default" in [r for _, r, _ in _rows(M.scan, "m.sql", "ALTER TABLE orders ADD COLUMN total numeric(12,2) NOT NULL;")]
+    assert "mig-not-null-no-default" not in [r for _, r, _ in _rows(M.scan, "m.sql", "ALTER TABLE orders ADD COLUMN seq bigserial NOT NULL;")]
+    assert "mig-not-null-no-default" not in [r for _, r, _ in _rows(M.scan, "m.sql", "ALTER TABLE orders ADD COLUMN a numeric(12,2) NOT NULL DEFAULT 0, ADD COLUMN b int;")]
+    big = "INSERT INTO t VALUES ('a; b', $$x$$);\n" * 40000
+    t0 = time.time(); n = len(M._statements(big)); assert n == 40000 and time.time() - t0 < 5, (n, time.time() - t0)
+
+@test("5.0 card-E review B #14: ops-log-secret skips *_method style names and values passed through mask()")
+def _(d):
+    O = _mod("scan_ops")
+    py = "import logging\nlogger = logging.getLogger()\nlogger.info('login %s %s', user.name, auth_method)\nlogger.debug('pw: %s', mask(password))\nlogger.info('k %s', redact(api_key))\nlogger.info('pw %s', password)\n"
+    assert [w for _, r, w in _rows(O.scan, "app/x.py", py, E, str(d)) if r == "ops-log-secret"] == ["app/x.py:6"]
+    assert [w for _, r, w in _rows(O.scan, "app/x.js", "console.log('t', mask(token));\nconsole.log('m', authMethod);\nconsole.log(token);\n", E, str(d)) if r == "ops-log-secret"] == ["app/x.js:3"]
+
+@test("5.0 card-E review B #15: the plan never calls requirements.txt or CMakeLists.txt a document")
+def _(d):
+    write(d, "requirements.txt", "--extra-index-url https://pkgs.example.invalid/simple\nflask==3.0\n")
+    (d / ".critic").mkdir(exist_ok=True); (d / ".critic/change-map.json").write_text(json.dumps({"files": ["requirements.txt"], "tier": "full"}))
+    p = json.loads(run(S / "critic_plan.py", "--json", cwd=d).stdout)
+    assert p["tier"] == "full" and p["kind"] != "document or plan" and "CI and supply chain" in p["lenses"], p
+    (d / ".critic/change-map.json").write_text(json.dumps({"files": ["CMakeLists.txt"], "tier": "full"}))
+    assert json.loads(run(S / "critic_plan.py", "--json", cwd=d).stdout)["kind"] != "document or plan"
+    (d / ".critic/change-map.json").write_text(json.dumps({"files": ["docs/notes.txt", "README.md"], "tier": "full"}))
+    assert json.loads(run(S / "critic_plan.py", "--json", cwd=d).stdout)["kind"] == "document or plan"
+
+@test("5.0 card-E review B #16: lens.py fails a lens that adds a wrong row, so precision can fail the gate")
+def _(d):
+    ev = d / "ev"; shutil.copytree(HERE.parent / "eval" / "fixture7", ev / "fixture7"); shutil.copytree(HERE.parent / "eval" / "fixture7-clean", ev / "fixture7-clean")
+    key = json.loads((HERE.parent / "eval" / "lens7.json").read_text()); key["planted"] = key["planted"][1:]
+    key["fixture"] = str(ev / "fixture7"); key["clean"] = str(ev / "fixture7-clean"); (d / "k.json").write_text(json.dumps(key))
+    r = run(HERE.parent / "eval" / "lens.py", str(d / "k.json"), "--json", cwd=d); out = json.loads(r.stdout)
+    assert out["false_rows"] and out["verdict"] == "FAIL" and r.returncode == 1, out
+
+@test("5.0 card-E review B #17, #18: the death-match scorer credits a plant only from the claim, the same way for every arm, and hides no failed run")
+def _(d):
+    DM = HERE.parent / "eval" / "deathmatch.py"; rd = d / "runs"
+    def put(arm, task, name, text): (rd / arm / task).mkdir(parents=True, exist_ok=True); (rd / arm / task / name).write_text(text)
+    put("curmudgeon", "suite1", "findings.jsonl", json.dumps({"file": "app.js", "line": 40, "category": "domain", "title": "Sort order of notes is reversed", "quote": "a.t - b.t",
+        "failing_case": "two notes show newest last", "evidence": "app.js:40", "remediation": "escape the confusion: reverse the comparator"}) + "\n")
+    put("plain-claude", "suite1", "output.md", "1. app.js:40 sort order of notes is reversed: two notes show newest last.\n   Fix: escape the confusion and reverse the comparator.\n")
+    put("plain-claude", "suite1-clean", "output.md", "## Review of app.js and store.js\n\nI read every file. No bugs found.\n\n## Summary\n\n- No issues in store.js worth reporting.\n")
+    (rd / "code-review" / "suite1").mkdir(parents=True); (rd / "code-review" / "suite1" / "meta.json").write_text(json.dumps({"error": "timeout after 3600 s"}))
+    run(DM, "score", str(rd), cwd=d)
+    res = {(x["arm"], x["task"]): x for x in json.loads((rd / "results.json").read_text())}
+    assert res[("curmudgeon", "suite1")]["found"] == 0 and res[("plain-claude", "suite1")]["found"] == 0, "a word in the fix text credits nothing"
+    assert res[("plain-claude", "suite1-clean")]["false_alarms"] == 0, res[("plain-claude", "suite1-clean")]
+    cr = res[("code-review", "suite1")]; assert cr.get("error") and cr.get("recall") == "NOT MEASURED" and cr.get("found") is None, cr
+    assert "timeout" in (rd / "report.md").read_text()
+    src = (DM).read_text(); assert "TimeoutExpired" in src, "a run that times out is recorded, not fatal"
 
 if __name__ == "__main__":
     shutil.rmtree(TMP, ignore_errors=True)

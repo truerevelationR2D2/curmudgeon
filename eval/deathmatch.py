@@ -15,11 +15,15 @@ with a prompt, a tool list and, for Curmudgeon, the plugin folder; a specialist 
 runs only if the tool is already installed, and is scored only on the tasks it claims.
 
 One scorer for every arm: the output is split into finding blocks (Curmudgeon's findings.jsonl rows when present;
-otherwise list items and headed sections of the reply). A block that matches a planted defect's file and regex counts
-toward recall (each block credits one plant, each plant once). On a clean twin every block is a false alarm. Other
-blocks are UNLABELLED until someone labels them in RUN_DIR/labels.json ({"<arm>/<task>/<block n>": "real"|"false"}),
-and precision is NOT MEASURED while any are unlabelled: nothing is guessed. Cost, tokens and wall time come from
-Claude Code's own JSON result. Results: RUN_DIR/results.json and RUN_DIR/report.md."""
+otherwise list items and headed sections of the reply), and every block has the same two parts for every arm: where
+it points (file:line and any quoted code) and what it claims (file:line, title and failing case; in a free-form reply,
+the item with its Fix:/Remediation: text removed). A plant is credited only when its file is where the block points and
+its pattern is in the claim, never in fix advice (each block credits one plant, each plant once). On a clean twin a
+block that cites a file:line, or that someone labelled false, is a false alarm; a heading or a "no issues" line is not.
+Other blocks are UNLABELLED until someone labels them in RUN_DIR/labels.json ({"<arm>/<task>/<block n>":
+"real"|"false"}), and precision is NOT MEASURED while any are unlabelled: nothing is guessed. A run that failed, timed
+out or wrote nothing is shown with its error and scored NOT MEASURED, never as a clean result. Cost, tokens and wall
+time come from Claude Code's own JSON result. Results: RUN_DIR/results.json and RUN_DIR/report.md."""
 import json, os, pathlib, re, shutil, subprocess, sys, tempfile, time
 
 HERE = pathlib.Path(__file__).resolve().parent
@@ -45,24 +49,35 @@ def blocks_from(text):
     keep = [b for b in out if re.search(r"[\w./-]+\.\w+(:\d+)?", b) or re.search(r"(?i)\b(bug|defect|issue|vulnerab|incorrect|wrong|fails?|leak|race|inject)", b)]
     return keep
 
+CITES = re.compile(r"[\w./-]+\.\w+:\d+")
+FIX = re.compile(r"(?im)(?:^\s*(?:[-*+]\s*)?|\s)(?:\*\*)?(?:suggested\s+fix|fix(?:ed)?|remediation|recommendation|solution|to fix|how to fix|mitigation)(?:\*\*)?\s*:.*$")
+
 def blocks_for(arm_dir):
+    """[{"loc": where the block points, "claim": what it says is wrong}], the same two parts for every arm; None when
+    the arm wrote nothing at all."""
     fj = arm_dir / "findings.jsonl"
     if fj.exists():
         rows = [json.loads(x) for x in fj.read_text().splitlines() if x.strip()]
-        return [" ".join(str(r.get(k, "")) for k in ("file", "line", "category", "title", "quote", "evidence", "failing_case", "remediation")) for r in rows]
-    out = arm_dir / "output.md"
-    return blocks_from(out.read_text()) if out.exists() else []
+        out = []
+        for r in rows:
+            at = f"{r.get('file', '')}:{r.get('line')}" if r.get("line") not in (None, "") else str(r.get("file", ""))
+            out.append({"loc": f"{at} {r.get('quote', '')}", "claim": f"{at} {r.get('title', '')}. {r.get('failing_case', '')}"})
+        return out
+    md = arm_dir / "output.md"
+    if not md.exists(): return None
+    return [{"loc": b, "claim": FIX.sub("", b)} for b in blocks_from(md.read_text())]
 
 def score_task(task, blocks, labels, prefix):
     if task.get("clean"):
-        return {"false_alarms": len(blocks), "blocks": len(blocks)}
+        fa = [i for i, b in enumerate(blocks) if labels.get(f"{prefix}/{i}") == "false" or (CITES.search(b["loc"]) and labels.get(f"{prefix}/{i}") != "real")]
+        return {"false_alarms": len(fa), "blocks": len(blocks)}
     key = json.loads((HERE / task["key"]).read_text())
     plants = key.get("planted") and {p["id"]: {"file": p["where"].split(":")[0], "any": [re.escape(p["rule"])]} for p in key["planted"]} or key
     hit, used = {}, set()
     for name, k in plants.items():
         for i, b in enumerate(blocks):
             if i in used: continue
-            if (not k.get("file") or k["file"].lower() in b.lower()) and any(re.search(p, b, re.I) for p in k["any"]):
+            if (not k.get("file") or k["file"].lower() in b["loc"].lower()) and any(re.search(p, b["claim"], re.I) for p in k["any"]):
                 hit[name] = i; used.add(i); break
     unl = [i for i in range(len(blocks)) if i not in used and f"{prefix}/{i}" not in labels]
     real = sum(1 for i in range(len(blocks)) if i not in used and labels.get(f"{prefix}/{i}") == "real")
@@ -79,14 +94,18 @@ def score(run_dir):
             tid = td.name.split("~")[0]
             if tid not in tasks: continue
             meta = json.loads((td / "meta.json").read_text()) if (td / "meta.json").exists() else {}
-            r = score_task(tasks[tid], blocks_for(td), labels, f"{arm_dir.name}/{td.name}")
-            r.update(arm=arm_dir.name, task=td.name, cost_usd=meta.get("total_cost_usd"), wall_s=meta.get("wall_s"), tokens=meta.get("tokens"), error=meta.get("error"))
+            blocks = blocks_for(td)
+            err = meta.get("error") or ("the run reported an error (is_error)" if meta.get("is_error") else None) or (None if blocks is not None else "no output")
+            if err: r = {"recall": "NOT MEASURED", "found": None, "precision": None, "false_alarms": None if tasks[tid].get("clean") else "-", "unlabelled": "-"}  # a failed run is never a clean result
+            else: r = score_task(tasks[tid], blocks, labels, f"{arm_dir.name}/{td.name}")
+            r.update(arm=arm_dir.name, task=td.name, cost_usd=meta.get("total_cost_usd"), wall_s=meta.get("wall_s"), tokens=meta.get("tokens"), error=err)
             res.append(r)
     (run_dir / "results.json").write_text(json.dumps(res, indent=1))
     md = ["# Death match results", "", "One scorer for every arm. Precision is NOT MEASURED while any block is unlabelled.", "",
-          "| Arm | Task | Recall | False alarms (clean twin) | Unlabelled | Precision | Cost (USD) | Tokens | Wall (s) |", "|---|---|---|---|---|---|---|---|---|"]
+          "| Arm | Task | Recall | False alarms (clean twin) | Unlabelled | Precision | Cost (USD) | Tokens | Wall (s) | Error |", "|---|---|---|---|---|---|---|---|---|---|"]
     for r in res:
-        md.append(f"| {r['arm']} | {r['task']} | {r.get('recall', '-')} | {r.get('false_alarms', '-')} | {r.get('unlabelled', '-')} | {r.get('precision') or 'NOT MEASURED' if 'precision' in r else '-'} | {r.get('cost_usd') if r.get('cost_usd') is not None else '?'} | {r.get('tokens') or '?'} | {r.get('wall_s') or '?'} |")
+        fa = r.get("false_alarms", "-"); fa = "NOT MEASURED" if fa is None else fa
+        md.append(f"| {r['arm']} | {r['task']} | {r.get('recall', '-')} | {fa} | {r.get('unlabelled', '-')} | {r.get('precision') or 'NOT MEASURED' if 'precision' in r else '-'} | {r.get('cost_usd') if r.get('cost_usd') is not None else '?'} | {r.get('tokens') or '?'} | {r.get('wall_s') or '?'} | {(r.get('error') or '').replace('|', '/')[:80]} |")
     (run_dir / "report.md").write_text("\n".join(md) + "\n")
     print("\n".join(md)); return 0
 
@@ -97,6 +116,25 @@ def plan(arms, tasks):
         print(f"- {a['id']}: {a.get('prompt') or a.get('command')}{avail}")
     for t in tasks: print(f"  task {t['id']}: {t['fixture']}" + (" (clean twin)" if t.get("clean") else f" key {t['key']}"))
     return 0
+
+def one_run(a, w, td, model):
+    """One arm on one task in the work folder w; returns its meta (an error is recorded, never raised past here except
+    a timeout, which the caller records)."""
+    if a.get("command"):
+        r = subprocess.run(a["command"], shell=True, cwd=w, capture_output=True, text=True, timeout=1800)
+        (td / "output.md").write_text(r.stdout); meta = {"exit": r.returncode}
+        if r.returncode not in (0, 1): meta["error"] = f"exit {r.returncode}: {(r.stderr or '')[-200:]}"
+        return meta
+    cmd = ["claude", "-p", a["prompt"], "--output-format", "json", "--allowedTools", ",".join(a.get("tools", ["Read", "Grep", "Glob"]))]
+    if model: cmd += ["--model", model]
+    if a.get("plugin"): cmd += ["--plugin-dir", str(PLUGIN)]
+    r = subprocess.run(cmd, cwd=w, capture_output=True, text=True, timeout=3600, stdin=subprocess.DEVNULL)
+    try:
+        j = json.loads(r.stdout); u = j.get("usage") or {}
+        (td / "output.md").write_text(str(j.get("result") or ""))
+        return {"total_cost_usd": j.get("total_cost_usd"), "tokens": sum(int(u.get(x) or 0) for x in ("input_tokens", "cache_creation_input_tokens", "cache_read_input_tokens", "output_tokens")),
+                "is_error": j.get("is_error"), "num_turns": j.get("num_turns")}
+    except ValueError: return {"error": (r.stderr or r.stdout)[-500:] or f"no result (exit {r.returncode})"}
 
 def run(arms, tasks, model, repeat):
     out = HERE / "runs" / time.strftime("%Y-%m-%d-%H%M%S"); out.mkdir(parents=True)
@@ -110,21 +148,9 @@ def run(arms, tasks, model, repeat):
                     w = pathlib.Path(tmp) / "work"; shutil.copytree(HERE / t["fixture"], w, ignore=shutil.ignore_patterns(".critic"))
                     subprocess.run(["git", "init", "-q"], cwd=w); subprocess.run(["git", "add", "."], cwd=w)
                     subprocess.run(["git", "-c", "user.email=dm@example.invalid", "-c", "user.name=dm", "commit", "-qm", "task"], cwd=w)
-                    t0 = time.time(); meta = {}
-                    if a.get("command"):
-                        r = subprocess.run(a["command"], shell=True, cwd=w, capture_output=True, text=True, timeout=1800)
-                        (td / "output.md").write_text(r.stdout); meta = {"exit": r.returncode}
-                    else:
-                        cmd = ["claude", "-p", a["prompt"], "--output-format", "json", "--allowedTools", ",".join(a.get("tools", ["Read", "Grep", "Glob"]))]
-                        if model: cmd += ["--model", model]
-                        if a.get("plugin"): cmd += ["--plugin-dir", str(PLUGIN)]
-                        r = subprocess.run(cmd, cwd=w, capture_output=True, text=True, timeout=3600, stdin=subprocess.DEVNULL)
-                        try:
-                            j = json.loads(r.stdout); u = j.get("usage") or {}
-                            meta = {"total_cost_usd": j.get("total_cost_usd"), "tokens": sum(int(u.get(x) or 0) for x in ("input_tokens", "cache_creation_input_tokens", "cache_read_input_tokens", "output_tokens")),
-                                    "is_error": j.get("is_error"), "num_turns": j.get("num_turns")}
-                            (td / "output.md").write_text(str(j.get("result") or ""))
-                        except ValueError: meta = {"error": (r.stderr or r.stdout)[-500:]}
+                    t0 = time.time()
+                    try: meta = one_run(a, w, td, model)
+                    except subprocess.TimeoutExpired as e: meta = {"error": f"timeout after {int(e.timeout)} s"}  # recorded; the other runs go on
                     meta["wall_s"] = round(time.time() - t0, 1)
                     for f_ in ("findings.jsonl", "last-review.md"):
                         if (w / ".critic" / f_).exists(): shutil.copy2(w / ".critic" / f_, td / f_)

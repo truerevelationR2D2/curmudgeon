@@ -5,7 +5,8 @@ Requirement ids look like REQ-12, FR-3, NFR-7, US-4, AC-2 or SPEC-9. A requireme
 a test file mentions the id. From those the scan builds a requirement-to-test table (.critic/scan/requirements.md) and:
 
   req-undefined   WARN  a test cites a requirement id no document defines: the test claims to cover something nobody
-                        wrote down (a typo, or a deleted requirement).
+                        wrote down (a typo, or a deleted requirement). Only for an id family (REQ-, FR- ...) the
+                        project's documents define, since FR-75 can be a region code and US-482 a ticket.
   req-untested    NOTE  a defined requirement no test cites.
 
 The evidence rule that goes with this lens lives in the merge script: a finding may say what requirement it rests on,
@@ -39,8 +40,9 @@ def check(docs, tests, emit):
         for i, l in enumerate(text.split("\n"), 1):
             for rid in sorted(set(ID.findall(l))):
                 cites.setdefault(rid, []).append((f"{rel}:{i}", l.strip()[:160]))
+    families = {d.split("-")[0] for d in defs}  # FR-75 is an ISO region code, US-482 a ticket, unless FR- or US- ids are defined
     for rid, places in sorted(cites.items()):
-        if rid not in defs:
+        if rid not in defs and rid.split("-")[0] in families:
             where, line = places[0]
             emit("WARN", "req-undefined", "requirements", where, f"this test cites {rid}, which no requirements document defines (a typo, or a requirement that was removed)", line)
     for rid, (where, line) in sorted(defs.items()):

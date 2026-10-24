@@ -44,7 +44,7 @@
    "id": "C7",
    "rule": "ci-upload-checkout",
    "where": ".github/workflows/build.yml:18",
-   "why": "the workspace uploaded after a credentialed checkout"
+   "why": "the whole workspace, hidden files included, uploaded after a credentialed checkout"
   },
   {
    "id": "C8",

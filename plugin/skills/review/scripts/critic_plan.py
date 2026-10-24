@@ -21,6 +21,14 @@ UI = {".html", ".htm", ".jsx", ".tsx", ".vue", ".svelte", ".css", ".scss"}
 CODE = {".py", ".js", ".mjs", ".cjs", ".ts", ".jsx", ".tsx", ".go", ".rs", ".java", ".rb", ".php", ".cs", ".kt", ".swift", ".vue", ".svelte"}
 DOCS = {".md", ".rst", ".txt", ".adoc"}
 
+def is_document(f):
+    """A file a person reads. requirements.txt, CMakeLists.txt and the like end in .txt but are build input, so a file any
+    lens claims, or a .txt named like build input, is not a document."""
+    p = pathlib.PurePosixPath(f.replace("\\", "/"))
+    if p.suffix.lower() not in DOCS: return False
+    if scan_ci.wants_text(f) or scan_agentcfg.wants(f) or scan_migrations.wants(f) or scan_tests.is_test_file(f): return False
+    return not re.fullmatch(r"(?i)(?:cmakelists|requirements[\w.-]*|constraints[\w.-]*|robots|llms|runtime|\.?python-version|.*\.(?:in|cmake))\.txt", p.name)
+
 def lenses_for(files):
     out = []
     if any(scan_tests.is_test_file(f) for f in files): out.append("tests of the tests")
@@ -53,7 +61,7 @@ def plan():
     files = [str(f) for f in cm.get("files") or []]
     exts = {pathlib.PurePosixPath(f).suffix.lower() for f in files}
     tier = cm.get("tier") or "full"
-    docs_only = bool(files) and exts <= DOCS
+    docs_only = bool(files) and all(is_document(f) for f in files)
     ui = bool(exts & UI)
     if docs_only and tier == "full": tier = "lite"  # a document doesn't need three reviewers and the code sweep (ruling §5.6)
     reviewers = 3 if tier == "full" else 1

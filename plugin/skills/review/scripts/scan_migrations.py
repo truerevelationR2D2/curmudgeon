@@ -4,16 +4,30 @@ strong_migrations (MIT) and django-migration-linter (Apache-2.0); no rule text c
 SQL is read from .sql files and from the SQL strings a migration passes to op.execute (Alembic) or
 migrations.RunSQL (Django). Statements are split on semicolons outside quotes, with comments removed.
 
-  mig-index-blocking      WARN  CREATE INDEX without CONCURRENTLY on a table this file didn't create: it blocks writes to
-                                the table while it builds.
+  mig-index-blocking      WARN  CREATE INDEX without CONCURRENTLY on a table this file didn't create (CREATE TABLE,
+                                Alembic op.create_table or Django CreateModel): it blocks writes to the table while it
+                                builds.
   mig-not-null-no-default WARN  ADD COLUMN ... NOT NULL with no DEFAULT on an existing table: it fails on a table with
-                                rows (and on old PostgreSQL rewrites the table).
+                                rows (and on old PostgreSQL rewrites the table). serial types carry their own default.
   mig-constraint-validate WARN  ADD CONSTRAINT ... FOREIGN KEY or CHECK without NOT VALID on an existing table: it scans
                                 the whole table under a lock (add it NOT VALID, then VALIDATE CONSTRAINT separately).
   mig-irreversible        WARN  a migration that can't be rolled back: an Alembic downgrade() that does nothing, or a
                                 Django RunPython or RunSQL with no reverse.
   mig-drop-rename         NOTE  (pedantic) DROP or RENAME of a column or table: code still deployed may use the old name."""
 import ast, pathlib, re
+
+DOLLAR = re.compile(r"\$[A-Za-z_]*\$")
+
+def _add_clauses(rest):
+    """The ADD ... clauses of an ALTER TABLE, split on commas outside parentheses, so numeric(12,2) stays whole."""
+    parts, depth, cur = [], 0, []
+    for c in rest:
+        if c == "(": depth += 1
+        elif c == ")": depth = max(0, depth - 1)
+        if c == "," and depth == 0: parts.append("".join(cur)); cur = []; continue
+        cur.append(c)
+    parts.append("".join(cur))
+    return [p.strip() for p in parts if re.match(r"(?i)\s*add\b", p)]
 
 def _statements(sql, first_line=1):
     """(line, statement) pairs, comments removed, split on ; outside quotes and dollar quotes."""
@@ -26,7 +40,7 @@ def _statements(sql, first_line=1):
                 j = sql.find("\n", i); i = n if j < 0 else j; continue
             if sql.startswith("/*", i):
                 j = sql.find("*/", i + 2); seg = sql[i:(n if j < 0 else j + 2)]; line += seg.count("\n"); i = n if j < 0 else j + 2; continue
-            m = re.match(r"\$[A-Za-z_]*\$", sql[i:])
+            m = DOLLAR.match(sql, i) if c == "$" else None  # match at i, without copying the rest of the file
             if m:
                 q = m.group(0); buf.append(q); i += len(q)
                 if start is None: start = line
@@ -67,8 +81,8 @@ def check_sql(rel, sql, emit, first_line=1, created=None):
             continue
         table = m.group(1).strip('"').lower().split(".")[-1]; rest = m.group(2)
         if table in created: continue
-        for col in re.findall(r"(?i)add\s+(?:column\s+)?(?:if\s+not\s+exists\s+)?[\w\"]+\s+[^,]*", rest):
-            if re.search(r"(?i)\bnot\s+null\b", col) and not re.search(r"(?i)\bdefault\b|\bgenerated\b", col) and not re.match(r"(?i)add\s+constraint", col):
+        for col in _add_clauses(rest):
+            if re.search(r"(?i)\bnot\s+null\b", col) and not re.search(r"(?i)\bdefault\b|\bgenerated\b|\b(?:small|big)?serial\d?\b", col) and not re.match(r"(?i)add\s+constraint", col):
                 emit("WARN", "mig-not-null-no-default", "release", f"{rel}:{ln}", f"a NOT NULL column with no DEFAULT is added to {table}: it fails if the table has rows (add it nullable or with a default, backfill, then set NOT NULL)", f[:160])
         if re.search(r"(?i)add\s+constraint\s+\S+\s+(foreign\s+key|check)\b", rest) and not re.search(r"(?i)\bnot\s+valid\b", rest):
             emit("WARN", "mig-constraint-validate", "release", f"{rel}:{ln}", f"a constraint is added to {table} without NOT VALID: the whole table is checked under a lock (add NOT VALID, then VALIDATE CONSTRAINT separately)", f[:160])
@@ -90,6 +104,21 @@ def check_python(rel, text, emit):
     try: tree = ast.parse(text)
     except (SyntaxError, ValueError): return
     created = set()
+    for node in ast.walk(tree):  # tables this migration creates: an index on them blocks nobody
+        if isinstance(node, ast.Call):
+            name = (node.func.attr if isinstance(node.func, ast.Attribute) else getattr(node.func, "id", ""))
+            if name == "create_table" and node.args and _str(node.args[0]): created.add(_str(node.args[0]).lower())
+            if name == "CreateModel":
+                model = _str(node.args[0]) if node.args else next((_str(k.value) for k in node.keywords if k.arg == "name"), None)
+                if model:  # Django names the table <app>_<model>; the app is the folder above migrations/
+                    parts = pathlib.PurePosixPath(rel.replace("\\", "/")).parts
+                    app = parts[parts.index("migrations") - 1] if "migrations" in parts and parts.index("migrations") > 0 else ""
+                    created.add(model.lower())
+                    if app: created.add(f"{app}_{model}".lower())
+                    for k in node.keywords:
+                        if k.arg == "options" and isinstance(k.value, ast.Dict):
+                            for kk, vv in zip(k.value.keys, k.value.values):
+                                if _str(kk) == "db_table" and _str(vv): created.add(_str(vv).lower())
     for node in ast.walk(tree):
         if isinstance(node, ast.FunctionDef) and node.name == "downgrade" and _does_nothing(node) and re.search(r"\bdef\s+upgrade\b", text):
             emit("WARN", "mig-irreversible", "release", f"{rel}:{node.lineno}", "downgrade() does nothing: this migration can't be rolled back (write the reverse, or raise to say it is one-way on purpose)", text.split("\n")[node.lineno - 1])

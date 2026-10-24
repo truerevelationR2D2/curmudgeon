@@ -30,6 +30,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import scan_secrets, scan_html, scan_graph, scan_deps, scan_rules_extra, scan_mutation, scan_ci, scan_agentcfg, scan_migrations, scan_reqs, scan_ops
 import scope as scope_file
 from critic_findings import log_run, refuse_linked_state
+from scan_rules_extra import guarded as G
 
 CODE = {".js", ".mjs", ".cjs", ".ts", ".jsx", ".tsx", ".vue", ".svelte", ".html", ".htm"}
 MARKUP = {".html", ".htm", ".jsx", ".tsx", ".vue", ".svelte"}
@@ -232,13 +233,13 @@ def static(src, root, excludes):
         try: rel = str(p.resolve().relative_to(root))
         except ValueError: rel = str(p)
         lines = text.split("\n"); texts += 1
-        scan_secrets.scan(rel, text, f)  # every text file, dotfiles and configs included
-        if scan_ci.is_workflow(rel): scan_ci.scan_workflow(rel, text, f, lock_text)  # the CI and supply-chain lens (SC-51)
-        elif scan_ci.wants_text(rel): scan_ci.scan_text(rel, text, f)
-        elif p.name == "package-lock.json": scan_ci.scan_npm_lock(rel, text, f)
-        elif scan_agentcfg.wants(rel): scan_agentcfg.scan(rel, text, f, agent_names)  # the agent and MCP configuration lens (SC-52)
-        if scan_migrations.wants(rel): scan_migrations.scan(rel, text, f)  # the release and rollback lens (SC-53)
-        scan_ops.scan(rel, text, f, root)  # the operations lens (SC-54)
+        G("scan_secrets", scan_secrets.scan, rel, f, rel, text, f)  # every text file, dotfiles and configs included
+        if scan_ci.is_workflow(rel): G("scan_ci", scan_ci.scan_workflow, rel, f, rel, text, f, lock_text)  # the CI and supply-chain lens (SC-51)
+        elif scan_ci.wants_text(rel): G("scan_ci", scan_ci.scan_text, rel, f, rel, text, f)
+        elif p.name == "package-lock.json": G("scan_ci", scan_ci.scan_npm_lock, rel, f, rel, text, f)
+        elif scan_agentcfg.wants(rel): G("scan_agentcfg", scan_agentcfg.scan, rel, f, rel, text, f, agent_names)  # the agent and MCP configuration lens (SC-52)
+        if scan_migrations.wants(rel): G("scan_migrations", scan_migrations.scan, rel, f, rel, text, f)  # the release and rollback lens (SC-53)
+        G("scan_ops", scan_ops.scan, rel, f, rel, text, f, root)  # the operations lens (SC-54)
         if scan_reqs.is_doc(rel): req_docs[rel] = text  # the requirements lens (SC-55)
         elif scan_reqs.is_test(rel): req_tests[rel] = text
         if p.suffix not in SCAN_EXT:
@@ -250,8 +251,8 @@ def static(src, root, excludes):
             else: secrets_only[p.suffix.lower() or p.name] = secrets_only.get(p.suffix.lower() or p.name, 0) + 1
             continue
         n += 1; TEXTS[rel] = text
-        scan_rules_extra.scan(rel, p.suffix, text, f)
-        if p.suffix in (".html", ".htm"): scan_html.scan(rel, text, f)
+        G("scan_rules_extra", scan_rules_extra.scan, rel, f, rel, p.suffix, text, f)
+        if p.suffix in (".html", ".htm"): G("scan_html", scan_html.scan, rel, f, rel, text, f)
         if len(lines) > 400: f("WARN", "long-file", "structure", rel, f"{len(lines)} lines in one file")
         longl = [i for i, l in enumerate(lines, 1) if len(l) > 300 and not p.name.endswith(".min.js")]
         if longl: f("NOTE", "long-lines", "structure", f"{rel}:{longl[0]}", f"{len(longl)} lines over 300 characters")
@@ -270,7 +271,7 @@ def static(src, root, excludes):
         if p.suffix in (".css", ".scss", ".less"): css_detector(rel, text)
         elif p.suffix in MARKUP:
             for blk in re.findall(r"<style[^>]*>(.*?)</style>", text, re.S): css_detector(rel, blk)
-    REQ_ROWS[:] = scan_reqs.check(req_docs, req_tests, f)
+    REQ_ROWS[:] = G("scan_reqs", scan_reqs.check, "requirements", f, req_docs, req_tests, f) or []
     # the plugin's own rule files run here; a project's .critic/rules run in a separate process with a time limit,
     # because anyone who wrote the repository could have written them
     builtin = [r[:6] for r in custom if not r[6]]; project = [r[:6] for r in custom if r[6] and not NO_PROJECT_RULES]
@@ -700,7 +701,9 @@ def main(argv):
     if led.exists():
         try: FP.extend((json.loads(led.read_text()) or {}).get("false_positives", []))
         except Exception: f("WARN", "ledger-unreadable", "setup", str(led), "ledger unreadable; no false positives suppressed")
-    t = time.time(); nfiles = static(src, root, a.exclude)
+    t = time.time()
+    try: nfiles = static(src, root, a.exclude)
+    except Exception as e: nfiles = 0; state("static", "blocked", f"{type(e).__name__}: {str(e)[:100]}")
     try: scan_deps.scan(root if src.is_dir() else src.parent, f, online=a.online, state=state)
     except Exception as e: state("deps", "blocked", f"{type(e).__name__}: {str(e)[:100]}")
     try: ci_evidence(root, out)
