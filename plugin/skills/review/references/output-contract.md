@@ -22,7 +22,7 @@ Files ranked by risk (what saves, renders input, moves money, holds secrets, run
 Scenario → what happens → finding id or "holds" (driven or traced): copied from the "Sandbox ledger" table in `.critic/counts.md` (SB ids numbered by the script). With no lines there, write "none recorded"; never invent one.
 #### 1. CODE AND ARCHITECTURE
 Findings of every impact, worst first.
-- **C1** `file:line` | **IMPACT: Critical** | `F-1a2b3c4d` · confidence confirmed · votes 3/3 | **Defect:** …
+- **C1** `file:line` | **IMPACT: Critical** | `F-1a2b3c4d` · confidence confirmed · votes 3/3 | **Defect:** … (when `.critic/counts.md` lists more places for the finding, add `also at file:line, ...` after the first location, so each place a reviewer cited is shown)
 - **Evidence:** what was checked and what was seen, with ids (S012 for a scripted row, SB4 for a sandbox line).
 - **Failing case:** the concrete input or sequence, and the wrong result.
 - **Remediation theory:** the structural change in one or two sentences.

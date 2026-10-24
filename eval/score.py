@@ -66,7 +66,7 @@ def load(path):
 def locs_of(rows, blocks):
     """Where each finding points: file:line and its quote for a structured finding (as deathmatch.py builds it), the
     block's own text otherwise."""
-    return [f"{r.get('file', '')}:{r.get('line')} {r.get('quote', '')}" for r in rows] if rows else list(blocks)  # never the evidence: it can name other files
+    return [f"{r.get('file', '')}:{r.get('line')} {r.get('quote', '')} " + " ".join(str(x) for x in (r.get("locations") or []) if isinstance(x, str)) for r in rows] if rows else list(blocks)  # never the evidence (it can name other files); a merged finding's own cited places, yes
 
 def strict_mode(suite_key):
     """Decision 28: a finding credits a plant only when it points at one of the plant's places. A baseline recorded
@@ -157,7 +157,7 @@ def match_key(key, blocks, locs=None, impacts=None):
     candidates are tried highest impact first, so the finding credited is the one that rated it most seriously."""
     rank = lambda bi: IMPACT_RANK.get((impacts or {}).get(bi) if impacts else None, 4)
     eligible = {name: sorted([bi for bi, b in enumerate(blocks) if (locs is None or keymatch.points_at(k, locs[bi]))
-                       and (not k["file"] or k["file"].lower() in b.lower()) and any(re.search(p, b, re.I) for p in k["any"])], key=lambda bi: (rank(bi), bi)) for name, k in key.items()}
+                       and (not k["file"] or k["file"].lower() in (b + " " + (locs[bi] if locs else "")).lower()) and any(re.search(p, b, re.I) for p in k["any"])], key=lambda bi: (rank(bi), bi)) for name, k in key.items()}
     serious = {name: [bi for bi in c if rank(bi) <= 2] for name, c in eligible.items() if impacts and key[name].get("impact") in ("Critical", "High")}
     hits = keymatch.serious_first(eligible, serious) if serious else keymatch.max_match(eligible)  # one finding per plant, as many plants as possible
     return dict(sorted(hits.items(), key=lambda kv: list(key).index(kv[0]))), set(hits.values())

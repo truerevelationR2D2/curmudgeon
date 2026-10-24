@@ -79,7 +79,8 @@ def blocks_for(arm_dir):
         out = []
         for r in rows:
             at = f"{r.get('file', '')}:{r.get('line')}" if r.get("line") not in (None, "") else str(r.get("file", ""))
-            out.append({"loc": f"{at} {r.get('quote', '')}", "claim": f"{at} {r.get('title', '')}. {r.get('failing_case', '')}"})
+            out.append({"loc": f"{at} {r.get('quote', '')} " + " ".join(str(x) for x in (r.get("locations") or []) if isinstance(x, str)),  # a merged finding's own cited places, as score.py
+                        "claim": f"{at} {r.get('title', '')}. {r.get('failing_case', '')}"})
         return out
     md = arm_dir / "output.md"
     if not md.exists() or not md.read_text().strip(): return None

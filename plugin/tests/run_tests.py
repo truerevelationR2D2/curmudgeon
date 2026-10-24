@@ -2867,6 +2867,24 @@ def _(d):
     cm = (d / ".critic/counts.md").read_text(); assert "Line numbers to check: 2 retracted" in cm, cm[-600:]
     for a in ("curmudgeon-reviewer.md", "curmudgeon-verifier.md"): assert "grep -n" in (HERE / "agents" / a).read_text() and "cat -n" in (HERE / "agents" / a).read_text()
 
+@test("5.0 A/B finding: a merged finding shows every place its reviewers cited, and the scorer credits a plant at any of them")
+def _(d):
+    write(d, "styles.css", ".toast { animation: pop 1s infinite; }\n"); write(d, "index.html", '<div id="toast"></div>\n'); run(S / "critic_ledger.py", "start", "review", cwd=d)
+    a = finding(file="styles.css", line=1, quote=".toast { animation: pop 1s infinite; }", title="Toast pulses forever with no reduced-motion option", impact="Medium", category="a11y")
+    b = finding(file="index.html", line=1, quote='<div id="toast"></div>', title="Toast is never announced and pulses forever", impact="Medium", category="a11y")
+    write(d, "a.json", json.dumps([a])); write(d, "b.json", json.dumps([b]))
+    run(S / "critic_merge.py", "tally", "a.json", "b.json", cwd=d)
+    cands = json.loads((d / ".critic/dedup-candidates.json").read_text())["findings_by_file"]
+    write(d, ".critic/groups.json", json.dumps({"groups": [[x["id"] for v in cands.values() for x in v]]}))
+    run(S / "critic_merge.py", "tally", "a.json", "b.json", "--groups", ".critic/groups.json", cwd=d)
+    write(d, "v.json", "[]"); assert run(S / "critic_merge.py", "apply", "v.json", cwd=d).returncode == 0
+    cm = (d / ".critic/counts.md").read_text(); assert "(also at " in cm, cm[:900]
+    r = d / "run"; write(r, ".critic/teardown.md", "**CONCERNS** · Counts: 0 Critical, 0 High, 1 Medium, 0 Low\n")
+    write(r, ".critic/findings.jsonl", json.dumps({"id": "F-1", "file": "index.html", "line": 23, "quote": '<div id="toast" class="toast"></div>', "category": "a11y", "impact": "Medium",
+                                                   "title": "Toast pulses forever with an infinite animation and no reduced-motion option", "locations": ["index.html:23", "styles.css:20"]}) + "\n")
+    out = subprocess.run([sys.executable, str(HERE.parent / "eval" / "score.py"), str(r / ".critic/teardown.md"), "--suite", "2", "--baseline", str(d / "none.json"), "--labels", str(d / "none.json")], capture_output=True, text=True).stdout
+    assert "missed: E21" not in out, out[:600]
+
 if __name__ == "__main__":
     shutil.rmtree(TMP, ignore_errors=True)
     bad = [r for r in RESULTS if not r[1]]

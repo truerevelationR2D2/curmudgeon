@@ -451,7 +451,10 @@ def apply(paths):
     md = ["# Curmudgeon merged findings", "", f"Reviewers: {T['reviewers']} (votes needed: {T['votes_needed']}).",
           "Counts for the VERDICT (copy exactly): " + " · ".join(f"{k} {v}" for k, v in cnt.items()) + f" · total {len(final)}", "",
           "| ID | Impact | Confidence | Votes | Verifier | Where | Title |", "| --- | --- | --- | --- | --- | --- | --- |"]
-    md += [f"| {f['id']} | {f['impact']} | {f['confidence']} | {f.get('votes', 1)}/{f.get('of', 1)} | {f.get('verifier', '-')} | {f['file']}:{f.get('line', '')} | {f['title'].replace('|', '/')} |" for f in final]
+    def where_(f):  # every place the merged reviewers cited, first the one the finding is filed under: a reader (and the teardown) sees them all
+        first = f"{f['file']}:{f.get('line', '')}"; more = [x for x in (f.get("locations") or []) if x != first]
+        return first + (" (also at " + ", ".join(more[:6]) + (" ..." if len(more) > 6 else "") + ")" if more else "")
+    md += [f"| {f['id']} | {f['impact']} | {f['confidence']} | {f.get('votes', 1)}/{f.get('of', 1)} | {f.get('verifier', '-')} | {where_(f)} | {f['title'].replace('|', '/')} |" for f in final]
     cov = T.get("coverage") or {}
     md += ["", "Not reviewed (computed from the reviewers' coverage reports): " + (", ".join(cov.get("not_reviewed") or []) or "nothing") if cov.get("known")
            else "", "Not reviewed: unknown (no reviewer reported coverage); say so in the teardown." if not cov.get("known") else ""]
