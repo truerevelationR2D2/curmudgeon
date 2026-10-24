@@ -1982,6 +1982,21 @@ def _(d):
     write(d, "v.json", "[]"); run(S / "critic_merge.py", "apply", "v.json", cwd=d)
     assert "## Stuck" in (d / ".critic/counts.md").read_text() and "stuck_error_loop" in (d / ".critic/counts.md").read_text()
 
+@test("5.0 SC-69: the job plan picks the lenses and agents for what is being reviewed, and quotes cost only from recorded history")
+def _(d):
+    write(d, "src/app.py", "x = 1\n"); write(d, "tests/test_app.py", "def test_x():\n    assert True is not False\n"); write(d, ".github/workflows/ci.yml", "on: push\njobs: {}\n")
+    write(d, "db/migrations/0001.sql", "SELECT 1;\n"); write(d, ".mcp.json", "{}"); write(d, "docs/req.md", "- REQ-1: x\n")
+    run(S / "critic_map.py", "--files", "src/app.py", "tests/test_app.py", ".github/workflows/ci.yml", "db/migrations/0001.sql", ".mcp.json", "docs/req.md", cwd=d)
+    p = json.loads(run(S / "critic_plan.py", "--json", cwd=d).stdout)
+    assert set(p["lenses"]) >= {"tests of the tests", "CI and supply chain", "agent and MCP configuration", "release and rollback", "requirements and intent"}, p
+    assert p["expected_tokens"] is None and "not guessed" in p["expected_basis"]
+    write(d, ".critic/cost.jsonl", "\n".join(json.dumps({"role": r, "input_tokens": n, "output_tokens": 0}) for r, n in [("reviewer", 1000), ("reviewer", 3000), ("verifier", 500)]) + "\n")
+    p = json.loads(run(S / "critic_plan.py", "--json", cwd=d).stdout); assert p["expected_tokens"] == 2000 * p["reviewers"] + 500 * (2 if p["tier"] == "full" else 1) + (0 if p["reviewers"] == 1 else 0), p
+    e = d / "doc"; write(e, "README.md", "# Hi\n\nSome words.\n"); run(S / "critic_map.py", "--files", "README.md", cwd=e)
+    p = json.loads(run(S / "critic_plan.py", "--json", cwd=e).stdout)
+    assert p["kind"] == "document or plan" and p["reviewers"] == 1 and p["lenses"] == [] and p["checks"] == ["claims, numbers and consistency"], p
+    assert "plan:" in run(S / "critic_run.py", "begin", "--files", "README.md", cwd=e).stdout
+
 if __name__ == "__main__":
     shutil.rmtree(TMP, ignore_errors=True)
     bad = [r for r in RESULTS if not r[1]]

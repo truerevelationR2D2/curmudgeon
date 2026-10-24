@@ -93,8 +93,9 @@ def main(a):
         tier = rest[rest.index("--tier") + 1] if "--tier" in rest and rest.index("--tier") + 1 < len(rest) else ""
         map_args = [x for i, x in enumerate(rest) if not (x == "--tier" or (i and rest[i - 1] == "--tier"))]
         sh("critic_map.py", *map_args)
+        sh("critic_plan.py")  # SC-69: the job plan (tier, agents, lenses, expected cost); the user may change it
         if not tier:
-            try: tier = json.loads((D / "change-map.json").read_text()).get("tier") or "full"
+            try: tier = json.loads((D / "plan.json").read_text()).get("tier") or "full"
             except (OSError, ValueError): tier = "full"
         sh("critic_ledger.py", "start", "review", "--tier", tier)
         sh("critic_brief.py", "--letters", ",".join(REVIEWERS.get(tier, REVIEWERS["full"])))

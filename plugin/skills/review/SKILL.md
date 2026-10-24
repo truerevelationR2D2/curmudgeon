@@ -38,6 +38,7 @@ No payload: ask for one in one line.
 
 ## Step 0: Size, scope, budget
 1. `critic_ledger.py start review|full --tier <tier>` after running `critic_map.py --files <payload>` (or with no `--files` for the current git change). The map gives the **tier** (trivial, lite or full), the files in risk order, the **blast radius** (who calls the changed code) and the **stated intent** (from `--intent` or the last commit message). `deep` forces full.
+1b. **The job plan.** `critic_plan.py` (run by `critic_run.py begin`) proposes the tier, the agents, the lenses that apply and the expected cost from this project's own history. When the user is present, show it in two lines and let them change it in one quick question (for example, "full sweep instead?"); an unattended run uses it as proposed. A document gets one reviewer and the claims check, not the code sweep.
 2. Read `.critic/ledger.md` (decisions, known false positives, learned memories) and `.critic/rules.md` (project rules, layer boundaries, "Not findings" additions, scripted checks, test command). Load only rules whose paths match.
 3. Name the payload type (UI, code with no UI, document or plan) and what's out of scope (vendored code, builds, lockfiles).
 4. **Pre-mortem** (recall aid only): write one line, "It's a week after release and this broke. Incident title: …", and put it on the risk map. It creates no finding without a case.
