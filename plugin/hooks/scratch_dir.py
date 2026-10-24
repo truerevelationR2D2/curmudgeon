@@ -16,7 +16,7 @@ def main():
     if not m: return 0
     agent_id = workspace.clean_id(data.get("agent_id"))
     if not agent_id: return 0
-    root = pathlib.Path(data.get("cwd") or os.getcwd()); c = root / ".critic"
+    root = workspace.project_root(data); c = root / ".critic"
     if c.is_symlink() or (c / "scratch").is_symlink(): return 0  # never create through a link a cloned repo planted
     d = c / "scratch" / agent_id
     d.mkdir(parents=True, exist_ok=True)
@@ -28,12 +28,15 @@ def main():
         except Exception: rec = None
         if rec:
             q = shlex.quote(rec["payload"])
-            msg = (f"Your workspace is {rec['payload']}: a private frozen copy of the project made for you (the project's .critic/ and .git/ are left out). "
-                   f"Read and search files there. Start every Bash command with `cd {q} && `; commands that don't are refused. "
+            msg = (f"Your workspace is {rec['payload']}: a private frozen copy of the project made for you (the project's .critic/ is left out). "
+                   + ("It is its own git repository sharing the project's history, so git commands there (log, blame, diff, even stash or reset) never touch the real project. " if rec.get("git") == "clone" else "")
+                   + f"Read and search files there. Start every Bash command with `cd {q} && `; commands that don't are refused. "
                    f"Cite files by their path relative to the workspace, which is the same as in the project (src/app.js:12, never the full path). "
                    f"Put notes, probes and test scripts in {rec['notes']}; they are kept after you finish, and the copy is deleted. "
                    f"Write your result where your brief says, under {c}.")
             if rec.get("partial"): msg += " The copy is partial (the project is very large): a file missing from it can be read from the project itself."
+            if rec.get("links_skipped"): msg += f" Links the system wouldn't let us make were left out: {', '.join(rec['links_skipped'][:10])}."
+            if rec.get("git") in ("stub", "stub-failed", "none"): msg += " Git history isn't available in the copy (git will say there is no repository); read the code as it is."
             if rec.get("skipped_large"): msg += f" Files over 5 MB were not copied: {', '.join(rec['skipped_large'][:10])}."
         else:
             msg += " No private copy of the project could be made, so Bash is off for you: review by reading (Read, Grep, Glob)."

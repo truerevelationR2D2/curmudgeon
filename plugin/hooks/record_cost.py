@@ -5,6 +5,8 @@ rows repeat while it streams, so each request counts once, at its largest values
 .critic/cost.jsonl. `critic_ledger.py tokens` totals them by role. Nothing is sent anywhere; it never blocks an agent,
 and when the host gives no transcript the cost is reported as unavailable, never guessed."""
 import json, os, pathlib, sys, time
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import workspace
 
 FIELDS = ("input_tokens", "cache_creation_input_tokens", "cache_read_input_tokens", "output_tokens")
 MAX_BYTES = 200_000_000
@@ -34,7 +36,7 @@ def usage(path):
 def main():
     try: data = json.load(sys.stdin)
     except Exception: return 0
-    root = pathlib.Path(data.get("cwd") or os.getcwd()); c = root / ".critic"
+    root = workspace.project_root(data); c = root / ".critic"
     if c.is_symlink() or not (c / "ledger.json").is_file() or (c / "ledger.json").is_symlink(): return 0
     try: led = json.loads((c / "ledger.json").read_text())
     except Exception: return 0

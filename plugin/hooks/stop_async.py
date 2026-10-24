@@ -5,6 +5,8 @@ does it wake Claude (exit 2 with asyncRewake), and each problem wakes it once. A
 Claude Code doesn't enforce a timeout on async hooks, so this script keeps its own: every git call has a 10 s limit,
 and the whole check, one scan over every changed file, stops by DEADLINE seconds."""
 import hashlib, json, os, pathlib, subprocess, sys, time
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import workspace
 DEADLINE = 300  # seconds for the whole check, well inside the 600 s the hook declares
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent / "skills" / "review" / "scripts"))
 try: from critic_findings import log_run
@@ -15,7 +17,7 @@ def main():
     try: data = json.load(sys.stdin)
     except Exception: data = {}
     if data.get("stop_hook_active"): return 0
-    root = pathlib.Path(data.get("cwd") or os.getcwd()); c = root / ".critic"
+    root = workspace.project_root(data); c = root / ".critic"
     if c.is_symlink() or any(x.is_symlink() for x in c.glob("*")): return 0  # never write through a link a cloned repo planted
     if not (c / "gate-async").exists(): return 0
     try: stamps = json.loads((c / "ledger.json").read_text()).get("stamps", {})

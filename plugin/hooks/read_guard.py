@@ -82,8 +82,10 @@ def bash_problem(cmd, rec, root, critic, role, me):
     read) or to a folder above it is refused, and so are the shell's ways back ($OLDPWD, cd -, popd)."""
     import glob as _glob, shlex
     payload = rec["payload"]
-    m = re.match(r"\s*cd\s+(['\"]?)" + re.escape(payload) + r"/?\1\s*&&", cmd)
-    if not m: return f"a command that doesn't start in your workspace; start it with: cd {payload} && "
+    m = re.match(r"\s*cd\s+((?:'[^']*'|\"[^\"]*\"|\\.|[^\s;&|])+)\s*&&", cmd)  # however it is quoted (shlex.quote included)
+    try: target = shlex.split(m.group(1))[0] if m else None
+    except (ValueError, IndexError): target = None
+    if not target or fold(target.rstrip("/\\") or "/") != fold(payload): return f"a command that doesn't start in your workspace; start it with: cd {shlex.quote(payload)} && "
     rest = cmd[m.end():]
     if re.search(r"(?i)\$\{?(?:OLDPWD|CLAUDE_PROJECT_DIR)\b|(?:^|[\s;&|(])(?:cd|pushd)\s+-(?:\s|$|[;&|)])|\bpopd\b|\bdirs\b", rest): return "a way back to the project folder ($OLDPWD, cd -, popd, $CLAUDE_PROJECT_DIR)"
     home = os.path.expanduser("~")
@@ -110,7 +112,7 @@ def main():
     try: data = json.load(sys.stdin)
     except Exception: return 0
     tool, ti = data.get("tool_name", ""), data.get("tool_input") or {}
-    root = pathlib.Path(data.get("cwd") or os.getcwd())
+    root = workspace.project_root(data)
     if tool in ("Agent", "Task"):
         if str(ti.get("subagent_type") or "").lower() == "fork" and run_active(root):
             return deny("Curmudgeon: no forks during a review run. A fork inherits the whole conversation, so it can't review blind. Start the named agent (curmudgeon:curmudgeon-reviewer, -verifier, -dedup or -detector) instead.")
@@ -128,13 +130,15 @@ def main():
         if isinstance(v, str) and v:
             p = resolve(v, root); why = judge(p, critic, role, me)
     elif tool in ("Grep", "Glob"):
-        start = resolve(ti.get("path") or str(root), root)
+        here = pathlib.Path(data.get("cwd") or root)  # the tools search the session's current folder when no path is given
+        start = resolve(ti.get("path") or str(here), here)
         why = judge(start, critic, role, me)
         pat = str(ti.get("pattern") or "")
         if not why and tool == "Glob" and (any(ch in pat for ch in "*?[") or "critic" in pat.casefold() or ".." in pat):  # expand it for real and judge what it matches
-            import glob as _glob
-            hidden = {"include_hidden": True} if sys.version_info >= (3, 11) else {}  # Glob's own search sees dot-folders
-            for h in _glob.glob(os.path.join(str(start), pat), recursive=True, **hidden)[:5000]:
+            import glob as _glob, itertools
+            try: found = (str(x) for x in pathlib.Path(start).glob(pat))  # pathlib matches dot-folders on every Python, as Glob does
+            except (NotImplementedError, ValueError, OSError): found = iter(_glob.glob(os.path.join(str(start), pat), recursive=True))
+            for h in itertools.islice(found, 5000):
                 hp = resolve(h, root); why = judge(hp, critic, role, me)
                 if why: break
         if not why and tool == "Grep" and above(start, critic):  # a Glob is judged above by what it really matches

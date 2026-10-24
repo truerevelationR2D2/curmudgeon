@@ -5,18 +5,23 @@ same prefix can share a prompt cache; whether they do is measured with the cost 
 cache_read_input_tokens per reviewer), not assumed.
 
 usage:
-  critic_brief.py [--letters A,B,C] [--intent TEXT]
+  critic_brief.py [--letters A,B,C] [--intent TEXT] [--packet]
         reads .critic/change-map.json and the ledger; writes .critic/briefs/brief-<letter>.md and prints their paths.
         The lead passes each file's text, unchanged, as that reviewer's prompt.
 
 What a brief holds (shared part): the tier, the stated intent, the references folder, the rules and change-map paths,
 the owner's recorded decisions, up to five past false positives, and the payload list in a fixed (sorted) order.
 Per reviewer: A reads in risk order, B reversed, C shuffled (seeded by the run number, so a rerun gives the same order).
-Nothing from the scan, the other reviews or the author's conversation is ever included."""
-import json, os, pathlib, random, sys
+Nothing from the scan, the other reviews or the author's conversation is ever included.
+
+--packet (SC-35, opt-in until the eval measures it): for a lite or trivial review of a git change, the shared part also
+carries a compact change packet: each changed hunk with CONTEXT lines around it and line numbers, a deletion-only hunk
+as one line, a new file whole. Reviewers can still open whole files in their copy. Off by default, because a bug that
+spans hunks could be missed; Ryan's A/B run on the kit decides whether it becomes the default."""
+import json, os, pathlib, random, sys, re
 
 HERE = pathlib.Path(__file__).resolve().parent
-ROOT = pathlib.Path(os.environ.get("CRITIC_ROOT", os.getcwd())).resolve(); D = ROOT / ".critic"
+ROOT = pathlib.Path(os.environ.get("CRITIC_ROOT") or re.sub(r"[\\/]\.critic[\\/]scratch[\\/][A-Za-z0-9_-]{1,64}[\\/]payload(?:[\\/].*)?$", "", os.getcwd()) or os.getcwd()).resolve(); D = ROOT / ".critic"
 
 def load(p, default):
     try: return json.loads(p.read_text()) if p.is_file() and not p.is_symlink() else default
@@ -26,6 +31,36 @@ def order_for(letter, files, run):
     if letter == "A": return list(files)
     if letter == "B": return list(reversed(files))
     out = list(files); random.Random(f"{run}-{letter}").shuffle(out); return out
+
+CONTEXT = 3
+PACKET_MAX = 60_000  # characters; past this the packet is left out and the reviewer reads the files
+
+def packet(cm):
+    """The compact change packet, or None when it doesn't apply (not a git change) or wouldn't be smaller."""
+    if cm.get("mode") != "diff" or not isinstance(cm.get("hunks"), dict): return None
+    out = ["", "## Change packet (changed lines with context; open the whole file in your copy when you need more)"]
+    new = set(cm.get("new_files") or [])
+    for f in cm.get("files") or []:
+        p = ROOT / f
+        try: lines = p.read_text(encoding="utf-8", errors="replace").split("\n") if p.is_file() and not p.is_symlink() else None
+        except OSError: lines = None
+        if lines is None: out.append(f"\n### {f}\n(deleted or unreadable)"); continue
+        if f in new: out.append(f"\n### {f} (new file)"); out += [f"{i:>5}  {t}" for i, t in enumerate(lines, 1)]; continue
+        spans, gone = [], []
+        for start, count in cm["hunks"].get(f, []):
+            if count == 0: gone.append(start); continue
+            spans.append([max(1, start - CONTEXT), min(len(lines), start + count - 1 + CONTEXT)])
+        spans.sort(); merged = []
+        for a_, b_ in spans:
+            if merged and a_ <= merged[-1][1] + 1: merged[-1][1] = max(merged[-1][1], b_)
+            else: merged.append([a_, b_])
+        if not merged and not gone: continue
+        out.append(f"\n### {f}")
+        for g in gone: out.append(f"(lines deleted after line {g})")
+        for a_, b_ in merged:
+            out.append(f"@@ lines {a_}-{b_}"); out += [f"{i:>5}  {lines[i - 1]}" for i in range(a_, b_ + 1)]
+    text = "\n".join(out) + "\n"
+    return text if len(text) <= PACKET_MAX else None
 
 def main(a):
     if a[:1] in (["-h"], ["--help"]): print(__doc__); return 0
@@ -56,6 +91,9 @@ def main(a):
     shared += ["", "## Not findings (the owner's past rulings)"] + ([f"- {x}" for x in fps] or ["- none recorded"])
     shared += ["", f"## Payload ({len(files)} files; your reading order is below)"] + [f"- {f}" for f in sorted(files)]
     shared_text = "\n".join(shared) + "\n"
+    if "--packet" in a and tier in ("lite", "trivial"):
+        pk = packet(cm)
+        shared_text += pk if pk else "\n(No change packet: this is not a git change, or the packet would not be smaller than the files.)\n"
     out = D / "briefs"
     if out.is_symlink() or D.is_symlink(): sys.exit("critic_brief: .critic/briefs is a link; refusing to write through it")
     out.mkdir(parents=True, exist_ok=True)

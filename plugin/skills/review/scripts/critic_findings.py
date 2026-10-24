@@ -133,6 +133,10 @@ def strip_workspace(text):
     same path in the project, so the copy's prefix is removed before any check."""
     return WORKSPACE_PREFIX.sub("", str(text or ""))
 
+def strip_workspace_path(path):
+    """The same for one path field, where spaces are part of the path (C:\\Users\\John Smith\\...): anchored at the start."""
+    return re.sub(r"^(?:.*?[\\/])?\.critic[\\/]scratch[\\/][A-Za-z0-9_-]{1,64}[\\/]payload[\\/]", "", str(path or ""))
+
 def _cites_real_line(text, root):
     locs = LOCATION.findall(strip_workspace(text))
     if not locs: return False

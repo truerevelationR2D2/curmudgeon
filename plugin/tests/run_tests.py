@@ -1499,7 +1499,7 @@ def _(d):
     rec = json.loads((p / ".critic/scratch/me/workspace.json").read_text()); ws = pathlib.Path(rec["payload"])
     assert ws.is_dir() and str(ws) in msg and "cd " in msg and ws == (p / ".critic/scratch/me/payload").resolve(), msg
     assert (ws / "src/a.py").read_text() == "x = 1\n" and (ws / "eval/fx/.critic/reviews/r.json").exists(), "the payload, fixtures' own .critic folders included, is copied"
-    assert not (ws / ".critic").exists() and not (ws / ".git").exists() and not (ws / "big.bin").exists() and "big.bin" in msg
+    assert not (ws / ".critic").exists() and (ws / ".git").is_file() and not (ws / "big.bin").exists() and "big.bin" in msg, "a broken .git becomes a stub that stops git walking up"
     assert not os.path.lexists(ws / "src/link") and not os.path.lexists(ws / "src/up"), "links back into .critic or to the project itself are dropped"
     assert (ws / "src/alias.py").resolve() == (ws / "src/a.py").resolve(), "a link inside the project points at the same file in the copy"
     assert (ws / "node_modules").is_symlink(), "dependency folders are linked so tests can run"
@@ -1522,7 +1522,7 @@ def _(d):
     assert not ask("Read", file_path=str(p / "src/a.py")) and ask("Read", file_path=str(p / ".critic/reviews/review-B.json")) and not ask("Read", file_path=str(p / ".critic/rules.md"))
     assert ask("Bash", aid="nobody", command=f"cd {ws} && ls"), "an agent with no workspace has no Bash"
     (pathlib.Path(rec["notes"]) / "probe.py").write_text("print(1)\n")
-    run(H / "workspace_stop.py", cwd=p, stdin=json.dumps({"agent_type": "curmudgeon:curmudgeon-reviewer", "agent_id": "me", "cwd": str(p)}))
+    run(H / "check_contract.py", cwd=p, stdin=json.dumps({"agent_type": "curmudgeon:curmudgeon-reviewer", "agent_id": "me", "cwd": str(p), "stop_hook_active": True}))
     assert not ws.exists() and (p / ".critic/scratch/me/notes/probe.py").exists(), "the copy is deleted at stop and the notes are kept"
     assert "workspace" not in start("curmudgeon:curmudgeon-dedup", "dd") and not (p / ".critic/scratch/dd/workspace.json").exists(), "dedup reads one file; it needs no copy"
     from critic_findings import strip_workspace
@@ -1641,6 +1641,82 @@ def _(d):
         r = write(d, "r.md", body.format(name))
         out = run(HERE.parent / "eval" / "score.py", str(r), "--suite", "1", cwd=d).stdout
         assert "✓ all contract headers" in out, (name, out[-600:])
+
+@test("5.0 SC-35: an opt-in compact change packet carries changed hunks with context, deletions as one line and new files whole")
+def _(d):
+    subprocess.run(["git", "init", "-q"], cwd=d)
+    write(d, "src/m.py", "".join(f"v{i} = {i}\n" for i in range(1, 31)))
+    subprocess.run(["git", "add", "."], cwd=d); subprocess.run(["git", "-c", "user.email=t@example.invalid", "-c", "user.name=t", "commit", "-qm", "base"], cwd=d)
+    lines = [f"v{i} = {i}" for i in range(1, 31)]; lines[14] = "v15 = 'CHANGED'"; del lines[24]
+    write(d, "src/m.py", "\n".join(lines) + "\n"); write(d, "src/new.py", "BRAND_NEW = 1\n")
+    run(S / "critic_map.py", cwd=d); run(S / "critic_ledger.py", "start", "review", "--tier", "lite", cwd=d)
+    run(S / "critic_brief.py", cwd=d); assert "Change packet" not in (d / ".critic/briefs/brief-A.md").read_text(), "off unless asked"
+    run(S / "critic_brief.py", "--packet", cwd=d); b = (d / ".critic/briefs/brief-A.md").read_text()
+    assert "Change packet" in b and "v15 = 'CHANGED'" in b and "   12  v12 = 12" in b and "   18  v18 = 18" in b and "v1 = 1\n" not in b and "v30 = 30" not in b, b
+    assert "(lines deleted after line 24)" in b and "src/new.py (new file)" in b and "BRAND_NEW = 1" in b, b
+
+@test("5.0 §5.29 blind review: git in the copy is its own repo, hooks find the project from inside the copy, a blocked stop keeps the copy, links and odd paths work")
+def _(d):
+    G = ["git", "-c", "user.email=t@example.invalid", "-c", "user.name=t"]
+    p = d / "o'brien proj"; write(p, "src/a.py", "x = 1\n"); write(p, ".gitignore", "dist/\n.critic/\n"); write(p, "dist/huge.js", "built\n")
+    write(d, "outside/lib.txt", "shared\n"); os.symlink("../../outside/lib.txt", p / "src/extlink")
+    subprocess.run(["git", "init", "-q"], cwd=p); subprocess.run(["git", "add", "."], cwd=p); subprocess.run(G + ["commit", "-qm", "base"], cwd=p)
+    write(p, "src/a.py", "x = 2  # uncommitted edit\n"); write(p, ".critic/reviews/review-B.json", '[{"title": "SECRET-B"}]')
+    out = run(H / "scratch_dir.py", cwd=p, stdin=json.dumps({"agent_type": "curmudgeon:curmudgeon-verifier", "agent_id": "v1", "cwd": str(p)})).stdout
+    rec = json.loads((p / ".critic/scratch/v1/workspace.json").read_text()); ws = pathlib.Path(rec["payload"])
+    assert rec["git"] == "clone" and "own git repository" in out, (rec, out)
+    top = subprocess.run(["git", "rev-parse", "--show-toplevel"], cwd=ws, capture_output=True, text=True).stdout.strip()
+    assert pathlib.Path(top).resolve() == ws.resolve(), "git in the copy must find the copy, not the project"
+    assert subprocess.run(["git", "log", "--oneline", "--", "src/a.py"], cwd=ws, capture_output=True, text=True).stdout.strip(), "history works in the copy"
+    assert "uncommitted edit" in subprocess.run(["git", "diff"], cwd=ws, capture_output=True, text=True).stdout, "the copy shows the working-tree edits"
+    assert (ws / "src/extlink").read_text() == "shared\n", "a link outside the project still resolves from the copy"
+    subprocess.run(G + ["stash", "-q"], cwd=ws); subprocess.run(["git", "reset", "-q", "--hard"], cwd=ws)
+    assert "uncommitted edit" in (p / "src/a.py").read_text(), "stash and reset in the copy never touch the user's work"
+    assert not subprocess.run(["git", "remote"], cwd=ws, capture_output=True, text=True).stdout.strip(), "no remote: a push can't reach the project"
+    assert not (ws / "dist").exists(), "git-ignored build output is never copied"
+    def ask(cwd, tool, **ti):
+        return "deny" in run(H / "read_guard.py", cwd=p, stdin=json.dumps({"tool_name": tool, "tool_input": ti, "cwd": str(cwd), "agent_type": "curmudgeon:curmudgeon-verifier", "agent_id": "v1"})).stdout
+    import shlex as _sh
+    assert not ask(p, "Bash", command=f"cd {_sh.quote(str(ws))} && ls"), "the cd the agent is told to use is accepted however it is quoted"
+    assert not ask(ws, "Bash", command=f"cd {_sh.quote(str(ws))} && ls"), "after its first cd the session's cwd is the copy: the guard still finds the workspace"
+    assert ask(ws, "Read", file_path=str(p / ".critic/reviews/review-B.json")), "and still guards the project's .critic"
+    assert not ask(ws, "Grep", pattern="x"), "a Grep with no path searches the copy (the current folder)"
+    assert ask(p, "Glob", pattern="**/*.json"), "a root Glob that matches .critic files is refused on every Python"
+    blocked = run(H / "check_contract.py", cwd=p, stdin=json.dumps({"agent_type": "curmudgeon:curmudgeon-verifier", "agent_id": "v1", "cwd": str(ws), "last_assistant_message": "no json here"})).stdout
+    assert '"block"' in blocked and ws.is_dir(), "a blocked stop keeps the copy: the agent is still working"
+    run(H / "check_contract.py", cwd=p, stdin=json.dumps({"agent_type": "curmudgeon:curmudgeon-verifier", "agent_id": "v1", "cwd": str(ws), "stop_hook_active": True}))
+    assert not ws.exists(), "the real finish deletes it, from inside the copy too"
+    sys.path.insert(0, str(H)); import importlib; wsm = importlib.import_module("workspace")
+    real_link = os.symlink
+    def no_links(*a, **k): raise OSError(1314, "A required privilege is not held by the client")
+    write(p, "node_modules/x/i.js", "1\n"); os.symlink = no_links
+    try: rec2 = wsm.make(p, "win1")
+    finally: os.symlink = real_link
+    assert rec2 and not rec2.get("building") and "node_modules" in rec2["links_skipped"] and (pathlib.Path(rec2["payload"]) / "src/a.py").exists(), rec2
+    from critic_findings import strip_workspace_path
+    assert strip_workspace_path("/u/John Smith/p/.critic/scratch/abc/payload/src/a.py") == "src/a.py"
+
+@test("5.0 SC-31 blind review: critic_run never loops on dedup, never applies an earlier run's verdicts, and waits for every verifier batch")
+def _(d):
+    write(d, "src/app.js", APP)
+    run(S / "critic_run.py", "begin", "--files", "src/app.js", "--tier", "full", cwd=d)
+    g1 = finding(category="domain", impact="High", line=4, quote="const price = total * 1.0825;", title="Tax rule in render code")
+    g2 = finding(category="xss", impact="High", line=2, quote=APP.splitlines()[1].strip(), title="Second issue")
+    for L in "ABC": write(d, f".critic/reviews/review-{L}.json", json.dumps([g1, g2]))
+    write(d, ".critic/verdicts/9.json", json.dumps([{"id": "F-stale", "verdict": "refuted"}])); old = time.time() - 3600; os.utime(d / ".critic/verdicts/9.json", (old, old))
+    out = run(S / "critic_run.py", "next", cwd=d).stdout; assert "curmudgeon-dedup" in out, out
+    write(d, ".critic/groups.json", json.dumps({"groups": []}))
+    out = run(S / "critic_run.py", "next", cwd=d).stdout
+    assert "curmudgeon-dedup" not in out and "curmudgeon-verifier" in out, "after the groups tally the run goes on to verification: " + out
+    ids = [p.stem for p in (d / ".critic/verify").glob("*.json")]; assert len(ids) == 2, ids
+    write(d, ".critic/verdicts/1.json", json.dumps([{"id": ids[0], "verdict": "unclear", "reproduced": "no"}]))
+    st = run(S / "critic_run.py", "status", cwd=d).stdout
+    assert ": verify" in st and ids[1] in st and ids[0] not in st, "half the verdicts is not done: " + st
+    write(d, ".critic/verdicts/2.json", json.dumps([{"id": ids[1], "verdict": "unclear", "reproduced": "no"}]))
+    out = run(S / "critic_run.py", "next", cwd=d).stdout
+    assert "write the teardown" in out and "9.json" not in out, out
+    run(S / "critic_ledger.py", "start", "review", "--tier", "full", cwd=d)
+    assert not (d / ".critic/verdicts").exists() and list((d / ".critic/history").glob("run-*/verdicts/1.json")), "a new run starts with no verdicts; the old ones are archived"
 
 if __name__ == "__main__":
     shutil.rmtree(TMP, ignore_errors=True)

@@ -23,7 +23,7 @@ import json, os, pathlib, re, subprocess, sys, urllib.parse
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 from critic_findings import IMPACTS, log_run, redact_secrets, refuse_linked_state
 
-ROOT = pathlib.Path(os.environ.get("CRITIC_ROOT", os.getcwd())).resolve(); D = ROOT / ".critic"; OUT = D / "outside"
+ROOT = pathlib.Path(os.environ.get("CRITIC_ROOT") or re.sub(r"[\\/]\.critic[\\/]scratch[\\/][A-Za-z0-9_-]{1,64}[\\/]payload(?:[\\/].*)?$", "", os.getcwd()) or os.getcwd()).resolve(); D = ROOT / ".critic"; OUT = D / "outside"
 MAX_BYTES, MAX_FINDINGS = 1_000_000, 200
 FIELDS = ("impact", "category", "file", "line", "quote", "title", "evidence", "failing_case", "verified", "remediation")
 

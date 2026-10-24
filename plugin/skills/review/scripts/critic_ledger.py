@@ -34,7 +34,7 @@ import hashlib, json, os, pathlib, re, shutil, sys, time
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 from critic_findings import log_run, norm_code, read_jsonl, refuse_linked_state, tokens
 
-ROOT = pathlib.Path(os.environ.get("CRITIC_ROOT", os.getcwd())).resolve(); D = ROOT / ".critic"; F = D / "ledger.json"
+ROOT = pathlib.Path(os.environ.get("CRITIC_ROOT") or re.sub(r"[\\/]\.critic[\\/]scratch[\\/][A-Za-z0-9_-]{1,64}[\\/]payload(?:[\\/].*)?$", "", os.getcwd()) or os.getcwd()).resolve(); D = ROOT / ".critic"; F = D / "ledger.json"
 SCORES = ("Critical", "High", "Medium", "Low"); STATES = ("open", "fixed", "deferred", "wontfix", "dismissed")
 REASONS = ("impossible", "conflicts", "worse"); DISMISS = ("false-positive", "out-of-scope", "redundant", "intended", "preference")
 CLAIMS = ("targeted", "no-new-defect", "behaviour-unchanged")
@@ -196,6 +196,11 @@ def main(a):
         if sc.is_dir() and not sc.is_symlink():
             for pl in sc.glob("*/payload"):  # an agent's copy of the project (hooks/workspace.py) left by a stop that never ran: a copy, never history
                 if pl.is_dir() and not pl.is_symlink() and not pl.parent.is_symlink(): shutil.rmtree(pl, ignore_errors=True)
+        vd_ = D / "verdicts"  # the last run's verifier answers: never applied to this run (critic_run.py), kept for audit
+        if vd_.is_dir() and not vd_.is_symlink() and any(vd_.iterdir()):
+            dest = D / "history" / f"run-{L['run'] - 1}" / "verdicts"; k = 2
+            while dest.exists(): dest = D / "history" / f"run-{L['run'] - 1}-{k}" / "verdicts"; k += 1
+            dest.parent.mkdir(parents=True, exist_ok=True); os.replace(vd_, dest)
         if sc.is_dir() and not sc.is_symlink() and any(sc.iterdir()):
             dest = D / "history" / f"run-{L['run'] - 1}" / "scratch"; k = 2
             while dest.exists(): dest = D / "history" / f"run-{L['run'] - 1}-{k}" / "scratch"; k += 1
