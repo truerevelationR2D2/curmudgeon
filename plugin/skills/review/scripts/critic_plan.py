@@ -26,6 +26,7 @@ def is_document(f):
     lens claims, or a .txt named like build input, is not a document."""
     p = pathlib.PurePosixPath(f.replace("\\", "/"))
     if p.suffix.lower() not in DOCS: return False
+    if any(x.lower() in ("requirements", "constraints") for x in p.parts[:-1]): return False  # requirements/base.txt
     if scan_ci.wants_text(f) or scan_agentcfg.wants(f) or scan_migrations.wants(f) or scan_tests.is_test_file(f): return False
     return not re.fullmatch(r"(?i)(?:cmakelists|requirements[\w.-]*|constraints[\w.-]*|robots|llms|runtime|\.?python-version|.*\.(?:in|cmake))\.txt", p.name)
 

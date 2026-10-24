@@ -22,13 +22,15 @@ Only blocked and unavailable make a run DEGRADED. A false positive recorded with
 `critic_ledger.py fp RULE_ID WHERE "why"` suppresses only that rule at that exact place, and is listed, never hidden.
 
 Safety: the click probe never sends anything. Every non-GET request and every request to another origin is aborted
-and reported as "would have sent", controls named like destructive actions are not clicked, and pages that aren't
+and reported as "would have sent", WebSockets are never connected (not even to the page's own server), controls that
+look destructive by name, id, link, form action or title are not clicked, and pages that aren't
 on localhost or a file are refused unless .critic/scope.json lists the origin and the run carries --allow-live HOST
 (the owner's typed confirmation; scope.py), and then only GET, HEAD and OPTIONS, up to the target's request cap."""
 import argparse, fnmatch, json, os, pathlib, re, signal, subprocess, sys, time, urllib.parse
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import scan_secrets, scan_html, scan_graph, scan_deps, scan_rules_extra, scan_mutation, scan_ci, scan_agentcfg, scan_migrations, scan_reqs, scan_ops
 import scope as scope_file
+import safe_web
 from critic_findings import log_run, refuse_linked_state
 from scan_rules_extra import guarded as G
 
@@ -421,7 +423,7 @@ FOCUS_REST = r"""() => {
 }"""
 FOCUS_NOW = r"""() => { const e = document.activeElement; if (!e || !e.hasAttribute('data-critic-f')) return null;
   const s = getComputedStyle(e); return [e.getAttribute('data-critic-f'), [s.outlineStyle, s.outlineWidth, s.boxShadow, s.backgroundColor, s.borderColor, s.color, s.textDecorationLine].join('|')]; }"""
-CANDIDATES = "() => [...document.querySelectorAll('button, [role=button], [onclick], a[href], span, div, li')].filter(e => e.getBoundingClientRect().width > 0 && !(e.form && (e.type === 'submit' || e.getAttribute('type') === null && e.tagName === 'BUTTON') && !e.form.checkValidity()) && (e.matches('button,[role=button],[onclick]') || (getComputedStyle(e).cursor === 'pointer' && !e.closest('button,a')))).slice(0, 15).map((e, i) => { e.setAttribute('data-critic-i', i); return (e.getAttribute('aria-label') || e.textContent || e.id || '').trim().slice(0, 40); })"
+CANDIDATES = "() => [...document.querySelectorAll('button, [role=button], [onclick], a[href], span, div, li')].filter(e => e.getBoundingClientRect().width > 0 && !(e.form && (e.type === 'submit' || e.getAttribute('type') === null && e.tagName === 'BUTTON') && !e.form.checkValidity()) && (e.matches('button,[role=button],[onclick]') || (getComputedStyle(e).cursor === 'pointer' && !e.closest('button,a')))).slice(0, 15).map((e, i) => { e.setAttribute('data-critic-i', i); return [(e.getAttribute('aria-label') || e.textContent || e.id || '').trim().slice(0, 40), (" + safe_web.ATTRS_JS + ")(e)]; })"
 SIG = "() => document.body.innerText + '|' + document.querySelectorAll('*').length + '|' + location.href + '|' + [...document.querySelectorAll('[aria-expanded],[aria-pressed],dialog[open]')].map(e => (e.getAttribute('aria-expanded')||'') + (e.getAttribute('aria-pressed')||'') + e.open).join('')"
 
 OBSCURED_JS = r"""() => { const e = document.activeElement; if (!e || e === document.body) return null;
@@ -511,7 +513,7 @@ def runtime(page, src, root, out, axe_arg, interact, allow_live, baseline=None, 
                 return stats
             ctx = b.new_context(viewport={"width": 1360, "height": 900}, service_workers="block", accept_downloads=False, permissions=[]); ctx.route("**/*", guard_net)
             if hasattr(ctx, "route_web_socket"):
-                ctx.route_web_socket("**", lambda ws: ws.connect_to_server() if same_origin(ws.url.replace("ws", "http", 1)) else would_send.append(f"WebSocket {ws.url[:100]}"))  # not connected: what the page sends goes nowhere
+                ctx.route_web_socket("**", lambda ws: would_send.append(f"WebSocket {ws.url[:100]}"))  # never connected, not even to the page's own server: a socket can send anything, and the scan sends nothing
             pg = ctx.new_page(); errs = []
             pg.on("pageerror", lambda e: errs.append(str(e))); pg.on("console", lambda m: errs.append(m.text) if m.type == "error" else None)
             pg.on("dialog", lambda d: d.dismiss())
@@ -594,8 +596,8 @@ def runtime(page, src, root, out, axe_arg, interact, allow_live, baseline=None, 
             def interactive():
                 if not interact: state("interactive", NA, "skipped on request (--no-interact)"); return
                 names_ = pg.evaluate(CANDIDATES); clicked = skipped = 0
-                for i, name in enumerate(names_):
-                    if DESTRUCTIVE.search(name or ""): skipped += 1; continue
+                for i, (name, attrs) in enumerate(names_):
+                    if safe_web.looks_destructive(f"{name} {attrs}", DESTRUCTIVE): skipped += 1; continue  # its id, link, form action and title too, as in browse.py
                     p2 = ctx.new_page(); e2 = []; p2.on("pageerror", lambda e: e2.append(str(e))); p2.on("dialog", lambda d: d.dismiss())
                     try:
                         p2.goto(url, wait_until="load", timeout=15000); p2.wait_for_timeout(400); p2.evaluate(CANDIDATES)

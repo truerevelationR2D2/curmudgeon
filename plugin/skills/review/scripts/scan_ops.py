@@ -4,7 +4,7 @@ Kubernetes production checklists and the OWASP logging cheat sheet; no rule text
   ops-log-secret        WARN  a log or print call that passes a variable named like a password, secret, token, API key
                               or authorization header: it ends up in log files and log services. Not a name that only
                               describes one (auth_method, token_path, secret_backend), and not a value passed through
-                              mask(), redact(), obfuscate(), sanitize() or scrub().
+                              mask(), redact() or obfuscate() (sanitize() strips control characters, not secrets).
   ops-alert-no-runbook  WARN  a Prometheus alerting rule with no runbook_url (or runbook) annotation: whoever is paged
                               has nothing to follow.
   ops-runbook-missing   WARN  a runbook link that is a relative path to a file that doesn't exist (links are never
@@ -19,7 +19,7 @@ import yaml_lite
 SECRETISH = re.compile(r"(?i)^(?:.*_)?(pass(?:word|wd)?|secret|token|api_?key|apikey|auth(?:orization)?|credentials?|private_?key|session_?id|cookie)(?:_.*)?$")
 NOT_SECRET = re.compile(r"(?i)_(counts?|types?|len|length|policy|expiry|expires(_at)?|url|uri|endpoint|field|name|required|valid|ttl|lifetime|format|kind|prefix|index|idx|num|number|hint|label|min|max|strength|reset_at|hash(ed)?|digest|fingerprint|method|mode|backend|provider|scheme|file|path|dir|header_name|source|status|state|error)$|^(is|has|num|n|max|min)_")
 def secretish(name): return bool(SECRETISH.match(name)) and not NOT_SECRET.search(name)
-MASKER = re.compile(r"(?i)^_?(mask|redact|obfuscate|sanitize|sanitise|scrub|censor|hide|anonymi[sz]e)")  # mask(password) logs no secret
+MASKER = re.compile(r"(?i)^_?(?:mask|redact|obfuscate)(?:_?(?:secret|token|password|value|sensitive|key))?$")  # mask(password) logs no secret; sanitize() only strips control characters
 LOG_CALLS = {"debug", "info", "warning", "warn", "error", "exception", "critical", "log", "print"}
 PEDANTIC = {"ops-k8s-no-probes", "ops-k8s-no-limits"}
 
@@ -71,7 +71,7 @@ def scan_js(rel, text, emit):
         if not m: continue
         args = re.sub(r"'(?:\\.|[^'\\])*'|\"(?:\\.|[^\"\\])*\"", "''", m.group(1))  # strings are text, not variables
         args = re.sub(r"[A-Za-z_$][\w$.]*\s*\?[^:]*:", " ", args)  # x ? a : b tests x, it doesn't log it
-        args = re.sub(r"(?i)\b_?(?:mask|redact|obfuscate|saniti[sz]e|scrub|censor|anonymi[sz]e)\w*\s*\([^()]*\)", " ", args)  # mask(token) logs no secret
+        args = re.sub(r"(?i)\b_?(?:mask|redact|obfuscate)(?:_?(?:secret|token|password|value|sensitive|key))?\s*\([^()]*\)", " ", args)  # mask(token) logs no secret
         args = re.sub(r"!!?\s*[A-Za-z_$][\w$.]*|Boolean\([^)]*\)|[A-Za-z_$][\w$]*\.length\b|[A-Za-z_$][\w$]*\.slice\(\s*-\d+\s*\)", " ", args)
         args = re.sub(r"`(?:\\.|[^`\\])*`", lambda t: " ".join(re.findall(r"\$\{([^}]*)\}", t.group(0))), args)
         for ident in re.findall(r"[A-Za-z_$][\w$]*", args):

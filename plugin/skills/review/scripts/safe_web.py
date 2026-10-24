@@ -11,7 +11,7 @@ service workers and symlinks getting past the request-by-request guard). Two par
 
 The request-by-request guard stays on top of this for what it does well: refusing methods other than GET, HEAD and
 OPTIONS on the allowed origin, and logging what would have been sent."""
-import functools, http.server, os, pathlib, threading, urllib.parse
+import functools, http.server, os, pathlib, re, threading, urllib.parse
 
 DEAD_PROXY = "http://127.0.0.1:9"
 
@@ -36,6 +36,24 @@ def serve(folder):
 def host_port(url):
     u = urllib.parse.urlsplit(url)
     return f"{u.hostname}:{u.port or (443 if u.scheme == 'https' else 80)}"
+
+def words(text):
+    """camelCase, snake_case, kebab-case, digits and paths split into words, so deleteBtn, btnDelete1, XMLDelete,
+    delete_account and /api/remove_user all read as words to the destructive-control check (browse.py and the scan)."""
+    t = re.sub(r"([a-z0-9])([A-Z])", r"\1 \2", str(text))
+    t = re.sub(r"([A-Z]+)([A-Z][a-z])", r"\1 \2", t)
+    t = re.sub(r"([A-Za-z])(\d)|(\d)([A-Za-z])", lambda m: f"{m.group(1) or m.group(3)} {m.group(2) or m.group(4)}", t)
+    return re.sub(r"[_\-/.#?=&]+", " ", t).lower()
+
+def looks_destructive(text, rx):
+    """rx (a destructive-word pattern) found in text split into words, or at the start of an all-capitals run such as
+    DELETEALL, where no case change marks the word boundary."""
+    if rx.search(words(text)): return True
+    for tok in re.findall(r"[A-Z]{6,}", str(text)):
+        if any(rx.search(tok[:i].lower() + " " + tok[i:].lower()) for i in range(3, len(tok) - 1)): return True
+    return False
+
+ATTRS_JS = "el => [el.id || '', el.getAttribute('href') || '', el.form ? (el.form.getAttribute('action') || '') : '', el.getAttribute('formaction') || '', el.getAttribute('title') || '', el.getAttribute('data-action') || ''].join(' ')"
 
 def launch_args(allowed):
     """Chromium switches that send everything except the allowed host:port origins to a proxy that doesn't exist."""

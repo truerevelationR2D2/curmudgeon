@@ -2281,6 +2281,104 @@ def _(d):
     assert "timeout" in (rd / "report.md").read_text()
     src = (DM).read_text(); assert "TimeoutExpired" in src, "a run that times out is recorded, not fatal"
 
+@test("5.0 card-E verify round: a comment inside a multi-line flow list is refused, never read as an empty item")
+def _(d):
+    Y = _mod("yaml_lite")
+    for bad in ["branches: [main, # primary\n  release]\n", "k: {a: 1, # c\n  b: 2}\n"]:
+        try: Y.loads(bad); assert False, f"must refuse: {bad!r}"
+        except Y.Refused as e: assert "comment" in e.why, e.why
+    assert Y.plain(Y.loads("k: [a, b] # c\n")) == {"k": ["a", "b"]} and Y.plain(Y.loads("k: [a,\n  'b # not a comment']\n")) == {"k": ["a", "b # not a comment"]}
+    C = _mod("scan_ci")
+    wf = "on: [push, # deploys\n  pull_request_target]\njobs:\n  a:\n    runs-on: x\n    steps:\n      - uses: actions/checkout@v4\n        with:\n          ref: ${{ github.event.pull_request.head.sha }}\n"
+    assert [r for _, r, _ in _rows(C.scan_workflow, ".github/workflows/x.yml", wf)] == ["ci-not-checked"]
+
+@test("5.0 card-E verify round: agent config still FAILs a literal token in AUTH_HEADER or after Bearer under any key name")
+def _(d):
+    A = _mod("scan_agentcfg")
+    def rules(env): return [r for _, r, _ in _rows(A.scan, ".mcp.json", json.dumps({"mcpServers": {"x": {"command": "x", "env": env}}}, indent=1), E, {})]
+    assert "agent-literal-credential" in rules({"AUTH_HEADER": "Bearer Zq9xEXAMPLEEXAMPLE7731"})
+    assert "agent-literal-credential" in rules({"TOKEN_TYPE": "Bearer Zq9xEXAMPLEEXAMPLE7731"})
+    assert "agent-literal-credential" not in rules({"AUTH_URL": "https://auth.example.invalid/token"})
+
+@test("5.0 card-E verify round: CI skips only real true/false expressions, honours parentheses on uploads, and a negated guard is no guard")
+def _(d):
+    C = _mod("scan_ci")
+    def rules(text): return [r for _, r, _ in _rows(C.scan_workflow, ".github/workflows/x.yml", text)]
+    inj = "on: issue_comment\npermissions: {{}}\njobs:\n  l:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo \"${{{{ {e} }}}}\"\n"
+    assert "ci-injection" in rules(inj.format(e="startsWith(github.event.comment.body, '/run') && github.event.comment.body || toJSON(github.event.issue.number)"))
+    assert "ci-injection" not in rules(inj.format(e="startsWith(github.event.comment.body, '/run')"))
+    up = "on: push\npermissions: read-all\njobs:\n  b:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/checkout@v4\n      - uses: actions/upload-artifact@v4\n        with:\n          name: site\n          path: \"**\"\n"
+    assert "ci-upload-checkout" not in rules(up)
+    neg = ("on: pull_request_target\npermissions: {}\njobs:\n  a:\n    if: ${{ !(github.event.pull_request.head.repo.full_name == github.repository) }}\n    runs-on: x\n    steps:\n"
+           "      - uses: actions/checkout@v4\n        with:\n          ref: ${{ github.event.pull_request.head.sha }}\n")
+    assert "ci-pwn-request" in rules(neg)
+    assert "ci-pwn-request" in rules(neg.replace("${{ !(github.event.pull_request.head.repo.full_name == github.repository) }}", "github.event.pull_request.head.repo.full_name != github.repository"))
+
+@test("5.0 card-E verify round: migrations count only tables upgrade() creates, keep a column named serial, and read quotes in ADD clauses")
+def _(d):
+    M = _mod("scan_migrations")
+    al = "def upgrade():\n    op.execute('CREATE INDEX ix ON orders (customer_id)')\n\ndef downgrade():\n    op.create_table('orders')\n"
+    assert "mig-index-blocking" in [r for _, r, _ in _rows(M.scan, "alembic/versions/2.py", al)]
+    assert "mig-not-null-no-default" in [r for _, r, _ in _rows(M.scan, "m.sql", "ALTER TABLE devices ADD COLUMN serial text NOT NULL;")]
+    assert "mig-not-null-no-default" in [r for _, r, _ in _rows(M.scan, "m.sql", "ALTER TABLE t ADD COLUMN a text DEFAULT '(', ADD COLUMN b int NOT NULL;")]
+
+@test("5.0 card-E verify round: only mask, redact and obfuscate count as masking a logged secret")
+def _(d):
+    O = _mod("scan_ops")
+    py = "import logging\nlog = logging.getLogger()\nlog.info('t=%s', sanitize(token))\nlog.info('p=%s', sanitize_html(password))\nlog.info('k=%s', mask(api_key))\nlog.info('k=%s', redact_secret(api_key))\n"
+    assert [w for _, r, w in _rows(O.scan, "app/y.py", py, E, str(d)) if r == "ops-log-secret"] == ["app/y.py:3", "app/y.py:4"]
+
+@test("5.0 card-E verify round: the plan treats a .txt under requirements/ as build input")
+def _(d):
+    (d / ".critic").mkdir(); write(d, "requirements/base.txt", "flask==3.0\n")
+    (d / ".critic/change-map.json").write_text(json.dumps({"files": ["requirements/base.txt"], "tier": "full"}))
+    p = json.loads(run(S / "critic_plan.py", "--json", cwd=d).stdout); assert p["tier"] == "full" and "CI and supply chain" in p["lenses"], p
+
+@test("5.0 card-E verify round: the death-match scorer uses a plant's line range when it has one, counts uncited clean-twin claims as unlabelled, keeps claims before Fix:, and calls an empty reply no output")
+def _(d):
+    DM = HERE.parent / "eval" / "deathmatch.py"; rd = d / "runs"
+    def put(arm, task, name, text): (rd / arm / task).mkdir(parents=True, exist_ok=True); (rd / arm / task / name).write_text(text)
+    put("plain-claude", "suite1-clean", "output.md", "- store.js: save() drops the last note when two notes share a title; this is a bug.\n- app.js:12 a race in search.\n")
+    put("plain-claude", "suite1", "output.md", "1. **app.js:42** Fix: escape note titles (titles are injected unescaped, XSS)\n")
+    put("code-review", "suite1", "output.md", "")
+    run(DM, "score", str(rd), cwd=d)
+    res = {(x["arm"], x["task"]): x for x in json.loads((rd / "results.json").read_text())}
+    c = res[("plain-claude", "suite1-clean")]; assert c["false_alarms"] == 1 and c["unlabelled"] == 1 and c["precision"] is None, c
+    assert res[("plain-claude", "suite1")]["found"] == 1, "the claim before Fix: on the same line still counts"
+    assert res[("code-review", "suite1")]["error"] == "no output", res[("code-review", "suite1")]
+    sys.path.insert(0, str(HERE.parent / "eval")); import importlib; dm = importlib.import_module("deathmatch")
+    plants = {"X": {"file": "app.js", "lines": [40, 44], "any": ["escap"]}}
+    hit = lambda loc, claim: dm.match_plants(plants, [{"loc": loc, "claim": claim}])
+    assert not hit("app.js:120", "app.js:120 Pressing Escape doesn't clear the filter") and hit("app.js:42", "app.js:42 titles not escaped")
+
+@test("5.0 card-E verify round: Enter typed as a newline is still Enter, same-origin sockets need consent, ids like delete1 count, labelled inputs work, and clicks are real")
+def _(d):
+    try: import playwright  # noqa: F401
+    except ImportError: return
+    B = S / "browse.py"
+    write(d, "f/index.html", "<!doctype html><title>t</title><form action='delete-account.html'><input id=n aria-label=Name><button>Go</button></form>")
+    write(d, "f/delete-account.html", "<!doctype html><title>DELETED</title>")
+    run(B, "start", "f/index.html", "--session", "s/a.json", cwd=d); run(B, "step", "press", "Tab", "--session", "s/a.json", cwd=d)
+    for k in ("\n", "\r", "Shift+Enter"):
+        r = run(B, "step", "press", k, "--session", "s/a.json", cwd=d); assert "DELETED" not in r.stdout and "refused" in r.stdout, (repr(k), r.stdout)
+    write(d, "w/index.html", "<!doctype html><title>t</title><script>try{const w=new WebSocket('ws://'+location.host+'/ws');w.onopen=()=>w.send('x');}catch(e){}</script>")
+    r = run(B, "start", "w/index.html", "--session", "s/w.json", cwd=d); assert "same origin: a socket can send data" in r.stdout, r.stdout
+    write(d, "x/index.html", "<!doctype html><title>t</title><button id=delete1 onclick=\"document.title='DELETED'\">Go</button><button id=XMLDelete>Go</button><button id=DELETEALL>Go</button>")
+    r = run(B, "start", "x/index.html", "--session", "s/x.json", cwd=d); assert r.stdout.count("[destructive: never clicked]") == 3, r.stdout
+    write(d, "l/index.html", "<!doctype html><title>L</title><label for=a>I agree to the terms</label><input type=checkbox id=a onchange=\"document.title='AGREED'\">"
+          "<button id=m onmousedown=\"document.title=event.isTrusted?'TRUSTED':'UNTRUSTED'\">Press</button>"
+          "<div style='position:relative'><button id=c onclick=\"document.title='COVERED-CLICKED'\">Under</button><div style='position:absolute;inset:0;background:#fff'></div></div>")
+    run(B, "start", "l/index.html", "--session", "s/l.json", cwd=d)
+    r = run(B, "step", "check", "e1", "--session", "s/l.json", cwd=d); assert "title: AGREED" in r.stdout, r.stdout
+    r = run(B, "step", "click", "e2", "--session", "s/l.json", cwd=d); assert "title: TRUSTED" in r.stdout, r.stdout
+    r = run(B, "step", "click", "e3", "--session", "s/l.json", cwd=d); assert "COVERED-CLICKED" not in r.stdout and "covers it" in r.stdout, r.stdout
+    s_ = json.loads((d / "s/l.json").read_text()); s_["requests_total"] = -100000; (d / "s/l.json").write_text(json.dumps(s_))
+    r = run(B, "step", "snapshot", "--session", "s/l.json", cwd=d); assert r.returncode == 2 and "edited by hand" in r.stdout, r.stdout
+    write(d, "p/index.html", "<!doctype html><title>t</title><button id=delete_account onclick=\"location='wipe.html?all=1'\">Go</button>")
+    run(S / "critic_scan.py", "p", "--root", ".", "--page", "p/index.html", cwd=d)
+    note = json.loads((d / ".critic/scan/report.json").read_text())["checks"].get("interactive", {}).get("note", "")
+    assert "1 skipped as destructive" in note, note
+
 if __name__ == "__main__":
     shutil.rmtree(TMP, ignore_errors=True)
     bad = [r for r in RESULTS if not r[1]]

@@ -18,7 +18,14 @@ GET, HEAD and OPTIONS to that same origin; data: and blob:. Refused or blocked b
 sent": any other origin (a redirect to one is aborted), any other method, service workers, downloads, permissions
 (camera, location, clipboard ...), file:// navigation, and clicks on controls that look destructive (delete, remove,
 pay, buy, send, transfer, withdraw, unsubscribe ...), judged by the element's name, id, link and form action, not
-only its label. Dialogs are dismissed.
+only its label (deleteBtn, btn_delete1, DELETEALL count), and Enter or Space (also typed as a newline) on a focused
+destructive control or form. WebSockets: never to another origin; to the page's own origin only with --allow-writes,
+since a socket can send anything. Dialogs are dismissed.
+
+A click or check is checked inside the page right before it happens (the control must still be the one in the
+snapshot, not destructive, and not covered by another element), then done as a real mouse click at its centre, and
+the page checks the control again as the click lands, cancelling it if it changed. A hand-edited session file (a bad
+request count) is refused.
 
 Asks first (the skill asks the user, with this one line, and passes the flag only after a yes):
   --allow-writes   "The page will send data to your local server, which can change its state." Lets POST, PUT, PATCH
@@ -37,15 +44,16 @@ import scope as scope_file
 ROOT = pathlib.Path(os.environ.get("CRITIC_ROOT") or re.sub(r"[\\/]\.critic[\\/]scratch(?:[\\/].*)?$", "", os.getcwd()) or os.getcwd()).resolve()
 DESTRUCTIVE = re.compile(r"(?i)\b(delete|remove|destroy|erase|drop|purge|wipe|pay|purchase|buy|checkout|place\s*order|send|transfer|withdraw|submit\s*payment|unsubscribe|cancel\s*(subscription|account)|close\s*account|deactivate)\b")
 VERBS = {"goto": 1, "click": 1, "type": 2, "select": 2, "check": 1, "press": 1, "wait": 1, "snapshot": 0}
-LABEL_JS = """() => {
+NAME_JS = """el => { const lab = el.id ? document.querySelector('label[for="' + CSS.escape(el.id) + '"]') : null;
+  return (el.getAttribute('aria-label') || (lab && lab.innerText) || el.innerText || el.value || el.getAttribute('placeholder') || el.getAttribute('title') || el.getAttribute('name') || '').trim().slice(0, 80); }"""
+LABEL_JS = """() => { const nameOf = """ + NAME_JS + """;
   const sel = 'a[href],button,input,select,textarea,[role=button],[role=link],[role=checkbox],[role=tab],[role=menuitem],[onclick],[tabindex]:not([tabindex="-1"])';
   const out = []; let n = 0;
   for (const el of document.querySelectorAll(sel)) {
     const r = el.getBoundingClientRect(); const st = getComputedStyle(el);
     if (r.width === 0 || r.height === 0 || st.visibility === 'hidden' || st.display === 'none') continue;
     n += 1; el.setAttribute('data-curm-ref', 'e' + n);
-    const lab = el.id ? document.querySelector('label[for="' + CSS.escape(el.id) + '"]') : null;
-    const name = (el.getAttribute('aria-label') || (lab && lab.innerText) || el.innerText || el.value || el.getAttribute('placeholder') || el.getAttribute('title') || el.getAttribute('name') || '').trim().slice(0, 80);
+    const name = nameOf(el);
     const form = el.form ? (el.form.getAttribute('action') || '') : '';
     out.push({ref: 'e' + n, tag: el.tagName.toLowerCase(), role: el.getAttribute('role') || el.type || '', name, id: el.id || '', href: el.getAttribute('href') || '', action: form,
               formaction: el.getAttribute('formaction') || '', title: el.getAttribute('title') || '', data_action: el.getAttribute('data-action') || '', disabled: !!el.disabled});
@@ -57,31 +65,39 @@ def load(p):
     try: return json.loads(pathlib.Path(p).read_text())
     except (OSError, ValueError): return None
 
-def _words(text):
-    """camelCase, snake_case, kebab-case and paths split into words, so deleteBtn and /api/remove_user read as words."""
-    t = re.sub(r"([a-z0-9])([A-Z])", r"\1 \2", str(text))
-    return re.sub(r"[_\-/.#?=&]+", " ", t)
-
 def destructive(c):
-    return bool(DESTRUCTIVE.search(_words(" ".join(str(c.get(k, "")) for k in ("name", "id", "href", "action", "formaction", "title", "data_action")))))
+    import safe_web
+    return safe_web.looks_destructive(" ".join(str(c.get(k, "")) for k in ("name", "id", "href", "action", "formaction", "title", "data_action")), DESTRUCTIVE)
 
-ACT_JS = """([ref, verb, expect, pattern]) => {
+ACT_JS = """([ref, verb, expect, pattern]) => { const nameOf = """ + NAME_JS + """;
   const el = document.querySelector('[data-curm-ref="' + ref + '"]');
   if (!el) return {error: 'gone'};
-  const form = el.form;
-  const now = {name: (el.getAttribute('aria-label') || el.innerText || el.value || el.getAttribute('placeholder') || el.getAttribute('title') || el.getAttribute('name') || '').trim().slice(0, 80),
-               id: el.id || '', href: el.getAttribute('href') || '', action: form ? (form.getAttribute('action') || '') : '', formaction: el.getAttribute('formaction') || '',
-               title: el.getAttribute('title') || '', data_action: el.getAttribute('data-action') || ''};
-  for (const k of ['name', 'id', 'href', 'action']) if ((expect[k] || '') !== (now[k] || '')) return {error: 'changed', field: k, now};
-  const words = s => String(s).replace(/([a-z0-9])([A-Z])/g, '$1 $2').replace(/[_\\-\\/.#?=&]+/g, ' ');
-  if (new RegExp(pattern, 'i').test(words(Object.values(now).join(' ')))) return {error: 'destructive', now};
-  if (verb === 'click') el.click(); else if (verb === 'check') { if (!el.checked) el.click(); }
-  return {ok: true};
+  const fields = e => { const f = e.form; return {name: nameOf(e), id: e.id || '', href: e.getAttribute('href') || '', action: f ? (f.getAttribute('action') || '') : '',
+               formaction: e.getAttribute('formaction') || '', title: e.getAttribute('title') || '', data_action: e.getAttribute('data-action') || ''}; };
+  const words = s => String(s).replace(/([a-z0-9])([A-Z])/g, '$1 $2').replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2').replace(/([A-Za-z])(\\d)|(\\d)([A-Za-z])/g, (m, a, b, c, d) => (a || c) + ' ' + (b || d)).replace(/[_\\-\\/.#?=&]+/g, ' ');
+  const bad = now => { for (const k of ['name', 'id', 'href', 'action']) if ((expect[k] || '') !== (now[k] || '')) return 'changed:' + k;
+                       return new RegExp(pattern, 'i').test(words(Object.values(now).join(' '))) ? 'destructive' : ''; };
+  const why = bad(fields(el)); if (why) return {error: why.split(':')[0], field: why.split(':')[1]};
+  if (verb !== 'click' && verb !== 'check') return {ok: true};
+  if (verb === 'check' && el.checked) return {ok: true, skip: true};
+  el.scrollIntoView({block: 'center', inline: 'center'});
+  const r = el.getBoundingClientRect(); const x = r.left + r.width / 2, y = r.top + r.height / 2;
+  const top = document.elementFromPoint(x, y);
+  const lab = el.id ? document.querySelector('label[for="' + CSS.escape(el.id) + '"]') : null;
+  if (!top || !(top === el || el.contains(top) || (lab && (top === lab || lab.contains(top))))) return {error: 'covered'};
+  window.__curmBlocked = false;
+  window.addEventListener('click', ev => { const t = ev.target;  // checked again at the moment of the real click
+    if (!(t === el || el.contains(t) || (lab && lab.contains(t))) || bad(fields(el))) { ev.preventDefault(); ev.stopImmediatePropagation(); window.__curmBlocked = true; } }, {capture: true, once: true});
+  return {ok: true, x, y};
 }"""
 FOCUS_JS = """() => { const el = document.activeElement; if (!el || el === document.body) return {};
   const f = el.form; return {name: (el.getAttribute('aria-label') || el.innerText || el.value || '').trim().slice(0, 80), id: el.id || '', href: el.getAttribute('href') || '',
   action: f ? (f.getAttribute('action') || '') : '', formaction: el.getAttribute('formaction') || '', title: el.getAttribute('title') || '',
   submit: f ? [...f.querySelectorAll('button,input[type=submit]')].map(b => (b.innerText || b.value || b.id || '') + ' ' + (b.getAttribute('formaction') || '')).join(' ') : ''}; }"""
+
+def destructive_focus(f):
+    import safe_web
+    return safe_web.looks_destructive(" ".join(str(v) for v in f.values()), DESTRUCTIVE)
 
 def replay(sess, shot_dir):
     from playwright.sync_api import sync_playwright
@@ -110,8 +126,10 @@ def replay(sess, shot_dir):
         if rq.method not in ("GET", "HEAD", "OPTIONS"): evidence["wrote"] = True
         return route.continue_()
     def ws_guard(ws):
-        if same(ws.url.replace("ws://", "http://", 1).replace("wss://", "https://", 1)): ws.connect_to_server()
-        else: evidence["would_have_sent"].append(f"WebSocket {redact(ws.url)}")  # never connected to its server: what the page sends goes nowhere
+        own_origin = same(ws.url.replace("ws://", "http://", 1).replace("wss://", "https://", 1))
+        if own_origin and sess.get("allow_writes") and not live:  # a socket can send anything, so it is a write: consent, never live
+            evidence["sent"] += 1; evidence["wrote"] = True; ws.connect_to_server()
+        else: evidence["would_have_sent"].append(f"WebSocket {redact(ws.url)}" + (" (same origin: a socket can send data, so it needs --allow-writes)" if own_origin and not live else ""))  # never connected: what the page sends goes nowhere
     with sync_playwright() as pw:
         b = pw.chromium.launch(args=safe_web.launch_args(allowed))  # the boundary: nothing but the page's own origin can be reached
         ctx = b.new_context(viewport={"width": 1280, "height": 860}, service_workers="block", accept_downloads=False, permissions=[])
@@ -137,19 +155,29 @@ def replay(sess, shot_dir):
                     c = next((x for x in controls if x["ref"] == args[0]), None)
                     if not c: evidence["refused"] = f"{verb} {args[0]}: no such control on the page now (take a fresh snapshot)"; break
                     if destructive(c): evidence["refused"] = f"{verb} {args[0]}: '{c['name']}' looks destructive (delete, pay, send ...); it is never used"; break
-                    if verb in ("click", "check"):  # checked and done in one step inside the page, so the page can't swap the control in between
-                        r = pg.evaluate(ACT_JS, [args[0], verb, c, pattern])
-                        if r.get("error"): evidence["refused"] = f"{verb} {args[0]}: " + {"gone": "the control is gone", "changed": f"the control changed since the snapshot ({r.get('field')})", "destructive": "it now looks destructive"}.get(r["error"], r["error"]); break
+                    r = pg.evaluate(ACT_JS, [args[0], verb, c, pattern])  # checked inside the page right before acting
+                    if r.get("error"): evidence["refused"] = f"{verb} {args[0]}: " + {"gone": "the control is gone", "changed": f"the control changed since the snapshot ({r.get('field')})", "destructive": "it now looks destructive",
+                                                                                     "covered": "another element covers it, so a user couldn't click it (that is evidence: look at what covers it)"}.get(r["error"], r["error"]); break
+                    if verb in ("click", "check"):
+                        if not r.get("skip"):
+                            pg.mouse.click(r["x"], r["y"])  # a real, trusted click at the control's centre; the page re-checks the control as the click lands
+                            try: blocked = pg.evaluate("() => window.__curmBlocked === true")
+                            except Exception: blocked = False  # the click navigated away, so it wasn't cancelled (a cancelled click starts no navigation)
+                            if blocked: evidence["refused"] = f"{verb} {args[0]}: the control changed as it was clicked; the click was cancelled"; break
                     else:
                         loc = pg.locator(f"[data-curm-ref='{args[0]}']")
                         if verb == "type": loc.fill(args[1], timeout=5000)
                         else: loc.select_option(args[1], timeout=5000)
                 elif verb == "press":
-                    if args[0] in ("Enter", "NumpadEnter", " ", "Space") and DESTRUCTIVE.search(_words(" ".join(str(v) for v in pg.evaluate(FOCUS_JS).values()))):
+                    key = args[0]; last = key.rsplit("+", 1)[-1] if len(key) > 1 else key
+                    activates = last in ("Enter", "NumpadEnter", " ", "Space") or "\n" in key or "\r" in key  # Playwright reads \n and \r as Enter
+                    if activates and destructive_focus(pg.evaluate(FOCUS_JS)):
                         evidence["refused"] = f"press {args[0]}: the focused control or its form looks destructive"; break
                     pg.keyboard.press(args[0])
                 elif verb == "wait": pg.wait_for_timeout(min(int(args[0]), 10000))
                 pg.wait_for_timeout(300)
+                try: pg.wait_for_load_state("load", timeout=5000)  # a click or key that navigates finishes before the next look
+                except Exception: pass
                 if not same(pg.url): evidence["refused"] = f"the page left its origin (now {redact(pg.url)}); stopped"; break
                 controls = pg.evaluate(LABEL_JS)
             evidence["url"] = redact(pg.url); evidence["title"] = pg.title()[:120]; evidence["controls"] = controls[:200]
@@ -215,6 +243,8 @@ def main(argv):
     sess = load(sp)
     if not sess: sys.exit("browse: no session; run browse.py start first")
     if a.cmd == "show": print(json.dumps(sess, indent=1)); return 0
+    rt = sess.get("requests_total", 0)
+    if type(rt) is not int or rt < 0 or not isinstance(sess.get("steps"), list): print("refused: the session file was edited by hand (its request count or steps aren't valid); start a new session"); return 2
     ok, live, why = check(sess["page"], sess.get("confirmed_host"), sess.get("allow_writes"))  # the file is never trusted on its own
     if not ok: print(f"refused: {why}"); return 2
     sess["live_target"] = live

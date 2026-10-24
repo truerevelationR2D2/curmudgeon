@@ -21,7 +21,12 @@ DOLLAR = re.compile(r"\$[A-Za-z_]*\$")
 def _add_clauses(rest):
     """The ADD ... clauses of an ALTER TABLE, split on commas outside parentheses, so numeric(12,2) stays whole."""
     parts, depth, cur = [], 0, []
+    q = None
     for c in rest:
+        if q:
+            if c == q: q = None
+            cur.append(c); continue
+        if c in "'\"": q = c; cur.append(c); continue
         if c == "(": depth += 1
         elif c == ")": depth = max(0, depth - 1)
         if c == "," and depth == 0: parts.append("".join(cur)); cur = []; continue
@@ -82,7 +87,7 @@ def check_sql(rel, sql, emit, first_line=1, created=None):
         table = m.group(1).strip('"').lower().split(".")[-1]; rest = m.group(2)
         if table in created: continue
         for col in _add_clauses(rest):
-            if re.search(r"(?i)\bnot\s+null\b", col) and not re.search(r"(?i)\bdefault\b|\bgenerated\b|\b(?:small|big)?serial\d?\b", col) and not re.match(r"(?i)add\s+constraint", col):
+            if re.search(r"(?i)\bnot\s+null\b", col) and not re.search(r"(?i)\bdefault\b|\bgenerated\b", col) and not re.match(r"(?i)add\s+(?:column\s+(?:if\s+not\s+exists\s+)?)?(?!column\b)[\w\"]+\s+(?:small|big)?serial\d?\b", col) and not re.match(r"(?i)add\s+constraint", col):
                 emit("WARN", "mig-not-null-no-default", "release", f"{rel}:{ln}", f"a NOT NULL column with no DEFAULT is added to {table}: it fails if the table has rows (add it nullable or with a default, backfill, then set NOT NULL)", f[:160])
         if re.search(r"(?i)add\s+constraint\s+\S+\s+(foreign\s+key|check)\b", rest) and not re.search(r"(?i)\bnot\s+valid\b", rest):
             emit("WARN", "mig-constraint-validate", "release", f"{rel}:{ln}", f"a constraint is added to {table} without NOT VALID: the whole table is checked under a lock (add NOT VALID, then VALIDATE CONSTRAINT separately)", f[:160])
@@ -104,7 +109,9 @@ def check_python(rel, text, emit):
     try: tree = ast.parse(text)
     except (SyntaxError, ValueError): return
     created = set()
-    for node in ast.walk(tree):  # tables this migration creates: an index on them blocks nobody
+    forward = [n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef) and n.name in ("upgrade", "forwards")]
+    scope_nodes = [x for f in forward for x in ast.walk(f)] if forward else [x for x in ast.walk(tree) if not (isinstance(x, ast.FunctionDef) and x.name in ("downgrade", "backwards"))]
+    for node in scope_nodes:  # tables this migration creates going forward (never downgrade()): an index on them blocks nobody
         if isinstance(node, ast.Call):
             name = (node.func.attr if isinstance(node.func, ast.Attribute) else getattr(node.func, "id", ""))
             if name == "create_table" and node.args and _str(node.args[0]): created.add(_str(node.args[0]).lower())

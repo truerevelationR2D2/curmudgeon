@@ -63,10 +63,10 @@ SAME_REPO_GUARD = re.compile(r"github\.event\.workflow_run\.event\s*==\s*'push'|
 
 def _same_repo_only(*conds):
     """An if: that lets only this repository's own commits through (a push, or a head repository equal to this one),
-    joined with && only, so no || can open it again."""
+    joined with && only, so no || can open it again, and not negated (!)."""
     for c in conds:
         c = str(c or "")
-        if SAME_REPO_GUARD.search(c) and "||" not in c: return True
+        if SAME_REPO_GUARD.search(c) and "||" not in c and not re.search(r"!(?!=)", c): return True  # no || and no negation
     return False
 
 def _upload_takes_hidden(uses, w):
@@ -78,7 +78,7 @@ def _upload_takes_hidden(uses, w):
     major, minor = int(m.group(1)), m.group(2)
     return major < 4 or major == 4 and minor is not None and int(minor) < 4
 
-BOOLEAN_EXPR = re.compile(r"\s*!?\s*(?:startsWith|endsWith|contains)\s*\(.*\)\s*|[^|&]*(?:==|!=|<=|>=)[^|&]*", re.S)
+BOOLEAN_EXPR = re.compile(r"\s*!?\s*(?:startsWith|endsWith|contains)\s*\([^|&]*\)\s*|[^|&]*(?:==|!=|<=|>=)[^|&]*", re.S)
 
 def triggers(doc):
     on = doc.get("on", doc.get(True, ""))
@@ -139,7 +139,7 @@ def scan_workflow(rel, text, emit, lock_text=""):
                 elif u.startswith("actions/upload-artifact@") and checkout_keeps_creds:
                     w = st.get("with") if isinstance(st.get("with"), dict) else {}
                     path = str(w.get("path", "")).strip()
-                    if _upload_takes_hidden(u, w) and path in (".", "./", "*", "**", "${{ github.workspace }}") or path.startswith(("./**", "**")):
+                    if _upload_takes_hidden(u, w) and (path in (".", "./", "*", "**", "${{ github.workspace }}") or path.startswith(("./**", "**"))):
                         emit("WARN", "ci-upload-checkout", "supply-chain", f"{rel}:{uses.line}", "the whole workspace is uploaded after a checkout that kept its credentials: the token in .git/config ships in the artifact (set persist-credentials: false, or upload only the build output)", raw[uses.line - 1])
                 if not u.startswith(("./", "docker://")) and "@" in u:
                     owner = u.split("/", 1)[0]; ref = u.rsplit("@", 1)[1]
@@ -203,4 +203,4 @@ def is_workflow(rel):
 
 def wants_text(rel):
     p = pathlib.PurePosixPath(rel.replace("\\", "/"))
-    return p.suffix in (".sh", ".bash") or p.name.startswith("Dockerfile") or p.name.endswith(".dockerfile") or re.fullmatch(r"requirements[\w.-]*\.(txt|in)", p.name) is not None
+    return p.suffix in (".sh", ".bash") or p.name.startswith("Dockerfile") or p.name.endswith(".dockerfile") or re.fullmatch(r"requirements[\w.-]*\.(txt|in)", p.name) is not None or (p.suffix in (".txt", ".in") and any(x in ("requirements", "constraints") for x in p.parts[:-1]))

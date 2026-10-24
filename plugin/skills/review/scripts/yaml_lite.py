@@ -20,6 +20,9 @@ and it was measured again on 24 Oct 2026 after the fixes:
   Kubernetes files among them were used to close gaps, so they are not held out.
 - 75,000 generated documents (the reviewer's fuzzer, three seeds): 0 read differently, 0 crashes. The only inputs read
   here that PyYAML rejects hold a tab inside a plain value, which YAML 1.2 allows.
+The verify round then found one more case the fuzzer never builds: a comment inside a [ ] or { } that continues on the
+next line dropped the next item (`[main, # primary` / `release]`). It is now refused. Generated tests can miss a
+shape, so a "0 read differently" figure holds only for the shapes measured.
 The script tests pin the behaviour with plugin/tests/yaml/*.yml and their expected output, so no PyYAML is needed to
 run them."""
 import re
@@ -136,7 +139,7 @@ def _flow(text, line):
 
 def _bracket_depth(t, st):
     """Track [ ] and { } depth across the lines of a flow collection, outside quotes and comments, so the collection is
-    parsed once when it closes (st = [depth, quote, previous non-space character]); linear in the text."""
+    parsed once when it closes (st = [depth, quote, previous non-space character, a comment seen]); linear in the text."""
     i, n = 0, len(t)
     while i < n:
         c = t[i]
@@ -147,7 +150,7 @@ def _bracket_depth(t, st):
         elif st[1] == '"':
             if c == "\\": i += 2; continue
             if c == '"': st[1] = None
-        elif c == "#" and (i == 0 or t[i - 1] in " \t"): break
+        elif c == "#" and (i == 0 or t[i - 1] in " \t"): st[3] = True; break
         elif c in "'\"" and st[2] in "[{,:": st[1] = c
         elif c in "[{": st[0] += 1
         elif c in "]}": st[0] -= 1
@@ -248,8 +251,9 @@ def loads(text):
             return _s("", n)
         if r[0] in "|>": return block_scalar(r, ind, n)
         if r[0] in "[{":
-            text = r; st = [0, None, "["]; _bracket_depth(r, st)
+            text = r; st = [0, None, "[", False]; _bracket_depth(r, st)
             while True:
+                if st[3] and st[0] > 0: raise Refused(n, "a comment inside a [ ] or { } that continues on the next line (not read, so as not to guess)")
                 if st[0] <= 0 or pos[0] >= len(lines) or lines[pos[0]][0] < ind or lines[pos[0]][0] == ind and lines[pos[0]][1][:1] not in "]}":
                     try: v, _ = _flow(text, n); return v
                     except Refused as e:

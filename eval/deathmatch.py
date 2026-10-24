@@ -17,12 +17,14 @@ runs only if the tool is already installed, and is scored only on the tasks it c
 One scorer for every arm: the output is split into finding blocks (Curmudgeon's findings.jsonl rows when present;
 otherwise list items and headed sections of the reply), and every block has the same two parts for every arm: where
 it points (file:line and any quoted code) and what it claims (file:line, title and failing case; in a free-form reply,
-the item with its Fix:/Remediation: text removed). A plant is credited only when its file is where the block points and
-its pattern is in the claim, never in fix advice (each block credits one plant, each plant once). On a clean twin a
-block that cites a file:line, or that someone labelled false, is a false alarm; a heading or a "no issues" line is not.
-Other blocks are UNLABELLED until someone labels them in RUN_DIR/labels.json ({"<arm>/<task>/<block n>":
-"real"|"false"}), and precision is NOT MEASURED while any are unlabelled: nothing is guessed. A run that failed, timed
-out or wrote nothing is shown with its error and scored NOT MEASURED, never as a clean result. Cost, tokens and wall
+the item without a Fix:/Remediation: line). A plant is credited only when the block points at it (its file, and, when
+the answer key gives them, a line in its "lines" range or its "quote") and its pattern is in the claim, never in fix
+advice; each block credits one plant, each plant once. Keys without "lines" match on file and pattern only, so a loose
+pattern can over-credit (`escap` matching "Escape key"); adding "lines" to every plant is decision 28.
+On a clean twin a block that cites a file:line, or that someone labelled false, is a false alarm. Every other block,
+there and on the planted suites, is UNLABELLED until someone labels it in RUN_DIR/labels.json ({"<arm>/<task>/<block
+n>": "real"|"false"}), and precision is NOT MEASURED while any are unlabelled: nothing is guessed. A run that failed,
+timed out or wrote nothing is shown with its error and scored NOT MEASURED, never as a clean result. Cost, tokens and wall
 time come from Claude Code's own JSON result. Results: RUN_DIR/results.json and RUN_DIR/report.md."""
 import json, os, pathlib, re, shutil, subprocess, sys, tempfile, time
 
@@ -50,7 +52,7 @@ def blocks_from(text):
     return keep
 
 CITES = re.compile(r"[\w./-]+\.\w+:\d+")
-FIX = re.compile(r"(?im)(?:^\s*(?:[-*+]\s*)?|\s)(?:\*\*)?(?:suggested\s+fix|fix(?:ed)?|remediation|recommendation|solution|to fix|how to fix|mitigation)(?:\*\*)?\s*:.*$")
+FIX = re.compile(r"(?im)^\s*(?:[-*+]\s+|\d+[.)]\s+)?(?:\*\*)?(?:suggested\s+fix|fix(?:ed)?|remediation|recommendation|solution|to fix|how to fix|mitigation)(?:\*\*)?\s*:.*$")
 
 def blocks_for(arm_dir):
     """[{"loc": where the block points, "claim": what it says is wrong}], the same two parts for every arm; None when
@@ -64,21 +66,38 @@ def blocks_for(arm_dir):
             out.append({"loc": f"{at} {r.get('quote', '')}", "claim": f"{at} {r.get('title', '')}. {r.get('failing_case', '')}"})
         return out
     md = arm_dir / "output.md"
-    if not md.exists(): return None
+    if not md.exists() or not md.read_text().strip(): return None
     return [{"loc": b, "claim": FIX.sub("", b)} for b in blocks_from(md.read_text())]
 
-def score_task(task, blocks, labels, prefix):
-    if task.get("clean"):
-        fa = [i for i, b in enumerate(blocks) if labels.get(f"{prefix}/{i}") == "false" or (CITES.search(b["loc"]) and labels.get(f"{prefix}/{i}") != "real")]
-        return {"false_alarms": len(fa), "blocks": len(blocks)}
-    key = json.loads((HERE / task["key"]).read_text())
-    plants = key.get("planted") and {p["id"]: {"file": p["where"].split(":")[0], "any": [re.escape(p["rule"])]} for p in key["planted"]} or key
+def _points_at(k, loc):
+    """True when the block points where the plant is: its file, and (when the key gives one) a line within 3 of the
+    plant's line range, or the plant's quoted code."""
+    if k.get("file") and k["file"].lower() not in loc.lower(): return False
+    if not k.get("lines"): return True
+    a, b = k["lines"]
+    lines = [int(n) for n in re.findall(re.escape(k.get("file") or "") + r":(\d+)", loc, re.I)] if k.get("file") else [int(n) for n in re.findall(r":(\d+)", loc)]
+    return any(a - 3 <= n <= b + 3 for n in lines) or bool(k.get("quote") and k["quote"] in loc)
+
+def match_plants(plants, blocks):
+    """{plant id: block index}: each block credits one plant, each plant once. A plant is credited only when the block
+    points at it and the plant's pattern is in the block's claim."""
     hit, used = {}, set()
     for name, k in plants.items():
         for i, b in enumerate(blocks):
             if i in used: continue
-            if (not k.get("file") or k["file"].lower() in b["loc"].lower()) and any(re.search(p, b["claim"], re.I) for p in k["any"]):
+            if _points_at(k, b["loc"]) and any(re.search(p, b["claim"], re.I) for p in k["any"]):
                 hit[name] = i; used.add(i); break
+    return hit
+
+def score_task(task, blocks, labels, prefix):
+    if task.get("clean"):  # every claim here is false; one with no file:line still needs a person to say it is a claim
+        lab = lambda i: labels.get(f"{prefix}/{i}")
+        fa = [i for i, b in enumerate(blocks) if lab(i) == "false" or (CITES.search(b["loc"]) and lab(i) != "real")]
+        unl = [i for i, b in enumerate(blocks) if i not in fa and lab(i) is None]
+        return {"false_alarms": len(fa), "blocks": len(blocks), "unlabelled": len(unl), "precision": None if unl else (f"0 of {len(fa)}" if fa else "no findings")}
+    key = json.loads((HERE / task["key"]).read_text())
+    plants = key.get("planted") and {p["id"]: {"file": p["where"].split(":")[0], "any": [re.escape(p["rule"])]} for p in key["planted"]} or key
+    hit = match_plants(plants, blocks); used = set(hit.values())
     unl = [i for i in range(len(blocks)) if i not in used and f"{prefix}/{i}" not in labels]
     real = sum(1 for i in range(len(blocks)) if i not in used and labels.get(f"{prefix}/{i}") == "real")
     false = sum(1 for i in range(len(blocks)) if i not in used and labels.get(f"{prefix}/{i}") == "false")

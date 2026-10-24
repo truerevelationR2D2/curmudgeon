@@ -10,7 +10,8 @@ claude_desktop_config.json, read as JSON (a file that isn't valid JSON is report
   agent-literal-credential  FAIL  a literal credential in a server's env or headers (a key named like token, key, secret,
                                   password or auth, or an Authorization header, holding a value instead of ${VAR},
                                   ${env:X} or ${input:id}, alone or after Bearer). A key ending in _MODE, _TYPE, _FILE,
-                                  _PATH, _URI and the like, a file path, and a URL with no user or password are not.
+                                  _PATH and the like (unless its value starts with Bearer, Basic or Token), a file path,
+                                  and a URL with no user or password are not.
   agent-download-run        WARN  a server started through a shell that downloads and runs code (curl or wget piped to a
                                   shell, or sh/bash -c with a download).
   agent-privileged-docker   WARN  a server run with docker --privileged, the host network, the Docker socket or the
@@ -40,7 +41,7 @@ def _line(raw, needle, start=0):
     return 1
 
 REF = r"\$\{?[A-Za-z_][A-Za-z0-9_]*\}?|\$\{(?:env|input|secret|config):[A-Za-z_][\w.-]*\}|\{\{\s*[\w.]+\s*\}\}|<[^>]+>"
-NOT_CREDENTIAL_KEY = re.compile(r"(?i)_(mode|type|kind|method|file|path|dir|uri|url|endpoint|host|port|scope|scopes|provider|header|name|enabled|timeout|region|version)$")
+NOT_CREDENTIAL_KEY = re.compile(r"(?i)_(mode|type|kind|method|file|path|dir|endpoint|host|port|scope|scopes|provider|name|enabled|timeout|region|version)$")
 
 def _is_reference(v):
     """An environment or input reference (${X}, ${env:X}, ${input:id}, {{x}}, <placeholder>), alone or after a scheme
@@ -89,7 +90,7 @@ def scan(rel, text, emit, seen_names):
             d = cfg.get(field)
             if not isinstance(d, dict): continue
             for k, v in d.items():
-                if (SECRET_KEY.search(k) and not NOT_CREDENTIAL_KEY.search(k) or k.lower() == "authorization") and isinstance(v, str) and not _is_reference(v) and not _not_a_secret_value(v) and len(v.strip()) >= 8:
+                if (SECRET_KEY.search(k) and (not NOT_CREDENTIAL_KEY.search(k) or re.match(r"(?i)\s*(bearer|basic|token)\s+\S", str(v))) or k.lower() == "authorization") and isinstance(v, str) and not _is_reference(v) and not _not_a_secret_value(v) and len(v.strip()) >= 8:
                     ln = _line(raw, json.dumps(k), start)
                     emit("FAIL", "agent-literal-credential", "agent-config", f"{rel}:{ln}", f"{name}: {field}.{k} holds a literal credential: reference an environment variable (${{{k.upper()}}}) and rotate this one", "(value redacted)")
         cmd = str(cfg.get("command") or ""); args = [str(a) for a in cfg.get("args") or []] if isinstance(cfg.get("args"), list) else []
