@@ -1247,6 +1247,24 @@ def _(d):
     rep = json.loads((d / ".critic/scan/report.json").read_text())
     assert rep["checks"]["mutation"]["state"] == "n/a" and "mutation" not in rep["degraded"], rep["checks"]["mutation"]
 
+@test("5.0 SC-20: every plugin eval case has a prompt and at least one grader, and every grader is a free one (no model judges a score)")
+def _(d):
+    import re as _re
+    E = HERE / "evals"; cases = [p for p in E.iterdir() if p.is_dir() and p.name not in ("results", "mocks")]
+    assert len(cases) >= 4, cases
+    for c in cases:
+        assert (c / "prompt.md").exists() or (c / "case.yaml").exists(), c.name
+        graders = list((c / "graders").glob("*.md"))
+        assert graders, f"{c.name} has no grader"
+        for g in graders:
+            fm = _re.match(r"---\n(.*?)\n---", g.read_text(), _re.S); assert fm, g
+            typ = _re.search(r"^type:\s*(\S+)", fm.group(1), _re.M).group(1)
+            assert typ in ("regex", "tool_used", "tool_order", "file_exists"), f"{c.name}/{g.name}: {typ} grader calls a model"
+        if (c / "case.yaml").exists():
+            y = (c / "case.yaml").read_text(); assert 'schema_version: "1.1"' in y and f"name: {c.name}" in y, c.name
+            m = _re.search(r"scaffold_script:\s*(\S+)", y)
+            if m: assert (c / m.group(1)).exists(), f"{c.name}: scaffold script missing"
+
 if __name__ == "__main__":
     bad = [r for r in RESULTS if not r[1]]
     print(f"\n{len(RESULTS) - len(bad)} of {len(RESULTS)} passed"); sys.exit(1 if bad else 0)

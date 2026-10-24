@@ -5,3 +5,4 @@ __pycache__/
 *.critic-mutation-backup
 !eval/fixture3/.critic/
 eval/.last-unmatched.json
+plugin/evals/results/
