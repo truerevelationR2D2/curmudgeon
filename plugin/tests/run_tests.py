@@ -2373,7 +2373,7 @@ def _(d):
     r = run(B, "step", "click", "e2", "--session", "s/l.json", cwd=d); assert "title: TRUSTED" in r.stdout, r.stdout
     r = run(B, "step", "click", "e3", "--session", "s/l.json", cwd=d); assert "COVERED-CLICKED" not in r.stdout and "covers it" in r.stdout, r.stdout
     s_ = json.loads((d / "s/l.json").read_text()); s_["requests_total"] = -100000; (d / "s/l.json").write_text(json.dumps(s_))
-    r = run(B, "step", "snapshot", "--session", "s/l.json", cwd=d); assert r.returncode == 2 and "edited by hand" in r.stdout, r.stdout
+    r = run(B, "step", "snapshot", "--session", "s/l.json", cwd=d); assert r.returncode == 2 and "signature" in r.stdout, r.stdout
     write(d, "p/index.html", "<!doctype html><title>t</title><button id=delete_account onclick=\"location='wipe.html?all=1'\">Go</button>")
     run(S / "critic_scan.py", "p", "--root", ".", "--page", "p/index.html", cwd=d)
     note = json.loads((d / ".critic/scan/report.json").read_text())["checks"].get("interactive", {}).get("note", "")
@@ -2417,6 +2417,43 @@ def _(d):
     write(d, "h/index.html", "<!doctype html><title>H</title><script>try{new WebSocket('ws://'+location.host+'/hmr')}catch(e){}</script><button onclick=\"document.title='CLICKED'\">Go on</button>")
     run(B, "start", "h/index.html", "--session", "s/h.json", "--allow-writes", cwd=d)
     r = run(B, "step", "click", "e1", "--session", "s/h.json", cwd=d); assert "sent data" not in r.stdout, "an idle socket is not a write: " + r.stdout
+
+@test("5.0 open item 7: a browser session is signed, a live target's request cap holds across sessions, and an earlier write is never replayed even if the record is forged")
+def _(d):
+    try: import playwright  # noqa: F401
+    except ImportError: return
+    import http.server as hs, threading
+    seen = []
+    class App(hs.BaseHTTPRequestHandler):
+        def log_message(self, *a): pass
+        def do_GET(self):
+            seen.append(f"GET {self.path}"); self.send_response(200); self.send_header("Content-Type", "text/html"); self.end_headers()
+            self.wfile.write(b"<!doctype html><title>L</title><script>fetch('/a');fetch('/b')</script><p>x</p>" if self.path in ("/", "/index.html") else b"ok")
+        def do_POST(self): seen.append(f"POST {self.path}"); self.send_response(200); self.end_headers(); self.wfile.write(b"ok")
+    app = hs.ThreadingHTTPServer(("127.0.0.1", 0), App); threading.Thread(target=app.serve_forever, daemon=True).start(); port = app.server_address[1]
+    B = S / "browse.py"; live = f"http://localhost.:{port}/"
+    write(d, ".critic/scope.json", json.dumps({"version": 1, "targets": [{"origin": f"http://localhost.:{port}", "max_requests": 5, "note": "test"}]}))
+    r = run(B, "start", live, "--session", "s/a.json", "--allow-live", "localhost.", cwd=d); assert "refused" not in r.stdout, r.stdout
+    time.sleep(0.3); n1 = len(seen)
+    r = run(B, "start", live, "--session", "s/b.json", "--allow-live", "localhost.", cwd=d)
+    time.sleep(0.3); assert len(seen) <= 5 and "request cap" in r.stdout, (seen, r.stdout)
+    assert not (d / ".critic/private/browse.key").read_text() in json.dumps(json.loads((d / "s/a.json").read_text())), "the key never goes into a session"
+    s_ = json.loads((d / "s/a.json").read_text()); s_["requests_total"] = 0; (d / "s/a.json").write_text(json.dumps(s_))
+    r = run(B, "step", "snapshot", "--session", "s/a.json", cwd=d); assert r.returncode == 2 and "signature" in r.stdout, r.stdout
+    seen.clear()
+    write(d, "w/index.html", "<!doctype html><title>W</title><button onclick=\"fetch('/save',{method:'POST',body:'x'}).catch(()=>{})\">Save draft</button>")
+    run(B, "start", "w/index.html", "--session", "s/w.json", "--allow-writes", cwd=d); run(B, "step", "click", "e1", "--session", "s/w.json", cwd=d)
+    forge = ("import json, os, sys; sys.path.insert(0, sys.argv[1]); os.environ['CRITIC_ROOT'] = sys.argv[2]; import browse; p = sys.argv[3]; "
+             "s = json.load(open(p)); s.pop('wrote_at', None); open(p, 'w').write(json.dumps(browse.sign(s)))")
+    subprocess.run([sys.executable, "-c", forge, str(S), str(d), str(d / "s/w.json")], cwd=d, check=True, env=dict(os.environ, CRITIC_ROOT=str(d)))
+    r = run(B, "step", "snapshot", "--session", "s/w.json", cwd=d)
+    assert r.returncode == 2 and "send it again" in r.stdout and "not sent again" in r.stdout, "even a validly signed record without wrote_at never re-sends: " + r.stdout
+    gs = subprocess.run([sys.executable, str(H / "guard_state.py")], input=json.dumps({"tool_name": "Write", "tool_input": {"file_path": str(d / ".critic/private/browse.key")}, "cwd": str(d)}), capture_output=True, text=True)
+    assert "deny" in gs.stdout, "agents can't write the key"
+    run(S / "critic_ledger.py", "start", "review", "--tier", "lite", cwd=d)
+    rg = run(H / "read_guard.py", cwd=d, stdin=json.dumps({"tool_name": "Read", "tool_input": {"file_path": str(d / ".critic/private/browse.key")}, "agent_type": "curmudgeon:curmudgeon-reviewer", "agent_id": "r1", "cwd": str(d)}))
+    assert "deny" in rg.stdout, "a reviewer can't read the key: " + rg.stdout
+    app.shutdown()
 
 if __name__ == "__main__":
     shutil.rmtree(TMP, ignore_errors=True)
