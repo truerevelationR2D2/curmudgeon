@@ -15,7 +15,9 @@ Each REVIEW is a teardown (.critic/last-review.md). When a .critic/findings.json
 findings are used; otherwise finding blocks are parsed from the markdown.
 
 Reported:
-  recall          planted defects found (each matched inside one finding that names the right file)
+  recall          planted defects found (each matched inside one finding that names the right file and points at one
+                  of the plant's places, the answer key's "at"; keymatch.py). A suite whose baseline was recorded before
+                  that rule is compared loosely (file and pattern), with the strict figure shown beside it
   precision       true findings / (true + labelled false alarms). Unlabelled unmatched findings are listed, not guessed
   decoy rate      suite 3: correct-but-suspicious code reported as a defect (should be 0)
   contract        the output contract, parsed
@@ -36,6 +38,8 @@ def _crash(t, v, tb):  # a crash must never look like a gate verdict: FAIL is 1,
     traceback.print_exception(t, v, tb); sys.stderr.flush(); sys.stdout.flush(); os._exit(4)
 sys.excepthook = _crash
 HERE = pathlib.Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE))
+import keymatch
 args = sys.argv[1:]
 def opt(name, default=None): return args[args.index(name) + 1] if name in args and args.index(name) + 1 < len(args) else default
 FLAGS_WITH_VALUE = {"--suite", "--refactored", "--baseline", "--clean", "--refutations", "--model", "--labeller", "--funnel", "--labels"}
@@ -56,6 +60,20 @@ def load(path):
     if rows:  # one block per structured finding: its fields joined, so matching sees the same words the teardown shows
         blocks = [" ".join(str(r.get(k, "")) for k in ("file", "line", "category", "title", "quote", "evidence", "failing_case", "remediation")) for r in rows]
     return text, rows, blocks
+
+def locs_of(rows, blocks):
+    """Where each finding points: file:line and its quote for a structured finding, the block's own text otherwise."""
+    return [f"{r.get('file', '')}:{r.get('line')} {r.get('quote', '')} {r.get('evidence', '')}" for r in rows] if rows else list(blocks)
+
+def strict_mode(suite_key):
+    """Decision 28: a finding credits a plant only when it points at one of the plant's places. A baseline recorded
+    before that (no "scoring": "strict") is compared the way it was scored, loosely, with the strict figure shown
+    beside it; --set-baseline always records strictly."""
+    if "--set-baseline" in args: return True
+    bfp = pathlib.Path(opt("--baseline", HERE / "baseline.json"))
+    try: b_ = json.loads(bfp.read_text()).get(suite_key) if bfp.exists() else None
+    except ValueError: b_ = None
+    return not b_ or b_.get("scoring") == "strict"
 
 def wilson(k, n, z=1.96):
     """95% Wilson score interval for k successes in n trials."""
@@ -121,11 +139,13 @@ def clean_counts(path):
     return {"fp": len(blocks_) - labs_.count("real"), "unlabelled": labs_.count("unlabelled"), "block": verdict_word(review) == "BLOCK",
             "labs": labs_, "chm": len(blocks_), "low": (sum(1 for r in rows if r.get("impact") == "Low") if rows else len(re.findall(r"IMPACT:\s*\**\s*Low", review)))}
 
-def match_key(key, blocks):
+def match_key(key, blocks, locs=None):
+    """locs given: strict (the finding must point at one of the plant's places, keymatch.py)."""
     hits, used = {}, set()
     for name, k in key.items():
         for bi, b in enumerate(blocks):
             if bi in used: continue  # one finding is credited to one planted defect, never several
+            if locs is not None and not keymatch.points_at(k, locs[bi]): continue
             if (not k["file"] or k["file"].lower() in b.lower()) and any(re.search(p, b, re.I) for p in k["any"]):
                 hits[name] = bi; used.add(bi); break
     return hits, used
@@ -181,7 +201,9 @@ def score_one(path, suite):
     keyf = HERE / ("answer_key.json" if suite == "1" else f"answer_key{suite}.json")
     if not keyf.exists(): print(f"score.py: no answer key for suite {suite}"); sys.exit(2)
     key = json.loads(keyf.read_text()); review, rows, blocks = load(path)
-    hits, used = match_key(key, blocks)
+    locs = locs_of(rows, blocks); strict = strict_mode(f"suite{suite}")
+    strict_hits, _ = match_key(key, blocks, locs); loose_hits, _ = match_key(key, blocks)
+    hits, used = match_key(key, blocks, locs if strict else None)
     decoys = json.loads((HERE / f"decoys{suite}.json").read_text()) if (HERE / f"decoys{suite}.json").exists() else {}
     decoy_hits, decoy_detail = [], []
     for name, d in decoys.items():
@@ -221,7 +243,7 @@ def score_one(path, suite):
     blocking = sum(1 for d in decoy_detail if d[1][1] in ("Critical", "High", "Medium"))
     return dict(path=path, key=key, hits=hits, by_area=by, decoy_hits=decoy_hits, decoy_detail=decoy_detail, unmatched=unmatched, labels=lab, precision=precision,
                 recall=len(hits) / len(key), contract=c, stated=stated, actual=actual, ids=ids, verdict=verdict, tp=tp, fp=fp,
-                impact_misses=impact_misses, decoy_blocking=blocking)
+                impact_misses=impact_misses, decoy_blocking=blocking, strict=strict, strict_hits=strict_hits, loose_hits=loose_hits)
 
 if "--funnel" in args:
     # Where each missed plant was lost (SC-15; idea from Kodus and Sashiko, rebuilt here): never raised, set aside by a
@@ -231,7 +253,7 @@ if "--funnel" in args:
     key = json.loads((HERE / ("answer_key.json" if suite == "1" else f"answer_key{suite}.json")).read_text())
     def blk(f): return " ".join(str(f.get(k, "")) for k in ("file", "line", "category", "title", "quote", "evidence", "failing_case", "remediation"))
     def jl(p): return [json.loads(x) for x in p.read_text().splitlines() if x.strip()] if p.is_file() else []
-    def hit(k, rows): return [r for r in rows if (not k["file"] or k["file"].lower() in blk(r).lower()) and any(re.search(x, blk(r), re.I) for x in k["any"])]
+    def hit(k, rows): return [r for r in rows if keymatch.points_at(k, f"{r.get('file', '')}:{r.get('line')} {r.get('quote', '')}") and (not k["file"] or k["file"].lower() in blk(r).lower()) and any(re.search(x, blk(r), re.I) for x in k["any"])]
     final = jl(C / "findings.jsonl")
     tally = json.loads((C / "tally.json").read_text()) if (C / "tally.json").is_file() else {}
     raised, aside = [], []
@@ -279,7 +301,7 @@ if "--selftest" in args:
         return str(dirp / "last-review.md")
     def plants(suite):
         key = json.loads((HERE / ("answer_key.json" if suite == "1" else f"answer_key{suite}.json")).read_text())
-        return [{"id": f"F-{i}", "file": k["file"] or "app.js", "line": i + 1, "category": "x", "impact": k.get("impact", "Medium"), "title": sample(k["any"])} for i, (n, k) in enumerate(key.items())]
+        return [{"id": f"F-{i}", "file": (k.get("at") or [[k["file"] or "app.js"]])[0][0] if not k["file"] else k["file"], "line": (k.get("at") or [[None, i + 1]])[0][1], "category": "x", "impact": k.get("impact", "Medium"), "title": sample(k["any"])} for i, (n, k) in enumerate(key.items())]
     checks = []
     with tempfile.TemporaryDirectory() as t:
         t = pathlib.Path(t); bl = t / "baseline.json"; lab = t / "labels.json"
@@ -352,7 +374,8 @@ if "--clean" in args:
     suite_key = f"clean{opt('--clean')}"
 else:
     suite = opt("--suite", "1"); res = [score_one(r, suite) for r in reviews]; r0 = res[0]
-    print(f"Recall: {rate(len(r0['hits']), len(r0['key']))} planted defects found")
+    print(f"Recall: {rate(len(r0['hits']), len(r0['key']))} planted defects found" + ("" if r0["strict"] else " (file and pattern only, as this suite's baseline was scored; re-baseline to switch)"))
+    print(f"  pointing at the planted lines: {len(r0['strict_hits'])} of {len(r0['key'])}; file and pattern only: {len(r0['loose_hits'])} of {len(r0['key'])}")
     for m in r0["key"]:
         if m not in r0["hits"]: print("  missed:", m)
     if r0["decoy_hits"] or (HERE / f"decoys{suite}.json").exists():
@@ -406,7 +429,7 @@ toks = [run_tokens(r) for r in reviews]
 if any(t is not None for t in toks): print("Tokens per run: " + ", ".join("unrecorded" if t is None else f"{t:,}" for t in toks))
 if "--set-baseline" in args:
     if leaks: print("refusing to set a baseline from a run that could see the answers"); sys.exit(3)
-    entry = dict(now, stamp=st)
+    entry = dict(now, stamp=st, scoring="strict")
     if "--clean" not in args and len(res) > 1: entry["runs"] = [{"precision_k": x["tp"], "precision_n": x["tp"] + x["fp"], "recall_k": len(x["hits"]), "recall_n": len(x["key"]),
                                                                "impact_misses": len(x["impact_misses"]), "decoy_blocking": x["decoy_blocking"]} for x in res]
     if any(t is not None for t in toks): entry["tokens"] = statistics.median([t for t in toks if t is not None])

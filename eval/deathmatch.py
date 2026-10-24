@@ -18,9 +18,9 @@ One scorer for every arm: the output is split into finding blocks (Curmudgeon's 
 otherwise list items and headed sections of the reply), and every block has the same two parts for every arm: where
 it points (file:line and any quoted code) and what it claims (file:line, title and failing case; in a free-form reply,
 the item without a Fix:/Remediation: line). A plant is credited only when the block points at it (its file, and, when
-the answer key gives them, a line in its "lines" range or its "quote") and its pattern is in the claim, never in fix
-advice; each block credits one plant, each plant once. Keys without "lines" match on file and pattern only, so a loose
-pattern can over-credit (`escap` matching "Escape key"); adding "lines" to every plant is decision 28.
+the answer key gives them, one of the places in its "at" list or its "quote"; keymatch.py, shared with score.py) and its
+pattern is in the claim, never in fix advice; each block credits one plant, each plant once. Every plant in the four
+answer keys has "at" (decision 28).
 On a clean twin a block that cites a file:line, or that someone labelled false, is a false alarm. Every other block,
 there and on the planted suites, is UNLABELLED until someone labels it in RUN_DIR/labels.json ({"<arm>/<task>/<block
 n>": "real"|"false"}), and precision is NOT MEASURED while any are unlabelled: nothing is guessed. A run that failed,
@@ -29,6 +29,8 @@ time come from Claude Code's own JSON result. Results: RUN_DIR/results.json and 
 import json, os, pathlib, re, shutil, subprocess, sys, tempfile, time
 
 HERE = pathlib.Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE))
+import keymatch
 PLUGIN = HERE.parent / "plugin"
 CFG = HERE / "deathmatch.json"
 
@@ -84,13 +86,10 @@ def blocks_for(arm_dir):
     return [{"loc": b, "claim": FIX_strip(b)} for b in blocks_from(md.read_text())]
 
 def _points_at(k, loc):
-    """True when the block points where the plant is: its file, and (when the key gives one) a line within 3 of the
-    plant's line range, or the plant's quoted code."""
+    """True when the block points where the plant is: its file, and (when the key gives "at") one of its places
+    (keymatch.py, shared with score.py)."""
     if k.get("file") and k["file"].lower() not in loc.lower(): return False
-    if not k.get("lines"): return True
-    a, b = k["lines"]
-    lines = [int(n) for n in re.findall(re.escape(k.get("file") or "") + r":(\d+)", loc, re.I)] if k.get("file") else [int(n) for n in re.findall(r":(\d+)", loc)]
-    return any(a - 3 <= n <= b + 3 for n in lines) or bool(k.get("quote") and k["quote"] in loc)
+    return keymatch.points_at(k, loc)
 
 def match_plants(plants, blocks):
     """{plant id: block index}: each block credits one plant, each plant once. A plant is credited only when the block
@@ -110,7 +109,7 @@ def score_task(task, blocks, labels, prefix):
         unl = [i for i, b in enumerate(blocks) if i not in fa and lab(i) is None]
         return {"false_alarms": len(fa), "blocks": len(blocks), "unlabelled": len(unl), "precision": None if unl else (f"0 of {len(fa)}" if fa else "no findings")}
     key = json.loads((HERE / task["key"]).read_text())
-    plants = key.get("planted") and {p["id"]: {"file": p["where"].split(":")[0], "any": [re.escape(p["rule"])]} for p in key["planted"]} or key
+    plants = key.get("planted") and {p["id"]: {"file": p["where"].rsplit(":", 1)[0], "any": [re.escape(p["rule"])], "at": [[p["where"].rsplit(":", 1)[0], int(p["where"].rsplit(":", 1)[1]), int(p["where"].rsplit(":", 1)[1])]]} for p in key["planted"]} or key
     hit = match_plants(plants, blocks); used = set(hit.values())
     unl = [i for i in range(len(blocks)) if i not in used and f"{prefix}/{i}" not in labels]
     real = sum(1 for i in range(len(blocks)) if i not in used and labels.get(f"{prefix}/{i}") == "real")

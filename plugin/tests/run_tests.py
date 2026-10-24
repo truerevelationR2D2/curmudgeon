@@ -2042,10 +2042,10 @@ def _(d):
     assert re.search(r"\d+ arm\(s\) x 7 task\(s\)", run(DM, "plan", cwd=d).stdout)
     key = json.loads((HERE.parent / "eval" / "answer_key4.json").read_text()); g2 = next(k for k in key if k.startswith("G2"))
     rd = d / "runs"; (rd / "plain-claude" / "suite4").mkdir(parents=True); (rd / "plain-claude" / "suite4-clean").mkdir(parents=True)
-    (rd / "plain-claude" / "suite4" / "output.md").write_text("Findings:\n\n1. guards.js:3 canVoid uses indexOf truthiness, so -1 passes and a viewer can void.\n2. app.js:9 the total is wrong for empty carts.\n")
+    (rd / "plain-claude" / "suite4" / "output.md").write_text("Findings:\n\n1. guards.js:10 canVoid uses indexOf truthiness, so -1 passes and a viewer can void.\n2. app.js:9 the total is wrong for empty carts.\n")
     (rd / "plain-claude" / "suite4-clean" / "output.md").write_text("- app.js:4 possible bug: the price may overflow.\n")
     (rd / "curmudgeon" / "suite4").mkdir(parents=True)
-    (rd / "curmudgeon" / "suite4" / "findings.jsonl").write_text(json.dumps({"file": "guards.js", "line": 3, "title": "viewer can void", "evidence": "indexOf returns -1 (truthy)"}) + "\n")
+    (rd / "curmudgeon" / "suite4" / "findings.jsonl").write_text(json.dumps({"file": "guards.js", "line": 10, "title": "viewer can void", "evidence": "indexOf returns -1 (truthy)"}) + "\n")
     out = run(DM, "score", str(rd), cwd=d).stdout
     res = {(x["arm"], x["task"]): x for x in json.loads((rd / "results.json").read_text())}
     p4 = res[("plain-claude", "suite4")]; assert p4["found"] >= 1 and p4["unlabelled"] == 1 and p4["precision"] is None, p4
@@ -2339,7 +2339,7 @@ def _(d):
     DM = HERE.parent / "eval" / "deathmatch.py"; rd = d / "runs"
     def put(arm, task, name, text): (rd / arm / task).mkdir(parents=True, exist_ok=True); (rd / arm / task / name).write_text(text)
     put("plain-claude", "suite1-clean", "output.md", "- store.js: save() drops the last note when two notes share a title; this is a bug.\n- app.js:12 a race in search.\n")
-    put("plain-claude", "suite1", "output.md", "1. **app.js:42** Fix: escape note titles (titles are injected unescaped, XSS)\n")
+    put("plain-claude", "suite1", "output.md", "1. **app.js:46** Fix: escape note titles (titles are injected unescaped, XSS)\n")
     put("code-review", "suite1", "output.md", "")
     run(DM, "score", str(rd), cwd=d)
     res = {(x["arm"], x["task"]): x for x in json.loads((rd / "results.json").read_text())}
@@ -2454,6 +2454,23 @@ def _(d):
     rg = run(H / "read_guard.py", cwd=d, stdin=json.dumps({"tool_name": "Read", "tool_input": {"file_path": str(d / ".critic/private/browse.key")}, "agent_type": "curmudgeon:curmudgeon-reviewer", "agent_id": "r1", "cwd": str(d)}))
     assert "deny" in rg.stdout, "a reviewer can't read the key: " + rg.stdout
     app.shutdown()
+
+@test("5.0 decision 28: every planted defect has its places, and score.py credits a finding only when it points at one (an old loose baseline is compared loosely)")
+def _(d):
+    for f in ("answer_key.json", "answer_key2.json", "answer_key3.json", "answer_key4.json"):
+        key = json.loads((HERE.parent / "eval" / f).read_text()); fx = HERE.parent / "eval" / ("fixture" if f == "answer_key.json" else "fixture" + f[10])
+        for name, k in key.items():
+            assert k.get("at"), (f, name)
+            for file_, a, b in k["at"]:
+                n = len((fx / file_).read_text().splitlines()); assert 1 <= a <= b <= n, (f, name, file_, a, b, n)
+    SC = HERE.parent / "eval" / "score.py"; (d / "r").mkdir()
+    (d / "r/last-review.md").write_text("# review\n## VERDICT\n**CONCERNS**\n")
+    (d / "r/findings.jsonl").write_text(json.dumps({"id": "F-1", "file": "app.js", "line": 120, "category": "ux", "impact": "Low", "title": "Pressing Escape does not clear the filter"}) + "\n")
+    out = subprocess.run([sys.executable, str(SC), str(d / "r/last-review.md"), "--suite", "1", "--baseline", str(d / "none.json"), "--labels", str(d / "l.json")], capture_output=True, text=True).stdout
+    assert "Recall: 0%" in out and "file and pattern only: 1 of 16" in out, out
+    (d / "old.json").write_text(json.dumps({"suite1": {"recall": 1.0, "precision": 0.96}}))
+    out = subprocess.run([sys.executable, str(SC), str(d / "r/last-review.md"), "--suite", "1", "--baseline", str(d / "old.json"), "--labels", str(d / "l.json")], capture_output=True, text=True).stdout
+    assert "as this suite's baseline was scored" in out and "pointing at the planted lines: 0 of 16" in out, out
 
 if __name__ == "__main__":
     shutil.rmtree(TMP, ignore_errors=True)
