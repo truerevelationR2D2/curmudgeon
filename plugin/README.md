@@ -180,7 +180,7 @@ Drop a JSON file of rules into your project's `.critic/rules/` (or, to contribut
 
 `python3 eval/lens.py eval/lensN.json` reproduces each row. The strict YAML reader was compared with PyYAML on 6,191 files and 75,000 generated documents: 0 read differently.
 
-Budgets for 5.0.0, measured with `claude plugin details` and `wc -w`: about 862 tokens added to every session (4.2.1: about 1,516); the review skill about 7.1k tokens when it runs (4.2.1: about 5.6k); 4,563 words of instructions a reviewer reads before any code (4.2.1: 3,333), most of the rise being the new lenses' rubric rows and the audit-mode fields.
+Budgets for 5.0.0, measured with `claude plugin details` and `wc -w`: about 862 tokens added to every session (4.2.1: about 1,516); the review skill about 7.1k tokens when it runs (4.2.1: about 5.6k); words of instructions a reviewer reads before any code, now only what the payload needs: 2,565 for a code change with no lens, 2,666 to 2,732 with one lens, 3,251 for an interface, 4,020 with everything (4.2.1: 3,333 for every payload; 5.0.0 before this change: 4,563).
 
 Measured on 18 October 2026 (version 4.0.0) with the eval kit in `eval/`. The notes app was a single-context review and fix; the orders dashboard used three blind reviewers. The release record doesn't say how many reviewers the decoy-app and clean-twin runs used. An independent model labelled every finding that didn't match a planted bug; it read and ran the code without seeing the answer keys. All numbers are as recorded in `eval/baseline.json`.
 

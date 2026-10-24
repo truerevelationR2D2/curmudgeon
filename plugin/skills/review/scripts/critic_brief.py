@@ -19,6 +19,7 @@ carries a compact change packet: each changed hunk with CONTEXT lines around it 
 as one line, a new file whole. Reviewers can still open whole files in their copy. Off by default, because a bug that
 spans hunks could be missed; Ryan's A/B run on the kit decides whether it becomes the default."""
 import json, os, pathlib, random, sys, re
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
 HERE = pathlib.Path(__file__).resolve().parent
 ROOT = pathlib.Path(os.environ.get("CRITIC_ROOT") or re.sub(r"[\\/]\.critic[\\/]scratch(?:[\\/].*)?$", "", os.getcwd()) or os.getcwd()).resolve(); D = ROOT / ".critic"
@@ -62,6 +63,22 @@ def packet(cm):
     text = "\n".join(out) + "\n"
     return text if len(text) <= PACKET_MAX else None
 
+UI_EXT = {".html", ".htm", ".jsx", ".tsx", ".vue", ".svelte", ".css", ".scss", ".less"}
+
+def reading_list(files):
+    """Only the references this payload needs (decision 31): the core rubric, the sandbox and the finding record always;
+    the design rubric and the AI-tells list for interface files; the lens rows the job plan picked."""
+    ui = any(pathlib.PurePosixPath(f).suffix.lower() in UI_EXT for f in files)
+    plan = load(D / "plan.json", None)
+    if isinstance(plan, dict) and isinstance(plan.get("lenses"), list): lenses = plan["lenses"]
+    else:
+        import critic_plan
+        lenses = critic_plan.lenses_for(files)
+    out = ["rubrics.md" + (" (both rubrics)" if ui else " (Rubric 1 and the rest; skip Rubric 2: design, no interface files here)"), "sandbox.md", "finding-record.md"]
+    if ui: out.append("ai-tells.md")
+    if lenses: out.append("lenses.md, only the sections " + ", ".join(f'"{x[0].upper() + x[1:]}"' for x in lenses))
+    return "; ".join(out) + "."
+
 def main(a):
     if a[:1] in (["-h"], ["--help"]): print(__doc__); return 0
     letters, intent = None, None
@@ -84,7 +101,7 @@ def main(a):
               "You are reviewing work by an unknown contractor. Follow your agent instructions; this brief only says what to review.", "",
               f"- Tier: {tier}",
               f"- Stated intent: {intent if intent else '(none stated; do not guess one)'}",
-              f"- References folder: {refs} (read rubrics.md, sandbox.md, ai-tells.md and output-contract.md)",
+              f"- References folder: {refs}. Read: " + reading_list(files),
               f"- Change map: {D / 'change-map.md'}",
               f"- Python syntax tree, to trace instead of guess (run from your workspace): python3 {HERE / 'ast_view.py'} FILE [LINE|START-END]"]
     if (D / "rules.md").is_file(): shared.append(f"- Project rules: {D / 'rules.md'} (apply only the rules whose paths match the payload)")

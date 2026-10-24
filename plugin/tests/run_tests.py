@@ -2472,6 +2472,22 @@ def _(d):
     out = subprocess.run([sys.executable, str(SC), str(d / "r/last-review.md"), "--suite", "1", "--baseline", str(d / "old.json"), "--labels", str(d / "l.json")], capture_output=True, text=True).stdout
     assert "as this suite's baseline was scored" in out and "pointing at the planted lines: 0 of 16" in out, out
 
+@test("5.0 decision 31: a brief names only the references the payload needs (no design rubric without interface files, only the picked lens sections)")
+def _(d):
+    def brief(files, extra=None):
+        write(d, ".critic/change-map.json", json.dumps({"files": files, "tier": "lite"})); (d / ".critic/plan.json").unlink(missing_ok=True)
+        if extra is not None: write(d, ".critic/plan.json", json.dumps({"lenses": extra}))
+        run(S / "critic_brief.py", cwd=d); return (d / ".critic/briefs/brief-A.md").read_text()
+    for f in ("src/a.py", ".github/workflows/ci.yml", "web/index.html"): write(d, f, "x\n")
+    b = brief(["src/a.py"]); assert "skip Rubric 2" in b and "ai-tells" not in b and "lenses.md" not in b and "output-contract" not in b, b
+    b = brief(["src/a.py", ".github/workflows/ci.yml"]); assert '"CI and supply chain"' in b and '"Operations"' not in b, b
+    b = brief(["web/index.html"]); assert "ai-tells.md" in b and "both rubrics" in b, b
+    b = brief(["src/a.py"], ["release and rollback"]); assert '"Release and rollback"' in b, "the job plan's lenses win when there is one"
+    refs = HERE / "skills/review/references"
+    for sec in re.findall(r'"([^"]+)"', brief(["src/a.py"], ["tests of the tests", "CI and supply chain", "agent and MCP configuration", "release and rollback", "requirements and intent", "operations"])):
+        assert f"## {sec}" in (refs / "lenses.md").read_text(), sec
+    rv = (HERE / "agents/curmudgeon-reviewer.md").read_text(); assert "references your brief names" in rv and "output-contract" not in rv
+
 if __name__ == "__main__":
     shutil.rmtree(TMP, ignore_errors=True)
     bad = [r for r in RESULTS if not r[1]]

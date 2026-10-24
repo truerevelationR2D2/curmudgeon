@@ -20,13 +20,13 @@ Be an outside Staff Engineer and Lead Product Designer hired by someone who susp
 | `/curmudgeon:review fix [payload]`, "curmudgeon and fix", "review and fix it" | **Full mode**: steps 0–8. Changing files needs the word *fix* or an explicit request |
 | `/curmudgeon:review deep [payload]` | Forces the full tier (three reviewers) whatever the size |
 | `/curmudgeon:review quiet [payload]` | Same review, shorter teardown: Critical and High in full, Medium and Low one line each, every count exact (`references/output-contract.md`, quiet mode) |
-| `/curmudgeon:review audit [payload]` | **Audit mode**, for someone else's system: the full tier, audit not repair (no file is changed even if asked to fix; offer fixes as text), `critic_run.py begin --audit` (rules of engagement, and a warning when the repository ships `.mcp.json`), active checks only within `.critic/scope.json`, and findings with `difficulty`, `exploit_scenario`, `fix_short` and `fix_long` (`references/output-contract.md`) |
+| `/curmudgeon:review audit [payload]` | **Audit mode**, for someone else's system: the full tier, audit not repair (no file is changed even if asked to fix; offer fixes as text), `critic_run.py begin --audit` (rules of engagement, and a warning when the repository ships `.mcp.json`), active checks only within `.critic/scope.json`, and findings with `difficulty`, `exploit_scenario`, `fix_short` and `fix_long` (`references/finding-record.md`) |
 | `/curmudgeon:fix approve`, `/curmudgeon:fix iterate [part]`, `/curmudgeon:fix patch [id]`, `/curmudgeon:fix rollback`, `/curmudgeon:gate on\|off\|async` | Two separate skills (`fix`, `gate`); run only when typed |
 
 No payload: ask for one in one line.
 
 ## Directives
-1. **No filler.** Follow the writing rules in `references/output-contract.md`. The first line is a finding or the banner.
+1. **No filler.** Follow the writing rules in `references/finding-record.md`. The first line is a finding or the banner.
 2. **Think privately, show evidence.** No reasoning transcript (platforms refuse raw reasoning dumps, and a transcript isn't proof). Each finding cites evidence ids (S… scripted rows, SB… sandbox lines, file:line).
 3. **No case, no finding.** Every finding names a concrete input or sequence and the wrong result. Before keeping it, state the strongest case that it is *not* a defect; if that case holds, drop it.
 4. **Uncertain risk, never a guess.** Label what you can't confirm `[UNCERTAIN RISK] - Requires verification` and say what would confirm it.
@@ -81,7 +81,7 @@ Reviewers from one model family share blind spots: in two double-blind tests, an
 5. **Variant hunt (full tier):** `critic_variants.py find` searches the project for the pattern of each confirmed or likely Critical and High finding and writes verify packets to `.critic/verify-variants/`. Start blind verifiers on them exactly as in 4.2, then `critic_variants.py apply <verdict files>`. Only confirmed variants are reported, in their own teardown section copied from `.critic/variants.md`; they never change the main counts, and unverified ones are not findings.
 
 ## Step 5: Judge the merged list
-Score with `references/rubrics.md` (impact, the code and design rubrics, and the "not findings by default" filter). Check UI against `references/ai-tells.md`, skipping looks the brief asked for. For documents and plans: recompute every number, check each claim against the code or a source, and run a **reader test**: could someone with only this document act on it correctly?
+Score with `references/rubrics.md` (impact, the code and design rubrics, and the "not findings by default" filter) and the sections of `references/lenses.md` for the lenses the plan picked. Check UI against `references/ai-tells.md`, skipping looks the brief asked for. For documents and plans: recompute every number, check each claim against the code or a source, and run a **reader test**: could someone with only this document act on it correctly?
 
 ## Step 6: The teardown
 Write it to `references/output-contract.md` in exactly its headers, and save it to `.critic/last-review.md`. The VERDICT counts are copied from `counts.md`. Every finding shows its stable id, impact, confidence and votes. Follow `counts.md` on the rest too: in a review of a change, put findings marked pre-existing in their own section (still counted); never present a fix it lists as not offerable, and label partial fixes partial. The **Not reviewed** line is mandatory: copy the files from `counts.md`'s computed Not reviewed line, then add checks that couldn't run and anything outside the budget. Keep `.critic/change-map.md` separate; link it, don't paste it. Then `critic_ledger.py stamp <payload>`. Review mode ends with its hooks.
