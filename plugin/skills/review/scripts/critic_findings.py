@@ -221,39 +221,61 @@ def redact_secrets(text):
 
 FINDING_TEXT = ("quote", "title", "evidence", "failing_case", "remediation", "note", "refutation", "reason", "why", "summary", "what")
 _NAMED_RULES = (REDACT_RULES[3], REDACT_RULES[4])  # NAME=value, "name": "value", --name value
+_EXTRA_NAMED = [(re.compile(r"(?i)(" + _NAME + r"[\"']?\s*(?::=|=>)\s*)" + _VAL), None),
+                (re.compile(r"(?i)(" + _NAME + r"[\"']?\s*[=:]\s*)(<[^<>\s]{4,}>)"), None)]  # NAME=<value> (a placeholder is masked too: harmless)  # Go password := "x"; PHP and Ruby 'password' => 'x'
 _TYPE_WORDS = {"none", "null", "nil", "true", "false", "str", "string", "int", "bytes", "bool", "boolean", "number", "any",
                "optional", "required", "undefined", "secretstr", "object", "dict", "list"}
+_CONFIG_OBJECTS = {"settings", "config", "conf", "cfg", "env", "environ", "os", "process", "self", "this", "app", "options", "opts",
+                   "args", "params", "secrets", "vault", "creds", "credentials", "keys", "props", "context", "ctx", "request", "req"}
 def _literal_value(label, value):
-    """True when the value after a secret-bearing name is written-out data (mask it), False when it is code that only
-    names one (keep it): `password = form.password`, `token = request.headers.get(...)`, `session.token == x`,
-    `api_key: str`. A CONSTANT_CASE name (DATABASE_PASSWORD=...) is env or config style, so its plain value is data."""
+    """True when the value after a secret-bearing name may be data (mask it), False only when it is clearly code that
+    names one (keep it). When in doubt it masks: a masked identifier costs a little readability, a leaked password
+    costs a rotation. Code that is kept: a call or subscript (get_password(), os.environ[...], params[:password]), an
+    attribute on a config object or one ending in the same name (settings.API_KEY, form.password), a comparison
+    (==), a variable reference ($DB_PASSWORD, ${DB_PASSWORD}), a type (str, Optional[str], None), or a multi-word
+    variable name (new_password, newPassword)."""
     v = value
     if v[:1] in "\"'": return len(v) > 2                       # a quoted literal; an empty one holds nothing
-    if v.startswith(("=", "$", "%(", "{{", "<")): return False   # ==, a variable reference or a placeholder
-    if re.search(r"[(\[{]", v): return False                   # a call, subscript or structure: code
-    m = re.search(r"[A-Za-z0-9_.-]+(?=[\"']?\s*[=:]|\s*$|=$)", label.lstrip("-"))
-    name = m.group(0) if m else label
-    env = any(c.isalpha() for c in name) and name == name.upper()
-    bare = v.rstrip(",;)")
-    if re.fullmatch(r"[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)+", bare): return env          # an attribute, unless NAME=value config
-    if re.fullmatch(r"[A-Za-z_$][\w$]*", bare):
-        if bare.lower() in _TYPE_WORDS: return False
-        return env or any(c.isdigit() for c in bare)                                  # a variable name vs hunter2
+    if v.startswith("="): return False                          # ==
+    bare = v.rstrip(",;")
+    if re.fullmatch(r"\$\{?[A-Z_][A-Z0-9_]*\}?", bare): return False   # a reference to an environment variable
+    if re.fullmatch(r"[A-Za-z_$][A-Za-z_$]*(?:\.[A-Za-z_$][\w$]*)*[(\[][\w$.:]*,?", bare): return False   # a call or subscript cut at a quote or space: get(, HTTPBasicAuth(user,
+    m = re.fullmatch(r"([A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*)(\(.*\)|\[.*\])((?:\.[A-Za-z_$][\w$]*(?:\(\))?)*)\)*", bare)
+    if m and re.fullmatch(r"[\w$.:'\"\s,]*", m.group(2)[1:-1]): return False   # a whole call or subscript: get(x), uuid4().hex
+    name = (re.search(r"[A-Za-z0-9_.-]+(?=[\"']?\s*[=:]|\s*$|=$)", label.lstrip("-")) or re.search(r"\w+", label) or [label])[0]
+    words = lambda t: {w for w in re.split(r"[^a-z0-9]+", re.sub(r"([a-z])([A-Z])", r"\1_\2", t).lower()) if w}
+    if re.fullmatch(r"[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)+", bare.rstrip(")")):   # an attribute path
+        head, last = bare.split(".")[0], bare.rstrip(")").split(".")[-1]
+        return not (head.lower() in _CONFIG_OBJECTS or words(last) & words(name))
+    if re.fullmatch(r"[A-Za-z_$][\w$]*", bare.rstrip(")")):
+        b = bare.rstrip(")")
+        if b.lower() in _TYPE_WORDS or b.lower() in {"input", "getpass", "password", "secret", "token"}: return False
+        parts = [x for x in re.split(r"_+|(?<=[a-z0-9])(?=[A-Z])", b) if x]
+        if b[0].islower() and len(parts) >= 2 and all(re.fullmatch(r"[A-Za-z]{3,}\d?", x) and _pronounceable(re.sub(r"\d", "", x)) and _VOWEL.search(x) for x in parts):
+            return False                                        # new_password, newPassword: a multi-word variable name
+        if words(b) & words(name) and not re.search(r"\d", b): return False   # token = user_token style reuse of the name
+        return True
     return True
 
 _KEY_TOKEN = re.compile(r"(?<![A-Za-z0-9_+/=-])[A-Za-z0-9_+/=-]{20,}(?![A-Za-z0-9_+/=-])")
 _PIECE = re.compile(r"[A-Z]+(?![a-z])|[A-Z]?[a-z]+|\d+")
 _VOWEL = re.compile(r"[aeiouyAEIOUY]")
 _UUID = re.compile(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")
-_HASH_CONTEXT = re.compile(r"(?i)(?:commit|sha\d*|rev|revision|hash|digest|checksum|tree|blob|ref)\W{0,3}$")
+_HASH_CONTEXT = re.compile(r"(?i)(?:(?:commit|sha\d*|rev|revision|hash|digest|checksum|tree|blob|ref|checkout|in|at|from|pick|revert|reset|show|diff|bisect)\W{0,3}|@)$")
 def _entropy(t):
     import math
     return -sum(c / len(t) * math.log2(c / len(t)) for c in (t.count(ch) for ch in set(t)))
+def _pronounceable(run):
+    """A letter run reads as a word or a common abbreviation: short (xml, cgi, utf), or holding a vowel with no
+    consonant cluster longer than four (scripts, length, request). Long random letter runs almost always break this."""
+    lr = run.lower()
+    if len(lr) <= 4: return True
+    return any(c in "aeiouy" for c in lr) and max(len(x) for x in re.split(r"[aeiouy]+", lr)) <= 4
 def _wordy(tok):
     """True when a long token reads as words: snake_case, kebab-case, CONSTANT_CASE, camelCase, a path or a number, as
-    names, test names, file paths and constants do. A random key rarely does: its letter runs are short, mixed-case and
-    often have no vowel. Tuned on random keys (alphanumeric, hex, base64) against every 20+ character token in Python's
-    standard library: about 0.1% of those are masked."""
+    names, test names, file paths and constants do. A random key doesn't: its letters and digits keep alternating, and
+    its letter runs are short or unpronounceable. Tuned on random keys of eight kinds against every 20+ character token
+    in Python's standard library."""
     tok = _UUID.sub("-", tok)  # a uuid is an id, not a key
     letters = sum(c.isalpha() for c in tok)
     if letters < 3: return True
@@ -261,14 +283,14 @@ def _wordy(tok):
     good = 0
     for seg in re.split(r"[/_+=.-]+", tok):
         if not seg: continue
-        if seg.upper() == seg:  # CONSTANT_CASE
-            good += sum(len(r) for r in re.findall(r"[A-Z]{2,}", seg) if _VOWEL.search(r) or len(r) <= 5); continue
-        if seg.lower() == seg and sum(c.isalpha() for c in seg) <= 5:  # a short word or abbreviation: is, fmt, gnu, x86
-            good += sum(c.isalpha() for c in seg); continue
-        for p in _PIECE.findall(seg):
+        flips = sum(1 for x, y in zip(seg, seg[1:]) if x.isdigit() != y.isdigit())
+        if len(seg) >= 10 and flips >= 4 and flips / len(seg) > 0.2: continue  # letters and digits alternating: random
+        if seg.upper() == seg or seg.lower() == seg:  # one case: CONSTANT_CASE, snake or a plain word
+            good += sum(len(x) for x in re.findall(r"[A-Za-z]+", seg) if _pronounceable(x)); continue
+        for p in _PIECE.findall(seg):  # camelCase pieces
             if p.isdigit(): continue
-            if (p.islower() or (p[0].isupper() and p[1:].islower())) and len(p) >= 3 and _VOWEL.search(p): good += len(p)
-            elif p.isupper() and 2 <= len(p) <= 8: good += len(p)
+            if p.isupper(): good += len(p) if 2 <= len(p) <= 8 else 0
+            elif len(p) >= 3 and _VOWEL.search(p) and _pronounceable(p): good += len(p)
     return good / letters >= 0.75
 def _keylike(tok, before):
     if "[redacted]" in tok: return False
@@ -281,9 +303,12 @@ def redact_finding_text(text):
     """Mask secrets in a finding's words before they are stored, without mangling ordinary code or prose. Masks every
     provider key shape and quoted credential the secret scan knows (scan_secrets); every log rule (auth headers,
     cookies, user:password@, curl -u, mysql -p, redis-cli -a, JWTs, provider shapes); NAME=value and --name value
-    secrets when the value is written-out data rather than code (see _literal_value); and any other 20+ character
-    token that reads as random rather than as words (an unnamed key). Known limit: a plain-word password after a
-    lowercase name (`password: hunter`) reads as a variable and is kept. The quote check always runs on the raw text
+    secrets (also Go := and PHP/Ruby =>) unless the value is clearly code (see _literal_value: when in doubt it
+    masks); and any other 20+ character token that reads as random rather than as words (an unnamed key).
+    Measured on 24 Oct 2026: random keys of 20-40 characters are missed 0-6.4% of the time depending on the character
+    mix (scan_secrets.redact misses fewer, but masks far more code), and about 0.5% of the 20+ character tokens in
+    Python's standard library are masked. Known limits: an identifier holding digits after a secret name (token =
+    token2) is masked, and prose such as "the password is x" is not. The quote check always runs on the raw text
     first, and ids are computed from it, so masking never retracts a finding or changes its id."""
     text = str(text)
     try:
@@ -292,13 +317,13 @@ def redact_finding_text(text):
     except ImportError: spans, mask = [], (lambda v: v[:4] + "…[redacted]")
     out, last = [], 0
     for a, b in spans:
-        if b <= last: continue
+        if b <= last or re.fullmatch(r"\$\{?[A-Z_][A-Z0-9_]*\}?", text[a:b]): continue  # a reference to an env variable holds no secret
         a = max(a, last); out.append(text[last:a]); out.append(mask(text[a:b])); last = b
     text = "".join(out) + text[last:]
     def keepq(v): return v[0] + "[redacted]" + v[-1] if len(v) > 1 and v[0] in "\"'" and v[-1] == v[0] else "[redacted]"
-    for rule in REDACT_RULES:
+    for rule in _EXTRA_NAMED + REDACT_RULES:
         rx, fn = rule
-        if rule in _NAMED_RULES:
+        if rule in _NAMED_RULES or rule in _EXTRA_NAMED:
             text = rx.sub(lambda m: m.group(1) + keepq(m.group(2)) if "[redacted]" not in m.group(2) and _literal_value(m.group(1), m.group(2)) else m.group(0), text)
         else: text = rx.sub(fn or (lambda m: m.group(1) + keepq(m.group(2))), text)
     return _KEY_TOKEN.sub(lambda m: mask(m.group(0)) if _keylike(m.group(0), text[max(0, m.start() - 12):m.start()]) else m.group(0), text)

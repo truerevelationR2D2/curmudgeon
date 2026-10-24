@@ -1026,6 +1026,26 @@ def _(d):
     kept = sorted(p.read_text() for p in (h / ".critic/history").rglob("review-A.json"))
     assert kept == ['["v1"]', '["v2"]', '["v3"]'], f"an archived review was overwritten: {kept}"
 
+@test("4.2.2 review round 3: when in doubt the masking masks (brackets, plain words, Go and PHP forms), and random keys of every case mix are caught")
+def _(d):
+    import random, string
+    sys.path.insert(0, str(S)); import importlib, critic_findings; importlib.reload(critic_findings); r = critic_findings.redact_finding_text
+    pw, word = "hun" + "ter2Xq9", "hun" + "ter"
+    for s, secret in ((f"DATABASE_PASSWORD=Pa({pw})ss!9", pw), (f"DATABASE_PASSWORD=Pa[{pw}]ss9", pw), (f"POSTGRES_PASSWORD={{{pw}}}", pw),
+                      (f"password: Pa0({pw}", pw), (f"password: {word}", word), (f"password = {word}", word), ("password: Correct" + "HorseBatteryStaple", "HorseBattery"),
+                      (f'password := "{pw}"', pw), (f"'password' => '{pw}'", pw), (f"SECRET_KEY=<{pw}>", pw), (f"DB_PASS=${pw}", pw)):
+        assert secret not in r(s), f"a credential was left in: {s} -> {r(s)}"
+    for s in ("API_KEY = settings.API_KEY", "PASSWORD = config.password", "DB_PASSWORD = env.DB_PASSWORD", "password = get_password()",
+              "password = params[:password]", "password: Optional[str] = None", "auth = HTTPBasicAuth(user, pw)", "password = newPassword",
+              "password: ${DB_PASSWORD}", "uses: actions/checkout@" + "b4ffde65f46336ab88eb53be808477a3936bae11",
+              "git checkout " + "b4ffde65f46336ab88eb53be808477a3936bae11", "AES256GCMSHA384CipherSuite", "HTTP2_SETTINGS_MAX_FRAME_SIZE"):
+        assert r(s) == s, f"code was masked: {s} -> {r(s)}"
+    rnd = random.Random(9); U, L, D = string.ascii_uppercase, string.ascii_lowercase, string.digits
+    for alpha, lo, hi, allowed in ((U + D, 20, 40, 8), (L + D, 32, 32, 6), (U + L + D, 20, 40, 10), (L, 20, 40, 25)):
+        keys = ["".join(rnd.choice(alpha) for _ in range(rnd.randint(lo, hi))) for _ in range(400)]
+        missed = sum(1 for k in keys if k in r(f"the value {k} is used"))
+        assert missed <= allowed, f"{missed} of 400 random keys ({alpha[:3]}..., {lo}-{hi} chars) were left in"
+
 if __name__ == "__main__":
     bad = [r for r in RESULTS if not r[1]]
     print(f"\n{len(RESULTS) - len(bad)} of {len(RESULTS)} passed"); sys.exit(1 if bad else 0)
