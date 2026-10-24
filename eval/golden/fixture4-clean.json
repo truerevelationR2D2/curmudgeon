@@ -1,0 +1,36 @@
+{
+ "checks": {
+  "axe": "n/a",
+  "ci": "n/a",
+  "console": "n/a",
+  "deps": "n/a",
+  "focus": "n/a",
+  "interactive": "n/a",
+  "keyboard": "n/a",
+  "obscured": "n/a",
+  "page": "n/a",
+  "responsive": "n/a",
+  "screen-reader": "n/a",
+  "screenshots": "n/a",
+  "speed": "n/a",
+  "static": "pass",
+  "structure": "pass",
+  "visual": "n/a"
+ },
+ "rows": [
+  [
+   "NOTE",
+   "raw-hex",
+   "theming",
+   "styles.css",
+   "colours are raw hex values with no tokens (custom properties)"
+  ],
+  [
+   "WARN",
+   "status-unchecked",
+   "errors",
+   "app.js",
+   "fetch used but no response status is ever checked (errors look like success)"
+  ]
+ ]
+}

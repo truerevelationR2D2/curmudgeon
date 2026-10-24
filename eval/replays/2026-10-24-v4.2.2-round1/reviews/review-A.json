@@ -1,0 +1,23 @@
+[
+  {"category": "secret-leak", "impact": "High", "file": "plugin/skills/review/scripts/critic_merge.py", "line": 339,
+   "quote": "if rows: md += [\"\", f\"## {name}\"] + [f\"- {r['finding'].get('id')} {r['finding'].get('file')}:{r['finding'].get('line', '')} {r['finding'].get('title')}: {r['why'] if isinstance(r['why'], str) else '; '.join(r['why'])}\" for r in rows]",
+   "title": "A verifier's refutation is written unmasked to counts.md, ledger.json and ledger.md, so fix (3), masked in everything the tool writes, does not hold",
+   "evidence": "In apply(), refuted is built from the raw verdict text (why = str(v.get(\"refutation\") ...)). Only refutations.jsonl gets redact_finding_text. counts.md line 339 prints r['why'] as is; line 367 passes \"refuted by verification: \" + r[\"why\"][:200] to critic_ledger.py status, stored in ledger.json and ledger.md. None of the three is in IGNORED. Executed with the real scripts: a confirmed run, then a valid refutation whose text contains the key; grep found it in counts.md, ledger.json and ledger.md.",
+   "failing_case": "app.py holds a test-shaped Stripe key; three reviewers flag it High; a verifier refutes, reproduced executed, citing app.py:2 and app.py:3 with the key in the refutation text; after apply counts.md and the ledger note hold the full key.",
+   "verified": "executed",
+   "remediation": "Pass why through redact_finding_text when the refuted entries are built; add why, reason and note to the keys scrub() masks; extend N-4 with a refuted verdict quoting the key on a finding the ledger already holds."},
+  {"category": "secret-leak", "impact": "Medium", "file": "plugin/skills/review/scripts/critic_findings.py", "line": 230,
+   "quote": "spans = sorted(scan_secrets.secret_spans(text))",
+   "title": "Finding-text masking misses an unnamed high-entropy key in prose, which the secret scan's own redact() would mask",
+   "evidence": "redact_finding_text uses only scan_secrets.secret_spans and redact_secrets; it skips the TOKEN entropy pass that scan_secrets.redact() applies. Executed: redact_finding_text('Hard-coded key a8f5f167f44f4964e6c998dee827110c in config') and the same key inside Client(\"...\") come back unchanged.",
+   "failing_case": "A reviewer titles a finding 'Hard-coded key a8f5f167f44f4964e6c998dee827110c in config' for a key with no provider prefix; after tally and apply the full key is in findings.jsonl, findings.sarif, counts.md and ledger.md.",
+   "verified": "executed",
+   "remediation": "Apply scan_secrets.redact()'s entropy pass to the text fields (not the quote), or mask each literal secret the scan found in the cited file wherever it appears in the finding's text."},
+  {"category": "data-integrity", "impact": "Medium", "file": "plugin/skills/review/scripts/critic_findings.py", "line": 246,
+   "quote": "if k in FINDING_TEXT and isinstance(v, str):",
+   "title": "scrub() runs the log-redaction rules on quoted code, so ordinary auth, session and cookie code is mangled in every output and acted stops tracking those findings",
+   "evidence": "Each FINDING_TEXT field, quote included, goes through redact_secrets, whose NAME=value rule takes any following expression as a secret. Executed: `session_id = uuid4().hex` becomes `session_id = [redacted]`; `if user.password == password_input:` becomes `if user.password =[redacted] password_input:`; `api_key: str = Field(default=None)` is masked. critic_ledger.py:111 returns None for any quote containing [redacted]. quote_redacted is never read by any script.",
+   "failing_case": "A finding on `session_id = uuid4().hex` (weak session id) contains no secret; its packet, findings.jsonl, SARIF and ledger show `session_id = [redacted]`; the verifier is handed code not in the file and acted skips it every later run.",
+   "verified": "executed",
+   "remediation": "Mask quotes only where a real secret value is found (provider shapes and entropy-gated generic spans); don't run the log rules' NAME=<anything> pattern on code; have quote_present read the quote_redacted flag."}
+]

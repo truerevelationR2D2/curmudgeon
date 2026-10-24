@@ -1,0 +1,50 @@
+{
+ "checks": {
+  "axe": "n/a",
+  "ci": "n/a",
+  "console": "n/a",
+  "deps": "n/a",
+  "focus": "n/a",
+  "interactive": "n/a",
+  "keyboard": "n/a",
+  "obscured": "n/a",
+  "page": "n/a",
+  "responsive": "n/a",
+  "screen-reader": "n/a",
+  "screenshots": "n/a",
+  "speed": "n/a",
+  "static": "pass",
+  "structure": "pass",
+  "visual": "n/a"
+ },
+ "rows": [
+  [
+   "NOTE",
+   "hover-only",
+   "a11y",
+   "styles.css",
+   "hover styles with no matching focus style: #list .del, #list .open, #new (keyboard users miss the cue)"
+  ],
+  [
+   "NOTE",
+   "per-keystroke",
+   "async",
+   "app.js:168",
+   "request-per-keystroke candidate: confirm debounce and stale-response guard"
+  ],
+  [
+   "NOTE",
+   "per-keystroke",
+   "async",
+   "app.js:169",
+   "request-per-keystroke candidate: confirm debounce and stale-response guard"
+  ],
+  [
+   "WARN",
+   "fixed-width",
+   "layout",
+   "styles.css:20",
+   "fixed width of 600 px or more (sideways scroll on phones, WCAG 1.4.10)"
+  ]
+ ]
+}

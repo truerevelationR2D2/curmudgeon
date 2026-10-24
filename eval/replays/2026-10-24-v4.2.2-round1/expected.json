@@ -1,0 +1,45 @@
+{
+ "counts": "Counts for the VERDICT (copy exactly): Critical 0 · High 1 · Medium 3 · Low 0 · total 4",
+ "findings": [
+  {
+   "id": "F-0bf9aa11",
+   "impact": "Medium",
+   "file": "plugin/skills/review/scripts/critic_findings.py",
+   "line": 230,
+   "votes": 1,
+   "of": 3,
+   "verifier": "confirmed",
+   "confidence": "confirmed"
+  },
+  {
+   "id": "F-4fcebfb7",
+   "impact": "High",
+   "file": "plugin/skills/review/scripts/critic_merge.py",
+   "line": 339,
+   "votes": 3,
+   "of": 3,
+   "verifier": "confirmed",
+   "confidence": "confirmed"
+  },
+  {
+   "id": "F-77d460c7",
+   "impact": "Medium",
+   "file": "plugin/skills/review/scripts/critic_merge.py",
+   "line": 137,
+   "votes": 2,
+   "of": 3,
+   "verifier": "confirmed",
+   "confidence": "confirmed"
+  },
+  {
+   "id": "F-ee3ef24c",
+   "impact": "Medium",
+   "file": "plugin/skills/review/scripts/critic_findings.py",
+   "line": 246,
+   "votes": 2,
+   "of": 3,
+   "verifier": "confirmed",
+   "confidence": "confirmed"
+  }
+ ]
+}

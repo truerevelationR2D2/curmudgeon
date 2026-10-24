@@ -1,0 +1,6 @@
+[
+ {"id":"F-4fcebfb7","verdict":"confirmed","reproduced":"executed","note":"Refutation text reached counts.md, ledger.md and ledger.json unmasked (critic_merge.py apply; ledger status note)."},
+ {"id":"F-0bf9aa11","verdict":"confirmed","reproduced":"executed","note":"redact_finding_text lacked the entropy pass; an unnamed 32-char hex key in a title passed unmasked."},
+ {"id":"F-ee3ef24c","verdict":"confirmed","reproduced":"executed","note":"Log-rule NAME=value masking mangled ordinary code such as session_id = uuid4().hex; acted tracking skipped those quotes."},
+ {"id":"F-77d460c7","verdict":"confirmed","reproduced":"executed","note":"round neither archived reviews nor reset started_at, so round-1 votes were counted in round 2."}
+]

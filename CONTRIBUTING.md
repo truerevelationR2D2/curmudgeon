@@ -18,12 +18,19 @@ Thanks for helping the grump get sharper. A few house rules keep it honest:
 
 ```
 python3 plugin/tests/run_tests.py
+python3 eval/golden.py
+python3 eval/replay.py
+python3 eval/score.py --selftest
 claude plugin validate --strict .
 claude plugin validate --strict plugin
 claude plugin validate --strict --profile directory plugin
 ```
 
-All four must pass. The last one checks part of what Anthropic's plugin directory checks.
+All seven must pass. None of them needs a model, an account or a network connection beyond installing Claude Code, and CI (`.github/workflows/ci.yml`) runs them on Python 3.9 to 3.13 for every push and pull request.
+- `golden.py` checks that the scripted checks still find exactly what they found on each eval fixture. If your change is meant to alter that, rerun it with `CRITIC_UPDATE_GOLDEN=1`, and explain the diff in your pull request.
+- `replay.py` runs recorded review runs (the models' reviews, groups and verdicts) through the counting scripts and checks the outcome is unchanged. Use `CRITIC_UPDATE_REPLAY=1` only for a change meant to alter it.
+- `score.py --selftest` checks that the accept/kill gate can still fail.
+- The last validation checks part of what Anthropic's plugin directory checks.
 
 ## Reporting a wrong finding
 

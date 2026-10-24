@@ -1,0 +1,9 @@
+{
+ "what": "Round 1 of the blind Curmudgeon review of v4.2.2 (commit bc743d7): three reviews, the dedup agent's groups and four blind verdicts, as recorded on 24 Oct 2026.",
+ "model": "claude-opus-5-5",
+ "plugin_version_reviewed": "4.2.2 (bc743d7)",
+ "tree": "only the files the reviews cite, as they stood when reviewed (the quote check reads them)",
+ "reviews": ["reviews/review-A.json", "reviews/review-B.json", "reviews/review-C.json"],
+ "groups": "groups.json",
+ "verdicts": "verdicts.json"
+}
