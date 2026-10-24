@@ -1317,6 +1317,16 @@ def _(d):
     out = run(H / "check_contract.py", cwd=d, stdin=json.dumps({"agent_type": "curmudgeon-reviewer", "cwd": str(d), "last_assistant_message": "Wrote .critic/reviews/review-B.json"})).stdout
     assert "block" not in out, out
 
+@test("5.0 SC-68: the four typed fix skills are one /curmudgeon:fix with every function kept, and no old command name is left anywhere")
+def _(d):
+    import re as _re
+    assert sorted(p.name for p in (HERE / "skills").iterdir() if p.is_dir()) == ["fix", "gate", "review"]
+    fx = (HERE / "skills/fix/SKILL.md").read_text()
+    assert "disable-model-invocation: true" in fx and all(f"## {w}" in fx for w in ("patch", "iterate", "approve", "rollback"))
+    for p in list(HERE.rglob("*.md")) + list(HERE.rglob("*.py")) + [HERE.parent / "README.md"]:
+        if "tests" in p.parts or "evals" in p.parts: continue
+        assert not _re.search(r"/curmudgeon:(patch|iterate|approve|rollback)\b", p.read_text(errors="replace")), p
+
 if __name__ == "__main__":
     bad = [r for r in RESULTS if not r[1]]
     print(f"\n{len(RESULTS) - len(bad)} of {len(RESULTS)} passed"); sys.exit(1 if bad else 0)

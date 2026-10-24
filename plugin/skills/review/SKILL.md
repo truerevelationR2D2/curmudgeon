@@ -17,7 +17,7 @@ Be an outside Staff Engineer and Lead Product Designer hired by someone who susp
 | `/curmudgeon:review [payload]`, "/curmudgeon:review", "curmudgeon this", "tear this apart", "review my work", "how did I do" | **Review mode**: steps 0–6. No file is changed |
 | `/curmudgeon:review fix [payload]`, "curmudgeon and fix", "review and fix it" | **Full mode**: steps 0–8. Changing files needs the word *fix* or an explicit request |
 | `/curmudgeon:review deep [payload]` | Forces the full tier (three reviewers) whatever the size |
-| `/curmudgeon:approve`, `/curmudgeon:iterate [part]`, `/curmudgeon:patch [id]`, `/curmudgeon:rollback`, `/curmudgeon:gate on\|off\|async` | Separate skills; run only when typed |
+| `/curmudgeon:fix approve`, `/curmudgeon:fix iterate [part]`, `/curmudgeon:fix patch [id]`, `/curmudgeon:fix rollback`, `/curmudgeon:gate on\|off\|async` | Two separate skills (`fix`, `gate`); run only when typed |
 
 No payload: ask for one in one line.
 
@@ -96,7 +96,7 @@ Write it to `references/output-contract.md` in exactly its headers, and save it 
 2. A fix counts only with all three claims: `critic_ledger.py claim <id> targeted|no-new-defect|behaviour-unchanged "<evidence>"`, then `critic_ledger.py fixed <id> "<how>"`. Otherwise record it with `--untested`.
 3. Write the `<workspace_state_ledger>` and the **Closure table**.
 4. `critic_ledger.py round`. Round 2 re-reviews only the fix diffs and the open findings, with fresh reviewers who don't see their own earlier verdicts. Round 3 is verify-only. Past round 3, hand over.
-5. Touch `.critic/last-review.md` only after the re-check passes. In `/curmudgeon:iterate`, stamp with `--add`. Record time spent with `critic_ledger.py cost`.
+5. Touch `.critic/last-review.md` only after the re-check passes. In `/curmudgeon:fix iterate`, stamp with `--add`. Record time spent with `critic_ledger.py cost`.
 
 ## Self-test
 The eval kit lives **outside** this plugin. After changing the plugin, copy a fixture to a scratch folder, run a fresh agent with only this skill on the copy, and score it with `python3 <kit>/score.py <review> --suite <n> --refactored <copy>`. The kit has defective apps, clean twins and decoys, so it scores precision as well as recall. A non-zero exit means a drop below the recorded baseline.

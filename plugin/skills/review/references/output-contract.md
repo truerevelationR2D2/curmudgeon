@@ -78,10 +78,10 @@ Then the **Closure table**: id | status (fixed, deferred, won't fix) | where | h
 ## Hooks (end every response)
 After a review (no files changed):
 - `/curmudgeon:review fix` to fix every finding.
-- `/curmudgeon:patch [id]` to fix only that one.
+- `/curmudgeon:fix patch [id]` to fix only that one.
 
 After a refactor:
-- `/curmudgeon:approve` to keep these changes.
-- `/curmudgeon:iterate [component]` to go deeper on one part, or try another approach.
-- `/curmudgeon:patch [issue]` to fix only that issue.
-- `/curmudgeon:rollback` to undo this refactor.
+- `/curmudgeon:fix approve` to keep these changes.
+- `/curmudgeon:fix iterate [component]` to go deeper on one part, or try another approach.
+- `/curmudgeon:fix patch [issue]` to fix only that issue.
+- `/curmudgeon:fix rollback` to undo this refactor.

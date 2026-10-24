@@ -20,7 +20,7 @@ usage (run from the project root, or set CRITIC_ROOT):
   acted                                  for findings open last run: check whether the quoted code is gone (acted on)
   decision "text" [SOURCE] | override "what" "who" "why"   recorded choices; overrides can't be by "author"
   score NAME VALUE MAX | cost SECONDS [NOTE] | tokens [--all]   (tokens: what each agent role cost this run)
-  stamp [--add] PATH... | stale | round [--reset]   (--add keeps earlier stamps: use it for /curmudgeon:iterate)
+  stamp [--add] PATH... | stale | round [--reset]   (--add keeps earlier stamps: use it for /curmudgeon:fix iterate)
   gate on|async|off                      turn the stop checks on or off (the guard blocks editing these files by hand)
   memories --hit N                       record that memory N noted a finding (keeps it from retiring)
   spotcheck [--n 3]                      pick a few random Medium+ findings and one refutation for the owner to judge

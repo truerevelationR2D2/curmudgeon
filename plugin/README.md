@@ -33,10 +33,10 @@ You need Python 3.9 or later. The browser checks also need Playwright with Chrom
 | `/curmudgeon:review [what]` | Reviews and changes nothing. Writes `.critic/last-review.md`. |
 | `/curmudgeon:review fix [what]` | Reviews, then fixes. Each fix must pass a re-check before it counts. |
 | `/curmudgeon:review deep [what]` | Forces the full three-reviewer run, whatever the size of the change. |
-| `/curmudgeon:patch [id]` | Fixes one finding. |
-| `/curmudgeon:iterate [part]` | Goes deeper on one part, or tries another approach. |
-| `/curmudgeon:approve` | Keeps the last refactor. |
-| `/curmudgeon:rollback` | Undoes the last refactor from its restore point. |
+| `/curmudgeon:fix patch [id]` | Fixes one finding. |
+| `/curmudgeon:fix iterate [part]` | Goes deeper on one part, or tries another approach. |
+| `/curmudgeon:fix approve` | Keeps the last refactor. |
+| `/curmudgeon:fix rollback` | Undoes the last refactor from its restore point. |
 | `/curmudgeon:gate on\|async\|off` | Turns the optional stop gate on or off. When it's on, the session can't finish while reviewed files have changed since the last review, or while Critical or High findings are still open. |
 
 You can also just say "tear this apart" or "review my work".
