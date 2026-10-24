@@ -1152,6 +1152,12 @@ def _(d):
     import re as _re
     assert _re.fullmatch(m, "curmudgeon:curmudgeon-reviewer") and _re.fullmatch(m, "curmudgeon-verifier") and not _re.fullmatch(m, "general-purpose"), m
 
+@test("5.0 SC-40: the review skill names its scripts by the substituted plugin path, the path exists, and SKILL.md stays under 500 lines")
+def _(d):
+    sk = (HERE / "skills/review/SKILL.md").read_text()
+    assert "${CLAUDE_PLUGIN_ROOT}/skills/review/scripts" in sk and (HERE / "skills/review/scripts/critic_scan.py").exists()
+    assert len(sk.splitlines()) < 500
+
 if __name__ == "__main__":
     bad = [r for r in RESULTS if not r[1]]
     print(f"\n{len(RESULTS) - len(bad)} of {len(RESULTS)} passed"); sys.exit(1 if bad else 0)
