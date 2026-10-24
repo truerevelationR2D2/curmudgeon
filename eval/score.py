@@ -219,10 +219,14 @@ def score_one(path, suite):
     hits, used = match_key(key, blocks, locs if strict else None, imp)
     decoys = json.loads((HERE / f"decoys{suite}.json").read_text()) if (HERE / f"decoys{suite}.json").exists() else {}
     decoy_hits, decoy_detail = [], []
-    for name, d in decoys.items():
+    def claim_of(bi):  # what the finding says is wrong: its title and category (a structured finding), never its evidence
+        return f"{rows[bi].get('title', '')} {rows[bi].get('category', '')}" if rows else blocks[bi]
+    for name, d in decoys.items():  # decision 36 (Ryan, 24 Oct 2026): a decoy hit points at the decoy's place and makes the decoy's claim
         for bi, b in enumerate(blocks):
             if bi in used: continue
-            if (not d["file"] or d["file"].lower() in b.lower()) and any(re.search(p, b, re.I) for p in d["any"]) and re.search(d["categories"], b, re.I):
+            if d.get("at") and strict and not keymatch.points_at(d, locs[bi]): continue
+            c = claim_of(bi) if d.get("at") and strict else b
+            if (not d["file"] or d["file"].lower() in (b + " " + locs[bi]).lower()) and any(re.search(p, c, re.I) for p in d["any"]) and re.search(d["categories"], str(rows[bi].get("category", "")) if rows and d.get("at") and strict else b, re.I):  # the finding's own kind (a11y-focus is not perf)
                 decoy_hits.append(name); used.add(bi)
                 decoy_detail.append((name, (rows[bi].get("id"), rows[bi].get("impact"), rows[bi].get("title")) if rows else (None, (re.search(r"\b(Critical|High|Medium|Low)\b", b) or [None, None])[1], b[:80]))); break
     unmatched = [b for bi, b in enumerate(blocks) if bi not in used and re.search(r"\b(Critical|High|Medium|Low)\b|IMPACT", b) and len(b) > 40] if not rows else [b for bi, b in enumerate(blocks) if bi not in used]
@@ -343,7 +347,7 @@ if "--selftest" in args:
         d3 = json.loads((HERE / "decoys3.json").read_text()); dn, dk = next(iter(d3.items()))
         p3 = plants("3"); b3 = [make(t / f"s3good{i}", p3) for i in range(3)]
         go(*b3, "--set-baseline", suite="3")
-        decoy = {"id": "D-1", "file": dk["file"] or "app.js", "line": 1, "category": sample([dk["categories"]]), "impact": "Medium", "title": sample(dk["any"]) + " " + sample([dk["categories"]])}
+        decoy = {"id": "D-1", "file": (dk.get("at") or [[dk["file"] or "app.js"]])[0][0], "line": (dk.get("at") or [[0, 1]])[0][1], "category": sample([dk["categories"]]), "impact": "Medium", "title": sample(dk["any"]) + " " + sample([dk["categories"]])}
         checks.append(("one decoy at Medium FAILS at once (strict floor)", go(*[make(t / f"s3decoy{i}", p3 + ([decoy] if i == 0 else [])) for i in range(3)], "--gate", suite="3") == 1))
         clean = [make(t / f"clean{i}", [], verdict="**CLEAN**: nothing here rises to BLOCK.") for i in range(3)]
         def gc(*a): return subprocess.run([sys.executable, str(pathlib.Path(__file__).resolve()), *a, "--clean", "1", "--baseline", str(bl), "--labels", str(lab)], capture_output=True, text=True).returncode

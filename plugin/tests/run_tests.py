@@ -2885,6 +2885,19 @@ def _(d):
     out = subprocess.run([sys.executable, str(HERE.parent / "eval" / "score.py"), str(r / ".critic/teardown.md"), "--suite", "2", "--baseline", str(d / "none.json"), "--labels", str(d / "none.json")], capture_output=True, text=True).stdout
     assert "missed: E21" not in out, out[:600]
 
+@test("decision 36: a decoy hit points at the decoy's place and makes its claim; a real bug that only mentions the decoy's words is not one")
+def _(d):
+    def score(rows):
+        r = d / f"r{len(list(d.iterdir()))}"; write(r, ".critic/teardown.md", "**CONCERNS** · Counts: 0 Critical, 0 High, 1 Medium, 0 Low\n")
+        write(r, ".critic/findings.jsonl", "".join(json.dumps(x) + "\n" for x in rows))
+        return subprocess.run([sys.executable, str(HERE.parent / "eval" / "score.py"), str(r / ".critic/teardown.md"), "--suite", "3", "--baseline", str(d / "none.json"), "--labels", str(d / "none.json")], capture_output=True, text=True).stdout
+    real = {"id": "F-1", "file": "app.js", "line": 37, "quote": "render();", "category": "a11y-focus", "impact": "Medium", "title": "After Delete the whole list is re-rendered and keyboard focus falls to the body"}
+    assert "Decoys reported as defects: 0" in score([real]), "a focus bug that names the re-render is not the performance decoy"
+    decoy = {"id": "F-2", "file": "app.js", "line": 40, "quote": "// shortcut: the list re-renders whole on each change", "category": "perf", "impact": "Medium", "title": "Whole list re-render on every change will not scale"}
+    assert "Decoys reported as defects: 1 (1 at Medium" in score([decoy])
+    elsewhere = dict(decoy, id="F-3", file="store.js", line=15, quote="localStorage.setItem(KEY, JSON.stringify(list));")
+    assert "Decoys reported as defects: 0" in score([elsewhere]), "a finding that points away from the decoy's place is not a decoy hit"
+
 if __name__ == "__main__":
     shutil.rmtree(TMP, ignore_errors=True)
     bad = [r for r in RESULTS if not r[1]]

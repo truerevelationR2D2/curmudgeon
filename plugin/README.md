@@ -182,21 +182,25 @@ Drop a JSON file of rules into your project's `.critic/rules/` (or, to contribut
 
 Budgets for 5.0.0, measured with `claude plugin details` and `wc -w`: about 862 tokens added to every session (4.2.1: about 1,516); the review skill about 7.1k tokens when it runs (4.2.1: about 5.6k); words of instructions a reviewer reads before any code, now only what the payload needs: 2,565 for a code change with no lens, 2,666 to 2,732 with one lens, 3,251 for an interface, 4,020 with everything (4.2.1: 3,333 for every payload; 5.0.0 before this change: 4,563).
 
-Measured on 18 October 2026 (version 4.0.0) with the eval kit in `eval/`. The notes app was a single-context review and fix; the orders dashboard used three blind reviewers. The release record doesn't say how many reviewers the decoy-app and clean-twin runs used. An independent model labelled every finding that didn't match a planted bug; it read and ran the code without seeing the answer keys. All numbers are as recorded in `eval/baseline.json`.
+Measured on 24 October 2026: version 5.0.0 against 4.2.2, three review runs of each on every test, Sonnet 5.5, three blind reviewers per run, with the eval kit in `eval/`. Every finding that matched no planted bug was labelled by independent models that read and ran the code, saw no answer keys and were not told which version wrote it (none was labelled wrong; the rest were real bugs nobody planted, or true but trivial). A finding counts only when it points at the planted bug's lines. One 4.2.2 run of the invoices test fell back to a single context and is left out. All numbers are recorded in `eval/baseline.json` (5.0.0, now the baseline) and `eval/labels-2026-10-24.json`.
 
-| Test | Planted bugs found | Share of findings that are real bugs | Report format score |
+| Test (three runs pooled) | Planted bugs found, 4.2.2 → 5.0.0 | Findings that are real bugs, 4.2.2 → 5.0.0 | Report format checks passed, 4.2.2 → 5.0.0 |
 |---|---|---|---|
-| Notes app (16 planted bugs), review and fix | 16/16 | 96% (27 of 28) | 100% |
-| Orders dashboard (27 planted bugs) | 27/27 | 95% (35 of 37) | 45% |
-| Decoy app (9 decoys that look buggy but aren't, 2 real bugs) | 2/2 | 30%: no decoy flagged at Medium or above; 3 decoys and several true-but-trivial nitpicks flagged at Low | 45% |
-| Clean twin of the notes app | – | 0 false alarms; both findings were real bugs nobody planted | – |
-| Clean twin of the dashboard | – | 1 trivial finding; the other 7 were real bugs nobody planted | – |
+| Notes app (16 planted bugs) | 42/48 → **48/48** | 51/51 → 58/58 | 29/33 → 32/33 |
+| Orders dashboard (27 planted bugs) | 61/81 → **71/81** | 67/71 → **77/77** | 28/33 → 31/33 |
+| Recipe app (9 decoys that look buggy but aren't, 2 real bugs) | 5/6 → **6/6**; no decoy flagged | 15/15 → 20/21 | 28/33 → 32/33 |
+| Invoices (4 real bugs behind guards that look right) | 8/8 (2 runs) → 12/12 | 17/20 → 26/30 | 17/22 (2 runs) → 31/33 |
+| Clean twins of the notes, dashboard and invoices apps (nothing planted) | – | Medium-or-worse findings: 12 real bugs nobody planted → 26 real and 2 trivial; no BLOCK in any run | – |
 
-After the fix stage, the fixed apps passed 9 of 9 and 12 of 13 browser behaviour tests. The miss was an animation that ignores the reduced-motion setting.
+Cost: $1.01 a run for 4.2.2, $1.33 for 5.0.0 (the whole session, lead and agents). The accept/kill gate (`score.py --gate`) passes 5.0.0 on all seven tests. 5.0.0 found more planted bugs in every test; the one bug it found less often (2 of 3 runs against 3 of 3) was dropped on votes in one run. The first 5.0.0 build measured lost real findings because reviewers cited wrong line numbers (`cat -n` over several files) and the quote check retracted them, as it should; the reviewers' instructions were fixed and the quote check was left strict.
+
+Version 4.0.0, measured on 18 October 2026 with a looser scorer, for the record: notes app 16/16 found, 96% real (27 of 28); orders dashboard 27/27, 95% (35 of 37); decoy app 2/2 with no decoy at Medium or above, but only 30% of its findings real (3 decoys and several true-but-trivial nitpicks flagged at Low).
+
+In that 4.0.0 run, after the fix stage, the fixed apps passed 9 of 9 and 12 of 13 browser behaviour tests. The miss was an animation that ignores the reduced-motion setting.
 
 The report format score (`contract` in the eval) is the share of checks on how the written teardown follows its required format (11 checks for a review, 14 for a review and fix, which adds the refactoring manifest, the state ledger and the closure table): headers, a single verdict, counts that match the findings, evidence on every finding, and so on. It measures the report's form, not whether the findings are right.
 
-These are small apps, so treat the numbers as indicative: with 28 findings, "96%" could plausibly be anything from about 82% to 99%. Most of the noise left is in Low findings: true, but not worth anyone's time.
+These are small apps, so treat the numbers as indicative: with 58 findings, "58 of 58" could plausibly be anything from about 94% to 100%. Most of the noise left is in Low findings: true, but not worth anyone's time.
 
 Curmudgeon also reviewed its own code. A fresh reviewer then checked each round of fixes, five rounds in all. The rounds turned up real bugs in its own scripts (two of them Critical), and each now has a regression test.
 
