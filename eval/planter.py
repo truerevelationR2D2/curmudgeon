@@ -61,7 +61,7 @@ def main(a):
         lines = (out / rel).read_text(encoding="utf-8").split("\n"); lines[ln - 1] = new; (out / rel).write_text("\n".join(lines), encoding="utf-8")
         snippet = re.escape(new.strip()[:60])
         key[f"S{kept} {rel}:{ln} changed to `{new.strip()[:60]}`; breaks: {', '.join(broken)}"] = {
-            "file": pathlib.PurePath(rel).name, "any": [rf"{re.escape(pathlib.PurePath(rel).name)}:({ln - 1}|{ln}|{ln + 1})\b", snippet], "synthetic": True, "fixture": out.name, "breaks": broken}
+            "file": pathlib.PurePath(rel).name, "at": [[rel, ln, ln]], "any": [rf"{re.escape(pathlib.PurePath(rel).name)}:({ln - 1}|{ln}|{ln + 1})\b", snippet], "synthetic": True, "fixture": out.name, "breaks": broken}
         print(f"kept {out.name}: {rel}:{ln} breaks {', '.join(broken)}")
     (dest / f"answer_key_{name}.json").write_text(json.dumps(key, indent=1) + "\n")
     print(f"planter: {kept} plant(s) kept of {tried} tried; answer key {dest / f'answer_key_{name}.json'}")

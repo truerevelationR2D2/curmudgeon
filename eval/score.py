@@ -62,8 +62,9 @@ def load(path):
     return text, rows, blocks
 
 def locs_of(rows, blocks):
-    """Where each finding points: file:line and its quote for a structured finding, the block's own text otherwise."""
-    return [f"{r.get('file', '')}:{r.get('line')} {r.get('quote', '')} {r.get('evidence', '')}" for r in rows] if rows else list(blocks)
+    """Where each finding points: file:line and its quote for a structured finding (as deathmatch.py builds it), the
+    block's own text otherwise."""
+    return [f"{r.get('file', '')}:{r.get('line')} {r.get('quote', '')}" for r in rows] if rows else list(blocks)  # never the evidence: it can name other files
 
 def strict_mode(suite_key):
     """Decision 28: a finding credits a plant only when it points at one of the plant's places. A baseline recorded
@@ -275,8 +276,9 @@ if "--funnel" in args:
               ("refuted by a verifier", [r.get("finding", r) for r in refs if r.get("kind") == "refuted"]),
               ("downgraded by a verifier", [r.get("finding", r) for r in refs if r.get("kind") == "downgraded"])]
     lost = {}
+    reached = keymatch.max_match({name: [i for i, r in enumerate(final) if hit(k, [r])] for name, k in key.items()})  # one finding reaches one plant, as score.py counts recall
     for name, k in key.items():
-        if hit(k, final): continue
+        if name in reached: continue
         where = next((st for st, rows in stages if hit(k, rows)), None)
         if not where: where = "set aside by a reviewer" if hit(k, aside) else ("raised, then lost at an unrecorded step" if hit(k, raised) else "never raised")
         lost[name] = where
@@ -378,6 +380,8 @@ else:
     suite = opt("--suite", "1"); res = [score_one(r, suite) for r in reviews]; r0 = res[0]
     print(f"Recall: {rate(len(r0['hits']), len(r0['key']))} planted defects found" + ("" if r0["strict"] else " (file and pattern only, as this suite's baseline was scored; re-baseline to switch)"))
     print(f"  pointing at the planted lines: {len(r0['strict_hits'])} of {len(r0['key'])}; file and pattern only: {len(r0['loose_hits'])} of {len(r0['key'])}")
+    placeless = [n for n in r0["hits"] if not r0["key"][n].get("at")]
+    if placeless: print(f"  {len(placeless)} credit(s) from key entries with no place to point at (matched on file and pattern only): " + ", ".join(n.split()[0] for n in placeless))
     for m in r0["key"]:
         if m not in r0["hits"]: print("  missed:", m)
     if r0["decoy_hits"] or (HERE / f"decoys{suite}.json").exists():

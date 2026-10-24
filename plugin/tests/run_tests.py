@@ -2541,6 +2541,42 @@ def _(d):
     plants = {"A": {"file": "", "any": ["x"]}, "B": {"file": "", "any": ["only-b"]}}
     assert len(dm.match_plants(plants, [{"loc": "", "claim": "x only-b"}, {"loc": "", "claim": "x"}])) == 2
 
+@test("5.0 self-review (eval): free-text citations count, evidence doesn't move a finding, impact preference is graded, the funnel matches one-to-one, planter keys have places, and missing tools fail cleanly")
+def _(d):
+    sys.path.insert(0, str(HERE.parent / "eval")); import importlib; km = importlib.import_module("keymatch")
+    k = {"file": "store.js", "at": [["store.js", 2, 2]], "any": ["x"]}
+    for loc in ["`store.js` line 2", "store.js (line 2)", "store.js lines 2-3", "store.js#L2", "store.js:L2", "in store.js, line 2"]:
+        assert km.points_at(k, loc), loc
+    assert not km.points_at(k, "store.js line 40") and not km.points_at(k, "app.js line 2")
+    import random
+    rnd = random.Random(7)
+    def brute(el, ser):
+        import itertools
+        plants = list(el); best = (-1, -1)
+        def go(i, used, n, sv):
+            nonlocal best
+            if i == len(plants): best = max(best, (n, sv)); return
+            go(i + 1, used, n, sv)
+            for f in el[plants[i]]:
+                if f not in used: go(i + 1, used | {f}, n + 1, sv + (1 if f in ser.get(plants[i], []) else 0))
+        go(0, frozenset(), 0, 0); return best
+    for _ in range(400):
+        P = [f"p{i}" for i in range(rnd.randint(1, 5))]; F = list(range(rnd.randint(1, 5)))
+        el = {p_: rnd.sample(F, rnd.randint(0, len(F))) for p_ in P}
+        ser = {p_: [f for f in el[p_] if rnd.random() < 0.5] for p_ in P if rnd.random() < 0.6}
+        got = km.serious_first(el, ser); n, sv = brute(el, ser)
+        assert len(got) == n and sum(1 for p_, f in got.items() if f in ser.get(p_, [])) == sv, (el, ser, got, n, sv)
+    sc = (HERE.parent / "eval" / "score.py").read_text()
+    assert "r.get('evidence'" not in sc.split("def locs_of")[1].split("def ")[0], "a finding's location is its file, line and quote, never its evidence"
+    c = d / ".critic"; c.mkdir()
+    one = {"file": "app.js", "line": 11, "category": "x", "impact": "High", "title": "XSS: titles into innerHTML unescaped, and search responses race out of order", "quote": "", "evidence": "", "failing_case": ""}
+    (c / "findings.jsonl").write_text(json.dumps(one) + "\n"); (c / "tally.json").write_text(json.dumps({"kept": [], "retracted": [], "dropped": [], "rejected": [], "suppressed": []}))
+    out = subprocess.run([sys.executable, str(HERE.parent / "eval" / "score.py"), "--funnel", str(d), "--suite", "1"], capture_output=True, text=True).stdout
+    assert "1 of 16 planted defects reached" in out, "one finding reaches one plant, as score.py counts it: " + out
+    pl = (HERE.parent / "eval" / "planter.py").read_text(); assert '"at": [[' in pl, "planter keys carry their place"
+    dm = (HERE.parent / "eval" / "deathmatch.py").read_text(); assert "FileNotFoundError" in dm
+    ln = (HERE.parent / "eval" / "lens.py").read_text(); assert "TimeoutExpired" in ln
+
 if __name__ == "__main__":
     shutil.rmtree(TMP, ignore_errors=True)
     bad = [r for r in RESULTS if not r[1]]

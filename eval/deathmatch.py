@@ -178,6 +178,7 @@ def run(arms, tasks, model, repeat):
                     t0 = time.time()
                     try: meta = one_run(a, w, td, model)
                     except subprocess.TimeoutExpired as e: meta = {"error": f"timeout after {int(e.timeout)} s"}  # recorded; the other runs go on
+                    except FileNotFoundError as e: meta = {"error": f"not found: {e.filename or e} (nothing is installed for you)"}
                     meta["wall_s"] = round(time.time() - t0, 1)
                     for f_ in ("findings.jsonl", "last-review.md"):
                         if (w / ".critic" / f_).exists(): shutil.copy2(w / ".critic" / f_, td / f_)

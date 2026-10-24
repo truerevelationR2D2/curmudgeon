@@ -20,7 +20,8 @@ SCAN = HERE.parent / "plugin" / "skills" / "review" / "scripts" / "critic_scan.p
 def rows(folder, area):
     with tempfile.TemporaryDirectory(prefix="lens-") as t:
         dst = pathlib.Path(t) / "p"; shutil.copytree(folder, dst)
-        r = subprocess.run([sys.executable, str(SCAN), ".", "--root", ".", "--no-project-rules"], cwd=dst, capture_output=True, text=True, timeout=300)
+        try: r = subprocess.run([sys.executable, str(SCAN), ".", "--root", ".", "--no-project-rules"], cwd=dst, capture_output=True, text=True, timeout=300)
+        except subprocess.TimeoutExpired: sys.exit(f"lens: the scan of {folder} took over 300 s and was stopped; nothing measured")
         rep = dst / ".critic" / "scan" / "report.json"
         if not rep.exists(): sys.exit(f"lens: the scan wrote no report ({r.stderr.strip()[-300:]})")
         areas = set(area) if isinstance(area, list) else {area}
