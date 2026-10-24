@@ -2,7 +2,7 @@
 (more unsafe HTML sinks), Stylelint (CSS) and the WCAG 2.2 criteria no engine checks (3.3.8, 2.5.7, 2.2.1, 1.4.2).
 No rule text from those projects is used."""
 import re
-import scan_python
+import scan_python, scan_tests
 
 CODE = {".js", ".mjs", ".cjs", ".ts", ".jsx", ".tsx", ".vue", ".svelte", ".html", ".htm"}
 MARKUP = {".html", ".htm", ".jsx", ".tsx", ".vue", ".svelte"}
@@ -53,6 +53,9 @@ def scan(rel, suffix, text, emit):
     if suffix in PY:
         try: scan_python.scan(rel, text, emit); parsed = True  # the parser-based checks replace the text patterns
         except (SyntaxError, ValueError, RecursionError): pass  # unparseable file: fall back to the text patterns below
+        if parsed and scan_tests.is_test_file(rel):
+            try: scan_tests.scan(rel, text, emit)  # the tests-of-the-tests lens (SC-48)
+            except (SyntaxError, ValueError, RecursionError): pass
     for i, l in enumerate(lines, 1):
         if len(l) > 3000: continue
         for rid, sev, area, rx, msg, exts in COMPILED:

@@ -55,6 +55,7 @@ You can also just say "tear this apart" or "review my work".
    - import cycles and dead code;
    - injection sinks;
    - Python safety, read with Python's own parser, so strings and comments don't trigger false alarms;
+   - tests of the tests (Python): tests that check nothing, asserts that can never fail, two tests with one name (one never runs), failures swallowed by a broad `except`, skips with no reason;
    - WCAG 2.2 rules;
    - dependency hygiene and licences (strong copyleft such as GPL is flagged; missing, unrecognised and proprietary licences are noted);
    - your own rule files (see "Add your own checks");

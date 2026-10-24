@@ -85,3 +85,13 @@ Run them from the repository root. They call the model on your account, and Bash
 claude plugin eval plugin --scaffold --allow-tools Bash Write Edit --no-publish --runs 1 --ablation none
 ```
 
+
+## Lens checks (no model)
+
+Each scripted lens ships with a planted-defect fixture, a clean twin and decoys, and is measured before it ships:
+
+```
+python3 eval/lens.py eval/lens5.json
+```
+
+`lens5.json` is the tests-of-the-tests lens (SC-48): `fixture5/` has seven planted defects in `tests/test_cart.py`, `fixture5-clean/` is the same project with the tests fixed, and `tests/test_helpers_ok.py` (in both) holds fourteen correct tests and a decorator factory named `test`, all of which only look suspicious. The check passes only with every planted defect found at its file and line, no regular row in the decoy file and none in the clean twin. The script tests run it, and also feed it a wrong answer key to prove it can fail.

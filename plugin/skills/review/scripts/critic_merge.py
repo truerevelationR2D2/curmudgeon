@@ -128,7 +128,8 @@ def median_impact(xs):
 # A scripted FAIL's impact by rule (it used to be High for every rule). A live credential is Critical; code that runs
 # input, or a page that throws, is High; an accessibility or layout failure is Medium unless it locks people out.
 SCAN_IMPACT = {"eval": "High", "py-eval": "High", "console-error": "High", "click-error": "High", "not-focusable": "High",
-               "no-focus-style": "Medium", "focus-obscured": "Medium", "zoom-off": "Medium", "html-nested-interactive": "Medium", "sideways": "Medium"}
+               "no-focus-style": "Medium", "focus-obscured": "Medium", "zoom-off": "Medium", "html-nested-interactive": "Medium", "sideways": "Medium",
+               "test-const-assert": "Medium", "test-duplicate-name": "Medium"}  # a test that can't fail hides bugs; it isn't one itself
 def scan_impact(rule):
     try:
         import scan_secrets

@@ -44,7 +44,7 @@ R, CHECKS, SUPPRESSED, FP = [], {}, [], []
 
 # Scripted rows come in two tiers (SC-47, after zizmor's personas; our own list): regular rows can become findings;
 # pedantic rows are known to be noisy, are always NOTE, and are counted apart. A rule file can mark a rule pedantic.
-PEDANTIC = {"long-lines", "long-file", "unused-export", "dead-function", "duplicate-code", "mutation-not-exercised"}
+PEDANTIC = {"long-lines", "long-file", "unused-export", "dead-function", "duplicate-code", "mutation-not-exercised", "test-sleep", "test-unseeded-random"}
 PEDANTIC_RULES = set()
 
 def f(sev, rule, area, where, what, ev=""):
@@ -270,7 +270,7 @@ def static(src, root, excludes):
             for row in json.loads(r.stdout or "[]"): f(*row)
         except subprocess.TimeoutExpired: f("WARN", "rule-file-timeout", "structure", ".critic/rules", "the project's rule files took over 20 s and were stopped (a pattern may be too slow); their results are missing")
         except ValueError: f("NOTE", "rule-file-invalid", "structure", ".critic/rules", "the rule runner returned no readable results")
-    if texts: state("static", *family_state({"safety", "errors", "state", "async", "perf", "a11y", "layout", "domain", "html", "theming", "ux"}, f"{n} source files, {len(CONFIG_TEXTS)} config files, {texts} text files checked for secrets, {len(custom)} rule-file rules"
+    if texts: state("static", *family_state({"safety", "errors", "state", "async", "perf", "a11y", "layout", "domain", "html", "theming", "ux", "tests"}, f"{n} source files, {len(CONFIG_TEXTS)} config files, {texts} text files checked for secrets, {len(custom)} rule-file rules"
                               + (("; not checked beyond secrets: " + ", ".join(f"{k} {v}" for k, v in sorted(secrets_only.items(), key=lambda kv: -kv[1])[:8])) if secrets_only else "")))
     else: state("static", "blocked", "no readable files found")
     try:

@@ -6,6 +6,7 @@ Run the scenarios that apply to the payload type, and only those:
 | UI (a page or app) | all, 0–10 |
 | Code with no interface (library, script, hook, CLI) | 1–7 and 10, plus bad arguments, missing files, paths with spaces |
 | Document or plan | none: check claims, arithmetic, contradictions and decisions instead |
+| Tests (the change adds or touches tests) | 11, on top of the scenarios for the code they test |
 
 Run each against the payload. Drive the real app where you can start it: a local HTTP server and Python Playwright (only if it is already installed; never install it). Otherwise trace the code, and say "traced" in the ledger line. Record each as one line: scenario → what happens → finding id or "holds".
 
@@ -20,3 +21,4 @@ Run each against the payload. Drive the real app where you can start it: a local
 8. **Keyboard only and screen reader:** reach every control, see focus, escape every widget, every control has a name, status changes are announced.
 9. **Phone width (390 px) and 200% zoom:** sideways scroll, tap targets, hover-only controls, clipped text.
 10. **Hostile input:** `<img src=x onerror=alert(1)>` and `"&q=1#` in every field that is rendered or sent anywhere.
+11. **Break it and rerun (tests of the tests):** in your private copy, break the behaviour a test names (flip a comparison, return early, drop the call it checks) and run that test. A test that still passes can't catch the bug it is named for: that is a finding, verified as executed. Change only your copy, never the project.

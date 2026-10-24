@@ -1766,6 +1766,22 @@ def _(d):
     write(d, "src/a.py", "x = 1\n"); run(S / "critic_map.py", "--files", "src/a.py", cwd=d); run(S / "critic_ledger.py", "start", "review", "--tier", "lite", cwd=d)
     run(S / "critic_brief.py", cwd=d); assert "ast_view.py FILE" in (d / ".critic/briefs/brief-A.md").read_text()
 
+@test("5.0 SC-48: the tests-of-the-tests lens finds every planted defect, flags no decoy and nothing in the clean twin, and the lens check can fail")
+def _(d):
+    L = HERE.parent / "eval" / "lens.py"; K = HERE.parent / "eval" / "lens5.json"
+    r = run(L, str(K), "--json", cwd=d); out = json.loads(r.stdout)
+    assert r.returncode == 0 and out["verdict"] == "PASS" and out["recall"] == "7 of 7" and out["precision"] == "7 of 7", out
+    k = json.loads(K.read_text()); k["planted"].append({"id": "TX", "rule": "test-no-assert", "where": "tests/test_cart.py:14", "why": "deliberately wrong"})
+    for x in ("fixture", "clean"): k[x] = str(HERE.parent / "eval" / k[x])
+    bad = write(d, "bad.json", json.dumps(k)); r = run(L, str(bad), cwd=d)
+    assert r.returncode == 1 and "FAIL" in r.stdout, "a lens check that can't fail proves nothing: " + r.stdout
+    write(d, "tests/test_x.py", "def test_a():\n    assert (1 == 2, 'm')\n\ndef test_b():\n    import time\n    time.sleep(1)\n    assert True is not False\n")
+    run(S / "critic_scan.py", ".", "--root", ".", cwd=d)
+    rows = {x["rule"]: x for x in json.loads((d / ".critic/scan/report.json").read_text())["findings"] if x["area"] == "tests"}
+    assert rows["test-const-assert"]["sev"] == "FAIL" and rows["test-sleep"]["tier"] == "pedantic" and "test-no-assert" not in rows, rows
+    imp = subprocess.run([sys.executable, "-c", f"import sys; sys.path.insert(0, {str(S)!r}); from critic_merge import scan_impact; print(scan_impact('test-const-assert'))"], cwd=d, capture_output=True, text=True).stdout.strip()
+    assert imp == "Medium", imp
+
 if __name__ == "__main__":
     shutil.rmtree(TMP, ignore_errors=True)
     bad = [r for r in RESULTS if not r[1]]
