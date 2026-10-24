@@ -12,7 +12,7 @@ import json, os, pathlib, re, subprocess, sys
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 from critic_findings import log_run, refuse_linked_state
 
-ROOT = pathlib.Path(os.environ.get("CRITIC_ROOT") or re.sub(r"[\\/]\.critic[\\/]scratch[\\/][A-Za-z0-9_-]{1,64}[\\/]payload(?:[\\/].*)?$", "", os.getcwd()) or os.getcwd()).resolve(); D = ROOT / ".critic"
+ROOT = pathlib.Path(os.environ.get("CRITIC_ROOT") or re.sub(r"[\\/]\.critic[\\/]scratch(?:[\\/].*)?$", "", os.getcwd()) or os.getcwd()).resolve(); D = ROOT / ".critic"
 # whole words only ("author" is not "auth"); paths may also match folder-style names
 SENSITIVE = re.compile(r"(?<![A-Za-z])(auth|authn|authz|authenticate\w*|authoriz\w*|login|logout|sessions?|passwords?|secrets?|payments?|billing|refunds?|checkout|invoices?|crypto|encrypt\w*|decrypt\w*|permissions?|admin|migrations?|webhooks?|uploads?|credentials?|api[_-]?keys?|private[_-]?keys?|tokens?|jwts?|oauth\w*|sso|saml|roles?|rbac|acls?|security|privacy|pii|gdpr|csrf|xsrf|cors|csp|signatures?|hmac|hash(?:es|ing)?|salt|sanitiz\w*|schemas?)(?![A-Za-z])", re.I)
 SENSITIVE_PATH = re.compile(r"(?:^|/)(\.env[\w.]*|config|settings|security|privacy|auth|admin|migrations?|schema)(?:/|\.|$)", re.I)

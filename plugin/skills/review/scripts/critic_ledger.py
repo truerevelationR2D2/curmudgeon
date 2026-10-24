@@ -34,7 +34,7 @@ import hashlib, json, os, pathlib, re, shutil, sys, time
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 from critic_findings import log_run, norm_code, read_jsonl, refuse_linked_state, tokens
 
-ROOT = pathlib.Path(os.environ.get("CRITIC_ROOT") or re.sub(r"[\\/]\.critic[\\/]scratch[\\/][A-Za-z0-9_-]{1,64}[\\/]payload(?:[\\/].*)?$", "", os.getcwd()) or os.getcwd()).resolve(); D = ROOT / ".critic"; F = D / "ledger.json"
+ROOT = pathlib.Path(os.environ.get("CRITIC_ROOT") or re.sub(r"[\\/]\.critic[\\/]scratch(?:[\\/].*)?$", "", os.getcwd()) or os.getcwd()).resolve(); D = ROOT / ".critic"; F = D / "ledger.json"
 SCORES = ("Critical", "High", "Medium", "Low"); STATES = ("open", "fixed", "deferred", "wontfix", "dismissed")
 REASONS = ("impossible", "conflicts", "worse"); DISMISS = ("false-positive", "out-of-scope", "redundant", "intended", "preference")
 CLAIMS = ("targeted", "no-new-defect", "behaviour-unchanged")

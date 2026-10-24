@@ -1726,6 +1726,45 @@ def _(d):
     assert "plugin_marketplaces:" in r and "plugins: curmudgeon@curmudgeon" in r and "hasn't been run by us yet" in r and "secrets.ANTHROPIC_API_KEY" in r
     assert "All three are the same model" in r and "/curmudgeon:review quiet" in r
 
+@test("5.0 §5.29 round 2: git from notes never reaches the project, any cwd in scratch maps to the project, lite runs reach the teardown, nested repos and absolute globs are handled")
+def _(d):
+    G = ["git", "-c", "user.email=t@example.invalid", "-c", "user.name=t"]
+    p = d / "proj"; write(p, "src/app.js", APP); write(p, "vendor/lib/lib.c", "int x;\n"); write(p, ".next/cache/blob", "x" * 100)
+    subprocess.run(["git", "init", "-q"], cwd=p / "vendor/lib"); subprocess.run(["git", "add", "."], cwd=p / "vendor/lib"); subprocess.run(G + ["commit", "-qm", "lib"], cwd=p / "vendor/lib")
+    write(d, "outside/one.txt", "real\n"); os.symlink(d / "outside/one.txt", p / "src/one.txt")
+    subprocess.run(["git", "init", "-q"], cwd=p); subprocess.run(["git", "add", "src"], cwd=p); subprocess.run(G + ["commit", "-qm", "base"], cwd=p)
+    write(p, "src/app.js", APP + "// uncommitted\n"); write(p, ".critic/reviews/review-B.json", '[{"title": "SECRET-B"}]')
+    run(H / "scratch_dir.py", cwd=p, stdin=json.dumps({"agent_type": "curmudgeon:curmudgeon-reviewer", "agent_id": "r1", "cwd": str(p)}))
+    rec = json.loads((p / ".critic/scratch/r1/workspace.json").read_text()); ws = pathlib.Path(rec["payload"]); notes = pathlib.Path(rec["notes"])
+    subprocess.run(G + ["stash", "-q"], cwd=notes, capture_output=True)
+    assert "// uncommitted" in (p / "src/app.js").read_text() and not subprocess.run(["git", "stash", "list"], cwd=p, capture_output=True, text=True).stdout.strip(), "git from notes must not reach the project"
+    lst = subprocess.run(["git", "ls-files"], cwd=ws, capture_output=True, text=True).stdout
+    assert (ws / "src/app.js").exists() and (ws / "vendor/lib/lib.c").read_text() == "int x;\n" and "vendor/lib" in rec["nested"], rec
+    assert not (ws / "src/one.txt").is_symlink() and (ws / "src/one.txt").read_text() == "real\n", "an outside file link becomes a copy"
+    (ws / "src/one.txt").write_text("changed in copy\n"); assert (d / "outside/one.txt").read_text() == "real\n"
+    def ask(cwd, tool, **ti):
+        return "deny" in run(H / "read_guard.py", cwd=p, stdin=json.dumps({"tool_name": tool, "tool_input": ti, "cwd": str(cwd), "agent_type": "curmudgeon:curmudgeon-reviewer", "agent_id": "r1"})).stdout
+    assert ask(notes, "Read", file_path=str(p / ".critic/reviews/review-B.json")), "a cwd in notes still guards the project's .critic"
+    assert not ask(notes, "Bash", command=f"cd {ws} && ls"), "and still finds the workspace"
+    assert ask(p, "Glob", pattern=str(p) + "/**/review-*.json", path=str(p)), "an absolute Glob pattern is expanded with dot-folders"
+    e = d / "lite"; write(e, "src/app.js", APP)
+    run(S / "critic_run.py", "begin", "--files", "src/app.js", "--tier", "lite", cwd=e)
+    g = finding(category="domain", impact="Medium", line=4, quote="const price = total * 1.0825;", title="Tax rule in render code", verified="executed")
+    write(e, ".critic/reviews/review-A.json", json.dumps([g]))
+    out = run(S / "critic_run.py", "next", cwd=e)
+    assert out.returncode == 0 and "write the teardown" in out.stdout, "a lite run with only a Medium reaches the teardown: " + out.stdout + out.stderr
+    assert (e / ".critic/findings.jsonl").exists()
+
+@test("5.0 SC-63: ast_view prints the Python syntax tree for a line range, says 'no parser' for other languages, and briefs name it")
+def _(d):
+    write(d, "t.py", 'import os\n\ndef f(x):\n    if x is None or x == "a < b":\n        return os.path.join("a", x)\n    return x + 1\n')
+    r = run(S / "ast_view.py", "t.py", "4", cwd=d)
+    assert r.returncode == 0 and "If L4-5" in r.stdout and "BoolOp L4 (op=Or)" in r.stdout and "value='a < b'" in r.stdout and "Return L6" not in r.stdout, r.stdout
+    r = run(S / "ast_view.py", "x.js", cwd=d); assert r.returncode == 3 and "no parser" in r.stdout
+    write(d, "bad.py", "def f(:\n"); r = run(S / "ast_view.py", "bad.py", cwd=d); assert r.returncode == 2 and "syntax error" in r.stdout
+    write(d, "src/a.py", "x = 1\n"); run(S / "critic_map.py", "--files", "src/a.py", cwd=d); run(S / "critic_ledger.py", "start", "review", "--tier", "lite", cwd=d)
+    run(S / "critic_brief.py", cwd=d); assert "ast_view.py FILE" in (d / ".critic/briefs/brief-A.md").read_text()
+
 if __name__ == "__main__":
     shutil.rmtree(TMP, ignore_errors=True)
     bad = [r for r in RESULTS if not r[1]]

@@ -136,8 +136,11 @@ def main():
         pat = str(ti.get("pattern") or "")
         if not why and tool == "Glob" and (any(ch in pat for ch in "*?[") or "critic" in pat.casefold() or ".." in pat):  # expand it for real and judge what it matches
             import glob as _glob, itertools
-            try: found = (str(x) for x in pathlib.Path(start).glob(pat))  # pathlib matches dot-folders on every Python, as Glob does
-            except (NotImplementedError, ValueError, OSError): found = iter(_glob.glob(os.path.join(str(start), pat), recursive=True))
+            base_, pat_ = (pathlib.Path(pathlib.Path(pat).anchor), pat[len(pathlib.Path(pat).anchor):]) if os.path.isabs(pat) else (pathlib.Path(start), pat)
+            try: found = (str(x) for x in base_.glob(pat_))  # pathlib matches dot-folders on every Python, as Glob does
+            except (NotImplementedError, ValueError, OSError):
+                hidden = {"include_hidden": True} if sys.version_info >= (3, 11) else {}
+                found = iter(_glob.glob(os.path.join(str(start), pat), recursive=True, **hidden))
             for h in itertools.islice(found, 5000):
                 hp = resolve(h, root); why = judge(hp, critic, role, me)
                 if why: break

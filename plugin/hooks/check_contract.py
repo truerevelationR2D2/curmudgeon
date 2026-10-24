@@ -9,7 +9,10 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import workspace  # this folder's helper: project root, agent workspaces
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent / "skills" / "review" / "scripts"))
 try: from critic_findings import validate, refutation_problem, confirmation_problem, security_refutation_problem  # the same rules apply uses
-except Exception as _e:  # a broken install must say so, not fail open silently
+except Exception as _e:  # a broken install must say so, not fail open silently, and still never leave a copy behind
+    try:
+        _d = json.load(sys.stdin); workspace.remove(workspace.project_root(_d), _d.get("agent_id"))
+    except Exception: pass
     print(json.dumps({"systemMessage": f"Curmudgeon contract check skipped: its scripts could not be loaded ({type(_e).__name__}: {_e}). Reinstall the plugin."})); sys.exit(0)
 
 def started_at(root, agent_id):

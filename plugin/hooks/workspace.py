@@ -13,7 +13,9 @@ What is copied: in a git project, the files git lists as tracked or untracked-bu
 caches never eat the budget); elsewhere, every file except version-control folders, caches and the build folders the
 scanner also skips. Never the top-level .critic, never a file over MAX_FILE. Dependency folders (node_modules, .venv,
 venv) are linked, not copied, so tests can run. A link to somewhere in the project points at the same place in the
-copy; a link outside the project points at its real target; a link into .critic or to the project itself is dropped.
+copy; a link outside the project to a small file becomes a copy of that file (so a write in the copy can't reach it),
+and a link outside to a folder points at its real target (the agent is told); a link into .critic or to the project
+itself is dropped. A submodule or nested repository is copied as files, without its history.
 Past MAX_TOTAL bytes or MAX_FILES files the copy stops and is marked partial; the agent is told, and can still Read the
 project's own files (never its .critic). A link the system won't let us make (Windows without symlink rights) is
 skipped and listed, never fatal.
@@ -36,7 +38,7 @@ LINK_DIRS = {"node_modules", ".venv", "venv"}
 MAX_FILE = 5 * 1024 * 1024
 MAX_TOTAL = 500 * 1024 * 1024
 MAX_FILES = 100_000
-COPY_PART = re.compile(r"[\\/]\.critic[\\/]scratch[\\/][A-Za-z0-9_-]{1,64}[\\/]payload(?:[\\/].*)?$")
+COPY_PART = re.compile(r"[\\/]\.critic[\\/]scratch(?:[\\/].*)?$")  # anywhere in the scratch area (a copy, its notes, the agent folder) belongs to the project above it
 
 def clean_id(v): return re.sub(r"[^A-Za-z0-9_-]", "", str(v or ""))[:64]
 
@@ -48,7 +50,8 @@ def within(p, top):
 
 def project_root(data):
     """The project a hook call is about. Claude Code passes the session's current folder as cwd, and after an agent's
-    required `cd <copy> && ...` that is the copy itself, so a cwd inside a copy is mapped back to its project."""
+    required `cd <copy> && ...` that is the copy itself (or its notes folder), so any cwd in .critic/scratch is mapped
+    back to the project that holds it."""
     cwd = str(data.get("cwd") or os.getcwd())
     return pathlib.Path(COPY_PART.sub("", cwd) or cwd)
 
@@ -94,12 +97,17 @@ def _git(root, *a, timeout=60):
     except (OSError, subprocess.SubprocessError): return None
 
 def _git_files(root):
-    """Paths git lists as tracked, or untracked and not ignored; None when this isn't a git work tree."""
+    """Paths git tracks, then untracked-but-not-ignored ones outside build folders; None when this isn't a git work
+    tree. Tracked files come first, so build output that nobody ignored can never crowd the source out of the budget."""
     r = _git(root, "rev-parse", "--show-toplevel")
     if not r or r.returncode or fold(r.stdout.strip()) != fold(pathlib.Path(root).resolve()): return None  # only when the project is the repo's top
-    r = _git(root, "ls-files", "-z", "-co", "--exclude-standard")
-    if not r or r.returncode: return None
-    return sorted({x for x in r.stdout.split("\0") if x})
+    t = _git(root, "ls-files", "-z", "-c")
+    u = _git(root, "ls-files", "-z", "-o", "--exclude-standard")
+    if not t or t.returncode or not u or u.returncode: return None
+    tracked = sorted({x.rstrip("/") for x in t.stdout.split("\0") if x})
+    seen = set(tracked)
+    extra = sorted({x.rstrip("/") for x in u.stdout.split("\0") if x and x.rstrip("/") not in seen and not any(part in SKIP_BUILD for part in pathlib.PurePosixPath(x).parts[:-1])})
+    return tracked + extra
 
 def _own_repo(root, payload):
     """Make the copy its own repository (see the module notes). Returns how: "clone", "none" or "stub"."""
@@ -126,9 +134,10 @@ def make(root, agent_id):
     if payload.is_symlink(): payload.unlink()
     elif payload.exists(): shutil.rmtree(payload, ignore_errors=True)
     payload.mkdir(); notes.mkdir(exist_ok=True)
+    (h / ".git").write_text("gitdir: .git-none-curmudgeon-agent\n")  # git run from notes/ (or here) stops here, never reaching the project's repository
     rec = {"payload": str(payload.resolve()), "notes": str(notes.resolve()), "root": str(root), "made_at": time.time(), "building": True}
     (h / "workspace.json").write_text(json.dumps(rec, indent=1))
-    st = {"files": 0, "bytes": 0, "partial": False, "skipped_large": [], "links_skipped": []}
+    st = {"files": 0, "bytes": 0, "partial": False, "skipped_large": [], "links_skipped": [], "outside_links": [], "outside_copied": [], "nested": []}
 
     def link(target, dst, rel):
         try: os.symlink(target, dst, target_is_directory=os.path.isdir(target) if os.path.isabs(str(target)) else os.path.isdir(os.path.join(os.path.dirname(dst), target)))
@@ -139,7 +148,21 @@ def make(root, agent_id):
         src = root / rel; dst = payload / rel
         if os.path.islink(src):
             t = _link_target(src, root)
-            if t is not None: dst.parent.mkdir(parents=True, exist_ok=True); link(t, dst, rel)
+            if t is None: return True
+            if os.path.isabs(t) and os.path.isfile(t) and os.path.getsize(t) <= MAX_FILE:  # outside the project: a copy, so a write in the copy can't reach the real file
+                dst.parent.mkdir(parents=True, exist_ok=True)
+                try: shutil.copy2(t, dst); st["outside_copied"].append(rel)
+                except OSError: st["links_skipped"].append(rel)
+                return True
+            dst.parent.mkdir(parents=True, exist_ok=True); link(t, dst, rel)
+            if os.path.isabs(t): st["outside_links"].append(rel)
+            return True
+        if os.path.isdir(src):  # a submodule or nested repository git lists as one entry: its files, without its history
+            st["nested"].append(rel)
+            for top, dirs, names in os.walk(src):
+                dirs[:] = sorted(x for x in dirs if x not in SKIP_ANYWHERE and x not in LINK_DIRS)
+                for n in sorted(names):
+                    if not put(os.path.relpath(os.path.join(top, n), root).replace(os.sep, "/")): return False
             return True
         try: size = os.path.getsize(src)
         except OSError: return True
@@ -181,7 +204,7 @@ def make(root, agent_id):
             if stop: break
     try: rec["git"] = _own_repo(root, payload)
     except OSError: rec["git"] = "stub-failed"
-    st["skipped_large"] = st["skipped_large"][:200]; st["links_skipped"] = st["links_skipped"][:200]
+    for k in ("skipped_large", "links_skipped", "outside_links", "outside_copied", "nested"): st[k] = st[k][:200]
     rec.update(st); rec.pop("building", None)
     (h / "workspace.json").write_text(json.dumps(rec, indent=1))
     return rec

@@ -21,7 +21,7 @@ spans hunks could be missed; Ryan's A/B run on the kit decides whether it become
 import json, os, pathlib, random, sys, re
 
 HERE = pathlib.Path(__file__).resolve().parent
-ROOT = pathlib.Path(os.environ.get("CRITIC_ROOT") or re.sub(r"[\\/]\.critic[\\/]scratch[\\/][A-Za-z0-9_-]{1,64}[\\/]payload(?:[\\/].*)?$", "", os.getcwd()) or os.getcwd()).resolve(); D = ROOT / ".critic"
+ROOT = pathlib.Path(os.environ.get("CRITIC_ROOT") or re.sub(r"[\\/]\.critic[\\/]scratch(?:[\\/].*)?$", "", os.getcwd()) or os.getcwd()).resolve(); D = ROOT / ".critic"
 
 def load(p, default):
     try: return json.loads(p.read_text()) if p.is_file() and not p.is_symlink() else default
@@ -85,7 +85,8 @@ def main(a):
               f"- Tier: {tier}",
               f"- Stated intent: {intent if intent else '(none stated; do not guess one)'}",
               f"- References folder: {refs} (read rubrics.md, sandbox.md, ai-tells.md and output-contract.md)",
-              f"- Change map: {D / 'change-map.md'}"]
+              f"- Change map: {D / 'change-map.md'}",
+              f"- Python syntax tree, to trace instead of guess (run from your workspace): python3 {HERE / 'ast_view.py'} FILE [LINE|START-END]"]
     if (D / "rules.md").is_file(): shared.append(f"- Project rules: {D / 'rules.md'} (apply only the rules whose paths match the payload)")
     shared += ["", "## The owner's recorded decisions (not re-argued on taste)"] + ([f"- {x}" for x in decisions] or ["- none recorded"])
     shared += ["", "## Not findings (the owner's past rulings)"] + ([f"- {x}" for x in fps] or ["- none recorded"])

@@ -40,7 +40,7 @@ import hashlib, json, math, os, pathlib, re, subprocess, sys, time
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 from critic_findings import IMPACTS, extract_findings, norm_code, relocate_quote, fingerprint, quote_check, read_jsonl, refutation_problem, confirmation_problem, security_refutation_problem, similar, log_run, append_line, refuse_linked_state, to_sarif, validate, write_jsonl, tokens, scrub, redact_finding_text, write_manifest, strip_workspace_path
 
-ROOT = pathlib.Path(os.environ.get("CRITIC_ROOT") or re.sub(r"[\\/]\.critic[\\/]scratch[\\/][A-Za-z0-9_-]{1,64}[\\/]payload(?:[\\/].*)?$", "", os.getcwd()) or os.getcwd()).resolve(); D = ROOT / ".critic"
+ROOT = pathlib.Path(os.environ.get("CRITIC_ROOT") or re.sub(r"[\\/]\.critic[\\/]scratch(?:[\\/].*)?$", "", os.getcwd()) or os.getcwd()).resolve(); D = ROOT / ".critic"
 
 # Browser results that are measurements (the same page gives the same number) skip verification. Everything else the
 # detector reports, such as console errors or controls that seem dead, can come from the test setup, so it is verified.

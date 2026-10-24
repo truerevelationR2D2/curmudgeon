@@ -14,10 +14,10 @@ usage:
 
 Steps it never takes: starting agents (only the lead can), writing a review or a verdict, or deciding anything a model
 decides. Each script it runs is logged in .critic/runlog.jsonl like any other."""
-import json, os, pathlib, subprocess, sys, re
+import json, os, pathlib, subprocess, sys, re, time
 
 HERE = pathlib.Path(__file__).resolve().parent
-ROOT = pathlib.Path(os.environ.get("CRITIC_ROOT") or re.sub(r"[\\/]\.critic[\\/]scratch[\\/][A-Za-z0-9_-]{1,64}[\\/]payload(?:[\\/].*)?$", "", os.getcwd()) or os.getcwd()).resolve(); D = ROOT / ".critic"
+ROOT = pathlib.Path(os.environ.get("CRITIC_ROOT") or re.sub(r"[\\/]\.critic[\\/]scratch(?:[\\/].*)?$", "", os.getcwd()) or os.getcwd()).resolve(); D = ROOT / ".critic"
 REVIEWERS = {"trivial": ["A"], "lite": ["A"], "full": ["A", "B", "C"]}
 FORCE = False  # next --apply-now: apply with the verdicts there are (a finding with no verdict stays, at lower confidence)
 
@@ -63,7 +63,7 @@ def state():
     contested = {str(f.get("id")) for f in t.get("contested", []) if isinstance(f, dict)}
     outside = {str(f.get("id")) for f in t.get("kept", []) + t.get("contested", []) if isinstance(f, dict) and f.get("outside_only")}
     def wanted(p):  # the review skill's step 4.2: what each tier verifies
-        if tier == "full" or p.stem in outside: return True
+        if tier == "full" or p.stem in outside or p.stem in contested: return True  # step 4.1: contested findings are verified in every tier
         if tier == "trivial": return p.stem in contested
         try: return json.loads(p.read_text()).get("impact") in ("Critical", "High")
         except (OSError, ValueError): return True
@@ -111,12 +111,17 @@ def main(a):
         global FORCE; FORCE = "--apply-now" in rest
         st, L, tier, items = state()
         letters = [f".critic/reviews/review-{x}.json" for x in REVIEWERS.get(tier, REVIEWERS["full"])]
-        if st == "tally":
-            sh("critic_merge.py", "tally", *letters); st, L, tier, items = state()
-        elif st == "tally-groups":
-            sh("critic_merge.py", "tally", *letters, "--groups", ".critic/groups.json"); st, L, tier, items = state()
-        elif st == "apply":
-            sh("critic_ledger.py", "acted"); sh("critic_merge.py", "apply", *[str(p.relative_to(ROOT)) for p in items]); st, L, tier, items = state()
+        for _ in range(4):  # run the scripted steps back to back until one needs an agent (or the teardown)
+            if st == "tally":
+                sh("critic_merge.py", "tally", *letters)
+            elif st == "tally-groups":
+                sh("critic_merge.py", "tally", *letters, "--groups", ".critic/groups.json")
+            elif st == "apply":
+                if not items:  # nothing needed a verdict, or --apply-now with none back: apply with an empty verdict list
+                    (D / "verdicts").mkdir(exist_ok=True); none = D / "verdicts" / f"none-{int(time.time())}.json"; none.write_text("[]\n"); items = [none]
+                sh("critic_ledger.py", "acted"); sh("critic_merge.py", "apply", *[str(p.relative_to(ROOT)) for p in items])
+            else: break
+            st, L, tier, items = state()
         say_next(st, tier, items); return 0
     print(__doc__); return 2
 
