@@ -27,7 +27,7 @@ on localhost or a file are refused unless .critic/scope.json lists the origin an
 (the owner's typed confirmation; scope.py), and then only GET, HEAD and OPTIONS, up to the target's request cap."""
 import argparse, fnmatch, json, os, pathlib, re, signal, subprocess, sys, time, urllib.parse
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
-import scan_secrets, scan_html, scan_graph, scan_deps, scan_rules_extra, scan_mutation, scan_ci, scan_agentcfg, scan_migrations
+import scan_secrets, scan_html, scan_graph, scan_deps, scan_rules_extra, scan_mutation, scan_ci, scan_agentcfg, scan_migrations, scan_reqs
 import scope as scope_file
 from critic_findings import log_run, refuse_linked_state
 
@@ -43,6 +43,7 @@ SKIP = {"node_modules", "dist", "build", "vendor", ".git", "__pycache__", ".next
 MAX_BYTES = 2_000_000
 SELF = pathlib.Path(__file__).resolve()
 R, CHECKS, SUPPRESSED, FP = [], {}, [], []
+REQ_ROWS = []  # the requirement-to-test table (SC-55), written beside the report
 
 # Scripted rows come in two tiers (SC-47, after zizmor's personas; our own list): regular rows can become findings;
 # pedantic rows are known to be noisy, are always NOTE, and are counted apart. A rule file can mark a rule pedantic.
@@ -219,7 +220,7 @@ def static(src, root, excludes):
     for b in limits: f("NOTE", "rule-file-limit", "structure", "rules", b)
     for b in rest[:20]: f("NOTE", "rule-file-invalid", "structure", "rules", b)
     if len(rest) > 20: f("NOTE", "rule-file-invalid", "structure", "rules", f"{len(rest) - 20} more rule-file problems not listed")
-    agent_names = {}
+    agent_names = {}; req_docs, req_tests = {}, {}
     lockp = root / ".github" / "workflows" / "actions.lock"
     try: lock_text = lockp.read_text(encoding="utf-8")[:2_000_000] if lockp.is_file() and not lockp.is_symlink() else ""
     except OSError: lock_text = ""
@@ -235,6 +236,8 @@ def static(src, root, excludes):
         elif p.name == "package-lock.json": scan_ci.scan_npm_lock(rel, text, f)
         elif scan_agentcfg.wants(rel): scan_agentcfg.scan(rel, text, f, agent_names)  # the agent and MCP configuration lens (SC-52)
         if scan_migrations.wants(rel): scan_migrations.scan(rel, text, f)  # the release and rollback lens (SC-53)
+        if scan_reqs.is_doc(rel): req_docs[rel] = text  # the requirements lens (SC-55)
+        elif scan_reqs.is_test(rel): req_tests[rel] = text
         if p.suffix not in SCAN_EXT:
             if is_config(p, rel):
                 CONFIG_TEXTS[rel] = text
@@ -262,6 +265,7 @@ def static(src, root, excludes):
         if p.suffix in (".css", ".scss", ".less"): css_detector(rel, text)
         elif p.suffix in MARKUP:
             for blk in re.findall(r"<style[^>]*>(.*?)</style>", text, re.S): css_detector(rel, blk)
+    REQ_ROWS[:] = scan_reqs.check(req_docs, req_tests, f)
     # the plugin's own rule files run here; a project's .critic/rules run in a separate process with a time limit,
     # because anyone who wrote the repository could have written them
     builtin = [r[:6] for r in custom if not r[6]]; project = [r[:6] for r in custom if r[6] and not NO_PROJECT_RULES]
@@ -281,7 +285,7 @@ def static(src, root, excludes):
             for row in json.loads(r.stdout or "[]"): f(*row)
         except subprocess.TimeoutExpired: f("WARN", "rule-file-timeout", "structure", ".critic/rules", "the project's rule files took over 20 s and were stopped (a pattern may be too slow); their results are missing")
         except ValueError: f("NOTE", "rule-file-invalid", "structure", ".critic/rules", "the rule runner returned no readable results")
-    if texts: state("static", *family_state({"safety", "errors", "state", "async", "perf", "a11y", "layout", "domain", "html", "theming", "ux", "tests", "supply-chain", "agent-config", "release"}, f"{n} source files, {len(CONFIG_TEXTS)} config files, {texts} text files checked for secrets, {len(custom)} rule-file rules"
+    if texts: state("static", *family_state({"safety", "errors", "state", "async", "perf", "a11y", "layout", "domain", "html", "theming", "ux", "tests", "supply-chain", "agent-config", "release", "requirements"}, f"{n} source files, {len(CONFIG_TEXTS)} config files, {texts} text files checked for secrets, {len(custom)} rule-file rules"
                               + (("; not checked beyond secrets: " + ", ".join(f"{k} {v}" for k, v in sorted(secrets_only.items(), key=lambda kv: -kv[1])[:8])) if secrets_only else "")))
     else: state("static", "blocked", "no readable files found")
     try:
@@ -687,6 +691,7 @@ def main(argv):
     for i, x in enumerate(R, 1): x["id"] = f"S{i:03d}"
     out.mkdir(parents=True, exist_ok=True)
     degraded = [k for k, v in CHECKS.items() if v["state"] in ("blocked", "unavailable") and k in expected]  # n/a is never degraded
+    if REQ_ROWS: (out / "requirements.md").write_text(scan_reqs.table(REQ_ROWS), encoding="utf-8")
     (out / "report.json").write_text(json.dumps({"src": str(src), "root": str(root), "files": nfiles, "stats": stats, "checks": CHECKS, "degraded": degraded, "findings": R, "suppressed": SUPPRESSED}, indent=1))
     from critic_findings import to_sarif
     (out / "scan.sarif").write_text(json.dumps(to_sarif([{"category": x["rule"], "impact": {"FAIL": "High", "WARN": "Medium", "NOTE": "Low"}[x["sev"]], "file": x["where"].split(":")[0] if ":" in x["where"] else x["where"],

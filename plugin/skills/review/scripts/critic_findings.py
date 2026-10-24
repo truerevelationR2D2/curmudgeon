@@ -118,6 +118,11 @@ def validate(f):
         for k in ("evidence", "failing_case"):
             if not str(f.get(k) or "").strip(): errs.append(f"missing {k} (no case, no finding)")
     if f.get("verified") not in VERIFIED: errs.append("verified must be executed, traced or inferred")
+    if "requirement" in f:  # optional (SC-55): the requirement the finding rests on, stated (with where) or inferred (with why)
+        r = f["requirement"]
+        if not isinstance(r, dict) or r.get("basis") not in ("stated", "inferred"): errs.append("requirement must be an object with basis stated or inferred")
+        elif r["basis"] == "stated" and not LOCATION.search(str(r.get("where") or "")): errs.append("a stated requirement needs where: the file:line that states it")
+        elif r["basis"] == "inferred" and not str(r.get("why") or "").strip(): errs.append("an inferred requirement needs why: what it was inferred from")
     for k in ("preconditions", "root_cause"):  # optional (SC-61): what the failure needs, and the decision behind the bug
         if k in f and not isinstance(f[k], str): errs.append(f"{k} must be text when given")
     if f.get("source") != "scan" and f.get("impact") in ("Critical", "High", "Medium") and str(f.get("file") or "").lower().endswith(CODE_EXT) and safe_int(f.get("line")) and not str(f.get("quote") or "").strip():

@@ -1859,6 +1859,27 @@ def _(d):
     st = M._statements("CREATE FUNCTION f() AS $$ BEGIN; x; END; $$ LANGUAGE plpgsql;\n-- a; comment\nSELECT 'a;b';\n/* c;\n d */ SELECT 1;")
     assert [l for l, _ in st] == [1, 3, 5] and st[1][1] == "SELECT 'a;b'", st
 
+@test("5.0 SC-55: requirements are tabled with the tests that cite them, undefined and untested ids are found, and an inferred requirement can't make a finding Critical or High")
+def _(d):
+    r = run(HERE.parent / "eval" / "lens.py", str(HERE.parent / "eval" / "lens9.json"), "--json", cwd=d); out = json.loads(r.stdout)
+    assert r.returncode == 0 and out["recall"] == "4 of 4" and out["precision"] == "4 of 4", out
+    write(d, "src/app.js", APP); write(d, "docs/spec.md", "# Spec\n\n- REQ-1: tax is computed by the server, never in the view.\n")
+    base = finding(category="domain", impact="High", line=4, quote="const price = total * 1.0825;", title="Tax rule in render code")
+    rows = [dict(base, requirement={"basis": "inferred", "why": "pricing usually lives on the server"}),
+            dict(base, category="intent", title="Contradicts the spec", requirement={"basis": "stated", "where": "docs/spec.md:3"}),
+            dict(base, category="intent-2", title="Cites a line that isn't there", requirement={"basis": "stated", "where": "docs/spec.md:99"})]
+    run(S / "critic_ledger.py", "start", "review", "--tier", "full", cwd=d)
+    for L in "ABC": write(d, f".critic/reviews/review-{L}.json", json.dumps(rows))
+    run(S / "critic_merge.py", "tally", *[f".critic/reviews/review-{L}.json" for L in "ABC"], cwd=d)
+    t = json.loads((d / ".critic/tally.json").read_text()); got = {f["category"]: f for f in t["kept"] + t["contested"]}
+    assert got["domain"]["impact"] == "Medium" and got["domain"]["impact_capped_from"] == "High", got["domain"]
+    assert got["intent"]["impact"] == "High" and "impact_capped_from" not in got["intent"]
+    assert got["intent-2"]["impact"] == "Medium" and got["intent-2"]["requirement"]["basis"] == "inferred", got["intent-2"]
+    from critic_findings import validate
+    assert validate(dict(base, requirement={"basis": "stated"})) and validate(dict(base, requirement={"basis": "inferred"})) and not validate(dict(base, requirement={"basis": "inferred", "why": "x"}))
+    write(d, "v.json", "[]"); run(S / "critic_merge.py", "apply", "v.json", cwd=d)
+    assert "## Capped at Medium" in (d / ".critic/counts.md").read_text()
+
 if __name__ == "__main__":
     shutil.rmtree(TMP, ignore_errors=True)
     bad = [r for r in RESULTS if not r[1]]

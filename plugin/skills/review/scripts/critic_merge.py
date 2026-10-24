@@ -38,7 +38,7 @@ apply:
   records every kept finding in the ledger (new, known or regressed)."""
 import hashlib, json, math, os, pathlib, re, subprocess, sys, time
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
-from critic_findings import IMPACTS, extract_findings, norm_code, relocate_quote, fingerprint, quote_check, read_jsonl, refutation_problem, confirmation_problem, security_refutation_problem, similar, log_run, append_line, refuse_linked_state, to_sarif, validate, write_jsonl, tokens, scrub, redact_finding_text, write_manifest, strip_workspace_path
+from critic_findings import IMPACTS, extract_findings, norm_code, relocate_quote, fingerprint, quote_check, read_jsonl, refutation_problem, confirmation_problem, security_refutation_problem, similar, log_run, append_line, refuse_linked_state, to_sarif, validate, write_jsonl, tokens, scrub, redact_finding_text, write_manifest, strip_workspace_path, _cites_real_line
 
 ROOT = pathlib.Path(os.environ.get("CRITIC_ROOT") or re.sub(r"[\\/]\.critic[\\/]scratch(?:[\\/].*)?$", "", os.getcwd()) or os.getcwd()).resolve(); D = ROOT / ".critic"
 
@@ -209,6 +209,11 @@ def tally(paths):
                 if moved: f["line_cited"], f["line"] = f["line"], moved; f["id"] = fingerprint(f); q = True
             if q is False: out["retracted"].append({"finding": f, "why": "quoted code is not at the cited file:line"}); continue
             f["quote_checked"] = q is True
+            req = f.get("requirement") if isinstance(f.get("requirement"), dict) else None
+            if req and req.get("basis") == "stated" and not _cites_real_line(req.get("where"), ROOT):
+                req["basis"] = "inferred"; req["why"] = f"cited {req.get('where')}, which is not a real line"; f["requirement"] = req
+            if req and req.get("basis") == "inferred" and f["impact"] in ("Critical", "High"):  # SC-55: inferred is not stated
+                f["impact_capped_from"] = f["impact"]; f["impact"] = "Medium"
             s_ = suppressed_by_ledger(f, L)
             if s_: out["suppressed"].append({"finding": f, "why": s_}); continue
             note = memory_note(f, L)
@@ -437,6 +442,8 @@ def apply(paths):
     if pre: md += ["", f"## Pre-existing (already there before this change; still counted above): {len(pre)}"] + [f"- {f['id']} {f['impact']} {f['file']}:{f.get('line', '')}" for f in pre]
     nofix = [f for f in final if str(f.get("fix", "")).startswith(("none", "not offerable"))]
     if nofix: md += ["", "## Fixes not to offer (describe the problem; don't present these remediations as fixes)"] + [f"- {f['id']}: {f['fix']}" for f in nofix]
+    capped = [f for f in final if f.get("impact_capped_from")]
+    if capped: md += ["", "## Capped at Medium (they rest on an inferred requirement, not a stated one; say so in the teardown)"] + [f"- {f['id']}: raised as {f['impact_capped_from']}; inferred from {str((f.get('requirement') or {}).get('why', ''))[:120]}" for f in capped]
     part = [f for f in final if f.get("fix") == "partial"]
     if part: md += ["", "## Partial fixes (label them partial in the teardown)"] + [f"- {f['id']}" for f in part]
     for name, rows in (("Refuted by verification", refuted), ("Dropped (single vote, not executed)", T["dropped"]), ("Retracted (quote not found)", T["retracted"]),
