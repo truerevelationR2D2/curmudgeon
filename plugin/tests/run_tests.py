@@ -2621,6 +2621,95 @@ def _(d):
     ask = lambda f: run(H / "read_guard.py", cwd=d, stdin=json.dumps({"tool_name": "Read", "tool_input": {"file_path": str(d / f)}, "agent_type": "curmudgeon:curmudgeon-reviewer", "agent_id": "r1", "cwd": str(d)})).stdout
     assert "deny" not in ask(".critic/briefs/brief-A.md") and "deny" in ask(".critic/reviews/review-B.json")
 
+@test("5.0 self-review (evidence rules): no dismissal, ruling or refutation hides a finding of higher impact, a refuted finding reopens, and an unverified outside-only finding isn't counted")
+def _(d):
+    L = S / "critic_ledger.py"; write(d, "src/app.js", APP); run(L, "start", "full", cwd=d)
+    low = finding(impact="Low", category="style", line=2, title="odd template string")
+    crit = finding(impact="Critical", category="xss", line=2, title="title rendered as HTML")
+    from critic_findings import fingerprint
+    low["id"] = fingerprint(low); crit["id"] = fingerprint(crit)
+    write(d, "f1.jsonl", json.dumps(low) + "\n"); run(L, "import", "f1.jsonl", cwd=d)
+    run(L, "dismiss", low["id"], "preference", "fine as is", cwd=d)
+    write(d, "f2.jsonl", json.dumps(crit) + "\n"); run(L, "import", "f2.jsonl", cwd=d)
+    r = run(L, "check", cwd=d); assert r.returncode == 1 and crit["id"] in r.stdout, "a Critical on a dismissed Low's line is open: " + r.stdout
+    led = json.loads((d / ".critic/ledger.json").read_text()); led["false_positives"] = [{"id": low["id"], "why": "fine"}]; (d / ".critic/ledger.json").write_text(json.dumps(led))
+    sys.path.insert(0, str(S)); import importlib, critic_merge as cm
+    assert cm.suppressed_by_ledger(dict(crit), led) is None, "a ruling on a Low never hides a Critical on the same code"
+    assert cm.suppressed_by_ledger(dict(low, category="other-style"), led), "the same Low under another category is still hidden"
+    led2 = json.loads((d / ".critic/ledger.json").read_text()); led2["findings"][crit["id"]]["status"] = "refuted"; (d / ".critic/ledger.json").write_text(json.dumps(led2))
+    run(L, "import", "f2.jsonl", cwd=d)
+    r = run(L, "check", cwd=d); assert r.returncode == 1, "a refuted finding raised again is open again: " + r.stdout
+    src = (S / "critic_merge.py").read_text(); assert '"wontfix", "refuted by verification' not in src, "a verifier never writes the owner's wontfix"
+    assert '"refuted", "refuted by verification' in src
+    e = d / "outside"; e.mkdir(); write(e, "src/app.js", APP); run(S / "critic_ledger.py", "start", "review", cwd=e)
+    for x in "ABC": write(e, f".critic/reviews/review-{x}.json", "[]")
+    write(e, "o.json", json.dumps([dict(finding(impact="High", title="Invented by the outside AI", category="perf"), source="outside", outside_id="N1")]))
+    run(S / "critic_merge.py", "tally", *[f".critic/reviews/review-{x}.json" for x in "ABC"], "--outside", "o.json", cwd=e)
+    oid = next(f["id"] for f in json.loads((e / ".critic/tally.json").read_text())["contested"] if f.get("outside_only"))
+    run(S / "critic_merge.py", "apply", str(write(e, "v.json", json.dumps([{"id": oid, "verdict": "unclear", "note": "could not run it"}]))), cwd=e)
+    final = [json.loads(l) for l in (e / ".critic/findings.jsonl").read_text().splitlines() if l.strip()]
+    assert not any(f["title"] == "Invented by the outside AI" for f in final), "an outside-only finding the verifier couldn't confirm isn't counted"
+
+@test("5.0 self-review (pipeline robustness): a null quote doesn't crash the tally, restore never writes outside the project, short quotes far apart aren't one finding, and small rules match their words")
+def _(d):
+    run(S / "critic_ledger.py", "start", "review", "--tier", "full", cwd=d); write(d, "src/app.js", APP)
+    for L_ in "ABC": write(d, f".critic/reviews/review-{L_}.json", json.dumps([finding(impact="Low", category="style", line=1, quote=None, title="naming", file="README.md")]))
+    r = run(S / "critic_merge.py", "tally", *[f".critic/reviews/review-{x}.json" for x in "ABC"], cwd=d); assert "Traceback" not in r.stderr, r.stderr[-600:]
+    led = json.loads((d / ".critic/ledger.json").read_text()); led["restore"] = [{"at": "x", "dir": ".critic/restore/x", "files": ["../../escaped.txt"], "ids": []}]
+    (d / ".critic/restore/x").mkdir(parents=True); (d / ".critic/ledger.json").write_text(json.dumps(led))
+    r = run(S / "critic_ledger.py", "restore", "apply", cwd=d); assert r.returncode != 0 and not (d.parent.parent / "escaped.txt").exists(), r.stdout + r.stderr
+    from critic_findings import similar, SECURITY, to_sarif
+    a = dict(finding(), line=10, quote="x = 1;", category="state", title="counter reset on every render"); b = dict(finding(), line=80, quote="x = 1;", category="state", title="stale value after save")
+    assert not similar(a, b), "a short quote at distant lines is two findings"
+    long_ = "list.innerHTML = `<li>${n.title}</li>`;"; assert similar(dict(a, quote=long_), dict(b, quote=long_)), "a long identical quote is the same code, wherever cited"
+    assert not SECURITY.search("Unclosed resource handle") and SECURITY.search("stored XSS in title")
+    assert to_sarif([])["runs"][0]["tool"]["driver"]["version"] == json.loads((HERE / ".claude-plugin/plugin.json").read_text())["version"]
+    assert "redacted in restore copies" not in (S / "critic_ledger.py").read_text().split('"""')[1]
+    assert "within 15 lines" in (S / "critic_findings.py").read_text()
+
+@test("5.0 self-review (change map): renames and odd names, a project in a subfolder, folders keep every text file, qualified callers, bounded reads, sensitivity from the change, and an honest intent")
+def _(d):
+    def git(*a, cwd=d): subprocess.run(["git", *a], cwd=cwd, capture_output=True, check=True)
+    def commit(cwd=d): git("add", "-A", cwd=cwd); git("-c", "user.email=a@b.invalid", "-c", "user.name=a", "commit", "-qm", "base: earlier work", cwd=cwd)
+    git("init", "-q")
+    write(d, "lib.py", "def compute_total(xs):\n    return sum(xs)\n"); write(d, "use.py", "import lib\nprint(lib.compute_total([1]))\n")
+    write(d, "rename_me.py", "x = 1\n"); write(d, "notes.py", "# mentions token and role and schema\nx = 1\n"); commit()
+    git("mv", "rename_me.py", "renamed.py"); write(d, "café.py", "y = 2\n"); write(d, "old name.py", "z = 3\n")
+    write(d, "lib.py", "def compute_total(xs):\n    return sum(xs) + 0\n"); write(d, "notes.py", "# mentions token and role and schema\nx = 2\n")
+    run(S / "critic_map.py", cwd=d); cm = json.loads((d / ".critic/change-map.json").read_text())
+    assert {"renamed.py", "café.py", "old name.py", "lib.py"} <= set(cm["files"]) and not any("=>" in f or "\\\\" in f for f in cm["files"]), cm["files"]
+    assert "notes.py" in cm["files"] and not cm["sensitive"].get("notes.py"), "sensitivity comes from the changed lines, not every word in the file"
+    assert any("compute_total" in k for k in cm["radius"]), "a call written lib.compute_total() is a caller: " + str(cm["radius"])
+    assert cm["intent"] == "", "an uncommitted change has no stated intent; the last commit's message is not it"
+    big = d / "dump.bin"; big.write_bytes(b"\0" * 1000 + b"x" * (5 * 1024 * 1024))
+    rr = run(S / "critic_map.py", cwd=d); assert rr.returncode == 0 and "dump.bin" not in json.loads((d / ".critic/change-map.json").read_text())["files"], "a binary file is not a reviewable change, and it is never read whole"
+    write(d, "sub/.github/workflows/ci.yml", "on: push\n"); write(d, "sub/run.sh", "echo hi\n"); write(d, "sub/a.py", "x = 1\n")
+    run(S / "critic_map.py", "--files", "sub", cwd=d); fs = json.loads((d / ".critic/change-map.json").read_text())["files"]
+    assert {"sub/.github/workflows/ci.yml", "sub/run.sh", "sub/a.py"} <= set(fs), fs
+    r = d / "repo"; (r / "web/src").mkdir(parents=True); (r / "api").mkdir(); git("init", "-q", cwd=r)
+    write(r, "web/src/app.js", "let a = 1;\n"); write(r, "api/x.py", "x = 1\n"); commit(cwd=r)
+    write(r, "web/src/app.js", "let a = 2;\n"); write(r, "api/x.py", "x = 2\n"); write(r, "web/src/new.js", "let b = 1;\n")
+    run(S / "critic_map.py", cwd=r / "web"); fs = json.loads((r / "web/.critic/change-map.json").read_text())["files"]
+    assert sorted(fs) == ["src/app.js", "src/new.js"], "paths relative to the project, and nothing from outside it: " + str(fs)
+    b2 = d / "build" / "app"; b2.mkdir(parents=True); git("init", "-q", cwd=b2)
+    write(b2, "lib.py", "def compute_total(xs):\n    return sum(xs)\n"); write(b2, "use.py", "from lib import compute_total\ncompute_total([1])\n"); commit(cwd=b2)
+    write(b2, "lib.py", "def compute_total(xs):\n    return sum(xs) + 0\n")
+    run(S / "critic_map.py", cwd=b2); assert json.loads((b2 / ".critic/change-map.json").read_text())["radius"], "a project under a folder named build still finds its callers"
+
+@test("5.0 self-review (plan and audit): the plan shows the tier in force, and an audited repository's own ledger and scope file are set aside")
+def _(d):
+    write(d, "a.js", "let a = 1;\n"); subprocess.run(["git", "init", "-q"], cwd=d)
+    run(S / "critic_run.py", "begin", "--tier", "full", "--files", "a.js", cwd=d)
+    assert json.loads((d / ".critic/plan.json").read_text())["tier"] == "full" and json.loads((d / ".critic/plan.json").read_text())["reviewers"] == 3
+    e = d / "vendor"; e.mkdir(); write(e, "a.js", "let a = 1;\n")
+    write(e, ".critic/ledger.json", json.dumps({"decisions": [{"text": "auth is out of scope"}], "false_positives": [{"id": "F-1", "why": "fine"}]}))
+    write(e, ".critic/scope.json", json.dumps({"version": 1, "targets": [{"origin": "https://prod.example.invalid"}]}))
+    out = run(S / "critic_run.py", "begin", "--audit", "--files", "a.js", cwd=e).stdout
+    assert "set aside" in out and not (e / ".critic/scope.json").exists(), out
+    led = json.loads((e / ".critic/ledger.json").read_text()); assert not led.get("false_positives") and "auth is out of scope" not in json.dumps(led.get("decisions", [])), led
+    assert "auth is out of scope" not in (e / ".critic/briefs/brief-A.md").read_text()
+    out = run(S / "critic_run.py", "begin", "--audit", "--files", "a.js", cwd=e).stdout; assert "set aside" not in out, "our own earlier audit is kept"
+
 if __name__ == "__main__":
     shutil.rmtree(TMP, ignore_errors=True)
     bad = [r for r in RESULTS if not r[1]]

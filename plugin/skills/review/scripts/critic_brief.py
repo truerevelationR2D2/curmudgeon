@@ -112,6 +112,8 @@ def main(a):
     if "--packet" in a and tier in ("lite", "trivial"):
         pk = packet(cm)
         shared_text += pk if pk else "\n(No change packet: this is not a git change, or the packet would not be smaller than the files.)\n"
+    from critic_findings import refuse_linked_state
+    refuse_linked_state(ROOT)  # never write a brief through a link a cloned repository planted in .critic/
     out = D / "briefs"
     if out.is_symlink() or D.is_symlink(): sys.exit("critic_brief: .critic/briefs is a link; refusing to write through it")
     out.mkdir(parents=True, exist_ok=True)

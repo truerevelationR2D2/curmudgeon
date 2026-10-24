@@ -7,7 +7,8 @@ usage (run from the project root, or set CRITIC_ROOT):
   init | start review|full [--tier trivial|lite|full]   begin a run (round 1; records mode and tier)
   import FINDINGS.jsonl                  record merged findings by stable id: new, known (still there) or regressed
   add ID SCORE WHERE "summary" [--verified]   record one finding by hand (round 3 accepts only --verified)
-  status ID open|wontfix "note"          update a finding
+  status ID open|wontfix|refuted "note" update a finding (refuted: set by the merge script after a verifier's refutation;
+                                         unlike the owner's wontfix, it opens again when a later run raises the finding)
   claim ID targeted|no-new-defect|behaviour-unchanged "evidence id or command"   one of the three fix claims
   fixed ID "how verified" [--untested]   mark fixed: needs all three claims (or --untested, which is recorded as such)
   defer ID impossible|conflicts|worse "note"   defer, only for one of the three valid reasons
@@ -27,12 +28,14 @@ usage (run from the project root, or set CRITIC_ROOT):
   spotcheck answer ID real|wrong|unsure  record the owner's answer; spotcheck stats shows precision from their answers
   dismiss --like N "why"                 dismiss, on purpose, every finding of the last review that memory N noted
                                          (memories never hide findings; they only note open Medium/Low ones)
-  restore save [--ids ID,ID] PATH... | restore apply   (secret-looking keys are redacted in restore copies; rollback
-                                         keeps the live key lines; --ids records which findings the change is for)
+  restore save [--ids ID,ID] PATH... | restore apply   (restore copies are exact, so rollback is exact: private (0700),
+                                         git-ignored, a warning when a key shape is found; --ids records which findings
+                                         the change is for; apply never writes outside the project)
   show | check                           check exits 1 if a Critical/High is open"""
 import hashlib, json, os, pathlib, re, shutil, sys, time
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 from critic_findings import log_run, norm_code, read_jsonl, refuse_linked_state, tokens
+RANK = {"Critical": 0, "High": 1, "Medium": 2, "Low": 3}
 
 ROOT = pathlib.Path(os.environ.get("CRITIC_ROOT") or re.sub(r"[\\/]\.critic[\\/]scratch(?:[\\/].*)?$", "", os.getcwd()) or os.getcwd()).resolve(); D = ROOT / ".critic"; F = D / "ledger.json"
 SCORES = ("Critical", "High", "Medium", "Low"); STATES = ("open", "fixed", "deferred", "wontfix", "dismissed")
@@ -220,9 +223,10 @@ def main(a):
         for r in rows:
             fid = r.get("id")
             if not fid: continue
+            imp = RANK.get(str(r.get("impact", "Medium")).title(), 2)
             if fid not in L["findings"]:  # the same code under another category is the same finding: keep its history
                 same = by_fp2.get(fp2_(r) or "")
-                if same: L.setdefault("aliases", {})[fid] = same; fid = same
+                if same and imp >= RANK.get(L["findings"][same].get("score"), 2): L.setdefault("aliases", {})[fid] = same; fid = same  # never alias across a rise in impact: a new Critical on a dismissed Low's line is new
             seen_now.add(fid)
             ex = L["findings"].get(fid)
             if ex is None and L["round"] >= 3 and r.get("confidence") != "confirmed":
@@ -233,6 +237,11 @@ def main(a):
                 L["findings"][fid] = dict(base, status="open", first_run=L["run"], claims={}, history=[f"run {L['run']}: new"]); new += 1
             elif ex["status"] == "fixed":
                 ex.update(base, status="open", regressed=True); ex["history"].append(f"run {L['run']}: regressed"); regressed += 1
+            elif ex["status"] == "refuted":  # a verifier's refutation is not the owner's ruling: raised again, it is open again
+                ex.update(base, status="open"); ex["history"].append(f"run {L['run']}: raised again after a refutation; open again"); known += 1
+            elif ex["status"] in ("dismissed", "wontfix") and imp < RANK.get(ex.get("score"), 2):  # the owner closed a less serious finding
+                ex["history"].append(f"run {L['run']}: raised again at {base['score']}, above the {ex.get('score')} that was {ex['status']}; open again")
+                ex.update(base, status="open"); known += 1
             elif ex["status"] in ("dismissed", "wontfix"):
                 ex["history"].append(f"run {L['run']}: raised again while {ex['status']}")
             else:
@@ -260,12 +269,12 @@ def main(a):
         if sc not in SCORES: die("score must be Critical, High, Medium or Low")
         L["findings"][rest[0]] = {"score": sc, "where": rest[2], "summary": rest[3], "status": "open", "claims": {}, "history": [f"run {L['run']}: added"], "quote": "", "category": ""}
     elif cmd == "status":
-        need(rest, 2, "status ID open|wontfix \"note\"")
+        need(rest, 2, "status ID open|wontfix|refuted \"note\"")
         f = finding(L, rest[0])
         if rest[1] == "deferred": die("use: defer ID impossible|conflicts|worse \"note\"")
         if rest[1] == "fixed": die("use: fixed ID \"how verified\" (needs the three claims)")
         if rest[1] == "dismissed": die("use: dismiss ID REASON \"why\"")
-        if rest[1] not in ("open", "wontfix"): die("status must be open or wontfix")
+        if rest[1] not in ("open", "wontfix", "refuted"): die("status must be open, wontfix or refuted")
         f.update(status=rest[1], note=rest[2] if len(rest) > 2 else "")
     elif cmd == "claim":
         need(rest, 3, "claim ID targeted|no-new-defect|behaviour-unchanged \"evidence\"")
@@ -514,6 +523,10 @@ def main(a):
         elif rest[0] == "apply":
             if not L["restore"]: die("no restore point recorded")
             r = L["restore"][-1]; manual = []
+            rroot, proot = str((ROOT / ".critic" / "restore").resolve()) + os.sep, str(ROOT.resolve()) + os.sep
+            for f_ in r["files"]:  # checked in full before anything is copied: a cloned ledger can't write outside the project
+                if not (str((ROOT / f_).resolve()).startswith(proot) and str((ROOT / r["dir"] / f_).resolve()).startswith(rroot)):
+                    die(f"restore point names {f_!r} (or its folder) outside the project or .critic/restore; nothing was restored")
             for f_ in r["files"]:
                 src = ROOT / r["dir"] / f_
                 if (r.get("redacted") or {}).get(f_):

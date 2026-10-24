@@ -100,8 +100,9 @@ def suppressed_by_ledger(f, L):
     for x in L.get("false_positives", []):
         xid = x.get("id")
         if not xid: continue
-        if xid in (f.get("id"), alias): return f"known false positive (owner's ruling on this exact finding): {x.get('why', '')}"
         old = (L.get("findings") or {}).get(xid) or {}
+        if old.get("score") and IMP_RANK.get(str(f.get("impact", "")).title(), 2) < IMP_RANK.get(old["score"], 2): continue  # never hide a finding more serious than the one ruled on
+        if xid in (f.get("id"), alias): return f"known false positive (owner's ruling on this exact finding): {x.get('why', '')}"
         if mine and mine == fingerprint2({"file": str(old.get("where", "")).rsplit(":", 1)[0], "quote": old.get("quote")}):  # the same code filed under another category
             return f"known false positive (owner's ruling on this exact code, {xid}): {x.get('why', '')}"
     return None
@@ -193,6 +194,7 @@ def tally(paths):
         for k, f in enumerate(rows):
             for k_ in ("impact", "category", "title", "file", "evidence", "failing_case", "verified", "remediation", "quote"):
                 if f.get(k_) is not None and not isinstance(f[k_], str): f[k_] = json.dumps(f[k_], ensure_ascii=False)  # a pasted or malformed value never crashes a later step
+            if f.get("quote") is None: f["quote"] = ""  # "quote": null is no quote, not a crash
             f["impact"] = str(f.get("impact", "")).title(); f["file"] = norm_path(f.get("file"))
             if not inside_root(f["file"]):
                 out["rejected"].append({"finding": f, "why": ["names a file outside the project: never read, never sent to a verifier"]}); continue
@@ -349,7 +351,7 @@ def revision_stamp(final):
     for f in sorted({str(x.get("file") or "") for x in final}):
         p = ROOT / f
         if f and inside_root(f) and p.is_file(): h.update(f.encode() + b"\0" + p.read_bytes() + b"\0")
-    return {"sha": git("rev-parse", "--short=12", "HEAD") or None, "dirty": bool(git("status", "--porcelain")), "payload_sha256": h.hexdigest(),
+    return {"sha": git("rev-parse", "--short=12", "HEAD") or None, "dirty": bool(git("status", "--porcelain", "--", ".", ":(exclude).critic")), "payload_sha256": h.hexdigest(),
             "at": time.strftime("%Y-%m-%d %H:%M:%S")}
 
 def mark_origin(final):
@@ -416,6 +418,8 @@ def apply(paths):
                 VERIFIER_LOG.append(("downgraded", dict(f), f"{f['impact']} to {new}: {v.get('note') or why}", v.get("reproduced")))
                 f["impact_before"] = f["impact"]; f["impact"] = new
             else: notes.append(f"{f['id']}: downgrade ignored (a verifier may lower, never raise)"); kind = "unclear"
+        if f.get("outside_only") and kind not in ("confirmed", "downgrade"):  # nobody of ours saw it and no verifier confirmed it
+            unverified.append(f); notes.append(f"{f['id']}: outside-only finding the verifier couldn't confirm ({kind}); left out of the findings"); continue
         f["verifier"] = kind
         if v.get("reproduced") in ("executed", "traced"): f["verifier_reproduced"] = v["reproduced"]
         final.append(f)
@@ -480,7 +484,7 @@ def apply(paths):
         for r in refuted:
             fid = r["finding"].get("id")
             if fid in known and known[fid].get("status") == "open":
-                subprocess.run([sys.executable, str(led), "status", fid, "wontfix", "refuted by verification: " + r["why"][:200]], cwd=ROOT, env=env, capture_output=True)
+                subprocess.run([sys.executable, str(led), "status", fid, "refuted", "refuted by verification: " + r["why"][:200]], cwd=ROOT, env=env, capture_output=True)  # not the owner's wontfix: it opens again if a later run raises it
     print(f"final: {len(final)} finding(s) — " + ", ".join(f"{k} {v}" for k, v in cnt.items()) + f"; refuted {len(refuted)}")
     rev = revision_stamp(final)
     (D / "revision.json").write_text(json.dumps(rev, indent=1) + "\n")

@@ -22,31 +22,69 @@ DEF = re.compile(r"^\s*(?:export\s+)?(?:async\s+)?(?:function\*?\s+([A-Za-z_$][\
 
 def git(*a):
     log_run(ROOT, "command", "git " + " ".join(a))
-    try: return subprocess.run(["git", *a], cwd=ROOT, capture_output=True, text=True, timeout=20).stdout
+    try: return subprocess.run(["git", "-c", "core.quotepath=off", *a], cwd=ROOT, capture_output=True, text=True, timeout=20).stdout
     except Exception: return ""
 
+READ_CAP = 20_000  # characters read from one file for the sensitivity check; nothing is ever read whole
+LINE_CAP = 20 * 1024 * 1024  # bytes scanned to count a file's lines
+
+def is_binary(p):
+    try:
+        with open(p, "rb") as fh: return b"\0" in fh.read(4096)
+    except OSError: return True
+
+def count_lines(p):
+    n = 0
+    try:
+        with open(p, "rb") as fh:
+            while fh.tell() < LINE_CAP:
+                b = fh.read(1 << 20)
+                if not b: break
+                n += b.count(b"\n")
+    except OSError: return 0
+    return n
+
+def head(p):
+    try:
+        with open(p, encoding="utf-8", errors="replace") as fh: return fh.read(READ_CAP)
+    except OSError: return ""
+
 def changed(base):
+    """The changed files, relative to the project (a project in a subfolder of a repository sees only its own files),
+    renames as the new name, names as they are (NUL-separated, so spaces and accents survive)."""
     files, lines = [], {}
     no_commit = base == "HEAD" and not git("rev-parse", "--verify", "-q", "HEAD").strip()
-    for row in (git("diff", "--cached", "--numstat") if no_commit else git("diff", "--numstat", base)).splitlines():  # a repo with no commit yet: its staged files are the change
+    diff = git("diff", "--cached", "--numstat", "-z", "--no-renames", "--relative", "--", ".") if no_commit else git("diff", "--numstat", "-z", "--no-renames", "--relative", base, "--", ".")
+    for row in diff.split("\0"):  # a repo with no commit yet: its staged files are the change
         p = row.split("\t")
-        if len(p) == 3: files.append(p[2]); lines[p[2]] = (int(p[0]) if p[0].isdigit() else 0) + (int(p[1]) if p[1].isdigit() else 0)
-    files = [x for x in files if not x.startswith(".critic/")]  # the plugin's own records are never part of the change
-    lines = {k: v for k, v in lines.items() if not k.startswith(".critic/")}
-    for u in git("ls-files", "--others", "--exclude-standard").splitlines():
-        if u.startswith(".critic/"): continue
-        if u not in lines and (ROOT / u).is_file():
-            files.append(u)
-            try: lines[u] = len((ROOT / u).read_text(errors="replace").splitlines())
-            except OSError: lines[u] = 0
+        if len(p) == 3 and p[2]:
+            if p[0] == "-" and p[1] == "-": continue  # a binary file: not a reviewable change
+            files.append(p[2]); lines[p[2]] = (int(p[0]) if p[0].isdigit() else 0) + (int(p[1]) if p[1].isdigit() else 0)
+    files = [x for x in files if not x.startswith(".critic/") and (ROOT / x).exists()]  # the plugin's own records are never part of the change; a deleted file has nothing to read
+    lines = {k: v for k, v in lines.items() if k in files}
+    for u in git("ls-files", "-z", "--others", "--exclude-standard", "--", ".").split("\0"):
+        if not u or u.startswith(".critic/"): continue
+        if u not in lines and (ROOT / u).is_file() and not is_binary(ROOT / u):
+            files.append(u); lines[u] = count_lines(ROOT / u)
     return files, lines
+
+def changed_text(base, files):
+    """The added and removed lines per file (what the change touches), for the sensitivity check."""
+    no_commit = base == "HEAD" and not git("rev-parse", "--verify", "-q", "HEAD").strip()
+    diff = git("diff", "--cached", "-U0", "--no-renames", "--relative", "--", ".") if no_commit else git("diff", "-U0", "--no-renames", "--relative", base, "--", ".")
+    out, cur = {}, None
+    for line in diff.splitlines():
+        if line.startswith("+++ "): cur = line[6:] if line.startswith("+++ b/") else None; continue
+        if line.startswith("--- "): continue
+        if cur and line[:1] in "+-": out[cur] = out.get(cur, "") + line[1:] + "\n"
+    return {k: v[:READ_CAP] for k, v in out.items() if k in files}
 
 def hunks(base, files):
     """The changed line ranges on the new side of the diff, per file: {file: [[start, count], ...]}. Untracked files are
     wholly new. Used by apply to tell findings this change introduced from ones that were already there (SC-43)."""
     no_commit = base == "HEAD" and not git("rev-parse", "--verify", "-q", "HEAD").strip()
     out = {}
-    diff = git("diff", "--cached", "-U0") if no_commit else git("diff", "-U0", base)
+    diff = git("diff", "--cached", "-U0", "--no-renames", "--relative", "--", ".") if no_commit else git("diff", "-U0", "--no-renames", "--relative", base, "--", ".")
     cur = None
     for line in diff.splitlines():
         if line.startswith("+++ "): cur = line[6:] if line.startswith("+++ b/") else None; continue
@@ -76,30 +114,35 @@ def main(a):
             p = (ROOT / x).resolve()
             try: p.relative_to(ROOT)
             except ValueError: print(f"critic_map: {x} is outside the project root {ROOT}; skipped", file=sys.stderr); continue
-            if p.is_dir(): out += [str(q.relative_to(ROOT)) for q in p.rglob("*") if q.is_file() and q.suffix in CODE and not ({".critic", ".git", "node_modules", "__pycache__"} & set(q.parts))]
+            if p.is_dir(): out += [str(q.relative_to(ROOT)) for q in p.rglob("*") if q.is_file() and not q.is_symlink() and not ({".critic", ".git", "node_modules", "__pycache__"} & set(q.relative_to(ROOT).parts)) and not is_binary(q)]  # every text file: workflows, scripts, SQL and config too
             elif p.is_file(): out.append(str(p.relative_to(ROOT)))
             else: print(f"critic_map: {x} does not exist; skipped", file=sys.stderr)
         files = out
-        for x in files:
-            try: lines[x] = len((ROOT / x).read_text(errors="replace").splitlines())
-            except OSError: lines[x] = 0
+        for x in files: lines[x] = count_lines(ROOT / x)
+        touched = {}
     else:
-        files, lines = changed(base)
+        files, lines = changed(base); touched = changed_text(base, files)
     if not files: print("critic_map: nothing changed and no --files given"); return 2
-    if not intent: intent = git("log", "-1", "--pretty=%s%n%n%b").strip()
+    if not intent and "--files" not in a and base != "HEAD":  # commits since --base: their messages describe the change
+        intent = "From the commit messages since " + base + ": " + git("log", "--pretty=%s", f"{base}..HEAD").strip().replace("\n", "; ")[:600]
+    elif not intent and "--files" in a and not git("status", "--porcelain", "--", ".", ":(exclude).critic").strip():
+        intent = "From the last commit message: " + git("log", "-1", "--pretty=%s%n%n%b").strip()  # files as committed: the last commit is what they are
+    # an uncommitted change has no stated intent: the last commit's message describes the commit before it
     def sensitive(x):
         words = {m.lower() for m in SENSITIVE.findall(x)} | {m.lower() for m in SENSITIVE_PATH.findall(x)}
         if (ROOT / x).is_file() and (ROOT / x).suffix not in (".css", ".scss", ".md"):
-            words |= {m.lower() for m in SENSITIVE.findall((ROOT / x).read_text(errors="replace")[:20000])}
+            body = touched.get(x) if x in touched else head(ROOT / x)  # a change: the lines it touches; a whole file or a new one: its start
+            words |= {m.lower() for m in SENSITIVE.findall(body or "")}
         return sorted(words)
     sens = {x: sensitive(x) for x in files}
     total = sum(lines.values()); any_sens = any(sens[x] for x in files)
     tier = "trivial" if len(files) <= 2 and total < 20 and not any_sens else ("full" if any_sens or len(files) > 10 or total > 400 else "lite")
     # blast radius: callers elsewhere in the project of symbols defined in the changed files
-    all_code = [q for q in ROOT.rglob("*") if q.is_file() and q.suffix in CODE and not ({".critic", ".git", "node_modules", "__pycache__", "dist", "build"} & set(q.parts))][:3000]
+    all_code = [q for q in ROOT.rglob("*") if q.is_file() and q.suffix in CODE and not ({".critic", ".git", "node_modules", "__pycache__", "dist", "build"} & set(q.relative_to(ROOT).parts))][:3000]  # parts below the project only
     texts = {}
     for q in all_code:
-        try: texts[str(q.relative_to(ROOT))] = q.read_text(errors="replace")
+        try:
+            if q.stat().st_size < 2_000_000: texts[str(q.relative_to(ROOT))] = q.read_text(errors="replace")
         except OSError: pass
     radius = {}
     defined_in = {}
@@ -109,7 +152,7 @@ def main(a):
         syms = {next(g for g in m.groups() if g) for m in DEF.finditer(texts.get(x, ""))}
         for s in syms:
             if len(s) < 4 or s.lower() in COMMON or len(defined_in.get(s, ())) > 1: continue  # common or ambiguous names link everything to everything
-            users = [r for r, t in texts.items() if r != x and not r.endswith((".css", ".scss")) and re.search(rf"(?<![\w$.#-]){re.escape(s)}\s*\(|new\s+{re.escape(s)}\b|\bimport\b[^;\n]*\b{re.escape(s)}\b", t)]
+            users = [r for r, t in texts.items() if r != x and not r.endswith((".css", ".scss")) and re.search(rf"(?<![\w$#-]){re.escape(s)}\s*\(|new\s+(?:\w+\.)?{re.escape(s)}\b|\bimport\b[^;\n]*\b{re.escape(s)}\b", t)]  # lib.compute_total() counts; common and ambiguous names were skipped above
             if users: radius[f"{x}: {s}"] = users[:6]
     order = sorted(files, key=lambda x: (-len(sens[x]), -sum(1 for k in radius if k.startswith(x + ":")), -lines.get(x, 0)))
     md = ["# Change map", "", f"**Tier: {tier}** · {len(files)} file(s) · {total} line(s) · sensitive: {', '.join(sorted({w for x in files for w in sens[x]})) or 'none'}", "",

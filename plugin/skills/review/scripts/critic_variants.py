@@ -55,6 +55,8 @@ def find():
     if out.is_symlink(): sys.exit("critic_variants: .critic/verify-variants is a link; refusing")
     out.mkdir(parents=True, exist_ok=True)
     for old in out.glob("*.json"): old.unlink()
+    for stale in (D / "variants.md", D / "variants.jsonl"):  # an earlier run's variants are never read as this run's
+        if stale.is_file() and not stale.is_symlink(): stale.unlink()
     n = 0
     for f in rows:
         if f.get("impact") not in ("Critical", "High") or f.get("confidence") not in ("confirmed", "likely"): continue
@@ -99,7 +101,9 @@ def apply(paths):
         if kind == "refuted":
             if not (refutation_problem(raw, f["impact"], v.get("reproduced"), root=ROOT) or security_refutation_problem(v, f)): refuted.append((f, redact_finding_text(raw))); continue
             kind = "unclear"
-        if kind == "downgrade" and v.get("impact_after") in IMP and IMP.index(v["impact_after"]) < IMP.index(f["impact"]): f = dict(f, impact=v["impact_after"]); kind = "confirmed"
+        if kind == "downgrade":  # a lower impact is a judgement, not evidence: a variant needs the confirmation's evidence too
+            kind = "confirmed" if not confirmation_problem(v, root=ROOT) else "unclear"
+            if v.get("impact_after") in IMP and IMP.index(v["impact_after"]) < IMP.index(f["impact"]): f = dict(f, impact=v["impact_after"])  # IMP runs Low to Critical: only ever lower
         if kind == "confirmed": kept.append(dict(f, confidence="confirmed", source="variant", verifier_note=redact_finding_text(str(v.get("note") or ""))[:300]))
         else: open_.append((f, "unclear"))
     (D / "variants.jsonl").write_text("".join(json.dumps(scrub(x), ensure_ascii=False) + "\n" for x in kept))

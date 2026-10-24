@@ -46,8 +46,10 @@ def similar(a, b):
     jac = len(ta & tb) / max(1, len(ta | tb))
     same_kind = str(a.get("category") or "").lower() == str(b.get("category") or "").lower() or jac >= 0.25
     qa, qb = norm_code(a.get("quote")), norm_code(b.get("quote"))
-    if qa and qb and (qa in qb or qb in qa) and same_kind: return True  # same code, same kind of problem
     close = abs(safe_int(a.get("line")) - safe_int(b.get("line"))) <= 5
+    short = min(len(qa), len(qb))
+    if qa and qb and (qa in qb or qb in qa) and same_kind and short >= 12 and (short >= 30 or abs(safe_int(a.get("line")) - safe_int(b.get("line"))) <= 15):
+        return True  # same code, same kind of problem: a long quote wherever it is cited, a short one only nearby
     for s_, o_ in ((a, b), (b, a)):  # a reviewer restating a scripted row: the row's flagged line is in the reviewer's quote
         if s_.get("source") == "scan" and o_.get("source") != "scan" and close:
             seen_, q_ = norm_code(s_.get("failing_case")), norm_code(o_.get("quote"))
@@ -55,7 +57,8 @@ def similar(a, b):
     return jac >= 0.5 and close or jac >= 0.7
 
 def quote_check(f, root):
-    """True when the quote appears (normalised) within 5 lines of file:line. No quote, no file: can't be checked."""
+    """True when the quote appears (normalised) within 5 lines of file:line, or when every line of a long quote appears
+    within 15 lines of it (a quote that crosses the window edge). No quote, no file: can't be checked."""
     q = norm_code(f.get("quote"))
     if not q or not f.get("file"): return None
     p = pathlib.Path(root) / f["file"]
@@ -161,7 +164,7 @@ def _cites_real_line(text, root):
         except (OSError, ValueError): continue
     return False
 
-SECURITY = re.compile(r"(?i)xss|inject|secret|credential|auth|csrf|ssrf|traversal|deserial|eval|rce|privilege|token|password|crypto|sanitiz|leak|exposure|security")
+SECURITY = re.compile(r"(?i)\b(?:xss|inject\w*|secrets?|credentials?|auth\w*|csrf|ssrf|traversal|deserial\w*|eval|rce|privileges?|tokens?|passwords?|crypto\w*|sanitiz\w*|leak\w*|exposure|security)\b")
 SECURITY_REASONS = ("no_untrusted_input", "guard_blocks", "not_reachable", "no_privilege_gain", "already_public", "platform_escapes")
 def confirmation_problem(v, root=None):
     """A `confirmed` verdict must show its evidence (SC-42, SC-44): the entry point and the path to the failing line, at
@@ -207,7 +210,12 @@ def refutation_problem(why, impact, reproduced, root=None):
     return None
 
 SARIF_LEVEL = {"Critical": "error", "High": "error", "Medium": "warning", "Low": "note"}
-def to_sarif(findings, tool="critic", version="4.0.0"):
+def plugin_version():
+    try: return json.loads((pathlib.Path(__file__).resolve().parents[3] / ".claude-plugin" / "plugin.json").read_text()).get("version", "unknown")
+    except (OSError, ValueError, IndexError): return "unknown"
+
+def to_sarif(findings, tool="critic", version=None):
+    version = version or plugin_version()
     rules, results = {}, []
     for f in findings:
         rid = str(f.get("category") or "finding")

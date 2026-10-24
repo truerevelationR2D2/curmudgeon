@@ -56,15 +56,15 @@ def history():
         by.setdefault(r.get("role", "?"), []).append(tot)
     return {k: int(statistics.median(v)) for k, v in by.items() if v}
 
-def plan():
+def plan(forced=None):
     try: cm = json.loads((D / "change-map.json").read_text())
     except (OSError, ValueError): sys.exit("critic_plan: no .critic/change-map.json; run critic_map.py first")
     files = [str(f) for f in cm.get("files") or []]
     exts = {pathlib.PurePosixPath(f).suffix.lower() for f in files}
-    tier = cm.get("tier") or "full"
+    tier = forced or cm.get("tier") or "full"  # a tier the user set (--tier) is the tier in force
     docs_only = bool(files) and all(is_document(f) for f in files)
     ui = bool(exts & UI)
-    if docs_only and tier == "full": tier = "lite"  # a document doesn't need three reviewers and the code sweep (ruling §5.6)
+    if docs_only and tier == "full" and not forced: tier = "lite"  # a document doesn't need three reviewers and the code sweep (ruling §5.6)
     reviewers = 3 if tier == "full" else 1
     p = {"tier": tier, "files": len(files), "lines": cm.get("lines"), "sensitive": [f for f, v in (cm.get("sensitive") or {}).items() if v][:10],
          "kind": "document or plan" if docs_only else ("interface" if ui else ("code" if exts & CODE else "other")),
@@ -83,8 +83,11 @@ def plan():
 
 def main(a):
     if a[:1] in (["-h"], ["--help"]): print(__doc__); return 0
-    p = plan()
-    if not D.is_symlink(): (D / "plan.json").write_text(json.dumps(p, indent=1))
+    forced = a[a.index("--tier") + 1] if "--tier" in a and a.index("--tier") + 1 < len(a) and a[a.index("--tier") + 1] in ("trivial", "lite", "full") else None
+    p = plan(forced)
+    from critic_findings import refuse_linked_state
+    refuse_linked_state(ROOT)
+    (D / "plan.json").write_text(json.dumps(p, indent=1))
     if "--json" in a: print(json.dumps(p, indent=1)); return 0
     print(f"plan: {p['tier']} tier for {p['files']} file(s) ({p['kind']}); {p['reviewers']} blind reviewer(s); verify {p['verification']}")
     if p["lenses"]: print("  lenses: " + ", ".join(p["lenses"]))

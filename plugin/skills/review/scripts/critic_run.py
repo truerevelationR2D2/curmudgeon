@@ -94,6 +94,15 @@ def main(a):
         tier = rest[rest.index("--tier") + 1] if "--tier" in rest and rest.index("--tier") + 1 < len(rest) else ""
         if audit:
             tier = "full"
+            mine = D / "audit-owner.json"  # written by an earlier begin --audit here: that ledger is ours, unless the repository shipped the marker
+            shipped = subprocess.run(["git", "ls-files", "--error-unmatch", ".critic/audit-owner.json"], cwd=ROOT, capture_output=True).returncode == 0
+            ours = mine.is_file() and not mine.is_symlink() and not shipped
+            foreign = [n for n in ("ledger.json", "ledger.md", "scope.json") if (D / n).is_file()] if not ours else []
+            if foreign:  # the audited repository's own records are its owner's, not the auditor's: never their decisions, rulings or scope
+                aside = D / "history" / ("audited-repo-" + time.strftime("%Y%m%d-%H%M%S")); aside.mkdir(parents=True, exist_ok=True)
+                for n in foreign: (D / n).rename(aside / n)
+                print(f"set aside the audited repository's own {', '.join(foreign)} (moved to {aside.relative_to(ROOT)}): its decisions, false-positive rulings and scope are its owner's, not yours. Write your own .critic/scope.json for any live checks.")
+            D.mkdir(parents=True, exist_ok=True); mine.write_text(json.dumps({"audit_started": time.strftime("%Y-%m-%d %H:%M:%S")}) + "\n")
             print("audit mode (someone else's system): audit, not repair; nothing is changed. Rules of engagement:")
             print("  - active checks beyond this computer only for origins in .critic/scope.json, confirmed per run with --allow-live HOST" + (" (scope.json present)" if (D / "scope.json").is_file() else " (no scope.json: nothing beyond this computer is loaded)"))
             print("  - every requirement is stated (with its file:line) or inferred (capped at Medium)")
@@ -103,7 +112,7 @@ def main(a):
                       "audit it with --strict-mcp-config, or block them with disabledMcpjsonServers, before running anything headless here.")
         map_args = [x for i, x in enumerate(rest) if not (x == "--tier" or (i and rest[i - 1] == "--tier"))]
         sh("critic_map.py", *map_args)
-        sh("critic_plan.py")  # SC-69: the job plan (tier, agents, lenses, expected cost); the user may change it
+        sh("critic_plan.py", *(["--tier", tier] if tier else []))  # SC-69: the job plan (tier, agents, lenses, expected cost), showing the tier in force
         if not tier:
             try: tier = json.loads((D / "plan.json").read_text()).get("tier") or "full"
             except (OSError, ValueError): tier = "full"
