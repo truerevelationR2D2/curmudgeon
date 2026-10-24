@@ -52,7 +52,7 @@
         ]
       },
       {
-        "matcher": "Read|Grep|Glob|Bash|Agent|Task",
+        "matcher": "Read|Grep|Glob|Bash|LSP|Agent|Task",
         "hooks": [
           {
             "type": "command",

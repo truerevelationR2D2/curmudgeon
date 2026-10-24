@@ -1910,6 +1910,16 @@ def _(d):
     assert len(v) == 1 and v[0]["source"] == "variant" and "Confirmed by blind verification: 1" in (d / ".critic/variants.md").read_text()
     assert "verify-variants" in (HERE / "hooks" / "read_guard.py").read_text()
 
+@test("5.0 SC-57: reviewers and verifiers may use the LSP tool when a code-intelligence plugin makes it work, and the blindness guard judges its paths")
+def _(d):
+    write(d, ".critic/reviews/review-B.json", "[]"); write(d, "src/a.py", "x = 1\n")
+    def ask(**ti):
+        return "deny" in run(H / "read_guard.py", cwd=d, stdin=json.dumps({"tool_name": "LSP", "tool_input": ti, "cwd": str(d), "agent_type": "curmudgeon:curmudgeon-reviewer", "agent_id": "me"})).stdout
+    assert ask(operation="documentSymbol", filePath=str(d / ".critic/reviews/review-B.json")) and ask(uri="file://" + str(d / ".critic/reviews/review-B.json"))
+    assert not ask(operation="findReferences", filePath=str(d / "src/a.py"), line=1, character=1)
+    for a in ("curmudgeon-reviewer.md", "curmudgeon-verifier.md"): assert '"LSP"' in (HERE / "agents" / a).read_text()
+    assert "LSP" in json.loads((H / "hooks.json").read_text())["hooks"]["PreToolUse"][1]["matcher"]
+
 if __name__ == "__main__":
     shutil.rmtree(TMP, ignore_errors=True)
     bad = [r for r in RESULTS if not r[1]]

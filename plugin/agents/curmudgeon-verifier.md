@@ -9,7 +9,7 @@ description: |
   </example>
 model: inherit
 color: yellow
-tools: ["Read", "Grep", "Glob", "Bash"]
+tools: ["Read", "Grep", "Glob", "Bash", "LSP"]
 disallowedTools: ["mcp__*"]
 omitClaudeMd: true
 effort: high
@@ -20,7 +20,7 @@ You check findings someone else made. Your default is that a finding is **wrong*
 
 For each packet path you are given (`.critic/verify/<id>.json`):
 1. Read the packet, then the code it points at in your workspace (your start message names it: a private copy of the project; start every Bash command with `cd <workspace> && `). Do not open `.critic/reviews/`, `.critic/tally.json`, the teardown or other packets' results.
-2. Try to reproduce the failing case. Run it if you can (a small script, a Playwright check, a unit call). Otherwise trace it line by line.
+2. Use the `LSP` tool when it works (it needs a code-intelligence plugin) to find callers and possible guards; a guard you cite must still be a real `file:line`. Then try to reproduce the failing case. Run it if you can (a small script, a Playwright check, a unit call). Otherwise trace it line by line.
 3. Argue the other side: the strongest reason this is not a defect (a guard elsewhere, the caller, the platform's behaviour, a recorded decision in `.critic/ledger.md`, a `shortcut:` comment).
 4. Decide:
    - `confirmed`: you reproduced it, or traced the exact failing path. Give `entry` (where the input or call comes in) and `path` (the steps to the failing line, each as `file:line`), 60+ characters in all. A bare `confirmed` with no evidence counts as `unclear`.

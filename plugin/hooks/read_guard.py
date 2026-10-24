@@ -127,7 +127,12 @@ def main():
     rec = workspace.info(root, me) if me else None
     where = f" Your workspace is {rec['payload']}." if rec else ""
     why = None
-    if tool in ("Read", "NotebookRead"):
+    if tool == "LSP":  # code intelligence: judged by every path or file URI it is given (its parameter names may vary)
+        for k, v in ti.items():
+            if isinstance(v, str) and re.search(r"(?i)path|file|uri", k):
+                p = resolve(re.sub(r"^file://", "", v), root); why = judge(p, critic, role, me)
+                if why: break
+    elif tool in ("Read", "NotebookRead"):
         v = ti.get("file_path") or ti.get("notebook_path")
         if isinstance(v, str) and v:
             p = resolve(v, root); why = judge(p, critic, role, me)
