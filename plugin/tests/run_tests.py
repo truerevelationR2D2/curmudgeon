@@ -1190,13 +1190,13 @@ def _(d):
     E = HERE.parent / "eval"
     if not (E / "score.py").exists(): return  # the eval kit isn't shipped inside the plugin
     c = d / ".critic"; c.mkdir()
-    f = lambda file, title: {"file": file, "line": 1, "category": "x", "impact": "High", "title": title, "quote": "", "evidence": "", "failing_case": ""}
-    (c / "findings.jsonl").write_text(json.dumps(f("app.js", "search responses race out of order, no abort")) + "\n")
-    (c / "tally.json").write_text(json.dumps({"kept": [], "retracted": [{"finding": f("app.js", "XSS: title into innerHTML unescaped")}],
-                                               "dropped": [{"finding": f("store.js", "JSON.parse at top level with no try: corrupt storage crashes load")}],
+    f = lambda file, line, title: {"file": file, "line": line, "category": "x", "impact": "High", "title": title, "quote": "", "evidence": "", "failing_case": ""}  # lines where each plant lives (decision 28)
+    (c / "findings.jsonl").write_text(json.dumps(f("app.js", 44, "search responses race out of order, no abort")) + "\n")
+    (c / "tally.json").write_text(json.dumps({"kept": [], "retracted": [{"finding": f("app.js", 11, "XSS: title into innerHTML unescaped")}],
+                                               "dropped": [{"finding": f("store.js", 2, "JSON.parse at top level with no try: corrupt storage crashes load")}],
                                                "rejected": [], "suppressed": []}))
-    (c / "refutations.jsonl").write_text(json.dumps(dict(f("store.js", "pending save lost on close: no flush on beforeunload"), kind="refuted")) + "\n")
-    (c / "reviews").mkdir(); (c / "reviews/review-A.json").write_text(json.dumps([f("store.js", "persist swallows quota errors silently")]))
+    (c / "refutations.jsonl").write_text(json.dumps(dict(f("store.js", 14, "pending save lost on close: no flush on beforeunload"), kind="refuted")) + "\n")
+    (c / "reviews").mkdir(); (c / "reviews/review-A.json").write_text(json.dumps([f("store.js", 26, "persist swallows quota errors silently")]))
     out = subprocess.run([sys.executable, str(E / "score.py"), "--funnel", str(d), "--suite", "1"], capture_output=True, text=True).stdout
     for stage, plant in (("retracted by the quote check", "D01"), ("dropped on votes", "D02"), ("refuted by a verifier", "D03"),
                          ("raised, then lost at an unrecorded step", "D05"), ("never raised", "D16")):
