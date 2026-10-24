@@ -1384,6 +1384,30 @@ def _(d):
     r = run(S / "critic_ledger.py", "integrity", cwd=d)
     assert r.returncode == 1 and "counts.md changed" in r.stdout, r.stdout
 
+@test("5.0 SC-37 and SC-61: fixes that can't be offered are named, partial fixes are labelled, and the two optional fields reach the verifier")
+def _(d):
+    sys.path.insert(0, str(S)); import importlib, critic_merge; importlib.reload(critic_merge)
+    q = "const price = total * 1.0825;"
+    fs = critic_merge.fix_status
+    assert fs({"quote": q, "remediation": ""}) == "none"
+    assert fs({"quote": q, "remediation": f"Replace it with `{q}`"}).startswith("not offerable: the fix is the same")
+    assert fs({"quote": q, "remediation": "Use `price(total, rules.tax(region)`"}).startswith("not offerable: unbalanced")
+    assert fs({"quote": q, "remediation": "A partial fix: move `TAX` to `config.js` for now"}) == "partial"
+    assert fs({"quote": q, "remediation": "Move the rate to `pricing.tax(region)` and call it from render"}) == "usable"
+    assert fs({"quote": q, "remediation": "Don't hard-code it; read `rules.tax()`"}) == "usable", "an apostrophe in prose is not an unbalanced quote"
+    write(d, "src/app.js", APP)
+    g = finding(category="domain", impact="Medium", line=4, quote=q, title="Tax rule in render code", remediation=f"Replace it with `{q}`",
+                preconditions="a region with a different tax rate", root_cause="pricing rules live in the view")
+    run(S / "critic_ledger.py", "start", "review", "--tier", "full", cwd=d)
+    for L in "ABC": write(d, f".critic/reviews/review-{L}.json", json.dumps([g]))
+    run(S / "critic_merge.py", "tally", *[f".critic/reviews/review-{L}.json" for L in "ABC"], cwd=d)
+    pk = json.loads(next((d / ".critic/verify").glob("*.json")).read_text())
+    assert pk["preconditions"] and pk["root_cause"], pk
+    write(d, "v.json", "[]"); run(S / "critic_merge.py", "apply", "v.json", cwd=d)
+    assert "Fixes not to offer" in (d / ".critic/counts.md").read_text()
+    from critic_findings import validate
+    assert validate(dict(g, preconditions=3)) and not validate(g)
+
 if __name__ == "__main__":
     bad = [r for r in RESULTS if not r[1]]
     print(f"\n{len(RESULTS) - len(bad)} of {len(RESULTS)} passed"); sys.exit(1 if bad else 0)

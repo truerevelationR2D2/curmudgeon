@@ -277,7 +277,7 @@ def tally(paths):
     for f in out["kept"] + out["contested"]:
         if f["impact"] == "Low" and f.get("votes_ours", f["votes"]) >= need and not f.get("outside_only"): continue  # agreed by OUR reviewers; an outside vote alone never skips verification  # agreed Low findings skip verification to save usage
         if f.get("raised_by") == ["scan"] and f.get("verified") == "executed" and MEASURED.match(str(f.get("category"))): continue  # a measurement, not an interpretation: nothing to reproduce
-        packet = {k: f.get(k) for k in ("id", "category", "impact", "file", "line", "quote", "title", "failing_case")}
+        packet = {k: f.get(k) for k in ("id", "category", "impact", "file", "line", "quote", "title", "failing_case", "preconditions", "root_cause") if k in f}
         (vd / f"{f['id']}.json").write_text(json.dumps(scrub(packet), indent=1, ensure_ascii=False))
     (D / "tally.json").write_text(json.dumps(scrub(out), indent=1, ensure_ascii=False))
     if MEMORY_HITS and (D / "ledger.json").exists():  # keep memories that are in use from retiring
@@ -309,6 +309,18 @@ def write_verifier_log():
         append_line(D / "refutations.jsonl", json.dumps(scrub({"run": run_no, "at": time.strftime("%Y-%m-%d %H:%M"), "kind": kind, "id": f.get("id"), "impact": f.get("impact"),
                              "file": f.get("file"), "line": f.get("line"), "title": f.get("title"), "failing_case": f.get("failing_case"),
                              "why": redact_finding_text(why), "reproduced": rep, "votes": f.get("votes"), "of": f.get("of")}), ensure_ascii=False) + "\n")
+
+def fix_status(f):
+    """Whether a finding's remediation can be offered as a fix: usable, partial (it says so), or not offerable (empty,
+    the same as the quoted code, or with unbalanced brackets or quotes in its code)."""
+    rem = str(f.get("remediation") or "").strip()
+    if not rem: return "none"
+    code = re.findall(r"`([^`]+)`", rem) or ([rem] if re.search(r"[(){}\[\];=]", rem) else [])
+    if any(norm_code(c) and norm_code(c) == norm_code(f.get("quote")) for c in code) or norm_code(rem) == norm_code(f.get("quote")): return "not offerable: the fix is the same as the code"
+    for c in code:
+        if any(c.count(a) != c.count(b) for a, b in ("()", "[]", "{}")) or c.count('"') % 2 or c.count("'") % 2 and not re.search(r"\w'\w", c):
+            return "not offerable: unbalanced brackets or quotes"
+    return "partial" if re.search(r"(?i)\bpartial(ly)?\b|\bonly part\b|\bstop-?gap\b|\bworkaround\b", rem) else "usable"
 
 def apply(paths):
     try: T = json.loads((D / "tally.json").read_text())
@@ -349,6 +361,7 @@ def apply(paths):
         f["confidence"] = "confirmed" if ex or (f.get("votes", 1) >= 2 and f.get("verifier") == "confirmed") else \
                           "likely" if f.get("verifier") in ("confirmed",) or f.get("votes", 1) >= 2 else "possible"
     final.sort(key=lambda f: (IMP_RANK[f["impact"]], {"confirmed": 0, "likely": 1, "possible": 2}[f["confidence"]], f["file"], int(f.get("line") or 0)))
+    for f in final: f["fix"] = fix_status(f)  # SC-37: never offer an empty fix, a no-op fix, or one with unbalanced brackets
     final = scrub(final); unverified = scrub(unverified)  # a verifier's note can quote a secret too: mask before anything is written
     write_jsonl(D / "findings.jsonl", final)
     write_verifier_log()
@@ -358,6 +371,10 @@ def apply(paths):
           "Counts for the VERDICT (copy exactly): " + " · ".join(f"{k} {v}" for k, v in cnt.items()) + f" · total {len(final)}", "",
           "| ID | Impact | Confidence | Votes | Verifier | Where | Title |", "| --- | --- | --- | --- | --- | --- | --- |"]
     md += [f"| {f['id']} | {f['impact']} | {f['confidence']} | {f.get('votes', 1)}/{f.get('of', 1)} | {f.get('verifier', '-')} | {f['file']}:{f.get('line', '')} | {f['title'].replace('|', '/')} |" for f in final]
+    nofix = [f for f in final if str(f.get("fix", "")).startswith(("none", "not offerable"))]
+    if nofix: md += ["", "## Fixes not to offer (describe the problem; don't present these remediations as fixes)"] + [f"- {f['id']}: {f['fix']}" for f in nofix]
+    part = [f for f in final if f.get("fix") == "partial"]
+    if part: md += ["", "## Partial fixes (label them partial in the teardown)"] + [f"- {f['id']}" for f in part]
     for name, rows in (("Refuted by verification", refuted), ("Dropped (single vote, not executed)", T["dropped"]), ("Retracted (quote not found)", T["retracted"]),
                        ("Rejected (broke the contract)", T["rejected"]), ("Hidden by your rulings (fp on this exact finding)", T["suppressed"])):
         if rows: md += ["", f"## {name}"] + [f"- {r['finding'].get('id')} {r['finding'].get('file')}:{r['finding'].get('line', '')} {r['finding'].get('title')}: {r['why'] if isinstance(r['why'], str) else '; '.join(r['why'])}" for r in rows]

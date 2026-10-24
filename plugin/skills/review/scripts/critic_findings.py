@@ -111,6 +111,8 @@ def validate(f):
         for k in ("evidence", "failing_case"):
             if not str(f.get(k) or "").strip(): errs.append(f"missing {k} (no case, no finding)")
     if f.get("verified") not in VERIFIED: errs.append("verified must be executed, traced or inferred")
+    for k in ("preconditions", "root_cause"):  # optional (SC-61): what the failure needs, and the decision behind the bug
+        if k in f and not isinstance(f[k], str): errs.append(f"{k} must be text when given")
     if f.get("source") != "scan" and f.get("impact") in ("Critical", "High", "Medium") and str(f.get("file") or "").lower().endswith(CODE_EXT) and safe_int(f.get("line")) and not str(f.get("quote") or "").strip():
         # scanner rows are exempt: they come from the scan's own match, and quoting the line would copy a found secret into the reports
         errs.append("missing quote: a finding about a line of a file must quote it exactly, so the quote check can confirm it exists")
@@ -260,7 +262,8 @@ def redact_secrets(text):
         text = rx.sub(fn or (lambda m: m.group(1) + keepq(m.group(2))), text)
     return text
 
-FINDING_TEXT = ("quote", "title", "evidence", "failing_case", "remediation", "note", "refutation", "reason", "why", "summary", "what")
+FINDING_TEXT = ("quote", "title", "evidence", "failing_case", "remediation", "note", "refutation", "reason", "why", "summary", "what", "guard",
+                "preconditions", "root_cause", "entry", "path", "attacker", "gain")
 _NAMED_RULES = (REDACT_RULES[3], REDACT_RULES[4])  # NAME=value, "name": "value", --name value
 _EXTRA_NAMED = [(re.compile(r"(?i)(" + _NAME + r"[\"']?\s*(?::=|=>)\s*)" + _VAL), None),
                 (re.compile(r"(?i)(" + _NAME + r"[\"']?\s*[=:]\s*)(<[^<>\s]{4,}>)"), None)]  # NAME=<value> (a placeholder is masked too: harmless)  # Go password := "x"; PHP and Ruby 'password' => 'x'
