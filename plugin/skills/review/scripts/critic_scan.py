@@ -26,9 +26,9 @@ and reported as "would have sent", controls named like destructive actions are n
 on localhost or a file are refused unless .critic/scope.json lists the origin and the run carries --allow-live HOST
 (the owner's typed confirmation; scope.py), and then only GET, HEAD and OPTIONS, up to the target's request cap."""
 import argparse, fnmatch, json, os, pathlib, re, signal, subprocess, sys, time, urllib.parse
-import scope as scope_file
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import scan_secrets, scan_html, scan_graph, scan_deps, scan_rules_extra, scan_mutation, scan_ci
+import scope as scope_file
 from critic_findings import log_run, refuse_linked_state
 
 CODE = {".js", ".mjs", ".cjs", ".ts", ".jsx", ".tsx", ".vue", ".svelte", ".html", ".htm"}

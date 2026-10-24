@@ -1837,6 +1837,13 @@ def _(d):
     imp = subprocess.run([sys.executable, "-c", f"import sys; sys.path.insert(0, {str(S)!r}); from critic_merge import scan_impact; print(scan_impact('ci-pwn-request'))"], cwd=d, capture_output=True, text=True).stdout.strip()
     assert imp == "Critical", imp
 
+@test("5.0 fix: every script runs in Python's isolated mode (-I), as the golden tests and the background check run them")
+def _(d):
+    write(d, "src/a.py", "x = 1\n")
+    for script, args in [("critic_scan.py", [".", "--root", ".", "--no-project-rules"]), ("critic_map.py", ["--files", "src/a.py"]), ("critic_brief.py", []), ("ast_view.py", ["src/a.py"])]:
+        r = subprocess.run([sys.executable, "-I", str(S / script), *args], cwd=d, capture_output=True, text=True, env=dict(os.environ, CRITIC_ROOT=str(d)))
+        assert r.returncode == 0 and "Traceback" not in r.stderr, (script, r.stderr[-400:])
+
 if __name__ == "__main__":
     shutil.rmtree(TMP, ignore_errors=True)
     bad = [r for r in RESULTS if not r[1]]
