@@ -128,7 +128,7 @@ def scan(root, emit, online=False, state=None):
     for rf in root.rglob("requirements*.txt"):
         if not _skip(rf, root): pkgs += [(rf, *x) for x in _reqs(rf)]; found_manifest = True
     if not found_manifest:
-        if state: state("deps", "blocked", "no package manifest or lockfile")
+        if state: state("deps", "n/a", "no package manifest or lockfile")
         return
     if not online:
         if state: state("deps", "pass", f"{len(pkgs)} pinned packages; vulnerability lookup off (use --online)")

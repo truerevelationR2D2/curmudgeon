@@ -130,7 +130,7 @@ def _(d):
     r = run(S / "critic_scan.py", ".", "--out", "o", cwd=d)
     ch = json.loads((d / "o/report.json").read_text())["checks"]
     assert all(k in ch for k in ("static", "structure", "deps", "ci", "page")), ch.keys()
-    assert ch["page"]["state"] == "blocked"
+    assert ch["page"]["state"] == "n/a"  # no --page given: nothing to look at (5.0 SC-8; it was "blocked")
 
 @test("hooks: the guard denies direct edits to the ledger and allows review files")
 def _(d):
@@ -1085,6 +1085,20 @@ def _(d):
     v = scan_mutation.code_view(_pl.Path("m.ts"), "const xs: Array<string> = [];\nconst s = `a < b ${x}`; // a > b\nif (a < b) go();\n")
     hits = [(i, pat) for i, l in enumerate(v) for pat, _r in scan_mutation.OPS if __import__("re").search(pat, l)]
     assert hits == [(2, r"(?<=\s)<(?=\s)")], hits
+
+@test("5.0 SC-8: a check with nothing to look at is n/a, never DEGRADED, and CI never passes when it read nothing")
+def _(d):
+    write(d, "src/a.js", "const x = 1;\n")
+    run(S / "critic_scan.py", ".", "--root", ".", cwd=d)
+    rep = json.loads((d / ".critic/scan/report.json").read_text())
+    assert rep["checks"]["ci"]["state"] == "n/a", rep["checks"]["ci"]
+    assert rep["checks"]["deps"]["state"] == "n/a", rep["checks"]["deps"]
+    assert rep["checks"]["page"]["state"] == "n/a" and rep["degraded"] == [], (rep["checks"]["page"], rep["degraded"])
+    assert "DEGRADED" not in (d / ".critic/scan/report.md").read_text()
+    write(d, "results.xml", '<testsuite name="t"><testcase classname="a" name="ok"/></testsuite>')
+    run(S / "critic_scan.py", ".", "--root", ".", cwd=d)
+    ci = json.loads((d / ".critic/scan/report.json").read_text())["checks"]["ci"]
+    assert ci["state"] == "pass" and "1 result file" in ci["note"], ci
 
 if __name__ == "__main__":
     bad = [r for r in RESULTS if not r[1]]

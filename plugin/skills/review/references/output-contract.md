@@ -71,7 +71,7 @@ PENDING_RISKS: [UNCERTAIN RISK] items and anything that needs the owner
 ROUND: n of 3
 </workspace_state_ledger>
 ```
-Then the **Closure table**: id | status (fixed, deferred, won't fix) | where | how verified (scripted row gone, test added, scenario replayed). Every check result is one of pass, fail, unavailable or blocked.
+Then the **Closure table**: id | status (fixed, deferred, won't fix) | where | how verified (scripted row gone, test added, scenario replayed). Every check result is one of pass, fail, unavailable, blocked or n/a.
 
 ## Hooks (end every response)
 After a review (no files changed):

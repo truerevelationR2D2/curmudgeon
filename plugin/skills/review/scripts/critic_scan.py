@@ -16,8 +16,9 @@ results from earlier CI runs (SARIF and JUnit files already in the project) read
 SRC may be a folder or a single file. ROOT (default: CRITIC_ROOT, else the current folder) is where .critic/ lives;
 rows are keyed by path relative to ROOT so recorded false positives match whichever SRC is scanned.
 
-Every row has an evidence id (S001…) and a rule id. Every check family reports pass, fail, unavailable (tool missing)
-or blocked (could not run), derived from its own rows. A false positive recorded with
+Every row has an evidence id (S001…) and a rule id. Every check family reports pass, fail, unavailable (tool missing),
+blocked (could not run) or n/a (nothing for it to look at: no page given, no manifest), derived from its own rows.
+Only blocked and unavailable make a run DEGRADED. A false positive recorded with
 `critic_ledger.py fp RULE_ID WHERE "why"` suppresses only that rule at that exact place, and is listed, never hidden.
 
 Safety: the click probe never sends anything. Every non-GET request and every request to another origin is aborted
@@ -48,6 +49,7 @@ def f(sev, rule, area, where, what, ev=""):
     level = "runtime" if area.startswith(("a11y-", "runtime", "ux", "responsive", "perf-rt", "visual")) else ("ci" if area == "ci" else "source")
     R.append({"sev": sev, "rule": rule, "area": area, "where": str(where), "what": what, "evidence": ev.strip()[:160], "level": level})
 
+NA = "n/a"  # not applicable: nothing for this check to look at (no page given, no manifest). Never DEGRADED.
 def state(name, s, note=""): CHECKS[name] = {"state": s, "note": note}
 def family_state(areas, note=""):
     rows = [x for x in R if x["area"] in areas]
@@ -262,13 +264,13 @@ def ci_evidence(root, out=None):
     """Read results that earlier test or lint runs already left in the project, instead of re-running them.
     Curmudgeon's own outputs (anything under .critic/ or the --out folder) are never read back as evidence."""
     import xml.etree.ElementTree as ET
-    seen = 0
+    seen = files = 0
     own = {"scan.sarif", "findings.sarif"}
     def mine(p): return ".critic" in p.parts or p.name in own or (out is not None and str(p.resolve()).startswith(str(out.resolve())))
     for p in list(root.rglob("*.sarif"))[:20]:
         if set(p.parts) & SKIP or mine(p): continue
         try:
-            j = json.loads(p.read_text())
+            j = json.loads(p.read_text()); files += 1
             for run in j.get("runs", []):
                 tool = run.get("tool", {}).get("driver", {}).get("name", "tool")
                 for r in run.get("results", [])[:50]:
@@ -281,12 +283,14 @@ def ci_evidence(root, out=None):
         try:
             t = ET.parse(p).getroot()
             if t.tag not in ("testsuite", "testsuites"): continue
+            files += 1
             for tc in t.iter("testcase"):
                 bad = tc.find("failure") if tc.find("failure") is not None else tc.find("error")
                 if bad is not None:
                     f("WARN", "ci-test-failure", "ci", str(p.relative_to(root)), f"test failing in the last recorded run: {tc.get('classname', '')} {tc.get('name', '')}", (bad.get("message") or "")[:120]); seen += 1
         except Exception: continue
-    state("ci", "pass" if seen == 0 else "fail", f"{seen} result(s) read from earlier runs" if seen else "no earlier CI results found (nothing to read)")
+    if not files: state("ci", NA, "no earlier CI results found (no SARIF or JUnit files to read)")
+    else: state("ci", "fail" if seen else "pass", f"{files} result file(s) read from earlier runs, {seen} problem(s)")
 
 def project_checks(root, timeout=600):
     """Run the commands listed under '## Scripted checks' in .critic/rules.md ("- name: command"). Each one passes on
@@ -460,7 +464,7 @@ def runtime(page, src, root, out, axe_arg, interact, allow_live, baseline=None, 
                     pg.keyboard.press("Tab"); seen.add(pg.evaluate("() => document.activeElement && document.activeElement !== document.body ? document.activeElement.outerHTML.slice(0, 80) : ''"))
                 got = len([s for s in seen if s]); stats["focusable"] = n; stats["reached_by_tab"] = got
                 if n and got < n: f("FAIL" if got == 0 else "WARN", "tab-reach", "a11y-keyboard", "keyboard", f"Tab reaches {got} of {n} focusable controls")
-                state("keyboard", "fail" if n and got < n else ("pass" if n else "blocked"), f"{got} of {n} reached" if n else "nothing focusable on the page")
+                state("keyboard", "fail" if n and got < n else ("pass" if n else NA), f"{got} of {n} reached" if n else "nothing focusable on the page")
             guarded("keyboard", keyboard)
             def focus():
                 pg.evaluate("() => document.activeElement && document.activeElement.blur()"); pg.mouse.click(1, 1); pg.wait_for_timeout(100)
@@ -505,7 +509,7 @@ def runtime(page, src, root, out, axe_arg, interact, allow_live, baseline=None, 
                 state("screen-reader", *family_state({"a11y-sr"}, "accessibility tree saved as screen-reader.yaml"))
             guarded("screen-reader", screen_reader)
             def interactive():
-                if not interact: state("interactive", "blocked", "--no-interact"); return
+                if not interact: state("interactive", NA, "skipped on request (--no-interact)"); return
                 names_ = pg.evaluate(CANDIDATES); clicked = skipped = 0
                 for i, name in enumerate(names_):
                     if DESTRUCTIVE.search(name or ""): skipped += 1; continue
@@ -555,7 +559,7 @@ def runtime(page, src, root, out, axe_arg, interact, allow_live, baseline=None, 
                 state("speed", *family_state({"perf-rt"}, f"median of 3 loads: {kb:.0f} KB, {req} requests, LCP {lcp:.0f} ms, blocking {blk:.0f} ms (local machine, not a phone on 4G)"))
             guarded("speed", speed)
             def visual():
-                if not baseline: state("visual", "blocked", "no --baseline save|compare"); return
+                if not baseline: state("visual", NA, "no --baseline save|compare"); return
                 bdir = root / ".critic" / "baseline"
                 if baseline == "save":
                     bdir.mkdir(parents=True, exist_ok=True)
@@ -623,7 +627,7 @@ def main(argv):
         try: stats = runtime(a.page, src, root, out, a.axe, not a.no_interact, a.allow_live, a.baseline, a.budget_kb)
         except Exception as e: state("runtime", "blocked", f"{type(e).__name__}: {str(e)[:120]}")
     else:
-        for k in RUNTIME_CHECKS: state(k, "blocked", "no --page given")
+        for k in RUNTIME_CHECKS: state(k, NA, "no --page given")
     if a.mutate:
         try: scan_mutation.run(root, a.mutate, f, state, a.test_cmd, allow_rules=a.project_checks)
         except Exception as e: state("mutation", "blocked", f"{type(e).__name__}: {str(e)[:100]}")
@@ -634,7 +638,7 @@ def main(argv):
     order = {"FAIL": 0, "WARN": 1, "NOTE": 2}; R.sort(key=lambda x: (order[x["sev"]], x["area"], x["where"]))
     for i, x in enumerate(R, 1): x["id"] = f"S{i:03d}"
     out.mkdir(parents=True, exist_ok=True)
-    degraded = [k for k, v in CHECKS.items() if v["state"] in ("blocked", "unavailable") and k in expected and not v["note"].startswith(("no --page", "no --baseline", "no package", "no earlier"))]
+    degraded = [k for k, v in CHECKS.items() if v["state"] in ("blocked", "unavailable") and k in expected]  # n/a is never degraded
     (out / "report.json").write_text(json.dumps({"src": str(src), "root": str(root), "files": nfiles, "stats": stats, "checks": CHECKS, "degraded": degraded, "findings": R, "suppressed": SUPPRESSED}, indent=1))
     from critic_findings import to_sarif
     (out / "scan.sarif").write_text(json.dumps(to_sarif([{"category": x["rule"], "impact": {"FAIL": "High", "WARN": "Medium", "NOTE": "Low"}[x["sev"]], "file": x["where"].split(":")[0] if ":" in x["where"] else x["where"],
