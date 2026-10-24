@@ -107,3 +107,15 @@ python3 eval/lens.py eval/lens5.json
 `lens10.json` is the operations lens (SC-54): `fixture10/` logs a password, a token and an API key, turns DEBUG on in production settings, and has an alert with no runbook and one whose runbook file is missing; `fixture10-clean/` fixes them; three decoy files (counts and policies named like secrets, development settings, a Kubernetes container with probes and limits) must stay silent.
 
 `lens11.json` measures the code view the JavaScript code rules use (SC-65): `fixture11/app.js` plants six real cases; `notes.js` (in both) names every risky call only in comments, strings and template literals. Before this change the scan raised 9 rows on `notes.js`; now none.
+
+## The death match (development benchmark, SC-70)
+
+`deathmatch.py` runs the same tasks (`deathmatch.json`: suites 1 to 4 and their clean twins) on the same model through each arm: Curmudgeon, plain Claude, `/code-review`, and specialist tools only where they are already installed and only on the tasks they claim. Every arm is scored by one scorer: blocks that match a planted defect count toward recall, every block on a clean twin is a false alarm, and anything else stays unlabelled until labelled in the run's `labels.json`, so precision is NOT MEASURED until then. Cost, tokens and wall time come from Claude Code's own JSON result.
+
+```
+python3 eval/deathmatch.py plan                 # what would run; no model calls
+python3 eval/deathmatch.py run --yes-spend      # paid model calls: it refuses without the flag
+python3 eval/deathmatch.py score eval/runs/<run>
+```
+
+It is a benchmark for development only, never part of a review (ruling §5.22). It has not been run yet: the first run is the owner's call, because it costs money.

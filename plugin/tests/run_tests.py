@@ -2030,6 +2030,25 @@ def _(d):
     rules = {x["rule"] for x in json.loads((d / ".critic/scan/report.json").read_text())["findings"]}
     assert {"per-keystroke", "todo"} <= rules, "rules that read strings or comments on purpose still do: " + str(rules)
 
+@test("5.0 SC-70: the death-match harness refuses to spend without --yes-spend, and scores every arm with one scorer, leaving precision NOT MEASURED until labelled")
+def _(d):
+    DM = HERE.parent / "eval" / "deathmatch.py"
+    r = run(DM, "run", cwd=d); assert r.returncode == 2 and "--yes-spend" in r.stdout
+    assert re.search(r"\d+ arm\(s\) x 7 task\(s\)", run(DM, "plan", cwd=d).stdout)
+    key = json.loads((HERE.parent / "eval" / "answer_key4.json").read_text()); g2 = next(k for k in key if k.startswith("G2"))
+    rd = d / "runs"; (rd / "plain-claude" / "suite4").mkdir(parents=True); (rd / "plain-claude" / "suite4-clean").mkdir(parents=True)
+    (rd / "plain-claude" / "suite4" / "output.md").write_text("Findings:\n\n1. guards.js:3 canVoid uses indexOf truthiness, so -1 passes and a viewer can void.\n2. app.js:9 the total is wrong for empty carts.\n")
+    (rd / "plain-claude" / "suite4-clean" / "output.md").write_text("- app.js:4 possible bug: the price may overflow.\n")
+    (rd / "curmudgeon" / "suite4").mkdir(parents=True)
+    (rd / "curmudgeon" / "suite4" / "findings.jsonl").write_text(json.dumps({"file": "guards.js", "line": 3, "title": "viewer can void", "evidence": "indexOf returns -1 (truthy)"}) + "\n")
+    out = run(DM, "score", str(rd), cwd=d).stdout
+    res = {(x["arm"], x["task"]): x for x in json.loads((rd / "results.json").read_text())}
+    p4 = res[("plain-claude", "suite4")]; assert p4["found"] >= 1 and p4["unlabelled"] == 1 and p4["precision"] is None, p4
+    assert res[("plain-claude", "suite4-clean")]["false_alarms"] == 1 and res[("curmudgeon", "suite4")]["found"] >= 1
+    (rd / "labels.json").write_text(json.dumps({"plain-claude/suite4/1": "false"})); run(DM, "score", str(rd), cwd=d)
+    p4 = {(x["arm"], x["task"]): x for x in json.loads((rd / "results.json").read_text())}[("plain-claude", "suite4")]
+    assert p4["unlabelled"] == 0 and p4["precision"] == f"{p4['found']} of {p4['found'] + 1}", p4
+
 if __name__ == "__main__":
     shutil.rmtree(TMP, ignore_errors=True)
     bad = [r for r in RESULTS if not r[1]]
