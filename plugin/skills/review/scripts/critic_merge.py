@@ -38,7 +38,7 @@ apply:
   records every kept finding in the ledger (new, known or regressed)."""
 import hashlib, json, math, os, pathlib, re, subprocess, sys, time
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
-from critic_findings import IMPACTS, extract_findings, norm_code, relocate_quote, fingerprint, quote_check, read_jsonl, refutation_problem, similar, log_run, append_line, refuse_linked_state, to_sarif, validate, write_jsonl, tokens, scrub, redact_finding_text
+from critic_findings import IMPACTS, extract_findings, norm_code, relocate_quote, fingerprint, quote_check, read_jsonl, refutation_problem, confirmation_problem, security_refutation_problem, similar, log_run, append_line, refuse_linked_state, to_sarif, validate, write_jsonl, tokens, scrub, redact_finding_text
 
 ROOT = pathlib.Path(os.environ.get("CRITIC_ROOT", os.getcwd())).resolve(); D = ROOT / ".critic"
 
@@ -327,8 +327,11 @@ def apply(paths):
             final.append(f); continue
         kind = str(v.get("verdict", "unclear")).lower(); raw = str(v.get("refutation") or v.get("reason") or "")
         why = redact_finding_text(raw)  # a refutation can quote a secret: it is checked raw, stored masked
+        if kind == "confirmed":
+            cp = confirmation_problem(v, root=ROOT)
+            if cp: kind = "unclear"; notes.append(f"{f['id']}: confirmation without evidence counted as unclear ({cp})")
         if kind == "refuted":
-            prob = refutation_problem(raw, f["impact"], v.get("reproduced"), root=ROOT)
+            prob = refutation_problem(raw, f["impact"], v.get("reproduced"), root=ROOT) or security_refutation_problem(v, f)
             if not prob:
                 refuted.append({"finding": f, "why": why}); VERIFIER_LOG.append(("refuted", f, why, v.get("reproduced"))); continue
             kind = "unclear"; notes.append(f"{f['id']}: refutation not concrete enough to drop it ({prob}); kept")
@@ -337,7 +340,7 @@ def apply(paths):
             if new in IMP_RANK and IMP_RANK[new] > IMP_RANK[f["impact"]]:
                 VERIFIER_LOG.append(("downgraded", dict(f), f"{f['impact']} to {new}: {v.get('note') or why}", v.get("reproduced")))
                 f["impact_before"] = f["impact"]; f["impact"] = new
-            else: notes.append(f"{f['id']}: downgrade ignored (a verifier may lower, never raise)")
+            else: notes.append(f"{f['id']}: downgrade ignored (a verifier may lower, never raise)"); kind = "unclear"
         f["verifier"] = kind
         if v.get("reproduced") in ("executed", "traced"): f["verifier_reproduced"] = v["reproduced"]
         final.append(f)

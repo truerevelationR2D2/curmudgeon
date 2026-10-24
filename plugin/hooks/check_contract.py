@@ -4,7 +4,7 @@ Reviewers must leave a valid .critic/reviews/review-<X>.json; verifiers must ret
 Never blocks twice in a row (stop_hook_active), and never blocks other agents. Fails open on errors, with a message."""
 import json, pathlib, re, sys, time
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent / "skills" / "review" / "scripts"))
-try: from critic_findings import validate, refutation_problem  # both the review and the verdict checks use it
+try: from critic_findings import validate, refutation_problem, confirmation_problem, security_refutation_problem  # the same rules apply uses
 except Exception as _e:  # a broken install must say so, not fail open silently
     print(json.dumps({"systemMessage": f"Curmudgeon contract check skipped: its scripts could not be loaded ({type(_e).__name__}: {_e}). Reinstall the plugin."})); sys.exit(0)
 
@@ -39,11 +39,15 @@ def problems_verdict(msg, root=None):
         if not isinstance(v, dict): errs.append("every verdict must be a JSON object"); continue
         if not v.get("id"): errs.append("a verdict has no id"); continue
         if v.get("verdict") not in ("confirmed", "refuted", "downgrade", "unclear"): errs.append(f"{v.get('id')}: verdict must be confirmed, refuted, downgrade or unclear")
+        packet = {}
+        try: packet = json.loads((pathlib.Path(root or ".") / ".critic" / "verify" / f"{v['id']}.json").read_text())
+        except Exception: pass
+        if v.get("verdict") == "confirmed":
+            cp = confirmation_problem(v, root=root)
+            if cp: errs.append(f"{v.get('id')}: the merge would count this as unclear: {cp}")
         if v.get("verdict") == "refuted":
-            imp = "Critical"  # unknown impact: hold it to the strictest rule
-            try: imp = json.loads((pathlib.Path(root or ".") / ".critic" / "verify" / f"{v['id']}.json").read_text()).get("impact") or imp
-            except Exception: pass
-            prob = refutation_problem(v.get("refutation") or v.get("reason"), imp, v.get("reproduced"), root=root)
+            imp = packet.get("impact") or "Critical"  # unknown impact: hold it to the strictest rule
+            prob = refutation_problem(v.get("refutation") or v.get("reason"), imp, v.get("reproduced"), root=root) or security_refutation_problem(v, packet)
             if prob: errs.append(f"{v.get('id')}: this refutation would be ignored by the merge: {prob}")
     return errs[:8]
 

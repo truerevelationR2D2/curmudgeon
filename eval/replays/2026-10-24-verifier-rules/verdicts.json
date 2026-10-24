@@ -1,7 +1,37 @@
 [
- {"id": "F-08977a9b", "verdict": "refuted", "reproduced": "executed", "refutation": "The title passes through clean() before innerHTML, and src/guard.js:2 escapes every one of & < > \" and ' as a numeric entity."},
- {"id": "F-c33bbd91", "verdict": "refuted", "reproduced": "traced", "refutation": "I think this is probably fine."},
- {"id": "F-02fd39ac", "verdict": "downgrade", "impact_after": "Low", "reproduced": "traced", "note": "Only when storage is full; nothing is lost on screen."},
- {"id": "F-93f603a2", "verdict": "downgrade", "impact_after": "Critical", "reproduced": "traced", "note": "Tries to raise the impact, which a verifier may never do."},
- {"id": "F-3493fa30", "verdict": "unclear", "reproduced": "traced", "note": "Couldn't tell whether the rate is meant to be configurable."}
+ {
+  "id": "F-08977a9b",
+  "verdict": "refuted",
+  "reproduced": "executed",
+  "refutation": "The title passes through clean() before innerHTML, and src/guard.js:2 escapes every one of & < > \" and ' as a numeric entity.",
+  "attacker": "anyone who can set an invoice title",
+  "gain": "nothing: the title is escaped before it reaches the page",
+  "reason": "guard_blocks"
+ },
+ {
+  "id": "F-c33bbd91",
+  "verdict": "refuted",
+  "reproduced": "traced",
+  "refutation": "I think this is probably fine."
+ },
+ {
+  "id": "F-02fd39ac",
+  "verdict": "downgrade",
+  "impact_after": "Low",
+  "reproduced": "traced",
+  "note": "Only when storage is full; nothing on screen is lost, and src/app.js:11 runs only on an explicit save."
+ },
+ {
+  "id": "F-93f603a2",
+  "verdict": "downgrade",
+  "impact_after": "Critical",
+  "reproduced": "traced",
+  "note": "Tries to raise the impact, which a verifier may never do."
+ },
+ {
+  "id": "F-3493fa30",
+  "verdict": "unclear",
+  "reproduced": "traced",
+  "note": "Couldn't tell whether the rate is meant to be configurable."
+ }
 ]

@@ -118,6 +118,43 @@ def validate(f):
 
 LOCATION = re.compile(r"([\w./-]+\.\w+):(\d+)")
 HEDGE = re.compile(r"(?i)\b(i (?:do not|don't) think|i think|i believe|i guess|i assume|i suspect|i doubt|presumably|apparently|supposedly|seems?|probably|maybe|perhaps|possibly|unlikely|not sure|unclear|afaict|as far as i (?:can )?(?:tell|know|see)|likely (?:fine|ok|safe)|looks? (?:fine|ok|safe)|should be (?:fine|ok|safe))\b")
+def _cites_real_line(text, root):
+    locs = LOCATION.findall(str(text or ""))
+    if not locs: return False
+    if root is None: return True
+    rt = pathlib.Path(root).resolve()
+    for f, n in locs:
+        if f.startswith("/") or ".." in pathlib.PurePath(f).parts or ".critic" in pathlib.PurePath(f).parts: continue
+        p = (rt / f).resolve()
+        try:
+            if not p.is_file() and "/" not in f:  # a bare file name: accept it when exactly one project file has that name
+                same = [x for x in rt.rglob(f) if x.is_file() and ".critic" not in x.parts and ".git" not in x.parts][:2]
+                p = same[0] if len(same) == 1 else p
+            if p.is_relative_to(rt) and p.is_file() and 1 <= int(n) <= len(p.read_text(encoding="utf-8", errors="replace").split("\n")): return True
+        except (OSError, ValueError): continue
+    return False
+
+SECURITY = re.compile(r"(?i)xss|inject|secret|credential|auth|csrf|ssrf|traversal|deserial|eval|rce|privilege|token|password|crypto|sanitiz|leak|exposure|security")
+SECURITY_REASONS = ("no_untrusted_input", "guard_blocks", "not_reachable", "no_privilege_gain", "already_public", "platform_escapes")
+def confirmation_problem(v, root=None):
+    """A `confirmed` verdict must show its evidence (SC-42, SC-44): the entry point and the path to the failing line, at
+    least 60 characters in all, citing a file:line that exists. Without it the verdict counts as unclear, so a bare
+    'confirmed' can never raise confidence. Returns None when the evidence is there."""
+    text = " ".join(str(v.get(k) or "") for k in ("entry", "path", "note", "evidence") if not isinstance(v.get(k), list)) + " " + \
+           " ".join(str(x) for k in ("path",) if isinstance(v.get(k), list) for x in v[k])
+    if len(text.strip()) < 60: return "a confirmed verdict needs its evidence: the entry point and the path to the failing line (60+ characters)"
+    if not _cites_real_line(text, root): return "a confirmed verdict must cite the failing path as file:line that exists"
+    return None
+
+def security_refutation_problem(v, finding):
+    """Refuting a security finding also names who the attacker is, what they would gain, and one reason from a fixed list
+    (SC-44, after claude-security's structured answers; our own wording)."""
+    if not SECURITY.search(f"{finding.get('category', '')} {finding.get('title', '')}"): return None
+    missing = [k for k in ("attacker", "gain") if not str(v.get(k) or "").strip()]
+    if missing: return f"a security refutation must name the {' and the '.join(missing)}"
+    if v.get("reason") not in SECURITY_REASONS: return "a security refutation's reason must be one of " + ", ".join(SECURITY_REASONS)
+    return None
+
 def refutation_problem(why, impact, reproduced, root=None):
     """One rule for what may drop a finding, shared by the verifier's stop check and apply. A refutation must state the
     guard as fact (no hedging), run to at least 60 characters, come from a run or a trace, and cite the guard as a

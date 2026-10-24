@@ -1,6 +1,26 @@
 [
- {"id":"F-4fcebfb7","verdict":"confirmed","reproduced":"executed","note":"Refutation text reached counts.md, ledger.md and ledger.json unmasked (critic_merge.py apply; ledger status note)."},
- {"id":"F-0bf9aa11","verdict":"confirmed","reproduced":"executed","note":"redact_finding_text lacked the entropy pass; an unnamed 32-char hex key in a title passed unmasked."},
- {"id":"F-ee3ef24c","verdict":"confirmed","reproduced":"executed","note":"Log-rule NAME=value masking mangled ordinary code such as session_id = uuid4().hex; acted tracking skipped those quotes."},
- {"id":"F-77d460c7","verdict":"confirmed","reproduced":"executed","note":"round neither archived reviews nor reset started_at, so round-1 votes were counted in round 2."}
+ {
+  "id": "F-4fcebfb7",
+  "verdict": "confirmed",
+  "reproduced": "executed",
+  "note": "Reproduced end to end in a scratch root: a refuted verdict quoting a Stripe-shaped key built at run time put the full key in .critic/counts.md, and after critic_ledger.py init and add, in .critic/ledger.json and .critic/ledger.md. In critic_merge.py apply(), refuted rows keep the raw why; only final and unverified go through scrub() (critic_merge.py:328); the Refuted block at critic_merge.py:339 writes r['why'] unmasked, and the ledger status note passes it raw."
+ },
+ {
+  "id": "F-0bf9aa11",
+  "verdict": "confirmed",
+  "reproduced": "executed",
+  "note": "scan_secrets.secret_spans('Hard-coded key a8f5\u2026[redacted] in config') returns [] and critic_findings.redact_finding_text returns the text unchanged, while scan_secrets.redact masks it with its entropy pass (scan_secrets.py:53). redact_finding_text (critic_findings.py:224-237) has no entropy pass, and scrub() calls only it."
+ },
+ {
+  "id": "F-ee3ef24c",
+  "verdict": "confirmed",
+  "reproduced": "executed",
+  "note": "redact_finding_text('session_id = uuid4().hex') returns 'session_id = [redacted]' and scrub sets quote_redacted True. Cause: the NAME=value rule at critic_findings.py:198 with _VAL (critic_findings.py:178) accepts any value; scrubbed text reaches the verify packets (critic_merge.py:261), tally.json (critic_merge.py:262) and the outputs, and critic_ledger.py:111 makes acted skip any quote containing [redacted]."
+ },
+ {
+  "id": "F-77d460c7",
+  "verdict": "confirmed",
+  "reproduced": "executed",
+  "note": "Fresh scratch project: start full; review-A/B/C hold the same finding; tally; critic_ledger.py round; review-A.json rewritten as []; the tally keeps the finding with votes 2 of 3, both from round 1. The stale guard at critic_merge.py:137 compares mtime with started_at, which only start sets (critic_ledger.py:163); round (critic_ledger.py:352-357) neither moves reviews nor resets started_at."
+ }
 ]

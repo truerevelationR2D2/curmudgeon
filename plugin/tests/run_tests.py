@@ -67,9 +67,9 @@ def _(d):
     fid = json.loads((d / ".critic/tally.json").read_text())["kept"][0]["id"]
     write(d, "v.json", json.dumps([{"id": fid, "verdict": "downgrade", "impact_after": "Critical"}])); run(S / "critic_merge.py", "apply", "v.json", cwd=d)
     assert json.loads((d / ".critic/findings.jsonl").read_text().splitlines()[0])["impact"] == "High"
-    write(d, "v.json", json.dumps([{"id": fid, "verdict": "refuted", "refutation": "not real"}])); run(S / "critic_merge.py", "apply", "v.json", cwd=d)
+    write(d, "v.json", json.dumps([{"id": fid, "verdict": "refuted", "attacker": "an outside user", "gain": "nothing", "reason": "guard_blocks", "refutation": "not real"}])); run(S / "critic_merge.py", "apply", "v.json", cwd=d)
     assert (d / ".critic/findings.jsonl").read_text().strip(), "a vague refutation dropped the finding"
-    write(d, "v.json", json.dumps([{"id": fid, "verdict": "refuted", "reproduced": "traced", "refutation": "render() receives titles only from the escaped constant at src/app.js:4, so no user text ever reaches this line."}]))
+    write(d, "v.json", json.dumps([{"id": fid, "verdict": "refuted", "attacker": "an outside user", "gain": "nothing", "reason": "guard_blocks", "reproduced": "traced", "refutation": "render() receives titles only from the escaped constant at src/app.js:4, so no user text ever reaches this line."}]))
     run(S / "critic_merge.py", "apply", "v.json", cwd=d)
     assert not (d / ".critic/findings.jsonl").read_text().strip(), "a concrete refutation should drop it"
 
@@ -178,9 +178,9 @@ def _(d):
     write(d, "src/app.js", APP); run(S / "critic_ledger.py", "start", "full", cwd=d)
     write(d, "a.json", json.dumps([finding(impact="High")])); write(d, "b.json", json.dumps([finding(impact="High")]))
     run(S / "critic_merge.py", "tally", "a.json", "b.json", cwd=d); fid = json.loads((d / ".critic/tally.json").read_text())["kept"][0]["id"]
-    write(d, "v.json", json.dumps([{"id": fid, "verdict": "refuted", "refutation": "I do not think this is a problem because it seems fine to me overall here."}]))
+    write(d, "v.json", json.dumps([{"id": fid, "verdict": "refuted", "attacker": "an outside user", "gain": "nothing", "reason": "guard_blocks", "refutation": "I do not think this is a problem because it seems fine to me overall here."}]))
     run(S / "critic_merge.py", "apply", "v.json", cwd=d); assert (d / ".critic/findings.jsonl").read_text().strip()
-    write(d, "v.json", json.dumps([{"id": fid, "verdict": "refuted", "reproduced": "traced", "refutation": "Titles reach render() only through escapeTitle() at src/app.js:1, so no markup survives."}]))
+    write(d, "v.json", json.dumps([{"id": fid, "verdict": "refuted", "attacker": "an outside user", "gain": "nothing", "reason": "guard_blocks", "reproduced": "traced", "refutation": "Titles reach render() only through escapeTitle() at src/app.js:1, so no markup survives."}]))
     run(S / "critic_merge.py", "apply", "v.json", cwd=d); assert not (d / ".critic/findings.jsonl").read_text().strip()
 
 @test("fix F-e9e9ff4c / F-c2912a1b: learned memories never hide a High finding, and Critical/High dismissals never build one")
@@ -327,7 +327,7 @@ def _(d):
 
 @test("round 3 R1: the verifier stop check blocks a bare refutation and passes a concrete one")
 def _(d):
-    msg = lambda why: "```json\n" + json.dumps([{"id": "F-1", "verdict": "refuted", "reproduced": "executed", "refutation": why}]) + "\n```"
+    msg = lambda why: "```json\n" + json.dumps([{"id": "F-1", "verdict": "refuted", "attacker": "an outside user", "gain": "nothing", "reason": "guard_blocks", "reproduced": "executed", "refutation": why}]) + "\n```"
     out = run(H / "check_contract.py", cwd=d, stdin=json.dumps({"agent_type": "curmudgeon-verifier", "cwd": str(d), "last_assistant_message": msg("not real")})).stdout
     assert '"block"' in out, out
     write(d, "src/app.js", "\n".join(f"line {i}" for i in range(1, 20)))
@@ -482,7 +482,7 @@ def _(d):
     run(S / "critic_merge.py", "tally", "a.json", cwd=d)
     ids = [k["id"] for k in json.loads((d / ".critic/tally.json").read_text())["kept"]]
     why = "The price is never shown: src/app.js:4 is dead code with no caller anywhere in the project, so the rule never applies."
-    write(d, "v.json", json.dumps([{"id": ids[1], "verdict": "refuted", "reproduced": "traced", "refutation": why}]))
+    write(d, "v.json", json.dumps([{"id": ids[1], "verdict": "refuted", "attacker": "an outside user", "gain": "nothing", "reason": "guard_blocks", "reproduced": "traced", "refutation": why}]))
     run(S / "critic_merge.py", "apply", "v.json", cwd=d)
     log = (d / ".critic/runlog.jsonl").read_text(); assert "critic_merge.py tally" in log and "critic_ledger.py start" in log, log
     refs = [json.loads(x) for x in (d / ".critic/refutations.jsonl").read_text().splitlines()]
@@ -546,7 +546,7 @@ def _(d):
     write(d, "a.json", json.dumps([finding(impact="Medium", verified="executed")])); run(S / "critic_merge.py", "tally", "a.json", cwd=d)
     fid = json.loads((d / ".critic/tally.json").read_text())["kept"][0]["id"]
     why = "The title is assigned with textContent at src/app.js:2 in the shipped build, so markup is never parsed by the page."
-    write(d, "v.json", json.dumps([{"id": fid, "verdict": "refuted", "reproduced": "executed", "refutation": why}]))
+    write(d, "v.json", json.dumps([{"id": fid, "verdict": "refuted", "attacker": "an outside user", "gain": "nothing", "reason": "guard_blocks", "reproduced": "executed", "refutation": why}]))
     run(S / "critic_merge.py", "apply", "v.json", cwd=d); run(S / "critic_merge.py", "apply", "v.json", cwd=d)
     assert len((d / ".critic/refutations.jsonl").read_text().splitlines()) == 1
     subprocess.run(["git", "init", "-q"], cwd=d); subprocess.run(["git", "add", "src"], cwd=d)
@@ -566,7 +566,7 @@ def _(d):
     write(d, "a.json", json.dumps([finding(impact="Medium", verified="executed")])); run(S / "critic_merge.py", "tally", "a.json", cwd=d)
     fid = json.loads((d / ".critic/tally.json").read_text())["kept"][0]["id"]
     why = "The title is assigned with textContent at src/app.js:2 in the shipped build, so markup is never parsed by the page."
-    write(d, "v.json", json.dumps([{"id": fid, "verdict": "refuted", "reproduced": "executed", "refutation": why}]))
+    write(d, "v.json", json.dumps([{"id": fid, "verdict": "refuted", "attacker": "an outside user", "gain": "nothing", "reason": "guard_blocks", "reproduced": "executed", "refutation": why}]))
     r = run(S / "critic_merge.py", "apply", "v.json", cwd=d); assert r.returncode == 0 and (d / ".critic/counts.md").exists(), r.stderr
     write(d, "v.py", "skip_verify = False\nneeds_reverify = False\nssl_verify = False\n")
     sys.path.insert(0, str(S)); import scan_deps
@@ -910,7 +910,7 @@ def _(d):
     run(S / "critic_ledger.py", "start", "review", "--tier", "full", cwd=d)
     for L in "ABC": write(d, f".critic/reviews/review-{L}.json", json.dumps([f]))
     run(S / "critic_merge.py", "tally", *reviews, cwd=d)
-    write(d, "v2.json", json.dumps([{"id": fid, "verdict": "refuted", "reproduced": "executed",
+    write(d, "v2.json", json.dumps([{"id": fid, "verdict": "refuted", "attacker": "an outside user", "gain": "nothing", "reason": "guard_blocks", "reproduced": "executed",
           "refutation": f"The value {key} at app.py:2 is replaced by None at app.py:3 in every CI build, so it never ships."}]))
     run(S / "critic_merge.py", "apply", "v2.json", cwd=d)
     leaks = [str(p.relative_to(d)) for p in (d / ".critic").rglob("*") if p.is_file() and not (p.is_relative_to(d / ".critic/reviews") or p.is_relative_to(d / ".critic/history"))
@@ -1011,7 +1011,7 @@ def _(d):
     run(S / "critic_ledger.py", "start", "review", "--tier", "full", cwd=e)
     for L in "ABC": write(e, f".critic/reviews/review-{L}.json", json.dumps([g]))
     run(S / "critic_merge.py", "tally", *reviews, cwd=e); gid = json.loads((e / ".critic/tally.json").read_text())["kept"][0]["id"]
-    write(e, "v.json", json.dumps([{"id": gid, "verdict": "refuted", "reproduced": "traced",
+    write(e, "v.json", json.dumps([{"id": gid, "verdict": "refuted", "attacker": "an outside user", "gain": "nothing", "reason": "guard_blocks", "reproduced": "traced",
           "refutation": "The users.email column has a unique index from db/migrate/20241024123456_add_users_table.rb:3, so the lookup is indexed."}]))
     out = run(S / "critic_merge.py", "apply", "v.json", cwd=e).stdout
     assert "refuted 1" in out, f"a valid refutation citing a real migration file was not accepted: {out}"
@@ -1344,6 +1344,31 @@ def _(d):
     (c / "refutations.jsonl").write_text(json.dumps(dict(fz("lastSend is never updated so a double click sends twice"), kind="refuted", run=1)) + "\n")
     out = subprocess.run([sys.executable, str(E / "score.py"), "--funnel", str(e), "--suite", "4"], capture_output=True, text=True).stdout
     assert "never raised: G2" in out and "never raised: G4" in out, out
+
+@test("5.0 SC-42 and SC-44: a bare 'confirmed' counts as unclear, a confirmation with a real path counts, and a security refutation names attacker, gain and reason")
+def _(d):
+    write(d, "src/app.js", APP)
+    g = finding(category="xss", impact="High", line=2, quote=APP.split("\n")[1].strip(), title="Title into innerHTML unescaped")
+    h = finding(category="domain", impact="Medium", line=4, quote="const price = total * 1.0825;", title="Tax rule in render code")
+    run(S / "critic_ledger.py", "start", "review", "--tier", "full", cwd=d)
+    for L in "ABC": write(d, f".critic/reviews/review-{L}.json", json.dumps([g, h]))
+    revs = [f".critic/reviews/review-{L}.json" for L in "ABC"]
+    run(S / "critic_merge.py", "tally", *revs, cwd=d)
+    ids = {k["category"]: k["id"] for k in json.loads((d / ".critic/tally.json").read_text())["kept"]}
+    def apply(verdicts):
+        write(d, "v.json", json.dumps(verdicts)); run(S / "critic_merge.py", "apply", "v.json", cwd=d)
+        return {r["category"]: r for r in (json.loads(x) for x in (d / ".critic/findings.jsonl").read_text().splitlines() if x.strip())}
+    out = apply([{"id": ids["xss"], "verdict": "confirmed", "reproduced": "traced"}, {"id": ids["domain"], "verdict": "confirmed", "reproduced": "traced",
+           "entry": "renderTotal is called on every render", "path": ["src/app.js:4 multiplies by the tax rate inside the render function"]}])
+    assert out["xss"]["verifier"] == "unclear" and out["domain"]["verifier"] == "confirmed", out
+    why = "The title reaches the page only through textContent at src/app.js:3 in the shipped build, so markup is never parsed."
+    out = apply([{"id": ids["xss"], "verdict": "refuted", "reproduced": "executed", "refutation": why}])
+    assert "xss" in out, "a security refutation without attacker, gain and reason must not drop the finding"
+    out = apply([{"id": ids["xss"], "verdict": "refuted", "reproduced": "executed", "refutation": why, "attacker": "anyone who can name a note", "gain": "nothing", "reason": "guard_blocks"}])
+    assert "xss" not in out, out
+    msg = 'Done.\n```json\n' + json.dumps([{"id": ids["domain"], "verdict": "confirmed", "reproduced": "traced"}]) + '\n```'
+    o = run(H / "check_contract.py", cwd=d, stdin=json.dumps({"agent_type": "curmudgeon-verifier", "cwd": str(d), "last_assistant_message": msg})).stdout
+    assert "block" in o and "unclear" in o, o
 
 if __name__ == "__main__":
     bad = [r for r in RESULTS if not r[1]]
