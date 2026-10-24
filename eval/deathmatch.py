@@ -49,10 +49,24 @@ def blocks_from(text):
         elif cur: cur.append(l)
     if cur and "".join(cur).strip(): out.append("\n".join(cur))
     keep = [b for b in out if re.search(r"[\w./-]+\.\w+(:\d+)?", b) or re.search(r"(?i)\b(bug|defect|issue|vulnerab|incorrect|wrong|fails?|leak|race|inject)", b)]
-    return keep
+    return [b for b in keep if not (NONE_FOUND.search(b) and not CITES.search(b))]  # "No issues found." is not a finding
+
+NONE_FOUND = re.compile(r"(?i)\bno\s+(?:\w+\s+){0,2}(issues?|bugs?|defects?|problems?|findings?|vulnerabilit\w*)\b")
+
+def FIX_strip(text):
+    """Remove fix advice: from a Fix:/Remediation: label to the end of its line. The one exception is the item's own
+    first line when only the list marker and the location come before the label ("1. app.js:42 Fix: titles are
+    injected unescaped"): there the label is all that goes, since the whole claim follows it."""
+    out = []
+    for k, line in enumerate(text.split("\n")):
+        m = FIX_LABEL.search(line)
+        if not m: out.append(line); continue
+        before = re.sub(r"[\w./-]+\.\w+(:\d+(-\d+)?)?|[*_`#>\-–—:.)(\[\]\s\d]", "", line[:m.start()])
+        out.append(line[:m.start()] + line[m.end():] if k == 0 and not before and CITES.search(line[:m.start()]) else line[:m.start()])
+    return "\n".join(out)
 
 CITES = re.compile(r"[\w./-]+\.\w+:\d+")
-FIX = re.compile(r"(?im)^\s*(?:[-*+]\s+|\d+[.)]\s+)?(?:\*\*)?(?:suggested\s+fix|fix(?:ed)?|remediation|recommendation|solution|to fix|how to fix|mitigation)(?:\*\*)?\s*:.*$")
+FIX_LABEL = re.compile(r"(?i)(?:\*\*)?\b(?:suggested\s+fix|fix(?:ed)?|remediation|recommendation|solution|to fix|how to fix|mitigation)(?:\*\*)?\s*:(?:\*\*)?")
 
 def blocks_for(arm_dir):
     """[{"loc": where the block points, "claim": what it says is wrong}], the same two parts for every arm; None when
@@ -67,7 +81,7 @@ def blocks_for(arm_dir):
         return out
     md = arm_dir / "output.md"
     if not md.exists() or not md.read_text().strip(): return None
-    return [{"loc": b, "claim": FIX.sub("", b)} for b in blocks_from(md.read_text())]
+    return [{"loc": b, "claim": FIX_strip(b)} for b in blocks_from(md.read_text())]
 
 def _points_at(k, loc):
     """True when the block points where the plant is: its file, and (when the key gives one) a line within 3 of the

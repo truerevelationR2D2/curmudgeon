@@ -22,7 +22,8 @@ Only blocked and unavailable make a run DEGRADED. A false positive recorded with
 `critic_ledger.py fp RULE_ID WHERE "why"` suppresses only that rule at that exact place, and is listed, never hidden.
 
 Safety: the click probe never sends anything. Every non-GET request and every request to another origin is aborted
-and reported as "would have sent", WebSockets are never connected (not even to the page's own server), controls that
+and reported as "would have sent", WebSockets are never connected (not even to the page's own server) and workers are
+switched off (their sockets can't be seen from outside the page), controls that
 look destructive by name, id, link, form action or title are not clicked, and pages that aren't
 on localhost or a file are refused unless .critic/scope.json lists the origin and the run carries --allow-live HOST
 (the owner's typed confirmation; scope.py), and then only GET, HEAD and OPTIONS, up to the target's request cap."""
@@ -514,6 +515,7 @@ def runtime(page, src, root, out, axe_arg, interact, allow_live, baseline=None, 
             ctx = b.new_context(viewport={"width": 1360, "height": 900}, service_workers="block", accept_downloads=False, permissions=[]); ctx.route("**/*", guard_net)
             if hasattr(ctx, "route_web_socket"):
                 ctx.route_web_socket("**", lambda ws: would_send.append(f"WebSocket {ws.url[:100]}"))  # never connected, not even to the page's own server: a socket can send anything, and the scan sends nothing
+            ctx.add_init_script("for (const k of ['Worker', 'SharedWorker']) { try { Object.defineProperty(globalThis, k, {value: undefined, writable: false, configurable: false}); } catch (e) {} }")  # a worker's socket can't be seen from outside the page
             pg = ctx.new_page(); errs = []
             pg.on("pageerror", lambda e: errs.append(str(e))); pg.on("console", lambda m: errs.append(m.text) if m.type == "error" else None)
             pg.on("dialog", lambda d: d.dismiss())
@@ -597,7 +599,7 @@ def runtime(page, src, root, out, axe_arg, interact, allow_live, baseline=None, 
                 if not interact: state("interactive", NA, "skipped on request (--no-interact)"); return
                 names_ = pg.evaluate(CANDIDATES); clicked = skipped = 0
                 for i, (name, attrs) in enumerate(names_):
-                    if safe_web.looks_destructive(f"{name} {attrs}", DESTRUCTIVE): skipped += 1; continue  # its id, link, form action and title too, as in browse.py
+                    if safe_web.looks_destructive(name, DESTRUCTIVE, attrs): skipped += 1; continue  # its id, link, form action and title too, as in browse.py
                     p2 = ctx.new_page(); e2 = []; p2.on("pageerror", lambda e: e2.append(str(e))); p2.on("dialog", lambda d: d.dismiss())
                     try:
                         p2.goto(url, wait_until="load", timeout=15000); p2.wait_for_timeout(400); p2.evaluate(CANDIDATES)

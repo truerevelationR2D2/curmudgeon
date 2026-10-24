@@ -109,8 +109,14 @@ def check_python(rel, text, emit):
     try: tree = ast.parse(text)
     except (SyntaxError, ValueError): return
     created = set()
-    forward = [n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef) and n.name in ("upgrade", "forwards")]
-    scope_nodes = [x for f in forward for x in ast.walk(f)] if forward else [x for x in ast.walk(tree) if not (isinstance(x, ast.FunctionDef) and x.name in ("downgrade", "backwards"))]
+    FN = (ast.FunctionDef, ast.AsyncFunctionDef)
+    top = {n.name: n for n in tree.body if isinstance(n, FN)}
+    forward = [n for n in ast.walk(tree) if isinstance(n, FN) and n.name in ("upgrade", "forwards")]
+    for f in list(forward):  # module-level helpers upgrade() calls create tables going forward too
+        for c in ast.walk(f):
+            if isinstance(c, ast.Call) and isinstance(c.func, ast.Name) and c.func.id in top and top[c.func.id] not in forward and top[c.func.id].name not in ("downgrade", "backwards"): forward.append(top[c.func.id])
+    backward = [x for n in ast.walk(tree) if isinstance(n, FN) and n.name in ("downgrade", "backwards") for x in ast.walk(n)]
+    scope_nodes = [x for f in forward for x in ast.walk(f)] if forward else [x for x in ast.walk(tree) if not any(x is y for y in backward)]
     for node in scope_nodes:  # tables this migration creates going forward (never downgrade()): an index on them blocks nobody
         if isinstance(node, ast.Call):
             name = (node.func.attr if isinstance(node.func, ast.Attribute) else getattr(node.func, "id", ""))

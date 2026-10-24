@@ -21,8 +21,9 @@ and it was measured again on 24 Oct 2026 after the fixes:
 - 75,000 generated documents (the reviewer's fuzzer, three seeds): 0 read differently, 0 crashes. The only inputs read
   here that PyYAML rejects hold a tab inside a plain value, which YAML 1.2 allows.
 The verify round then found one more case the fuzzer never builds: a comment inside a [ ] or { } that continues on the
-next line dropped the next item (`[main, # primary` / `release]`). It is now refused. Generated tests can miss a
-shape, so a "0 read differently" figure holds only for the shapes measured.
+next line dropped the next item (`[main, # primary` / `release]`). Each line's comment is now cut (outside quotes)
+before the lines are joined, and the result matches PyYAML. Generated tests can miss a shape, so a "0 read
+differently" figure holds only for the shapes measured.
 The script tests pin the behaviour with plugin/tests/yaml/*.yml and their expected output, so no PyYAML is needed to
 run them."""
 import re
@@ -139,7 +140,8 @@ def _flow(text, line):
 
 def _bracket_depth(t, st):
     """Track [ ] and { } depth across the lines of a flow collection, outside quotes and comments, so the collection is
-    parsed once when it closes (st = [depth, quote, previous non-space character, a comment seen]); linear in the text."""
+    parsed once when it closes (st = [depth, quote, previous non-space character]); linear in the text. Returns where
+    the line's data ends: the start of a comment, or the end of the line."""
     i, n = 0, len(t)
     while i < n:
         c = t[i]
@@ -150,13 +152,13 @@ def _bracket_depth(t, st):
         elif st[1] == '"':
             if c == "\\": i += 2; continue
             if c == '"': st[1] = None
-        elif c == "#" and (i == 0 or t[i - 1] in " \t"): st[3] = True; break
+        elif c == "#" and (i == 0 or t[i - 1] in " \t"): return i  # a comment: the rest of the line is not data
         elif c in "'\"" and st[2] in "[{,:": st[1] = c
         elif c in "[{": st[0] += 1
         elif c in "]}": st[0] -= 1
         if not c.isspace(): st[2] = c
         i += 1
-    return st[0]
+    return n
 
 def loads(text):
     """Read one YAML document. Raises Refused for anything outside the subset."""
@@ -251,15 +253,16 @@ def loads(text):
             return _s("", n)
         if r[0] in "|>": return block_scalar(r, ind, n)
         if r[0] in "[{":
-            text = r; st = [0, None, "[", False]; _bracket_depth(r, st)
+            st = [0, None, "["]; cut = _bracket_depth(r, st)
+            text = r[:cut].rstrip() if st[0] > 0 else r  # a comment on an unclosed line is cut before the next line joins it
             while True:
-                if st[3] and st[0] > 0: raise Refused(n, "a comment inside a [ ] or { } that continues on the next line (not read, so as not to guess)")
                 if st[0] <= 0 or pos[0] >= len(lines) or lines[pos[0]][0] < ind or lines[pos[0]][0] == ind and lines[pos[0]][1][:1] not in "]}":
                     try: v, _ = _flow(text, n); return v
                     except Refused as e:
                         if "continues on the next line" not in e.why or pos[0] >= len(lines) or lines[pos[0]][0] < ind or lines[pos[0]][0] == ind and lines[pos[0]][1][:1] not in "]}": raise  # only the closing bracket may sit at the key's own column
                 if lines[pos[0]][2] in tabs: raise Refused(lines[pos[0]][2], "a tab in the indentation")
-                text += " " + lines[pos[0]][1]; _bracket_depth(lines[pos[0]][1], st); pos[0] += 1
+                nxt = lines[pos[0]][1]; cut = _bracket_depth(nxt, st)
+                text += " " + (nxt[:cut].rstrip() if st[0] > 0 else nxt); pos[0] += 1
         if r[0] in "'\"":
             v, tail = _quoted(r, n)
             if _strip_comment(tail).strip(): raise Refused(n, "text after a quoted value")

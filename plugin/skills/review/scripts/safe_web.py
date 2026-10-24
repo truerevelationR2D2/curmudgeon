@@ -45,11 +45,12 @@ def words(text):
     t = re.sub(r"([A-Za-z])(\d)|(\d)([A-Za-z])", lambda m: f"{m.group(1) or m.group(3)} {m.group(2) or m.group(4)}", t)
     return re.sub(r"[_\-/.#?=&]+", " ", t).lower()
 
-def looks_destructive(text, rx):
-    """rx (a destructive-word pattern) found in text split into words, or at the start of an all-capitals run such as
-    DELETEALL, where no case change marks the word boundary."""
-    if rx.search(words(text)): return True
-    for tok in re.findall(r"[A-Z]{6,}", str(text)):
+def looks_destructive(text, rx, attrs=""):
+    """rx (a destructive-word pattern) found in text and attrs split into words, or at the start of an all-capitals run
+    in attrs (an id, link, form action or title such as DELETEALL, where no case change marks the word boundary). The
+    visible name is left out of the all-capitals test: CSS text-transform makes "Dropdown" read DROPDOWN."""
+    if rx.search(words(f"{text} {attrs}")): return True
+    for tok in re.findall(r"[A-Z]{6,}", str(attrs)):
         if any(rx.search(tok[:i].lower() + " " + tok[i:].lower()) for i in range(3, len(tok) - 1)): return True
     return False
 

@@ -2281,16 +2281,16 @@ def _(d):
     assert "timeout" in (rd / "report.md").read_text()
     src = (DM).read_text(); assert "TimeoutExpired" in src, "a run that times out is recorded, not fatal"
 
-@test("5.0 card-E verify round: a comment inside a multi-line flow list is refused, never read as an empty item")
+@test("5.0 card-E verify round: a comment inside a multi-line flow list is read as YAML reads it, never as an empty item")
 def _(d):
     Y = _mod("yaml_lite")
-    for bad in ["branches: [main, # primary\n  release]\n", "k: {a: 1, # c\n  b: 2}\n"]:
-        try: Y.loads(bad); assert False, f"must refuse: {bad!r}"
-        except Y.Refused as e: assert "comment" in e.why, e.why
+    assert Y.plain(Y.loads("branches: [main, # primary\n  release]\n")) == {"branches": ["main", "release"]}
+    assert Y.plain(Y.loads("k: {a: 1, # c\n  b: 2}\n")) == {"k": {"a": "1", "b": "2"}}
+    assert Y.plain(Y.loads("k: ['--color=#fff', # c\n  'it''s', # d\n  x]\n")) == {"k": ["--color=#fff", "it's", "x"]}
     assert Y.plain(Y.loads("k: [a, b] # c\n")) == {"k": ["a", "b"]} and Y.plain(Y.loads("k: [a,\n  'b # not a comment']\n")) == {"k": ["a", "b # not a comment"]}
     C = _mod("scan_ci")
     wf = "on: [push, # deploys\n  pull_request_target]\njobs:\n  a:\n    runs-on: x\n    steps:\n      - uses: actions/checkout@v4\n        with:\n          ref: ${{ github.event.pull_request.head.sha }}\n"
-    assert [r for _, r, _ in _rows(C.scan_workflow, ".github/workflows/x.yml", wf)] == ["ci-not-checked"]
+    assert "ci-pwn-request" in [r for _, r, _ in _rows(C.scan_workflow, ".github/workflows/x.yml", wf)], "the commented trigger list is read, so the rule fires"
 
 @test("5.0 card-E verify round: agent config still FAILs a literal token in AUTH_HEADER or after Bearer under any key name")
 def _(d):
@@ -2378,6 +2378,45 @@ def _(d):
     run(S / "critic_scan.py", "p", "--root", ".", "--page", "p/index.html", cwd=d)
     note = json.loads((d / ".critic/scan/report.json").read_text())["checks"].get("interactive", {}).get("note", "")
     assert "1 skipped as destructive" in note, note
+
+@test("5.0 card-E round 3: lens and scorer regressions (async downgrade, helper-created tables, mid-line Fix:, 'no issues' replies)")
+def _(d):
+    M = _mod("scan_migrations")
+    al = "def upgrade():\n    op.execute('CREATE INDEX ix ON orders (customer_id)')\n\nasync def downgrade():\n    op.create_table('orders')\n"
+    assert "mig-index-blocking" in [r for _, r, _ in _rows(M.scan, "alembic/versions/3.py", al)]
+    helper = "def _make():\n    op.create_table('things')\n\ndef upgrade():\n    _make()\n    op.execute('CREATE INDEX ix ON things (a)')\n\ndef downgrade():\n    op.drop_table('things')\n"
+    assert "mig-index-blocking" not in [r for _, r, _ in _rows(M.scan, "alembic/versions/4.py", helper)]
+    sys.path.insert(0, str(HERE.parent / "eval")); import importlib; dm = importlib.import_module("deathmatch")
+    assert "XSS" not in dm.FIX_strip("1. **app.js:120** — Pressing Esc doesn't clear the search box. **Fix:** sanitize titles too, they allow XSS.")
+    assert "XSS" in dm.FIX_strip("1. **app.js:42** Fix: escape note titles (titles are injected unescaped, XSS)")
+    assert dm.blocks_from("## Review\n- No issues found.\n") == [] and dm.blocks_from("- No bugs in store.js worth reporting.\n") == []
+
+@test("5.0 card-E round 3: browser regressions (stale click guard, uppercase labels, wrapping labels, smooth scroll, idle sockets, worker sockets)")
+def _(d):
+    try: import playwright  # noqa: F401
+    except ImportError: return
+    B = S / "browse.py"
+    write(d, "a/index.html", "<!doctype html><title>T</title><style>.u{text-transform:uppercase}html{scroll-behavior:smooth}</style>"
+          "<button disabled>Off</button><button onclick=\"document.title='OK-CLICKED'\">On</button>"
+          "<button class=u onclick=\"document.title='DD'\">Dropdown</button>"
+          "<label class=sw><input type=checkbox style='position:absolute;opacity:0;width:1px;height:1px' onchange=\"document.title='TOGGLED'\"><span style='display:inline-block;width:40px;height:20px;background:#ccc'></span> Dark mode</label>"
+          "<div style='height:3000px'></div><button onclick=\"document.title='TARGET'\">Far</button>")
+    out = run(B, "start", "a/index.html", "--session", "s/a.json", cwd=d).stdout
+    refs = {m.group(2): m.group(1) for m in re.finditer(r"(e\d+) \S+ \"([^\"]*)\"", out)}
+    assert "[destructive" not in out, "uppercase styling doesn't make a control destructive: " + out
+    run(B, "step", "click", refs["Off"], "--session", "s/a.json", cwd=d)
+    r = run(B, "step", "click", refs["On"], "--session", "s/a.json", cwd=d); assert "title: OK-CLICKED" in r.stdout, r.stdout
+    r = run(B, "step", "click", next(v for k, v in refs.items() if k.lower() == "dropdown"), "--session", "s/a.json", cwd=d); assert "title: DD" in r.stdout, r.stdout
+    cb = next(v for k, v in refs.items() if "Dark mode" in k)
+    r = run(B, "step", "check", cb, "--session", "s/a.json", cwd=d); assert "title: TOGGLED" in r.stdout, r.stdout
+    r = run(B, "step", "click", refs["Far"], "--session", "s/a.json", cwd=d); assert "title: TARGET" in r.stdout, r.stdout
+    write(d, "w/index.html", "<!doctype html><title>W</title><script>const b=new Blob([\"try{new WebSocket('ws://'+self.location.host+'/w')}catch(e){};postMessage(typeof WebSocket)\"]);"
+          "let ok='none'; try{ const w=new Worker(URL.createObjectURL(b)); ok='made'; }catch(e){ ok='blocked'; } document.title='W-'+ok;</script>")
+    r = run(B, "start", "w/index.html", "--session", "s/w.json", cwd=d); assert "title: W-blocked" in r.stdout, "workers are off without --allow-writes: " + r.stdout
+    r = run(B, "start", "w/index.html", "--session", "s/w2.json", "--allow-writes", cwd=d); assert "title: W-made" in r.stdout, r.stdout
+    write(d, "h/index.html", "<!doctype html><title>H</title><script>try{new WebSocket('ws://'+location.host+'/hmr')}catch(e){}</script><button onclick=\"document.title='CLICKED'\">Go on</button>")
+    run(B, "start", "h/index.html", "--session", "s/h.json", "--allow-writes", cwd=d)
+    r = run(B, "step", "click", "e1", "--session", "s/h.json", cwd=d); assert "sent data" not in r.stdout, "an idle socket is not a write: " + r.stdout
 
 if __name__ == "__main__":
     shutil.rmtree(TMP, ignore_errors=True)

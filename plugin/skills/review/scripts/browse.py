@@ -19,8 +19,9 @@ sent": any other origin (a redirect to one is aborted), any other method, servic
 (camera, location, clipboard ...), file:// navigation, and clicks on controls that look destructive (delete, remove,
 pay, buy, send, transfer, withdraw, unsubscribe ...), judged by the element's name, id, link and form action, not
 only its label (deleteBtn, btn_delete1, DELETEALL count), and Enter or Space (also typed as a newline) on a focused
-destructive control or form. WebSockets: never to another origin; to the page's own origin only with --allow-writes,
-since a socket can send anything. Dialogs are dismissed.
+destructive control or form. WebSockets: never to another origin; to the page's own origin only with --allow-writes
+(a message the page sends on one is a write). Workers are switched off unless --allow-writes is given on a local page,
+because a worker's socket can't be seen from outside the page. Dialogs are dismissed.
 
 A click or check is checked inside the page right before it happens (the control must still be the one in the
 snapshot, not destructive, and not covered by another element), then done as a real mouse click at its centre, and
@@ -44,7 +45,7 @@ import scope as scope_file
 ROOT = pathlib.Path(os.environ.get("CRITIC_ROOT") or re.sub(r"[\\/]\.critic[\\/]scratch(?:[\\/].*)?$", "", os.getcwd()) or os.getcwd()).resolve()
 DESTRUCTIVE = re.compile(r"(?i)\b(delete|remove|destroy|erase|drop|purge|wipe|pay|purchase|buy|checkout|place\s*order|send|transfer|withdraw|submit\s*payment|unsubscribe|cancel\s*(subscription|account)|close\s*account|deactivate)\b")
 VERBS = {"goto": 1, "click": 1, "type": 2, "select": 2, "check": 1, "press": 1, "wait": 1, "snapshot": 0}
-NAME_JS = """el => { const lab = el.id ? document.querySelector('label[for="' + CSS.escape(el.id) + '"]') : null;
+NAME_JS = """el => { const lab = (el.labels && el.labels[0]) || (el.id ? document.querySelector('label[for="' + CSS.escape(el.id) + '"]') : null);
   return (el.getAttribute('aria-label') || (lab && lab.innerText) || el.innerText || el.value || el.getAttribute('placeholder') || el.getAttribute('title') || el.getAttribute('name') || '').trim().slice(0, 80); }"""
 LABEL_JS = """() => { const nameOf = """ + NAME_JS + """;
   const sel = 'a[href],button,input,select,textarea,[role=button],[role=link],[role=checkbox],[role=tab],[role=menuitem],[onclick],[tabindex]:not([tabindex="-1"])';
@@ -67,7 +68,7 @@ def load(p):
 
 def destructive(c):
     import safe_web
-    return safe_web.looks_destructive(" ".join(str(c.get(k, "")) for k in ("name", "id", "href", "action", "formaction", "title", "data_action")), DESTRUCTIVE)
+    return safe_web.looks_destructive(str(c.get("name", "")), DESTRUCTIVE, " ".join(str(c.get(k, "")) for k in ("id", "href", "action", "formaction", "title", "data_action")))
 
 ACT_JS = """([ref, verb, expect, pattern]) => { const nameOf = """ + NAME_JS + """;
   const el = document.querySelector('[data-curm-ref="' + ref + '"]');
@@ -80,24 +81,35 @@ ACT_JS = """([ref, verb, expect, pattern]) => { const nameOf = """ + NAME_JS + "
   const why = bad(fields(el)); if (why) return {error: why.split(':')[0], field: why.split(':')[1]};
   if (verb !== 'click' && verb !== 'check') return {ok: true};
   if (verb === 'check' && el.checked) return {ok: true, skip: true};
-  el.scrollIntoView({block: 'center', inline: 'center'});
+  if (window.__curmGuard) { window.removeEventListener('click', window.__curmGuard, true); window.__curmGuard = null; }
+  el.scrollIntoView({block: 'center', inline: 'center', behavior: 'instant'});
   const r = el.getBoundingClientRect(); const x = r.left + r.width / 2, y = r.top + r.height / 2;
-  const top = document.elementFromPoint(x, y);
-  const lab = el.id ? document.querySelector('label[for="' + CSS.escape(el.id) + '"]') : null;
-  if (!top || !(top === el || el.contains(top) || (lab && (top === lab || lab.contains(top))))) return {error: 'covered'};
+  const labs = [...(el.labels || [])]; const wrap = el.closest('label'); if (wrap && !labs.includes(wrap)) labs.push(wrap);
+  const inLab = t => labs.some(l => l === t || l.contains(t));
+  let px = x, py = y, top = document.elementFromPoint(x, y);
+  if (!top || !(top === el || el.contains(top) || inLab(top))) {
+    const l = labs.find(l => { const b = l.getBoundingClientRect(); return b.width > 0 && b.height > 0; });  // a hidden switch input: its label is what a user clicks
+    if (!l) return {error: 'covered'};
+    const b = l.getBoundingClientRect(); px = b.left + b.width / 2; py = b.top + b.height / 2; top = document.elementFromPoint(px, py);
+    if (!top || !(l === top || l.contains(top))) return {error: 'covered'};
+  }
   window.__curmBlocked = false;
-  window.addEventListener('click', ev => { const t = ev.target;  // checked again at the moment of the real click
-    if (!(t === el || el.contains(t) || (lab && lab.contains(t))) || bad(fields(el))) { ev.preventDefault(); ev.stopImmediatePropagation(); window.__curmBlocked = true; } }, {capture: true, once: true});
-  return {ok: true, x, y};
+  window.__curmGuard = ev => { const t = ev.target;  // checked again at the moment of the real click
+    window.removeEventListener('click', window.__curmGuard, true); window.__curmGuard = null;
+    if (!(t === el || el.contains(t) || inLab(t)) || bad(fields(el))) { ev.preventDefault(); ev.stopImmediatePropagation(); window.__curmBlocked = true; } };
+  window.addEventListener('click', window.__curmGuard, true);
+  return {ok: true, x: px, y: py};
 }"""
 FOCUS_JS = """() => { const el = document.activeElement; if (!el || el === document.body) return {};
   const f = el.form; return {name: (el.getAttribute('aria-label') || el.innerText || el.value || '').trim().slice(0, 80), id: el.id || '', href: el.getAttribute('href') || '',
   action: f ? (f.getAttribute('action') || '') : '', formaction: el.getAttribute('formaction') || '', title: el.getAttribute('title') || '',
   submit: f ? [...f.querySelectorAll('button,input[type=submit]')].map(b => (b.innerText || b.value || b.id || '') + ' ' + (b.getAttribute('formaction') || '')).join(' ') : ''}; }"""
 
+WORKERS_OFF_JS = "for (const k of ['Worker', 'SharedWorker']) { try { Object.defineProperty(globalThis, k, {value: undefined, writable: false, configurable: false}); } catch (e) {} }"
+
 def destructive_focus(f):
     import safe_web
-    return safe_web.looks_destructive(" ".join(str(v) for v in f.values()), DESTRUCTIVE)
+    return safe_web.looks_destructive(str(f.get("name", "")), DESTRUCTIVE, " ".join(str(v) for k, v in f.items() if k != "name"))
 
 def replay(sess, shot_dir):
     from playwright.sync_api import sync_playwright
@@ -127,14 +139,18 @@ def replay(sess, shot_dir):
         return route.continue_()
     def ws_guard(ws):
         own_origin = same(ws.url.replace("ws://", "http://", 1).replace("wss://", "https://", 1))
-        if own_origin and sess.get("allow_writes") and not live:  # a socket can send anything, so it is a write: consent, never live
-            evidence["sent"] += 1; evidence["wrote"] = True; ws.connect_to_server()
+        if own_origin and sess.get("allow_writes") and not live:  # consent given, never live: connected, and a write once the page sends on it
+            server = ws.connect_to_server(); evidence["sent"] += 1
+            def up(m): evidence["wrote"] = True; server.send(m)
+            ws.on_message(up)
         else: evidence["would_have_sent"].append(f"WebSocket {redact(ws.url)}" + (" (same origin: a socket can send data, so it needs --allow-writes)" if own_origin and not live else ""))  # never connected: what the page sends goes nowhere
     with sync_playwright() as pw:
         b = pw.chromium.launch(args=safe_web.launch_args(allowed))  # the boundary: nothing but the page's own origin can be reached
         ctx = b.new_context(viewport={"width": 1280, "height": 860}, service_workers="block", accept_downloads=False, permissions=[])
         ctx.route("**/*", guard)
         if hasattr(ctx, "route_web_socket"): ctx.route_web_socket("**", ws_guard)
+        if not (sess.get("allow_writes") and not live):  # route_web_socket never sees a worker's socket, so without consent (and always on a live site) there are no workers
+            ctx.add_init_script(WORKERS_OFF_JS)
         pg = ctx.new_page()
         pg.on("dialog", lambda d: d.dismiss())
         pg.on("popup", lambda p_: (evidence["would_have_sent"].append(f"popup {redact(p_.url)}"), p_.close()))
@@ -163,6 +179,8 @@ def replay(sess, shot_dir):
                             pg.mouse.click(r["x"], r["y"])  # a real, trusted click at the control's centre; the page re-checks the control as the click lands
                             try: blocked = pg.evaluate("() => window.__curmBlocked === true")
                             except Exception: blocked = False  # the click navigated away, so it wasn't cancelled (a cancelled click starts no navigation)
+                            try: pg.evaluate("() => { if (window.__curmGuard) { window.removeEventListener('click', window.__curmGuard, true); window.__curmGuard = null; } }")  # no click event (a disabled control): the guard must not catch the next one
+                            except Exception: pass
                             if blocked: evidence["refused"] = f"{verb} {args[0]}: the control changed as it was clicked; the click was cancelled"; break
                     else:
                         loc = pg.locator(f"[data-curm-ref='{args[0]}']")
