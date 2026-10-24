@@ -1,0 +1,20 @@
+groups:
+  - name: shop
+    rules:
+      - alert: CheckoutErrors
+        expr: rate(checkout_errors_total[5m]) > 1
+        annotations:
+          summary: Checkout is failing
+          runbook_url: docs/runbooks/disk-full.md
+      - alert: QueueBacklog
+        expr: queue_depth > 1000
+        annotations:
+          runbook_url: docs/runbooks/queue-backlog.md
+      - alert: DiskFull
+        expr: disk_free < 0.05
+        annotations:
+          runbook_url: docs/runbooks/disk-full.md
+      - alert: PaymentsDown
+        expr: up{job="payments"} == 0
+        annotations:
+          runbook_url: https://runbooks.example.com/payments-down

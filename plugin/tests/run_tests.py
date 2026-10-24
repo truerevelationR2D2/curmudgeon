@@ -1880,6 +1880,15 @@ def _(d):
     write(d, "v.json", "[]"); run(S / "critic_merge.py", "apply", "v.json", cwd=d)
     assert "## Capped at Medium" in (d / ".critic/counts.md").read_text()
 
+@test("5.0 SC-54: the operations lens finds every planted defect, flags no decoy and nothing in the clean twin")
+def _(d):
+    r = run(HERE.parent / "eval" / "lens.py", str(HERE.parent / "eval" / "lens10.json"), "--json", cwd=d); out = json.loads(r.stdout)
+    assert r.returncode == 0 and out["recall"] == "6 of 6" and out["precision"] == "6 of 6", out
+    write(d, "k8s/app.yaml", "kind: Deployment\nspec:\n  template:\n    spec:\n      containers:\n        - name: app\n          image: x:1\n")
+    run(S / "critic_scan.py", ".", "--root", ".", cwd=d)
+    rows = {x["rule"]: x for x in json.loads((d / ".critic/scan/report.json").read_text())["findings"] if x["area"] == "operations"}
+    assert rows["ops-k8s-no-probes"]["tier"] == "pedantic" and rows["ops-k8s-no-limits"]["where"] == "k8s/app.yaml:6", rows
+
 if __name__ == "__main__":
     shutil.rmtree(TMP, ignore_errors=True)
     bad = [r for r in RESULTS if not r[1]]

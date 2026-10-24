@@ -27,7 +27,7 @@ on localhost or a file are refused unless .critic/scope.json lists the origin an
 (the owner's typed confirmation; scope.py), and then only GET, HEAD and OPTIONS, up to the target's request cap."""
 import argparse, fnmatch, json, os, pathlib, re, signal, subprocess, sys, time, urllib.parse
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
-import scan_secrets, scan_html, scan_graph, scan_deps, scan_rules_extra, scan_mutation, scan_ci, scan_agentcfg, scan_migrations, scan_reqs
+import scan_secrets, scan_html, scan_graph, scan_deps, scan_rules_extra, scan_mutation, scan_ci, scan_agentcfg, scan_migrations, scan_reqs, scan_ops
 import scope as scope_file
 from critic_findings import log_run, refuse_linked_state
 
@@ -47,7 +47,7 @@ REQ_ROWS = []  # the requirement-to-test table (SC-55), written beside the repor
 
 # Scripted rows come in two tiers (SC-47, after zizmor's personas; our own list): regular rows can become findings;
 # pedantic rows are known to be noisy, are always NOTE, and are counted apart. A rule file can mark a rule pedantic.
-PEDANTIC = {"long-lines", "long-file", "unused-export", "dead-function", "duplicate-code", "mutation-not-exercised", "test-sleep", "test-unseeded-random", "agent-headless-mcp", "mig-drop-rename"}
+PEDANTIC = {"long-lines", "long-file", "unused-export", "dead-function", "duplicate-code", "mutation-not-exercised", "test-sleep", "test-unseeded-random", "agent-headless-mcp", "mig-drop-rename", "ops-k8s-no-probes", "ops-k8s-no-limits"}
 PEDANTIC_RULES = set()
 
 def f(sev, rule, area, where, what, ev=""):
@@ -236,6 +236,7 @@ def static(src, root, excludes):
         elif p.name == "package-lock.json": scan_ci.scan_npm_lock(rel, text, f)
         elif scan_agentcfg.wants(rel): scan_agentcfg.scan(rel, text, f, agent_names)  # the agent and MCP configuration lens (SC-52)
         if scan_migrations.wants(rel): scan_migrations.scan(rel, text, f)  # the release and rollback lens (SC-53)
+        scan_ops.scan(rel, text, f, root)  # the operations lens (SC-54)
         if scan_reqs.is_doc(rel): req_docs[rel] = text  # the requirements lens (SC-55)
         elif scan_reqs.is_test(rel): req_tests[rel] = text
         if p.suffix not in SCAN_EXT:
@@ -285,7 +286,7 @@ def static(src, root, excludes):
             for row in json.loads(r.stdout or "[]"): f(*row)
         except subprocess.TimeoutExpired: f("WARN", "rule-file-timeout", "structure", ".critic/rules", "the project's rule files took over 20 s and were stopped (a pattern may be too slow); their results are missing")
         except ValueError: f("NOTE", "rule-file-invalid", "structure", ".critic/rules", "the rule runner returned no readable results")
-    if texts: state("static", *family_state({"safety", "errors", "state", "async", "perf", "a11y", "layout", "domain", "html", "theming", "ux", "tests", "supply-chain", "agent-config", "release", "requirements"}, f"{n} source files, {len(CONFIG_TEXTS)} config files, {texts} text files checked for secrets, {len(custom)} rule-file rules"
+    if texts: state("static", *family_state({"safety", "errors", "state", "async", "perf", "a11y", "layout", "domain", "html", "theming", "ux", "tests", "supply-chain", "agent-config", "release", "requirements", "operations"}, f"{n} source files, {len(CONFIG_TEXTS)} config files, {texts} text files checked for secrets, {len(custom)} rule-file rules"
                               + (("; not checked beyond secrets: " + ", ".join(f"{k} {v}" for k, v in sorted(secrets_only.items(), key=lambda kv: -kv[1])[:8])) if secrets_only else "")))
     else: state("static", "blocked", "no readable files found")
     try:

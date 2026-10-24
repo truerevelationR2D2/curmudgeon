@@ -60,6 +60,7 @@ You can also just say "tear this apart" or "review my work".
    - agent and MCP configuration: committed `enableAllProjectMcpServers`, literal credentials in a server's settings, servers started by downloading and running code or in privileged containers, unpinned `npx`/`uvx` servers, allow rules for a whole server or every command, and the same server defined in two files;
    - release and rollback (PostgreSQL migrations in `.sql` files, Alembic and Django): indexes built without `CONCURRENTLY`, `NOT NULL` columns with no default, constraints validated in place, and migrations that can't be rolled back;
    - requirements and intent: a table of each requirement id (REQ-12, FR-3, US-4 and similar) and the tests that cite it, tests that cite a requirement nobody defined, and requirements no test cites. A finding that rests on an inferred requirement, not a written one, is capped at Medium by the script;
+   - operations: secrets passed to log or print calls, DEBUG on in production settings, Prometheus alerts with no runbook or a runbook file that doesn't exist, and (as pedantic notes) Kubernetes containers with no probes or limits;
    - WCAG 2.2 rules;
    - dependency hygiene and licences (strong copyleft such as GPL is flagged; missing, unrecognised and proprietary licences are noted);
    - your own rule files (see "Add your own checks");

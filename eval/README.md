@@ -103,3 +103,5 @@ python3 eval/lens.py eval/lens5.json
 `lens8.json` is the release and rollback lens (SC-53): `fixture8/` plants seven defects across a `.sql` migration, an Alembic revision and a Django migration; `fixture8-clean/` fixes them; one decoy migration of each kind (an index on a table created in the same file, `NOT NULL` with a default, `NOT VALID` then validated, noop reverses, risky words inside a comment string) must stay silent.
 
 `lens9.json` is the requirements lens (SC-55): `fixture9/` has a requirements document (list items and a table row) and tests that cite a mistyped id and a dropped one, leaving two requirements untested; `fixture9-clean/` cites them correctly. A requirement mentioned in a sentence is not a definition.
+
+`lens10.json` is the operations lens (SC-54): `fixture10/` logs a password, a token and an API key, turns DEBUG on in production settings, and has an alert with no runbook and one whose runbook file is missing; `fixture10-clean/` fixes them; three decoy files (counts and policies named like secrets, development settings, a Kubernetes container with probes and limits) must stay silent.
