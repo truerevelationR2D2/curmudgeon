@@ -2898,6 +2898,29 @@ def _(d):
     elsewhere = dict(decoy, id="F-3", file="store.js", line=15, quote="localStorage.setItem(KEY, JSON.stringify(list));")
     assert "Decoys reported as defects: 0" in score([elsewhere]), "a finding that points away from the decoy's place is not a decoy hit"
 
+@test("death match kit: every arm runs with only its own plugin, the built-in /code-review's JSON and Semgrep's output are read like any other arm's, and `file` L8-14 is a citation")
+def _(d):
+    EV = HERE.parent / "eval"; sys.path.insert(0, str(EV))
+    import importlib, keymatch, deathmatch; importlib.reload(keymatch); importlib.reload(deathmatch)
+    assert keymatch.cited_lines("`guards.js` L8-14 (`canVoid`)", "guards.js") == list(range(8, 15)) and keymatch.cited_lines("guards.js Lambda", "guards.js") == []
+    js = deathmatch.json_findings('```json\n[{"file": "guards.js", "line": 11, "summary": "canVoid is inverted", "failure_scenario": "sam may void. Fix: use includes"}]\n```')
+    assert js and js[0]["loc"] == "guards.js:11" and "canVoid is inverted" in js[0]["claim"] and "includes" not in js[0]["claim"], js
+    assert deathmatch.json_findings("1. guards.js:11 canVoid is inverted") is None
+    r = subprocess.run([sys.executable, str(EV / "semgrep_md.py")], input=json.dumps({"results": [{"path": "app.js", "start": {"line": 32}, "check_id": "x.y.insecure-innerhtml", "extra": {"message": "User data in innerHTML", "lines": "tb.innerHTML = x"}}]}), capture_output=True, text=True).stdout
+    assert r.startswith("- app.js:32 [insecure-innerhtml] User data in innerHTML"), r
+    assert "No issues found." in subprocess.run([sys.executable, str(EV / "semgrep_md.py")], input='{"results": []}', capture_output=True, text=True).stdout
+    seen = []
+    class R: stdout = '{"result": "ok", "usage": {}}'; stderr = ""; returncode = 0
+    orig = deathmatch.subprocess.run
+    deathmatch.subprocess.run = lambda cmd, **k: (seen.append(cmd), R())[1]
+    try:
+        deathmatch.PLUGINS[:] = ["curmudgeon@synced", "code-review-anthropics@anthropic-plugin-directory"]
+        deathmatch.one_run({"id": "x", "prompt": "/code-review:code-review", "plugin_enable": ["code-review-anthropics@anthropic-plugin-directory"]}, d, d, None)
+        deathmatch.one_run({"id": "y", "prompt": "review"}, d, d, None)
+    finally: deathmatch.subprocess.run = orig
+    s0 = json.loads(seen[0][seen[0].index("--settings") + 1])["enabledPlugins"]; s1 = json.loads(seen[1][seen[1].index("--settings") + 1])["enabledPlugins"]
+    assert s0 == {"curmudgeon@synced": False, "code-review-anthropics@anthropic-plugin-directory": True} and not any(s1.values()), (s0, s1)
+
 if __name__ == "__main__":
     shutil.rmtree(TMP, ignore_errors=True)
     bad = [r for r in RESULTS if not r[1]]

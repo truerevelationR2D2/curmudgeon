@@ -9,11 +9,11 @@ import pathlib, re
 
 SLACK = 3
 
-CITE = r"[`'\"*]*\s*(?::L?|#L|,?\s*\(?\s*(?:at\s+)?lines?\s+)(\d+)(?:\s*[-–]\s*L?(\d+))?"
+CITE = r"[`'\"*]*\s*(?::L?|#L|\s+L(?=\d)|,?\s*\(?\s*(?:at\s+)?lines?\s+)(\d+)(?:\s*[-–]\s*L?(\d+))?"
 
 def cited_lines(loc, name):
     """Line numbers loc cites for the file called name, in the forms people and tools write: file:12, file:12-15,
-    file:L12, file#L12, file line 12, `file` line 12, file (line 12), file, line 12, file lines 12-15."""
+    file:L12, file#L12, `file` L12-15 (as GitHub-style reviews write it), file line 12, `file` line 12, file (line 12), file, line 12, file lines 12-15."""
     out = []
     for m in re.finditer(re.escape(name) + CITE, loc, re.I):
         a = int(m.group(1)); b = int(m.group(2) or a)

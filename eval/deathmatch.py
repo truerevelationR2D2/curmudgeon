@@ -5,7 +5,7 @@ of a review; nothing from another tool goes into the plugin through it.
 
 usage:
   deathmatch.py plan  [--arms a,b] [--tasks t1,t2]           show what would run (no model calls)
-  deathmatch.py run   --yes-spend [--arms ...] [--tasks ...] [--model ID] [--repeat N]
+  deathmatch.py run   --yes-spend [--arms ...] [--tasks ...] [--model ID] [--repeat N] [--parallel N] [--plugin DIR]
                                                               run it (model calls cost money: --yes-spend is required)
   deathmatch.py score RUN_DIR                                 score a finished run again (labels added since included)
 
@@ -84,7 +84,25 @@ def blocks_for(arm_dir):
         return out
     md = arm_dir / "output.md"
     if not md.exists() or not md.read_text().strip(): return None
+    js = json_findings(md.read_text())
+    if js is not None: return js
     return [{"loc": b, "claim": FIX_strip(b)} for b in blocks_from(md.read_text())]
+
+def json_findings(text):
+    """A reply that is a JSON list of findings ({file, line, summary or title, failure_scenario ...}), as Claude Code's
+    built-in /code-review writes it: one block per object, the same two parts as every other arm. None when the reply
+    is not that shape. Fix advice inside a field is stripped from the claim like anywhere else."""
+    m = re.search(r"```(?:json)?\s*(\[.*?\])\s*```", text, re.S) or re.fullmatch(r"\s*(\[.*\])\s*", text, re.S)
+    if not m: return None
+    try: rows = json.loads(m.group(1))
+    except ValueError: return None
+    if not isinstance(rows, list) or not all(isinstance(r, dict) and r.get("file") for r in rows): return None
+    out = []
+    for r in rows:
+        at = f"{r.get('file')}:{r.get('line')}" if r.get("line") not in (None, "") else str(r.get("file"))
+        what = " ".join(str(r.get(k, "")) for k in ("summary", "title", "description", "failure_scenario", "issue") if r.get(k))
+        out.append({"loc": at, "claim": FIX_strip(f"{at} {what}")})
+    return out
 
 def _points_at(k, loc):
     """True when the block points where the plant is: its file, and (when the key gives "at") one of its places
@@ -145,17 +163,26 @@ def plan(arms, tasks):
     for t in tasks: print(f"  task {t['id']}: {t['fixture']}" + (" (clean twin)" if t.get("clean") else f" key {t['key']}"))
     return 0
 
+def installed_plugins():
+    """Every plugin Claude Code would load here (name@marketplace). Each arm runs with all of them switched off except
+    its own, so no arm borrows another reviewer (a synced copy of Curmudgeon, say) without anyone noticing."""
+    try: out = subprocess.run(["claude", "plugin", "list"], capture_output=True, text=True, timeout=60).stdout
+    except (OSError, subprocess.TimeoutExpired): return []
+    return sorted(set(re.findall(r"^\s*>\s*(\S+@\S+)", out, re.M)))
+
 def one_run(a, w, td, model):
     """One arm on one task in the work folder w; returns its meta (an error is recorded, never raised past here except
     a timeout, which the caller records)."""
     if a.get("command"):
-        r = subprocess.run(a["command"], shell=True, cwd=w, capture_output=True, text=True, timeout=1800)
+        r = subprocess.run(a["command"], shell=True, cwd=w, capture_output=True, text=True, timeout=1800, env=dict(os.environ, DM_EVAL=str(HERE)))
         (td / "output.md").write_text(r.stdout); meta = {"exit": r.returncode}
         if r.returncode not in (0, 1): meta["error"] = f"exit {r.returncode}: {(r.stderr or '')[-200:]}"
         return meta
     cmd = ["claude", "-p", a["prompt"], "--output-format", "json", "--allowedTools", ",".join(a.get("tools", ["Read", "Grep", "Glob"]))]
     if model: cmd += ["--model", model]
     if a.get("plugin"): cmd += ["--plugin-dir", str(PLUGIN)]
+    keep = set(a.get("plugin_enable") or [])
+    cmd += ["--settings", json.dumps({"enabledPlugins": {p: (p in keep) for p in PLUGINS}})]
     r = subprocess.run(cmd, cwd=w, capture_output=True, text=True, timeout=3600, stdin=subprocess.DEVNULL)
     try:
         j = json.loads(r.stdout); u = j.get("usage") or {}
@@ -164,38 +191,50 @@ def one_run(a, w, td, model):
                 "is_error": j.get("is_error"), "num_turns": j.get("num_turns")}
     except ValueError: return {"error": (r.stderr or r.stdout)[-500:] or f"no result (exit {r.returncode})"}
 
-def run(arms, tasks, model, repeat):
+PLUGINS = []
+GIT = ["git", "-c", "user.email=dm@example.invalid", "-c", "user.name=dm"]
+
+def one_job(a, t, k, repeat, out, model):
+    td = out / a["id"] / (t["id"] + (f"~{k + 1}" if repeat > 1 else "")); td.mkdir(parents=True)
+    with tempfile.TemporaryDirectory(prefix="dm-") as tmp:
+        w = pathlib.Path(tmp) / "work"; shutil.copytree(HERE / t["fixture"], w, ignore=shutil.ignore_patterns(".critic"))
+        subprocess.run(["git", "init", "-q", "-b", "main"], cwd=w)
+        if a.get("pr"):  # a pull-request reviewer: the task is a branch over an empty base, so every line is part of the change
+            subprocess.run(GIT + ["commit", "-q", "--allow-empty", "-m", "base"], cwd=w); subprocess.run(["git", "checkout", "-q", "-b", "change"], cwd=w)
+        subprocess.run(["git", "add", "."], cwd=w); subprocess.run(GIT + ["commit", "-qm", "task"], cwd=w)
+        t0 = time.time()
+        try: meta = one_run(a, w, td, model)
+        except subprocess.TimeoutExpired as e: meta = {"error": f"timeout after {int(e.timeout)} s"}  # recorded; the other runs go on
+        except FileNotFoundError as e: meta = {"error": f"not found: {e.filename or e} (nothing is installed for you)"}
+        meta["wall_s"] = round(time.time() - t0, 1)
+        for f_ in ("findings.jsonl", "last-review.md"):
+            if (w / ".critic" / f_).exists(): shutil.copy2(w / ".critic" / f_, td / f_)
+        (td / "meta.json").write_text(json.dumps(meta, indent=1))
+    return f"done {a['id']} / {td.name} ({meta.get('wall_s')} s)" + (f" error: {str(meta['error'])[:80]}" if meta.get("error") else "")
+
+def run(arms, tasks, model, repeat, parallel=1):
+    import concurrent.futures as cf
+    PLUGINS[:] = installed_plugins()
     out = HERE / "runs" / time.strftime("%Y-%m-%d-%H%M%S"); out.mkdir(parents=True)
+    jobs = []
     for a in arms:
         if a.get("requires") and not shutil.which(a["requires"]): print(f"skip {a['id']}: {a['requires']} not installed"); continue
-        for t in tasks:
-            if a.get("tasks") and t["id"] not in a["tasks"]: continue
-            for k in range(repeat):
-                td = out / a["id"] / (t["id"] + (f"~{k + 1}" if repeat > 1 else "")); td.mkdir(parents=True)
-                with tempfile.TemporaryDirectory(prefix="dm-") as tmp:
-                    w = pathlib.Path(tmp) / "work"; shutil.copytree(HERE / t["fixture"], w, ignore=shutil.ignore_patterns(".critic"))
-                    subprocess.run(["git", "init", "-q"], cwd=w); subprocess.run(["git", "add", "."], cwd=w)
-                    subprocess.run(["git", "-c", "user.email=dm@example.invalid", "-c", "user.name=dm", "commit", "-qm", "task"], cwd=w)
-                    t0 = time.time()
-                    try: meta = one_run(a, w, td, model)
-                    except subprocess.TimeoutExpired as e: meta = {"error": f"timeout after {int(e.timeout)} s"}  # recorded; the other runs go on
-                    except FileNotFoundError as e: meta = {"error": f"not found: {e.filename or e} (nothing is installed for you)"}
-                    meta["wall_s"] = round(time.time() - t0, 1)
-                    for f_ in ("findings.jsonl", "last-review.md"):
-                        if (w / ".critic" / f_).exists(): shutil.copy2(w / ".critic" / f_, td / f_)
-                    (td / "meta.json").write_text(json.dumps(meta, indent=1))
-                print(f"done {a['id']} / {td.name} ({meta.get('wall_s')} s)")
+        jobs += [(a, t, k) for k in range(repeat) for t in tasks if not (a.get("tasks") and t["id"] not in a["tasks"])]
+    with cf.ThreadPoolExecutor(max(1, parallel)) as ex:  # several sessions at once; each has its own folder, so none sees another
+        for f in cf.as_completed([ex.submit(one_job, a, t, k, repeat, out, model) for a, t, k in jobs]): print(f.result(), flush=True)
     return score(out)
 
 def main(a):
     if not a or a[0] in ("-h", "--help"): print(__doc__); return 0
     opt = lambda n, d=None: a[a.index(n) + 1] if n in a and a.index(n) + 1 < len(a) else d
     if a[0] == "score": return score(a[1]) if len(a) > 1 else 2
+    global PLUGIN
+    if opt("--plugin"): PLUGIN = pathlib.Path(opt("--plugin")).resolve()  # a frozen copy of the build under test, not this checkout
     cfg = load_cfg(); arms = pick(cfg["arms"], opt("--arms")); tasks = pick(cfg["tasks"], opt("--tasks"))
     if a[0] == "plan": return plan(arms, tasks)
     if a[0] == "run":
         if "--yes-spend" not in a: print("refused: a run makes paid model calls; pass --yes-spend after checking `deathmatch.py plan`"); return 2
-        return run(arms, tasks, opt("--model"), int(opt("--repeat", "1")))
+        return run(arms, tasks, opt("--model"), int(opt("--repeat", "1")), int(opt("--parallel", "1")))
     print(__doc__); return 2
 
 if __name__ == "__main__": sys.exit(main(sys.argv[1:]))

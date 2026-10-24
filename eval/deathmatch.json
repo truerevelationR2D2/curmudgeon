@@ -31,7 +31,7 @@
   },
   {
    "id": "code-review",
-   "prompt": "/code-review .",
+   "prompt": "/code-review:code-review the change on this branch. There is no GitHub pull request: the change is `git diff main...HEAD` in this folder, so read it with git instead of gh, and print your final review comment here instead of posting it. Change no files.",
    "tools": [
     "Read",
     "Grep",
@@ -39,17 +39,31 @@
     "Agent",
     "Task",
     "Bash(git:*)"
-   ]
+   ],
+   "plugin_enable": [
+    "code-review-anthropics@anthropic-plugin-directory"
+   ],
+   "pr": true,
+   "note": "Anthropic's official code-review plugin (code-review-anthropics in the Anthropic directory). It reviews GitHub pull requests; here the task is committed as a branch over an empty base, and the prompt says to read the local diff and print the comment."
+  },
+  {
+   "id": "cc-code-review",
+   "prompt": "/code-review",
+   "tools": [
+    "Read",
+    "Grep",
+    "Glob",
+    "Agent",
+    "Task",
+    "Bash(git:*)"
+   ],
+   "note": "Claude Code's built-in /code-review command (no plugin). It reviews the working folder and replies with a JSON list of findings, which deathmatch.py reads like any other arm's."
   },
   {
    "id": "semgrep",
    "requires": "semgrep",
-   "command": "semgrep scan --metrics=off --config \"$SEMGREP_RULES\" --text .",
-   "tasks": [
-    "suite1",
-    "suite2"
-   ],
-   "note": "only with your own local rules in $SEMGREP_RULES; never the registry (it would send data out)"
+   "command": "semgrep scan --metrics=off --disable-version-check --config \"$SEMGREP_RULES\" --json . | python3 \"$DM_EVAL/semgrep_md.py\"",
+   "note": "Only with local rules in $SEMGREP_RULES, never the registry (it would send data out). The 24 Oct 2026 run used Semgrep's own published javascript/ and html/ rules (semgrep/semgrep-rules, Semgrep Rules License v1.0), kept outside this repository."
   }
  ],
  "tasks": [

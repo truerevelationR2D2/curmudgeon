@@ -6,3 +6,4 @@ __pycache__/
 !eval/fixture3/.critic/
 eval/.last-unmatched.json
 plugin/evals/results/
+eval/runs/
