@@ -32,6 +32,13 @@ def fingerprint(f):
     raw = f"{str(f.get('file') or '').lower()}|{str(f.get('category') or '').lower()}|{key}"
     return "F-" + hashlib.sha1(raw.encode()).hexdigest()[:8]
 
+def fingerprint2(f):
+    """A second fingerprint without the category (SC-39, after PR-Agent's two-key matching; our own code): file plus the
+    normalised quote. The same bug filed under another category keeps its history. None without a usable quote."""
+    q = norm_code(f.get("quote"))
+    if len(q) < 12 or "[redacted]" in q: return None
+    return "Q-" + hashlib.sha1(f"{str(f.get('file') or '').lower()}|{q}".encode()).hexdigest()[:8]
+
 def similar(a, b):
     """Same issue? Same file, and either the quotes overlap or the titles share most words, and lines are close."""
     if str(a.get("file") or "").lower() != str(b.get("file") or "").lower(): return False

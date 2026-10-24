@@ -180,9 +180,19 @@ def main(a):
         try: rows = read_jsonl(rest[0])
         except ValueError as e: die(str(e))
         new = known = regressed = held = 0
+        from critic_findings import fingerprint2 as fp2_
+        by_fp2 = {}
+        for k_, v_ in L["findings"].items():
+            q_ = fp2_({"file": str(v_.get("where", "")).rsplit(":", 1)[0], "quote": v_.get("quote")})
+            if q_: by_fp2.setdefault(q_, k_)
+        seen_now = set()
         for r in rows:
             fid = r.get("id")
             if not fid: continue
+            if fid not in L["findings"]:  # the same code under another category is the same finding: keep its history
+                same = by_fp2.get(fp2_(r) or "")
+                if same: L.setdefault("aliases", {})[fid] = same; fid = same
+            seen_now.add(fid)
             ex = L["findings"].get(fid)
             if ex is None and L["round"] >= 3 and r.get("confidence") != "confirmed":
                 held += 1; print(f"round 3 is verify-only: not recording new unconfirmed finding {fid} ({r.get('title', '')[:60]})", file=sys.stderr); continue
@@ -196,6 +206,20 @@ def main(a):
                 ex["history"].append(f"run {L['run']}: raised again while {ex['status']}")
             else:
                 ex.update(base); ex["history"].append(f"run {L['run']}: still there"); known += 1
+        try:  # anything a reviewer raised this run counts as seen, even if it was dropped, retracted or hidden by a ruling
+            T_ = json.loads((D / "tally.json").read_text())
+            for k_ in ("kept", "contested", "dropped", "retracted", "suppressed", "rejected"):
+                for x_ in T_.get(k_, []):
+                    f_ = x_.get("finding") or x_
+                    sid = f_.get("id"); sid = (L.get("aliases") or {}).get(sid, sid)
+                    if sid not in L["findings"]: sid = by_fp2.get(fp2_(f_) or "", sid)
+                    if sid: seen_now.add(sid)
+        except (OSError, ValueError): pass
+        if L.get("tier") == "full" and L.get("mode") in ("review", "full"):  # a full review that didn't raise a finding again
+            for k_, v_ in L["findings"].items():
+                if k_ not in seen_now and v_.get("status") in ("open", "fixed") and v_.get("first_run", L["run"]) < L["run"]:
+                    v_.setdefault("absent_in_full_runs", [])
+                    if L["run"] not in v_["absent_in_full_runs"]: v_["absent_in_full_runs"].append(L["run"])
         msg = f"imported {len(rows)}: {new} new, {known} known, {regressed} regressed" + (f", {held} held back (round 3)" if held else "")
     elif cmd == "add":
         need(rest, 4, "add ID Critical|High|Medium|Low WHERE \"summary\" [--verified]")
@@ -319,7 +343,10 @@ def main(a):
             if f["status"] in ("open", "fixed") and f.get("quote"):
                 p = quote_present(f)
                 if p is None: continue
-                f["acted_on"] = not p; checked += 1
+                if p: f["acted_on"] = False; checked += 1; continue
+                # the quote left the file; it counts as acted on only once a later full review didn't raise it again (SC-39)
+                if any(r_ > f.get("first_run", 0) for r_ in f.get("absent_in_full_runs", [])): f["acted_on"] = True; checked += 1
+                else: f.pop("acted_on", None); f["acted_pending"] = "quote gone; waiting for a full re-review"
         save(L); print(f"checked {checked} finding(s); see the acted-on rate in ledger.md"); return 0
     elif cmd == "gate":
         need(rest, 1, "gate on|async|off")

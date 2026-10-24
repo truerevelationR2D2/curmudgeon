@@ -86,8 +86,15 @@ MEMORY_HITS = []
 def suppressed_by_ledger(f, L):
     """Only the owner's explicit ruling on this exact finding (fp <id>) hides it, and it is still listed under
     "Hidden by your rulings" in counts.md. Learned memories never hide anything: see memory_note."""
+    from critic_findings import fingerprint2
+    mine = fingerprint2(f); alias = (L.get("aliases") or {}).get(f.get("id"))
     for x in L.get("false_positives", []):
-        if x.get("id") and x.get("id") == f.get("id"): return f"known false positive (owner's ruling on this exact finding): {x.get('why', '')}"
+        xid = x.get("id")
+        if not xid: continue
+        if xid in (f.get("id"), alias): return f"known false positive (owner's ruling on this exact finding): {x.get('why', '')}"
+        old = (L.get("findings") or {}).get(xid) or {}
+        if mine and mine == fingerprint2({"file": str(old.get("where", "")).rsplit(":", 1)[0], "quote": old.get("quote")}):  # the same code filed under another category
+            return f"known false positive (owner's ruling on this exact code, {xid}): {x.get('why', '')}"
     return None
 
 def memory_note(f, L):

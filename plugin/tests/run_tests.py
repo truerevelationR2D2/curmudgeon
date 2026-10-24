@@ -1464,6 +1464,48 @@ def _(d):
     r = run(S / "critic_ledger.py", "fresh", fid, cwd=d)
     assert r.returncode == 1 and "STALE" in r.stdout, r.stdout
 
+@test("5.0 SC-39: the same code under another category keeps its ledger history and its fp ruling, and acted waits for a full re-review")
+def _(d):
+    write(d, "src/app.js", APP); q = "const price = total * 1.0825;"
+    def review(cat):
+        g = finding(category=cat, impact="Medium", line=4, quote=q, title="Tax rule in render code")
+        run(S / "critic_ledger.py", "start", "review", "--tier", "full", cwd=d)
+        for L in "ABC": write(d, f".critic/reviews/review-{L}.json", json.dumps([g]))
+        run(S / "critic_merge.py", "tally", *[f".critic/reviews/review-{L}.json" for L in "ABC"], cwd=d)
+        write(d, "v.json", "[]"); run(S / "critic_merge.py", "apply", "v.json", cwd=d)
+        return json.loads((d / ".critic/tally.json").read_text())
+    review("domain")
+    led = json.loads((d / ".critic/ledger.json").read_text()); first = next(iter(led["findings"]))
+    review("domain-leak")
+    led = json.loads((d / ".critic/ledger.json").read_text())
+    assert list(led["findings"]) == [first] and "still there" in led["findings"][first]["history"][-1], led["findings"]
+    run(S / "critic_ledger.py", "fp", first, "the rate is fixed by law here", cwd=d)
+    t = review("pricing")
+    assert t["suppressed"] and not t["kept"], t["suppressed"]
+    write(d, "src/app.js", APP.replace(q, "const price = total * rate(region);"))
+    run(S / "critic_ledger.py", "acted", cwd=d)
+    f = json.loads((d / ".critic/ledger.json").read_text())["findings"][first]
+    assert "acted_on" not in f and f.get("acted_pending"), f
+
+@test("5.0 card-C round 2: the Bash check judges real paths (sh -c, python -c, xargs, links), targets of recursive searches, and spares honest work")
+def _(d):
+    write(d, ".critic/reviews/review-B.json", '[{"title": "SECRET-B"}]'); write(d, "src/a.py", "x = 1\n"); write(d, "eval/fx/.critic/reviews/r.json", "{}")
+    write(d, ".critic/scratch/me/notes.txt", "n"); os.symlink(d / ".critic", d / "src/link")
+    def ask(tool, **ti):
+        return "deny" in run(H / "read_guard.py", cwd=d, stdin=json.dumps({"tool_name": tool, "tool_input": ti, "cwd": str(d), "agent_type": "curmudgeon:curmudgeon-reviewer", "agent_id": "me"})).stdout
+    deny = ["sh -c 'cat .critic/reviews/review-B.json'", "bash -c \"cat .critic/reviews/review-B.json\"", "python3 -c \"print(open('.critic/reviews/review-B.json').read())\"",
+            "node -e \"require('fs').readFileSync('.critic/reviews/review-B.json')\"", "find . -type f | xargs grep -l SECRET", "grep -n foo $(find . -name '*.json')",
+            "grep -rn --exclude-dir=.critic a . && grep -rn SECRET .", "cat src/link/reviews/review-B.json", "cd src/link && cat reviews/review-B.json", "cat .cri*/reviews/*",
+            "cat .*/reviews/review-B.json", "cat .crit\"\"ic/reviews/review-B.json", "grep -rn SECRET src/link", "cp -r . /tmp/x"]
+    allow = ["grep -rn foo src", "grep -rn foo eval/fx", "find src -name '*.py' -exec grep -n foo {} +", "cat eval/fx/.critic/reviews/*.json", "ls .critic/scratch/me/*",
+             "cat .critic/scratch/me/*.txt", "grep -n -A 2 '.critic/reviews' src/a.py", "rg -n -g '*.py' '.critic/reviews' src", "git log --grep=.critic/reviews",
+             "grep -rn --exclude-dir=.critic SECRET .", "rg SECRET .", "find . -not -path '*/.critic/*' -name '*.py'"]
+    for c in deny: assert ask("Bash", command=c), f"should be denied: {c}"
+    for c in allow: assert not ask("Bash", command=c), f"should be allowed: {c}"
+    assert ask("Grep", pattern="SECRET", path="..", glob="!.critic/**") and ask("Grep", pattern="SECRET", path="/")
+    assert not ask("Grep", pattern="SECRET", path=".", glob="!.critic") and not ask("Glob", pattern="eval/fx/.critic/**") and not ask("Glob", pattern=".critic/scratch/me/*")
+    assert ask("Glob", pattern=".critic/reviews/*")
+
 if __name__ == "__main__":
     bad = [r for r in RESULTS if not r[1]]
     print(f"\n{len(RESULTS) - len(bad)} of {len(RESULTS)} passed"); sys.exit(1 if bad else 0)
