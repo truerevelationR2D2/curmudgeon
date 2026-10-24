@@ -2,6 +2,7 @@
 (more unsafe HTML sinks), Stylelint (CSS) and the WCAG 2.2 criteria no engine checks (3.3.8, 2.5.7, 2.2.1, 1.4.2).
 No rule text from those projects is used."""
 import re
+import pathlib
 import scan_python, scan_tests
 
 CODE = {".js", ".mjs", ".cjs", ".ts", ".jsx", ".tsx", ".vue", ".svelte", ".html", ".htm"}
@@ -46,6 +47,18 @@ LINE_RULES += [  # Python, after Bandit's ideas (Apache-2.0); our own patterns
     ("py-hardcoded-tmp", "NOTE", "safety", r"[\"']/tmp/[\w.-]+[\"']", "hard-coded /tmp path: other users can create it first", PY),
 ]
 COMPILED = [(r, s, a, re.compile(x, re.I), m, e) for r, s, a, x, m, e in LINE_RULES]
+# SC-65: rules about code, not text. In JavaScript and TypeScript they are matched against the code with every string
+# and comment blanked (the mutation tester's own scanner), so `// never use document.write(` or a string that mentions
+# `.forEach(async` is not a finding. Rules that look inside strings on purpose (javascript: URLs, string timers) and the
+# markup rules are left alone.
+CODE_ONLY = {"doc-write", "contextual-fragment", "srcdoc", "dynamic-href", "loose-equality-null", "unsafe-finally", "await-in-foreach", "promise-no-catch", "outerhtml"}
+JS_CODE = {".js", ".mjs", ".cjs", ".ts"}
+def code_lines(rel, suffix, text):
+    if suffix not in JS_CODE: return None
+    try:
+        import scan_mutation
+        return scan_mutation.code_view(pathlib.PurePath(rel), text)
+    except Exception: return None
 
 def scan(rel, suffix, text, emit):
     lines = text.split("\n")
@@ -56,13 +69,15 @@ def scan(rel, suffix, text, emit):
         if parsed and scan_tests.is_test_file(rel):
             try: scan_tests.scan(rel, text, emit)  # the tests-of-the-tests lens (SC-48)
             except (SyntaxError, ValueError, RecursionError): pass
+    view = code_lines(rel, suffix, text)
     for i, l in enumerate(lines, 1):
         if len(l) > 3000: continue
+        cl = view[i - 1] if view is not None and i - 1 < len(view) else l
         for rid, sev, area, rx, msg, exts in COMPILED:
             if parsed and exts is PY: continue
-            if suffix in exts and rx.search(l): emit(sev, rid, area, f"{rel}:{i}", msg, l)
+            if suffix in exts and rx.search(cl if rid in CODE_ONLY else l): emit(sev, rid, area, f"{rel}:{i}", msg, l)
         m = re.search(r"\.outerHTML\s*\+?=\s*(.+)", l)
-        if m and suffix in CODE and not SAFE_ARG.match(m.group(1)): emit("WARN", "outerhtml", "safety", f"{rel}:{i}", "outerHTML set from a non-literal: escape or sanitise it", l)
+        if m and suffix in CODE and not SAFE_ARG.match(m.group(1)) and (view is None or re.search(r"\.outerHTML\s*\+?=", cl)): emit("WARN", "outerhtml", "safety", f"{rel}:{i}", "outerHTML set from a non-literal: escape or sanitise it", l)
     if suffix in STYLE:
         imp = len(re.findall(r"!important", text))
         if imp > 10: emit("NOTE", "important-overuse", "theming", rel, f"{imp} uses of !important: the cascade has been given up on", "")

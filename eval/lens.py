@@ -23,7 +23,8 @@ def rows(folder, area):
         r = subprocess.run([sys.executable, str(SCAN), ".", "--root", ".", "--no-project-rules"], cwd=dst, capture_output=True, text=True, timeout=300)
         rep = dst / ".critic" / "scan" / "report.json"
         if not rep.exists(): sys.exit(f"lens: the scan wrote no report ({r.stderr.strip()[-300:]})")
-        return [x for x in json.loads(rep.read_text())["findings"] if x.get("area") == area]
+        areas = set(area) if isinstance(area, list) else {area}
+        return [x for x in json.loads(rep.read_text())["findings"] if x.get("area") in areas]
 
 def main(a):
     if not a or a[0] in ("-h", "--help"): print(__doc__); return 0 if a else 2

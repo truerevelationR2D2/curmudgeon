@@ -2021,6 +2021,15 @@ def _(d):
     out = run(B, "step", "click", "e4", "--session", "s/w.json", cwd=d).stdout
     assert re.search(r"POST http://127\.0\.0\.1:\d+/api/save 501", out) and "would have sent" not in out, "with the user's yes, a write reaches the local server: " + out
 
+@test("5.0 SC-65: JavaScript code rules read code with strings and comments blanked, so a rule name in a comment or string is not a finding")
+def _(d):
+    r = run(HERE.parent / "eval" / "lens.py", str(HERE.parent / "eval" / "lens11.json"), "--json", cwd=d); out = json.loads(r.stdout)
+    assert r.returncode == 0 and out["recall"] == "6 of 6" and out["precision"] == "6 of 6" and not out["decoy_rows"], out
+    write(d, "a.js", "el.addEventListener('input', save);\n// TODO: debounce\n")
+    run(S / "critic_scan.py", ".", "--root", ".", cwd=d)
+    rules = {x["rule"] for x in json.loads((d / ".critic/scan/report.json").read_text())["findings"]}
+    assert {"per-keystroke", "todo"} <= rules, "rules that read strings or comments on purpose still do: " + str(rules)
+
 if __name__ == "__main__":
     shutil.rmtree(TMP, ignore_errors=True)
     bad = [r for r in RESULTS if not r[1]]

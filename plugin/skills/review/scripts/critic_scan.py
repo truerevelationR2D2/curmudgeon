@@ -99,6 +99,8 @@ RULES = [
     ("arrow-cta", "NOTE", "anti-ai", r"<(button|a)\b[^>]*>[^<]*→", "arrow appended to button or link text", MARKUP, 0),
     ("narrating-comment", "NOTE", "anti-ai", r"^\s*//\s*(Render|Main|Handle|Load|Init|Setup|Get|Set|Create|Update|API client|Helper)s?\b[\w ]{0,30}$", "comment that narrates the obvious", {".js", ".mjs", ".ts", ".jsx", ".tsx"}, re.I),
 ]
+CODE_ONLY_RULES = {"eval", "raw-html", "empty-catch", "log-only-catch", "fire-forget", "storage-no-try", "parse-no-try", "time-id", "await-loop", "interval",
+                   "html-append", "console-log"}  # not per-keystroke, todo or placeholder: those read strings or comments on purpose  # matched against code with strings and comments blanked (SC-65)
 SAFE_EXPR = re.compile(r"^\s*([\w.$]*\b(esc|escape|escapeHtml|escAttr|sanitize|DOMPurify\.sanitize|encodeURIComponent|Number|parseInt|parseFloat)\(|[\w.]+\.(length|size|toFixed\(\d*\)|toLocaleString\(\))\s*$|\d+\s*$|\w+\s*\?\s*[\"'][^\"']*[\"']\s*:\s*[\"'][^\"']*[\"']\s*$)")
 
 def unescaped_html(rel, lines):
@@ -255,10 +257,12 @@ def static(src, root, excludes):
         if longl: f("NOTE", "long-lines", "structure", f"{rel}:{longl[0]}", f"{len(longl)} lines over 300 characters")
         if p.suffix in CODE and re.search(r"\bfetch\(", text) and not re.search(r"\.ok\b|\.status\b", text):
             f("WARN", "status-unchecked", "errors", rel, "fetch used but no response status is ever checked (errors look like success)")
+        view = scan_rules_extra.code_lines(rel, p.suffix, text)  # SC-65: code rules read code, never strings or comments
         for i, l in enumerate(lines, 1):
+            cl = view[i - 1] if view is not None and i - 1 < len(view) else l
             for rid, sev, area, rx, msg, exts, fl in RULES:
                 if exts and p.suffix not in exts: continue
-                if not re.search(rx, l, fl): continue
+                if not re.search(rx, cl if rid in CODE_ONLY_RULES else l, fl): continue
                 if area in ("state", "async") and in_try(lines, i): continue
                 if rid == "outline-none" and ":focus-visible" in text: continue
                 f(sev, rid, area, f"{rel}:{i}", msg, l)

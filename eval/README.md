@@ -105,3 +105,5 @@ python3 eval/lens.py eval/lens5.json
 `lens9.json` is the requirements lens (SC-55): `fixture9/` has a requirements document (list items and a table row) and tests that cite a mistyped id and a dropped one, leaving two requirements untested; `fixture9-clean/` cites them correctly. A requirement mentioned in a sentence is not a definition.
 
 `lens10.json` is the operations lens (SC-54): `fixture10/` logs a password, a token and an API key, turns DEBUG on in production settings, and has an alert with no runbook and one whose runbook file is missing; `fixture10-clean/` fixes them; three decoy files (counts and policies named like secrets, development settings, a Kubernetes container with probes and limits) must stay silent.
+
+`lens11.json` measures the code view the JavaScript code rules use (SC-65): `fixture11/app.js` plants six real cases; `notes.js` (in both) names every risky call only in comments, strings and template literals. Before this change the scan raised 9 rows on `notes.js`; now none.
