@@ -94,13 +94,8 @@ def _points_at(k, loc):
 def match_plants(plants, blocks):
     """{plant id: block index}: each block credits one plant, each plant once. A plant is credited only when the block
     points at it and the plant's pattern is in the block's claim."""
-    hit, used = {}, set()
-    for name, k in plants.items():
-        for i, b in enumerate(blocks):
-            if i in used: continue
-            if _points_at(k, b["loc"]) and any(re.search(p, b["claim"], re.I) for p in k["any"]):
-                hit[name] = i; used.add(i); break
-    return hit
+    return keymatch.max_match({name: [i for i, b in enumerate(blocks) if _points_at(k, b["loc"]) and any(re.search(p, b["claim"], re.I) for p in k["any"])]
+                               for name, k in plants.items()})
 
 def score_task(task, blocks, labels, prefix):
     if task.get("clean"):  # every claim here is false; one with no file:line still needs a person to say it is a claim

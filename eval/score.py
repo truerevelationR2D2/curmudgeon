@@ -139,16 +139,17 @@ def clean_counts(path):
     return {"fp": len(blocks_) - labs_.count("real"), "unlabelled": labs_.count("unlabelled"), "block": verdict_word(review) == "BLOCK",
             "labs": labs_, "chm": len(blocks_), "low": (sum(1 for r in rows if r.get("impact") == "Low") if rows else len(re.findall(r"IMPACT:\s*\**\s*Low", review)))}
 
-def match_key(key, blocks, locs=None):
-    """locs given: strict (the finding must point at one of the plant's places, keymatch.py)."""
-    hits, used = {}, set()
-    for name, k in key.items():
-        for bi, b in enumerate(blocks):
-            if bi in used: continue  # one finding is credited to one planted defect, never several
-            if locs is not None and not keymatch.points_at(k, locs[bi]): continue
-            if (not k["file"] or k["file"].lower() in b.lower()) and any(re.search(p, b, re.I) for p in k["any"]):
-                hits[name] = bi; used.add(bi); break
-    return hits, used
+IMPACT_RANK = {"Critical": 0, "High": 1, "Medium": 2, "Low": 3}
+
+def match_key(key, blocks, locs=None, impacts=None):
+    """locs given: strict (the finding must point at one of the plant's places, keymatch.py). impacts given: a plant's
+    candidates are tried highest impact first, so the finding credited is the one that rated it most seriously."""
+    rank = lambda bi: IMPACT_RANK.get((impacts or {}).get(bi) if impacts else None, 4)
+    eligible = {name: sorted([bi for bi, b in enumerate(blocks) if (locs is None or keymatch.points_at(k, locs[bi]))
+                       and (not k["file"] or k["file"].lower() in b.lower()) and any(re.search(p, b, re.I) for p in k["any"])], key=lambda bi: (rank(bi), bi)) for name, k in key.items()}
+    serious = {name: [bi for bi in c if rank(bi) <= 2] for name, c in eligible.items() if impacts and key[name].get("impact") in ("Critical", "High")}
+    hits = keymatch.serious_first(eligible, serious) if serious else keymatch.max_match(eligible)  # one finding per plant, as many plants as possible
+    return dict(sorted(hits.items(), key=lambda kv: list(key).index(kv[0]))), set(hits.values())
 
 def lab_key(b): return re.sub(r"\W+", " ", b.lower())[:160]
 
@@ -202,8 +203,9 @@ def score_one(path, suite):
     if not keyf.exists(): print(f"score.py: no answer key for suite {suite}"); sys.exit(2)
     key = json.loads(keyf.read_text()); review, rows, blocks = load(path)
     locs = locs_of(rows, blocks); strict = strict_mode(f"suite{suite}")
-    strict_hits, _ = match_key(key, blocks, locs); loose_hits, _ = match_key(key, blocks)
-    hits, used = match_key(key, blocks, locs if strict else None)
+    imp = {i: r.get("impact") for i, r in enumerate(rows)} if rows else None
+    strict_hits, _ = match_key(key, blocks, locs, imp); loose_hits, _ = match_key(key, blocks, None, imp)
+    hits, used = match_key(key, blocks, locs if strict else None, imp)
     decoys = json.loads((HERE / f"decoys{suite}.json").read_text()) if (HERE / f"decoys{suite}.json").exists() else {}
     decoy_hits, decoy_detail = [], []
     for name, d in decoys.items():

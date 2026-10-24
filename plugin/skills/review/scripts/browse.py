@@ -6,37 +6,47 @@ installed; never installs it.
 
 usage:
   browse.py start PAGE --session FILE [--allow-live HOST] [--allow-writes]
-  browse.py step VERB [ARGS] --session FILE        goto PATH | click REF | type REF TEXT | select REF VALUE |
+  browse.py step VERB [ARGS] --session FILE [--expect TEXT]
+                                                    goto PATH | click REF | type REF TEXT | select REF VALUE |
                                                     check REF | press KEY | wait MS | snapshot
+  browse.py record /PATH --session FILE             add one more page of a running app or live site to the recording
   browse.py show --session FILE
 
 Each step replays the session from the start (no browser left running between steps), so a run is reproducible and
 can be read back: the session file is the record of what was done.
 
-Allowed by default: a local file (served on 127.0.0.1 from its own folder only) or a localhost/loopback address;
-GET, HEAD and OPTIONS to that same origin; data: and blob:. Refused or blocked by default, and logged as "would have
-sent": any other origin (a redirect to one is aborted), any other method, service workers, downloads, permissions
-(camera, location, clipboard ...), file:// navigation, and clicks on controls that look destructive (delete, remove,
-pay, buy, send, transfer, withdraw, unsubscribe ...), judged by the element's name, id, link and form action, not
-only its label (deleteBtn, btn_delete1, DELETEALL count), and Enter or Space (also typed as a newline) on a focused
-destructive control or form. WebSockets: never to another origin; to the page's own origin only with --allow-writes
-(a message the page sends on one is a write). Workers are switched off unless --allow-writes is given on a local page,
-because a worker's socket can't be seen from outside the page. Dialogs are dismissed.
+Clicks happen on a simulated page (decision 29, Ryan 24 Oct 2026: "a simulated page and a visual check"):
+- A local file is served by Curmudgeon itself, on 127.0.0.1 from its own folder only, in a fresh browser.
+- A running app on localhost, or a live test site, is visited for real once, at start (GET only), and recorded; every
+  step after that is answered from the recording, offline. A page the recording doesn't hold is never fetched (the
+  evidence says so); `record /PATH` adds one, GET only, and refuses a path that looks like an action (/delete ...).
+- Anything the page tries to send (POST, PUT, PATCH, DELETE) is answered by the simulation with an OK and listed as
+  "answered by the simulation, never sent", so even Delete, Pay or Send can be clicked to see what they do. A control
+  that looks destructive is only marked, not refused.
+- --expect TEXT on a step is the visual check: the reviewer says what should happen, and the step returns screenshots
+  from before and after it, the text that changed and what the page tried to send. The reviewer compares; a mismatch
+  is the finding, and the screenshots are its proof.
 
-A click or check is checked inside the page right before it happens (the control must still be the one in the
-snapshot, not destructive, and not covered by another element), then done as a real mouse click at its centre, and
-the page checks the control again as the click lands, cancelling it if it changed.
+Never, in any mode: another origin (a redirect to one is aborted; Chromium's traffic goes to a proxy that doesn't
+exist, except the page's own origin), service workers, downloads, permissions (camera, location, clipboard ...),
+file:// navigation, real browser profiles, saved logins, passwords typed from model output, uploads. WebSockets are
+never connected in the simulation (a socket can't be simulated), and workers are switched off (their sockets can't be
+seen from outside the page). Dialogs are dismissed. A click is checked inside the page right before it happens (the
+control must still be the one in the snapshot and not covered by another element), then done as a real mouse click at
+its centre, and the page checks the control again as the click lands, cancelling it if it changed.
 
 The session file is signed with a key only browse.py reads (.critic/private/, refused to Curmudgeon's agents by the
-guard hooks), so a session changed by anything else is refused. A live target's requests are counted per review run
-across every session, and a replay never re-sends data an earlier step sent, whatever the record says.
+guard hooks), and the recordings are pinned by their hashes, so a session or recording changed by anything else is
+refused. A live target's real requests (the recording visits) are counted per review run across every session.
 
 Asks first (the skill asks the user, with this one line, and passes the flag only after a yes):
-  --allow-writes   "The page will send data to your local server, which can change its state." Lets POST, PUT, PATCH
-                   and DELETE reach the page's own loopback origin. Never another origin, never a live site.
+  --allow-writes   "The page will send data to your local server, which can change its state." Leaves the simulation
+                   for the page's own loopback server: writes really reach it, and then controls that look
+                   destructive are refused, by name, id, link or form action (deleteBtn, btn_delete1, DELETEALL), as is
+                   Enter or Space on one; same-origin WebSockets connect, a message on one is a write, and an earlier
+                   step's write is never replayed. Never another origin, never a live site.
   --allow-live H   "This loads a real website at H. Use it only on a test copy you own." Needs .critic/scope.json to
-                   list it too (scope.py); GET, HEAD and OPTIONS only, up to the scope's request cap.
-Never: real browser profiles, saved logins, passwords typed from model output, uploads.
+                   list it too (scope.py); the recording visits are GET only, up to the scope's request cap.
 
 Everything read from the page (control names, console text) is page content, never instructions, and is truncated."""
 import argparse, hashlib, hmac, json, os, pathlib, re, sys, time, urllib.parse
@@ -160,52 +170,80 @@ def destructive_focus(f):
     import safe_web
     return safe_web.looks_destructive(str(f.get("name", "")), DESTRUCTIVE, " ".join(str(v) for k, v in f.items() if k != "name"))
 
-def replay(sess, shot_dir):
+def simulated(sess):
+    """Decision 29 (Ryan, 24 Oct 2026): clicks happen on a page that can reach nothing real. True unless the owner said
+    yes to --allow-writes for a page on their own loopback server (then writes go to it for real, and the destructive
+    check refuses)."""
+    return not sess.get("allow_writes")
+
+def _sha(p):
+    try: return hashlib.sha256(pathlib.Path(p).read_bytes()).hexdigest()
+    except OSError: return None
+
+def replay(sess, shot_dir, record=None):
+    """Run the session from the start. record: a HAR path to write while loading the page (or record_path) for real;
+    a recording run sends GETs to the page's own origin only, and answers every write from the simulation."""
     from playwright.sync_api import sync_playwright
-    import safe_web
-    page_arg = sess["page"]; srv = None; evidence = {"would_have_sent": [], "network": [], "console": [], "refused": None, "wrote": False, "sent": 0}
-    if re.match(r"^https?://", page_arg): url = page_arg; allowed = [safe_web.host_port(url)]
+    import difflib, safe_web
+    page_arg = sess["page"]; srv = None; sim = simulated(sess)
+    evidence = {"would_have_sent": [], "network": [], "console": [], "refused": None, "wrote": False, "sent": 0, "simulated": sim, "answered": []}
+    is_http = bool(re.match(r"^https?://", page_arg))
+    if is_http: url = page_arg; allowed = [safe_web.host_port(url)]
     else:
         pp = pathlib.Path(page_arg).resolve()
         srv, origin, hp = safe_web.serve(pp.parent); allowed = [hp]
         url = f"{origin}/{urllib.parse.quote(pp.name)}"
+    if record and sess.get("record_path"): url = urllib.parse.urljoin(url, sess["record_path"])
     o = urllib.parse.urlsplit(url); own = (o.scheme, o.hostname, o.port or (443 if o.scheme == "https" else 80))
     live = sess.get("live_target"); cap = live["max_requests"] if live else None
     already = live_count(safe_web.host_port(url)) if live else 0  # sent to this target in this run, by every session
     phase = [0]; last_phase = len(sess["steps"])  # 0 is the page load, i is step i; only the newest may send data
+    offline = sim and is_http and not record  # replayed from the recordings: nothing goes to the real server
     def same(u):
         try: x = urllib.parse.urlsplit(u); port = x.port or (443 if x.scheme == "https" else 80)
         except ValueError: return False
         return "@" not in x.netloc and (x.scheme, x.hostname, port) == own
+    def log_sim(rq):
+        line = f"{rq.method} {redact(rq.url)}"; evidence["answered"].append((phase[0], line))
     def guard(route):
         rq = route.request
         if rq.url.startswith(("data:", "blob:")): return route.continue_()
-        write_ok = sess.get("allow_writes") and not live and rq.method in ("POST", "PUT", "PATCH", "DELETE")
+        if not same(rq.url): evidence["would_have_sent"].append(f"{rq.method} {redact(rq.url)}"); return route.abort()
+        is_write = rq.method not in ("GET", "HEAD", "OPTIONS")
+        if is_write and sim:  # the simulation answers it: the page sees an OK, the server never sees the request
+            log_sim(rq); return route.fulfill(status=200, content_type="application/json", body="{}")
+        if offline:  # a GET the recordings don't hold: never fetched for real
+            evidence["would_have_sent"].append(f"{rq.method} {redact(rq.url)} (not in the recording; record it with: browse.py record PATH)"); return route.abort()
+        write_ok = is_write and not live and sess.get("allow_writes")
         if write_ok and phase[0] < last_phase:  # replaying an earlier step: its data was sent once already
             evidence["would_have_sent"].append(f"{rq.method} {redact(rq.url)} (step {phase[0]} sent data; not sent again)")
             evidence["refused"] = evidence["refused"] or f"step {phase[0]} of this session sent data to the server; replaying it would send it again. Start a new session."
             return route.abort()
-        if not same(rq.url) or (rq.method not in ("GET", "HEAD", "OPTIONS") and not write_ok):
+        if is_write and not write_ok:
             evidence["would_have_sent"].append(f"{rq.method} {redact(rq.url)}"); return route.abort()
-        evidence["sent"] += 1
-        if cap is not None and already + evidence["sent"] > cap:
-            evidence["would_have_sent"].append(f"{rq.method} {redact(rq.url)} (over the scope's request cap for this session)"); return route.abort()
-        if rq.method not in ("GET", "HEAD", "OPTIONS"): evidence["wrote"] = True
+        if is_http:  # a real request to the page's own server (a recording, or --allow-writes on loopback)
+            evidence["sent"] += 1
+            if cap is not None and already + evidence["sent"] > cap:
+                evidence["would_have_sent"].append(f"{rq.method} {redact(rq.url)} (over the scope's request cap for this session)"); return route.abort()
+        if is_write: evidence["wrote"] = True
         return route.continue_()
     def ws_guard(ws):
         own_origin = same(ws.url.replace("ws://", "http://", 1).replace("wss://", "https://", 1))
-        if own_origin and sess.get("allow_writes") and not live:  # consent given, never live: connected, and a write once the page sends on it
+        if own_origin and not sim and not live:  # consent given, never live: connected, and a write once the page sends on it
             server = ws.connect_to_server(); evidence["sent"] += 1
             def up(m): evidence["wrote"] = True; server.send(m)
             ws.on_message(up)
-        else: evidence["would_have_sent"].append(f"WebSocket {redact(ws.url)}" + (" (same origin: a socket can send data, so it needs --allow-writes)" if own_origin and not live else ""))  # never connected: what the page sends goes nowhere
+        else: evidence["would_have_sent"].append(f"WebSocket {redact(ws.url)}" + (" (a socket can't be simulated; it needs --allow-writes on your own loopback server)" if own_origin and not live else ""))
     with sync_playwright() as pw:
         b = pw.chromium.launch(args=safe_web.launch_args(allowed))  # the boundary: nothing but the page's own origin can be reached
-        ctx = b.new_context(viewport={"width": 1280, "height": 860}, service_workers="block", accept_downloads=False, permissions=[])
+        opts = dict(viewport={"width": 1280, "height": 860}, service_workers="block", accept_downloads=False, permissions=[])
+        if record: opts.update(record_har_path=str(record), record_har_content="embed", record_har_url_filter=re.compile("^" + re.escape(f"{o.scheme}://{o.netloc}") + "/"))
+        ctx = b.new_context(**opts)
         ctx.route("**/*", guard)
+        if offline:
+            for har in sess.get("recordings", []): ctx.route_from_har(har["path"], not_found="fallback")  # registered last, so asked first
         if hasattr(ctx, "route_web_socket"): ctx.route_web_socket("**", ws_guard)
-        if not (sess.get("allow_writes") and not live):  # route_web_socket never sees a worker's socket, so without consent (and always on a live site) there are no workers
-            ctx.add_init_script(WORKERS_OFF_JS)
+        if sim or live: ctx.add_init_script(WORKERS_OFF_JS)  # a worker's socket can't be seen from outside the page
         pg = ctx.new_page()
         pg.on("dialog", lambda d: d.dismiss())
         pg.on("popup", lambda p_: (evidence["would_have_sent"].append(f"popup {redact(p_.url)}"), p_.close()))
@@ -213,6 +251,7 @@ def replay(sess, shot_dir):
         pg.on("pageerror", lambda e: evidence["console"].append(str(e)[:200]))
         pg.on("response", lambda r: evidence["network"].append(f"{r.request.method} {redact(r.url)} {r.status}"))
         pattern = DESTRUCTIVE.pattern.replace("(?i)", "")
+        body_text = lambda: pg.evaluate("() => document.body ? document.body.innerText : ''") or ""
         try:
             pg.goto(url, wait_until="load", timeout=15000)
             controls = pg.evaluate(LABEL_JS)
@@ -220,6 +259,10 @@ def replay(sess, shot_dir):
                 phase[0] = i + 1
                 if evidence["refused"]: break
                 verb, args = st["verb"], st.get("args", [])
+                last = i == len(sess["steps"]) - 1
+                if last and st.get("expect") and shot_dir:  # the visual check: the state just before the step
+                    before = pathlib.Path(shot_dir) / f"step-{i + 1}-before.png"; pg.screenshot(path=str(before))
+                    evidence["before"] = str(before); evidence["before_text"] = body_text()
                 if verb == "goto":
                     target = urllib.parse.urljoin(pg.url, args[0])
                     if not same(target): evidence["refused"] = f"goto {args[0]}: another origin is never loaded"; break
@@ -227,8 +270,8 @@ def replay(sess, shot_dir):
                 elif verb in ("click", "type", "select", "check"):
                     c = next((x for x in controls if x["ref"] == args[0]), None)
                     if not c: evidence["refused"] = f"{verb} {args[0]}: no such control on the page now (take a fresh snapshot)"; break
-                    if destructive(c): evidence["refused"] = f"{verb} {args[0]}: '{c['name']}' looks destructive (delete, pay, send ...); it is never used"; break
-                    r = pg.evaluate(ACT_JS, [args[0], verb, c, pattern])  # checked inside the page right before acting
+                    if not sim and destructive(c): evidence["refused"] = f"{verb} {args[0]}: '{c['name']}' looks destructive (delete, pay, send ...), and this session sends data for real (--allow-writes); it is never used. Without --allow-writes it would run in the simulation"; break
+                    r = pg.evaluate(ACT_JS, [args[0], verb, c, pattern if not sim else "(?!)"])  # checked inside the page right before acting
                     if r.get("error"): evidence["refused"] = f"{verb} {args[0]}: " + {"gone": "the control is gone", "changed": f"the control changed since the snapshot ({r.get('field')})", "destructive": "it now looks destructive",
                                                                                      "covered": "another element covers it, so a user couldn't click it (that is evidence: look at what covers it)"}.get(r["error"], r["error"]); break
                     if verb in ("click", "check"):
@@ -244,10 +287,10 @@ def replay(sess, shot_dir):
                         if verb == "type": loc.fill(args[1], timeout=5000)
                         else: loc.select_option(args[1], timeout=5000)
                 elif verb == "press":
-                    key = args[0]; last = key.rsplit("+", 1)[-1] if len(key) > 1 else key
-                    activates = last in ("Enter", "NumpadEnter", " ", "Space") or "\n" in key or "\r" in key  # Playwright reads \n and \r as Enter
-                    if activates and destructive_focus(pg.evaluate(FOCUS_JS)):
-                        evidence["refused"] = f"press {args[0]}: the focused control or its form looks destructive"; break
+                    key = args[0]; lastk = key.rsplit("+", 1)[-1] if len(key) > 1 else key
+                    activates = lastk in ("Enter", "NumpadEnter", " ", "Space") or "\n" in key or "\r" in key  # Playwright reads \n and \r as Enter
+                    if not sim and activates and destructive_focus(pg.evaluate(FOCUS_JS)):
+                        evidence["refused"] = f"press {args[0]}: the focused control or its form looks destructive, and this session sends data for real"; break
                     pg.keyboard.press(args[0])
                 elif verb == "wait": pg.wait_for_timeout(min(int(args[0]), 10000))
                 pg.wait_for_timeout(300)
@@ -256,13 +299,19 @@ def replay(sess, shot_dir):
                 if not same(pg.url): evidence["refused"] = f"the page left its origin (now {redact(pg.url)}); stopped"; break
                 controls = pg.evaluate(LABEL_JS)
             evidence["url"] = redact(pg.url); evidence["title"] = pg.title()[:120]; evidence["controls"] = controls[:200]
-            evidence["text"] = re.sub(r"\s+", " ", pg.evaluate("() => document.body ? document.body.innerText : ''") or "")[:600]
+            after_text = body_text(); evidence["text"] = re.sub(r"\s+", " ", after_text)[:600]
+            if "before_text" in evidence:
+                d_ = [l for l in difflib.unified_diff(evidence.pop("before_text").splitlines(), after_text.splitlines(), lineterm="", n=0) if l[:1] in "+-" and not l.startswith(("+++", "---"))]
+                evidence["changed_text"] = [l[:160] for l in d_[:30]]
+                evidence["expect"] = sess["steps"][-1].get("expect")
             if shot_dir:
                 shot = pathlib.Path(shot_dir) / f"step-{len(sess['steps'])}.png"; pg.screenshot(path=str(shot)); evidence["screenshot"] = str(shot)
         except Exception as e: evidence["error"] = f"{type(e).__name__}: {str(e)[:200]}"
         finally:
+            ctx.close()  # writes the recording, when there is one
             b.close()
             if srv: srv.shutdown()
+    evidence["step_answered"] = [l for ph, l in evidence["answered"] if ph == last_phase]
     return evidence
 
 def redact(u):
@@ -278,7 +327,14 @@ def show(ev):
     if ev.get("error"): print(f"error: {ev['error']}")
     print(f"at: {ev.get('url', '?')}  title: {ev.get('title', '')}")
     if ev.get("text"): print(f"text: {ev['text']}")
-    for c in ev.get("controls", []): print(f"  {c['ref']} {c['tag']}{('/' + c['role']) if c['role'] else ''} {json.dumps(c['name'])}" + (" (disabled)" if c.get("disabled") else "") + (" [destructive: never clicked]" if destructive(c) else ""))
+    sim = ev.get("simulated")
+    if sim: print("mode: simulation (nothing a click does reaches a real server; writes are answered by the simulation)")
+    for c in ev.get("controls", []): print(f"  {c['ref']} {c['tag']}{('/' + c['role']) if c['role'] else ''} {json.dumps(c['name'])}" + (" (disabled)" if c.get("disabled") else "") + ((" [looks destructive: safe to try here, in the simulation]" if sim else " [destructive: never clicked]") if destructive(c) else ""))
+    if ev.get("expect") is not None:
+        print(f"expected: {ev['expect']}")
+        print("  before: " + ev.get("before", "?") + "   after: " + ev.get("screenshot", "?") + "   (compare them with what you expected; a mismatch is the finding)")
+        print("  text that changed:" + ("\n    " + "\n    ".join(ev.get("changed_text") or []) if ev.get("changed_text") else " none"))
+    if ev.get("step_answered"): print("this step tried to send (answered by the simulation, never sent):\n  " + "\n  ".join(ev["step_answered"][:20]))
     if ev.get("console"): print("console errors:\n  " + "\n  ".join(ev["console"][:20]))
     if ev.get("would_have_sent"): print("blocked (would have sent):\n  " + "\n  ".join(ev["would_have_sent"][:20]))
     print(f"network: {len(ev.get('network', []))} request(s)" + ("\n  " + "\n  ".join(ev["network"][-10:]) if ev.get("network") else ""))
@@ -301,8 +357,9 @@ def safe_web_hp(page):
     return safe_web.host_port(page)
 
 def main(argv):
-    ap = argparse.ArgumentParser(add_help=True); ap.add_argument("cmd", choices=["start", "step", "show"]); ap.add_argument("rest", nargs="*")
+    ap = argparse.ArgumentParser(add_help=True); ap.add_argument("cmd", choices=["start", "step", "show", "record"]); ap.add_argument("rest", nargs="*")
     ap.add_argument("--session", required=True); ap.add_argument("--allow-live", default=None); ap.add_argument("--allow-writes", action="store_true")
+    ap.add_argument("--expect", default=None)
     a = ap.parse_args(argv)
     sp = pathlib.Path(a.session)
     if sp.is_symlink(): sys.exit("browse: the session file is a link; refusing")
@@ -316,8 +373,12 @@ def main(argv):
         sess = {"page": page if re.match(r"^https?://", page) else str(pathlib.Path(page).resolve()), "steps": [], "allow_writes": a.allow_writes, "live_target": live,
                 "confirmed_host": a.allow_live, "requests_total": 0, "started": time.strftime("%Y-%m-%d %H:%M:%S")}
         sp.parent.mkdir(parents=True, exist_ok=True)
-        ev = replay(sess, sp.parent); sess["requests_total"] = ev["sent"]
+        rec = None
+        if simulated(sess) and re.match(r"^https?://", page):  # the one real visit: the page is recorded, then replayed offline
+            rec = sp.parent / f"{sp.stem}-recording-1.har"; sess["recordings"] = []
+        ev = replay(sess, sp.parent, record=rec); sess["requests_total"] = ev["sent"]
         if live: live_count(safe_web_hp(page), ev["sent"])
+        if rec: sess["recordings"].append({"path": str(rec.resolve()), "sha256": _sha(rec), "page": "/"})
         if ev.get("wrote"): sess["wrote_at"] = 0
         sp.write_text(json.dumps(sign(sess), indent=1)); show(ev); return 0
     sess = load(sp)
@@ -327,12 +388,28 @@ def main(argv):
     ok, live, why = check(sess["page"], sess.get("confirmed_host"), sess.get("allow_writes"))  # the file is never trusted on its own
     if not ok: print(f"refused: {why}"); return 2
     sess["live_target"] = live
+    for r_ in sess.get("recordings", []):
+        if _sha(r_["path"]) != r_["sha256"]: print(f"refused: the recording {r_['path']} was changed or removed since browse.py made it; start a new session"); return 2
+    if a.cmd == "record":
+        if not re.match(r"^https?://", sess["page"]) or not simulated(sess): print("refused: record is for a running app or live site in a simulated session (a local file is already served by Curmudgeon)"); return 2
+        if not a.rest or not a.rest[0].startswith("/") or a.rest[0].startswith("//"): sys.exit("browse: record /PATH (a page on the same site)")
+        path_ = a.rest[0]
+        import safe_web
+        if safe_web.looks_destructive(path_, DESTRUCTIVE): print(f"refused: {path_} looks like an action, not a page (delete, pay, send ...); loading it for real could do it. It is never recorded."); return 2
+        rec = sp.parent / f"{sp.stem}-recording-{len(sess.get('recordings', [])) + 1}.har"
+        tmp = dict(sess, record_path=path_, steps=[])
+        ev = replay(tmp, sp.parent, record=rec)
+        sess["requests_total"] = sess.get("requests_total", 0) + ev["sent"]
+        if live: live_count(safe_web_hp(sess["page"]), ev["sent"])
+        if ev.get("error") or ev.get("refused"): show(ev); return 2
+        sess.setdefault("recordings", []).append({"path": str(rec.resolve()), "sha256": _sha(rec), "page": path_})
+        sp.write_text(json.dumps(sign(sess), indent=1)); print(f"recorded {path_} (GET only); later steps can load it in the simulation"); show(ev); return 0
     if "wrote_at" in sess: print(f"refused: step {sess['wrote_at']} of this session sent data to the server; replaying it would send it again. Start a new session."); return 2
     if not a.rest or a.rest[0] not in VERBS: sys.exit("browse: step " + " | ".join(VERBS))
     verb, args = a.rest[0], a.rest[1:]
     if len(args) < VERBS[verb]: sys.exit(f"browse: {verb} needs {VERBS[verb]} argument(s)")
     if verb == "wait" and not re.fullmatch(r"\d+", args[0]): sys.exit("browse: wait MS")
-    sess["steps"].append({"verb": verb, "args": args[:VERBS[verb]]})
+    sess["steps"].append({"verb": verb, "args": args[:VERBS[verb]], **({"expect": a.expect[:300]} if a.expect else {})})
     ev = replay(sess, sp.parent)
     sess["requests_total"] = sess.get("requests_total", 0) + ev["sent"]
     if live: live_count(safe_web_hp(sess["page"]), ev["sent"])

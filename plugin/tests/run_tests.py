@@ -2002,7 +2002,7 @@ def _(d):
     assert p["kind"] == "document or plan" and p["reviewers"] == 1 and p["lenses"] == [] and p["checks"] == ["claims, numbers and consistency"], p
     assert "plan:" in run(S / "critic_run.py", "begin", "--files", "README.md", cwd=e).stdout
 
-@test("5.0 SC-66: the step-by-step browser driver gives evidence per step, never clicks destructive controls, blocks writes and other origins unless allowed, and refuses live sites outside the scope")
+@test("5.0 SC-66 and decision 29: the browser driver clicks anything in the simulation (writes answered, never sent) with a before-and-after check, refuses destructive controls only when writes are real, and blocks other origins and live sites outside the scope")
 def _(d):
     B = S / "browse.py"
     write(d, "site/index.html", "<!doctype html><title>Shop</title><label for=q>Search</label><input id=q name=q>"
@@ -2014,15 +2014,19 @@ def _(d):
     try: import playwright  # noqa: F401
     except ImportError:
         assert r.returncode == 3 and "unavailable" in r.stdout, r.stdout; return  # CI without Playwright: the driver says so and stops
-    assert "e3 button/submit \"Delete item\" [destructive: never clicked]" in r.stdout and (d / "s/step-0.png").exists(), r.stdout
+    assert "e3 button/submit \"Delete item\" [looks destructive: safe to try here, in the simulation]" in r.stdout and (d / "s/step-0.png").exists(), r.stdout
     run(B, "step", "type", "e1", "socks", "--session", "s/s.json", cwd=d)
-    out = run(B, "step", "click", "e2", "--session", "s/s.json", cwd=d).stdout; assert "searched socks" in out, out
-    r = run(B, "step", "click", "e3", "--session", "s/s.json", cwd=d); assert r.returncode == 2 and "never clicked" in r.stdout
-    assert [x["verb"] for x in json.loads((d / "s/s.json").read_text())["steps"]] == ["type", "click"], "a refused step is not recorded"
-    out = run(B, "step", "click", "e4", "--session", "s/s.json", cwd=d).stdout; assert "POST" in out and "would have sent" in out, out
-    out = run(B, "step", "click", "e5", "--session", "s/s.json", cwd=d).stdout; assert "tracker.example.invalid/t?u=…" in out, out
+    out = run(B, "step", "click", "e2", "--session", "s/s.json", "--expect", "the results line says it searched for socks", cwd=d).stdout
+    assert "searched socks" in out and "expected: the results line says it searched" in out and "+searched socks" in out and "step-2-before.png" in out, out
+    out = run(B, "step", "click", "e3", "--session", "s/s.json", cwd=d).stdout  # decision 29: in the simulation even Delete is clicked, and its request answered, never sent
+    assert "answered by the simulation" in out and "DELETE http://127.0.0.1" in out, out
+    out = run(B, "step", "click", "e4", "--session", "s/s.json", cwd=d).stdout; assert "POST" in out and "answered by the simulation" in out, out
+    out = run(B, "step", "click", "e5", "--session", "s/s.json", cwd=d).stdout; assert "tracker.example.invalid/t?u=…" in out and "would have sent" in out, out
     r = run(B, "start", "http://shop.example.invalid/", "--session", "s/l.json", cwd=d); assert r.returncode == 2 and "scope.json" in r.stdout, r.stdout
     out = run(B, "start", "site/index.html", "--session", "s/w.json", "--allow-writes", cwd=d).stdout
+    assert "[destructive: never clicked]" in out, "a session that sends data for real still refuses destructive controls: " + out
+    r = run(B, "step", "click", "e3", "--session", "s/w.json", cwd=d); assert r.returncode == 2 and "never used" in r.stdout, r.stdout
+    assert json.loads((d / "s/w.json").read_text())["steps"] == [], "a refused step is not recorded"
     out = run(B, "step", "click", "e4", "--session", "s/w.json", cwd=d).stdout
     assert re.search(r"POST http://127\.0\.0\.1:\d+/api/save 501", out) and "would have sent" not in out, "with the user's yes, a write reaches the local server: " + out
 
@@ -2097,7 +2101,7 @@ def _(d):
           "<button id=deleteBtn>Go</button><input type=checkbox id=purge aria-label=Option>"
           f"<button id=nx onclick=\"location='http://{other}/away'\">Next</button>")
     B = S / "browse.py"; ses = "s/s.json"
-    out = run(B, "start", "site/index.html", "--session", ses, cwd=d).stdout
+    out = run(B, "start", "site/index.html", "--session", ses, "--allow-writes", cwd=d).stdout  # writes for real, so the destructive backstop is on (decision 29)
     assert "TOPSECRET" not in out and "leak.txt 404" in out, "a link out of the served folder is never served: " + out
     refs = {m.group(2): m.group(1) for m in re.finditer(r"(e\d+) \S+ \"([^\"]*)\"", out)}
     assert "[destructive" in out.split("\"Go\"")[1].split("\n")[0], "deleteBtn reads as destructive by its id: " + out
@@ -2358,13 +2362,13 @@ def _(d):
     B = S / "browse.py"
     write(d, "f/index.html", "<!doctype html><title>t</title><form action='delete-account.html'><input id=n aria-label=Name><button>Go</button></form>")
     write(d, "f/delete-account.html", "<!doctype html><title>DELETED</title>")
-    run(B, "start", "f/index.html", "--session", "s/a.json", cwd=d); run(B, "step", "press", "Tab", "--session", "s/a.json", cwd=d)
+    run(B, "start", "f/index.html", "--session", "s/a.json", "--allow-writes", cwd=d); run(B, "step", "press", "Tab", "--session", "s/a.json", cwd=d)
     for k in ("\n", "\r", "Shift+Enter"):
         r = run(B, "step", "press", k, "--session", "s/a.json", cwd=d); assert "DELETED" not in r.stdout and "refused" in r.stdout, (repr(k), r.stdout)
     write(d, "w/index.html", "<!doctype html><title>t</title><script>try{const w=new WebSocket('ws://'+location.host+'/ws');w.onopen=()=>w.send('x');}catch(e){}</script>")
-    r = run(B, "start", "w/index.html", "--session", "s/w.json", cwd=d); assert "same origin: a socket can send data" in r.stdout, r.stdout
+    r = run(B, "start", "w/index.html", "--session", "s/w.json", cwd=d); assert "a socket can't be simulated" in r.stdout, r.stdout
     write(d, "x/index.html", "<!doctype html><title>t</title><button id=delete1 onclick=\"document.title='DELETED'\">Go</button><button id=XMLDelete>Go</button><button id=DELETEALL>Go</button>")
-    r = run(B, "start", "x/index.html", "--session", "s/x.json", cwd=d); assert r.stdout.count("[destructive: never clicked]") == 3, r.stdout
+    r = run(B, "start", "x/index.html", "--session", "s/x.json", "--allow-writes", cwd=d); assert r.stdout.count("[destructive: never clicked]") == 3, r.stdout
     write(d, "l/index.html", "<!doctype html><title>L</title><label for=a>I agree to the terms</label><input type=checkbox id=a onchange=\"document.title='AGREED'\">"
           "<button id=m onmousedown=\"document.title=event.isTrusted?'TRUSTED':'UNTRUSTED'\">Press</button>"
           "<div style='position:relative'><button id=c onclick=\"document.title='COVERED-CLICKED'\">Under</button><div style='position:absolute;inset:0;background:#fff'></div></div>")
@@ -2487,6 +2491,55 @@ def _(d):
     for sec in re.findall(r'"([^"]+)"', brief(["src/a.py"], ["tests of the tests", "CI and supply chain", "agent and MCP configuration", "release and rollback", "requirements and intent", "operations"])):
         assert f"## {sec}" in (refs / "lenses.md").read_text(), sec
     rv = (HERE / "agents/curmudgeon-reviewer.md").read_text(); assert "references your brief names" in rv and "output-contract" not in rv
+
+@test("5.0 decision 29: a running app is recorded once and then replayed offline, so a click (even a GET that deletes) never reaches the real server")
+def _(d):
+    try: import playwright  # noqa: F401
+    except ImportError: return
+    import http.server as hs, threading
+    seen = []
+    PAGE = (b"<!doctype html><title>App</title><a href='/about'>About</a>"
+            b"<button id=wipe onclick=\"fetch('/wipe?all=1').then(()=>document.title='WIPED')\">Clear all</button>"
+            b"<button id=save onclick=\"fetch('/api/save',{method:'POST',body:'x'}).then(r=>r.json()).then(()=>document.title='SAVED')\">Save</button>")
+    class App(hs.BaseHTTPRequestHandler):
+        def log_message(self, *a): pass
+        def _ok(self, body, t="text/html"): self.send_response(200); self.send_header("Content-Type", t); self.end_headers(); self.wfile.write(body)
+        def do_GET(self): seen.append(f"GET {self.path}"); self._ok(PAGE if self.path in ("/", "/index.html") else b"<!doctype html><title>About</title><p>About us</p>" if self.path == "/about" else b"done")
+        def do_POST(self): seen.append(f"POST {self.path}"); self._ok(b"{}", "application/json")
+    app = hs.ThreadingHTTPServer(("127.0.0.1", 0), App); threading.Thread(target=app.serve_forever, daemon=True).start()
+    B = S / "browse.py"; url = f"http://127.0.0.1:{app.server_address[1]}/"
+    r = run(B, "start", url, "--session", "s/a.json", cwd=d); assert "mode: simulation" in r.stdout, r.stdout
+    assert seen == ["GET /"], seen
+    out = run(B, "step", "click", "e2", "--session", "s/a.json", cwd=d).stdout
+    assert "/wipe" in out and "not in the recording" in out and "GET /wipe?all=1" not in seen, (out, seen)
+    out = run(B, "step", "click", "e3", "--session", "s/a.json", cwd=d).stdout
+    assert "title: SAVED" in out and "answered by the simulation" in out and not any(x.startswith("POST") for x in seen), (out, seen)
+    r = run(B, "record", "/wipe-all", "--session", "s/a.json", cwd=d); assert r.returncode == 2 and "looks like an action" in r.stdout and "GET /wipe-all" not in seen, r.stdout
+    r = run(B, "record", "/about", "--session", "s/a.json", cwd=d); assert r.returncode == 0 and seen.count("GET /about") == 1, (r.stdout, seen)
+    n = len(seen); out = run(B, "step", "goto", "/about", "--session", "s/a.json", cwd=d).stdout
+    assert "About us" in out and len(seen) == n, ("a recorded page replays offline", out, seen)
+    har = next((d / "s").glob("a-recording-1.har")); har.write_text(har.read_text().replace("App", "Hacked"))
+    r = run(B, "step", "snapshot", "--session", "s/a.json", cwd=d); assert r.returncode == 2 and "recording" in r.stdout and "changed" in r.stdout, r.stdout
+    app.shutdown()
+
+@test("5.0 smoke-run finding: findings are assigned to plants by maximum matching, so a loose pattern on one plant can't steal the only finding another plant has")
+def _(d):
+    SC = HERE.parent / "eval" / "score.py"; (d / "r").mkdir()
+    (d / "r/last-review.md").write_text("# review\n## VERDICT\n**CONCERNS**\n")
+    rows = [{"id": "F-1", "file": "app.js", "line": 12, "category": "ux", "impact": "High", "title": "Delete has no confirm or undo, and with no notes there is no empty state"},
+            {"id": "F-2", "file": "app.js", "line": 5, "category": "ux", "impact": "Medium", "title": "No empty state when there are no notes"}]
+    (d / "r/findings.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows))
+    out = subprocess.run([sys.executable, str(SC), str(d / "r/last-review.md"), "--suite", "1", "--baseline", str(d / "none.json"), "--labels", str(d / "l.json")], capture_output=True, text=True).stdout
+    assert "missed: D12" not in out and "missed: D13" not in out, "D12 can take F-2, so F-1 is left for D13: " + out
+    rows = [{"id": "F-1", "file": "app.js", "line": 11, "category": "security", "impact": "High", "title": "Titles injected unescaped into innerHTML (XSS), re-rendered quadratically"},
+            {"id": "F-2", "file": "app.js", "line": 12, "category": "style", "impact": "Low", "title": "Inline onclick built without escaping"},
+            {"id": "F-3", "file": "app.js", "line": 8, "category": "perf", "impact": "Medium", "title": "Quadratic: the whole list is sorted inside the per-note loop"}]
+    (d / "r/findings.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows))
+    out = subprocess.run([sys.executable, str(SC), str(d / "r/last-review.md"), "--suite", "1", "--baseline", str(d / "none.json"), "--labels", str(d / "l.json")], capture_output=True, text=True).stdout
+    assert "impact miss: D01" not in out and "missed: D07" not in out, "the XSS plant is credited to the High finding, and D07 still gets one: " + out
+    sys.path.insert(0, str(HERE.parent / "eval")); import importlib; dm = importlib.import_module("deathmatch")
+    plants = {"A": {"file": "", "any": ["x"]}, "B": {"file": "", "any": ["only-b"]}}
+    assert len(dm.match_plants(plants, [{"loc": "", "claim": "x only-b"}, {"loc": "", "claim": "x"}])) == 2
 
 if __name__ == "__main__":
     shutil.rmtree(TMP, ignore_errors=True)
