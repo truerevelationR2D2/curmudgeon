@@ -1598,6 +1598,23 @@ def _(d):
     assert "final: 1 finding" in out and "write the teardown" in out, out
     assert "teardown" in run(S / "critic_run.py", "status", cwd=d).stdout
 
+@test("5.0 SC-73: when one control in one file keeps springing new holes, round stops with a WHACK-A-MOLE escalation and a ranked-solutions guide")
+def _(d):
+    run(S / "critic_ledger.py", "start", "review", "--tier", "full", cwd=d)
+    L = json.loads((d / ".critic/ledger.json").read_text())
+    def f(cat, where, status, hist): return {"score": "High", "where": where, "summary": "s", "status": status, "claims": {}, "history": hist, "quote": "", "category": cat}
+    L["findings"] = {"F-1": f("blindness-bypass", "hooks/g.py:10", "fixed", ["run 1: new", "run 1: fixed"]), "F-2": f("blindness-glob", "hooks/g.py:40", "fixed", ["run 2: new", "run 2: fixed"]),
+                     "F-4": f("xss", "src/a.js:1", "fixed", ["run 1: fixed"]), "F-5": f("xss", "src/b.js:1", "open", ["run 2: new"])}
+    (d / ".critic/ledger.json").write_text(json.dumps(L))
+    r = run(S / "critic_ledger.py", "round", cwd=d); assert "WHACK-A-MOLE" not in r.stdout, "two holes, both closed, is not a pattern yet: " + r.stdout
+    L = json.loads((d / ".critic/ledger.json").read_text()); L["findings"]["F-3"] = f("blindness", "hooks/g.py:77", "open", ["run 3: new"])
+    (d / ".critic/ledger.json").write_text(json.dumps(L))
+    r = run(S / "critic_ledger.py", "round", cwd=d)
+    assert r.returncode == 3 and "WHACK-A-MOLE in hooks/g.py (blindness)" in r.stdout and "F-3" in r.stdout and "src/" not in r.stdout, r.stdout
+    guide = (HERE / "skills/review/references/escalation.md").read_text()
+    assert "five solutions, ranked best to worst" in guide and guide.count("\n1. **Remove the need.**") == 1 and "5. **Accept, document and watch.**" in guide
+    assert "WHACK-A-MOLE" in (HERE / "skills/fix/SKILL.md").read_text() and "escalation.md" in (HERE / "skills/fix/SKILL.md").read_text()
+
 if __name__ == "__main__":
     shutil.rmtree(TMP, ignore_errors=True)
     bad = [r for r in RESULTS if not r[1]]

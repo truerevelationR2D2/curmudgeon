@@ -153,6 +153,29 @@ def learn(L, d):
             return f"learned a memory from 3 '{d['reason']}' dismissals: {' '.join(sorted(common))}"
     return None
 
+def family(cat):
+    """The control a category is about: its first word (blindness-bypass and blindness-glob are one control)."""
+    return (re.split(r"[-_ /:]", str(cat or "").strip().lower()) or [""])[0]
+
+def moles(L):
+    """SC-73: the same control in the same file keeps springing new holes. When at least two findings for one
+    (file, control) were already marked fixed and another is open, patching is not converging: stop and escalate one
+    design finding with up to five solutions ranked best to worst (references/escalation.md). Returns
+    [(file, control, fixed_ids, open_ids)]."""
+    groups = {}
+    for k, v in L["findings"].items():
+        fam = family(v.get("category")); file = str(v.get("where") or "").rsplit(":", 1)[0]
+        if not fam or not file: continue
+        g = groups.setdefault((file, fam), {"fixed": [], "open": []})
+        if v.get("status") in ("open", "regressed"): g["open"].append(k)
+        if v.get("status") == "fixed" or any("fixed" in h for h in v.get("history", [])): g["fixed"].append(k)
+    return [(f, c, sorted(set(g["fixed"]) - set(g["open"])) or sorted(g["fixed"]), sorted(g["open"]))
+            for (f, c), g in sorted(groups.items()) if len(set(g["fixed"]) | set(g["open"])) >= 3 and len(g["fixed"]) >= 2 and g["open"]]
+
+def mole_lines(L):
+    return [f"WHACK-A-MOLE in {f} ({c}): {len(fx)} fixed ({', '.join(fx[:5])}) and still open ({', '.join(op[:5])}). Stop patching this control. "
+            f"Write one design finding with up to five solutions ranked best to worst (references/escalation.md) and give it to the owner." for f, c, fx, op in moles(L)]
+
 def main(a):
     if not a or any(x in ("-h", "--help") for x in a): print(__doc__); return 0  # help never changes the ledger
     cmd, rest = a[0], a[1:]; L = load(); msg = "ok"
@@ -224,6 +247,7 @@ def main(a):
                     v_.setdefault("absent_in_full_runs", [])
                     if L["run"] not in v_["absent_in_full_runs"]: v_["absent_in_full_runs"].append(L["run"])
         msg = f"imported {len(rows)}: {new} new, {known} known, {regressed} regressed" + (f", {held} held back (round 3)" if held else "")
+        msg += "".join("\n" + x for x in mole_lines(L))
     elif cmd == "add":
         need(rest, 4, "add ID Critical|High|Medium|Low WHERE \"summary\" [--verified]")
         if L["round"] >= 3 and "--verified" not in rest: die("round 3 is verify-only: new findings need --verified (an executed failing case)")
@@ -454,7 +478,8 @@ def main(a):
             if len(snaps) >= 2 and snaps[-1]["critical_high"] and snaps[-1]["critical_high"] >= snaps[-2]["critical_high"]:
                 esc.append(f"open Critical+High did not fall ({snaps[-2]['critical_high']} -> {snaps[-1]['critical_high']})")
             L["round"] += 1; save(L)
-            for e in esc: print(f"ESCALATE to the owner: {e}")
+            esc += mole_lines(L)
+            for e in esc: print(e if e.startswith("WHACK-A-MOLE") else f"ESCALATE to the owner: {e}")
             print(f"review round {L['round']} of 3" + (" (verify-only: no new findings without an executed case)" if L["round"] == 3 else ""))
             if esc: return 3
             return 1 if L["round"] > 3 else 0
