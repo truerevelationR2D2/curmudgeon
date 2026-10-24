@@ -477,16 +477,12 @@ def runtime(page, src, root, out, axe_arg, interact, allow_live, baseline=None, 
         for k in names: state(k, "unavailable", "Playwright not installed")
         f("WARN", "no-playwright", "runtime", "setup", "Playwright not installed: runtime checks unavailable; mark runtime findings [UNCERTAIN RISK]"); return {}
     stats, srv = {}, None
-    if re.match(r"^https?://", page): url = page; origin = re.match(r"^(https?://[^/]+)", page).group(1)
+    import safe_web
+    if re.match(r"^https?://", page): url = page; origin = re.match(r"^(https?://[^/]+)", page).group(1); allowed = [safe_web.host_port(page)]
     else:
-        import functools, http.server, threading
         pp = pathlib.Path(page).resolve(); base = src if src.is_dir() and str(pp).startswith(str(src)) else pp.parent
-        class Quiet(http.server.SimpleHTTPRequestHandler):
-            def log_message(self, *a): pass
-        srv = http.server.ThreadingHTTPServer(("127.0.0.1", 0), functools.partial(Quiet, directory=str(base)))
-        threading.Thread(target=srv.serve_forever, daemon=True).start()
-        # the page is served from this computer only (loopback); nothing is sent anywhere else
-        origin = urllib.parse.urlunsplit(("http", "%s:%d" % srv.server_address[:2], "", "", "")); url = origin + "/" + pp.relative_to(base).as_posix()
+        # served from this computer only (loopback), never a file whose real path leaves the folder, never a listing
+        srv, origin, hp = safe_web.serve(base); allowed = [hp]; url = origin + "/" + pp.relative_to(base).as_posix()
     would_send = []; sent = [0]
     cap = target["max_requests"] if target else None
     from urllib.parse import urlsplit
@@ -508,11 +504,13 @@ def runtime(page, src, root, out, axe_arg, interact, allow_live, baseline=None, 
     try:
         with sync_playwright() as pw:
             log_run(SCAN_ROOT, "command", f"Chromium (Playwright, headless) opening {page}")
-            try: b = pw.chromium.launch()
+            try: b = pw.chromium.launch(args=safe_web.launch_args(allowed))  # the boundary: only the page's own origin is reachable
             except Exception as e:
                 for k in names: state(k, "unavailable", f"Chromium would not start: {str(e)[:80]}")
                 return stats
-            ctx = b.new_context(viewport={"width": 1360, "height": 900}); ctx.route("**/*", guard_net)
+            ctx = b.new_context(viewport={"width": 1360, "height": 900}, service_workers="block", accept_downloads=False, permissions=[]); ctx.route("**/*", guard_net)
+            if hasattr(ctx, "route_web_socket"):
+                ctx.route_web_socket("**", lambda ws: ws.connect_to_server() if same_origin(ws.url.replace("ws", "http", 1)) else would_send.append(f"WebSocket {ws.url[:100]}"))  # not connected: what the page sends goes nowhere
             pg = ctx.new_page(); errs = []
             pg.on("pageerror", lambda e: errs.append(str(e))); pg.on("console", lambda m: errs.append(m.text) if m.type == "error" else None)
             pg.on("dialog", lambda d: d.dismiss())

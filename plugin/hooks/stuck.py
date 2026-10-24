@@ -15,7 +15,8 @@ The first time a signal fires the agent gets ONE rope: what it repeated, the las
 scenario and move on, a typed STUCK row goes to .critic/stuck.jsonl (listed in counts.md, never hidden), and the
 PreToolUse side refuses that exact action from then on. A stuck reviewer is an absent vote, never an invented one.
 
-Normalising strips times, dates, ports, temporary paths, hex ids and long numbers, so "the same" means the same.
+Results are normalised (times, dates, ports, temporary paths, hex ids and long numbers stripped), so "the same result"
+means the same; actions are compared exactly, so a search in a new folder is never "the same action".
 Fails open: a broken check never stops an agent."""
 import hashlib, json, os, pathlib, re, sys, time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -67,7 +68,7 @@ def main():
     p = state_path(root, aid)
     if not p or not p.parent.is_dir(): return 0
     st = load(p)
-    act = norm(json.dumps({"tool": data.get("tool_name"), "input": data.get("tool_input")}, sort_keys=True))
+    act = __import__("hashlib").sha256(json.dumps({"tool": data.get("tool_name"), "input": data.get("tool_input")}, sort_keys=True, default=str).encode()).hexdigest()[:16]  # the action exactly; only results are normalised
     event = data.get("hook_event_name") or ("PostToolUse" if "tool_response" in data else "PreToolUse")
     if event == "PreToolUse":
         if act in st.get("blocked", []):
@@ -84,7 +85,7 @@ def main():
                "You have two moves: (1) change approach: a different file, command, input or tool than the ones you've tried; or (2) declare 'cannot verify: <why you're stuck>' for this scenario "
                "and move on. If the same thing happens again you'll be stopped on it.")
     elif sig:
-        st.setdefault("stuck", []).append(sig); st.setdefault("blocked", []).append(act)
+        st.setdefault("stuck", []).append(sig); st.setdefault("blocked", []).append(act); st["calls"] = []  # one STUCK row per episode
         led = {}
         try: led = json.loads((root / ".critic" / "ledger.json").read_text())
         except Exception: pass

@@ -1966,7 +1966,7 @@ def _(d):
     outs = [post({"stdout": "", "stderr": f"Error: cannot find module at 2026-10-24T05:0{i}:00Z", "exit_code": 1}) for i in range(3)]
     assert not outs[0].strip() and not outs[1].strip() and "rope (stuck_error_loop)" in outs[2], outs
     outs = [post({"stderr": "Error: cannot find module", "exit_code": 1}) for _ in range(3)]
-    assert "STUCK (stuck_error_loop)" in outs[-1], outs
+    assert any("STUCK (stuck_error_loop)" in o for o in outs), outs
     pre = run(H / "stuck.py", cwd=d, stdin=json.dumps(dict(call, hook_event_name="PreToolUse"))).stdout
     assert '"deny"' in pre, pre
     other = run(H / "stuck.py", cwd=d, stdin=json.dumps(dict(call, hook_event_name="PreToolUse", tool_input={"command": f"cd {ws} && ls"}))).stdout
@@ -2069,6 +2069,63 @@ def _(d):
     assert key and all(v["synthetic"] and v["breaks"] for v in key.values()), (r.stdout, key)
     assert all("calc.py:" in k for k in key) and (ev / "tiny-1" / "calc.py").read_text() != (ev / "tiny-clean" / "calc.py").read_text()
     assert not any("label" in k or ":10" in k for k in key), "a change no behaviour check notices is never kept"
+
+@test("5.0 card-E review: the browser can reach nothing but the page's own origin (WebSockets, redirects, service workers, symlinks), destructive controls can't be reached by other verbs or a swap, and sessions aren't trusted")
+def _(d):
+    try: import playwright  # noqa: F401
+    except ImportError: return  # no browser here: the driver reports unavailable (tested in SC-66)
+    import http.server as hs, threading
+    hits = []
+    class Sink(hs.BaseHTTPRequestHandler):
+        def log_message(self, *a): pass
+        def _h(self): hits.append(f"{self.command} {self.path}"); self.send_response(200); self.end_headers(); self.wfile.write(b"SINK")
+        do_GET = do_POST = _h
+    sink = hs.ThreadingHTTPServer(("127.0.0.1", 0), Sink); threading.Thread(target=sink.serve_forever, daemon=True).start(); sp_ = sink.server_address[1]
+    other = f"127.0.0.1:{sp_}"
+    write(d, "outside/secret.txt", "TOPSECRET"); (d / "site").mkdir(); os.symlink(d / "outside/secret.txt", d / "site/leak.txt")
+    write(d, "site/sw.js", f"self.addEventListener('install', e => {{ fetch('http://{other}/from-sw', {{method: 'POST'}}); }});")
+    write(d, "site/index.html", "<!doctype html><title>t</title><p id=o></p><script>"
+          "fetch('/leak.txt').then(r=>r.text()).then(t=>document.getElementById('o').textContent='leak:'+t);"
+          f"try{{const w=new WebSocket('ws://{other}/ws');w.onopen=()=>w.send('x');}}catch(e){{}}"
+          f"fetch('http://{other}/direct').catch(()=>{{}}); navigator.serviceWorker && navigator.serviceWorker.register('sw.js').catch(()=>{{}});"
+          "</script><form action='delete-account.html'><input id=n aria-label=Name></form>"
+          "<button id=deleteBtn>Go</button><input type=checkbox id=purge aria-label=Option>"
+          f"<button id=nx onclick=\"location='http://{other}/away'\">Next</button>")
+    B = S / "browse.py"; ses = "s/s.json"
+    out = run(B, "start", "site/index.html", "--session", ses, cwd=d).stdout
+    assert "TOPSECRET" not in out and "leak.txt 404" in out, "a link out of the served folder is never served: " + out
+    refs = {m.group(2): m.group(1) for m in re.finditer(r"(e\d+) \S+ \"([^\"]*)\"", out)}
+    assert "[destructive" in out.split("\"Go\"")[1].split("\n")[0], "deleteBtn reads as destructive by its id: " + out
+    r = run(B, "step", "check", refs["Option"], "--session", ses, cwd=d); assert r.returncode == 2 and "destructive" in r.stdout, r.stdout
+    r = run(B, "step", "type", refs["Name"], "bob", "--session", ses, cwd=d); assert r.returncode == 2 and "destructive" in r.stdout, "a field of a form that deletes is not used: " + r.stdout
+    run(B, "step", "press", "Tab", "--session", ses, cwd=d)
+    r = run(B, "step", "press", "Enter", "--session", ses, cwd=d); assert r.returncode == 2 and "destructive" in r.stdout, "Enter in that form is refused: " + r.stdout
+    r = run(B, "step", "click", refs["Next"], "--session", ses, cwd=d); assert r.returncode == 2 and "left its origin" in r.stdout or "refused" in r.stdout, r.stdout
+    time.sleep(0.5); assert not hits, f"nothing may reach another origin: {hits}"
+    s_ = json.loads((d / ses).read_text()); s_["page"] = "http://localhost.:1/forged"; (d / ses).write_text(json.dumps(s_))
+    r = run(B, "step", "snapshot", "--session", ses, cwd=d); assert r.returncode == 2 and "refused" in r.stdout, "a hand-edited session is checked again: " + r.stdout
+    write(d, "swap/index.html", "<!doctype html><title>t</title><button id=b onclick=\"document.title='NEXT'\">Next page</button><script>"
+          "new MutationObserver(()=>setTimeout(()=>{const b=document.getElementById('b'); b.textContent='Delete everything'; b.onclick=()=>{document.title='DELETED'};},20))"
+          ".observe(document.getElementById('b'),{attributes:true});</script>")
+    run(B, "start", "swap/index.html", "--session", "s/w.json", cwd=d)
+    r = run(B, "step", "click", "e1", "--session", "s/w.json", cwd=d)
+    assert "DELETED" not in r.stdout and ("changed" in r.stdout or "destructive" in r.stdout), r.stdout
+    write(d, "w/index.html", "<!doctype html><title>t</title><button onclick=\"fetch('/save',{method:'POST',body:'x'}).catch(()=>{})\">Save draft</button>")
+    run(B, "start", "w/index.html", "--session", "s/x.json", "--allow-writes", cwd=d); run(B, "step", "click", "e1", "--session", "s/x.json", cwd=d)
+    r = run(B, "step", "snapshot", "--session", "s/x.json", cwd=d); assert r.returncode == 2 and "send it again" in r.stdout, r.stdout
+    sink.shutdown()
+
+@test("5.0 card-E review: stuck detection compares actions exactly (a search in a new folder is new) and writes one STUCK row per episode")
+def _(d):
+    run(S / "critic_ledger.py", "start", "review", "--tier", "lite", cwd=d)
+    run(H / "scratch_dir.py", cwd=d, stdin=json.dumps({"agent_type": "curmudgeon:curmudgeon-reviewer", "agent_id": "r1", "cwd": str(d)}))
+    base = {"tool_name": "Grep", "agent_type": "curmudgeon:curmudgeon-reviewer", "agent_id": "r1", "cwd": str(d), "hook_event_name": "PostToolUse", "tool_response": "No matches found"}
+    outs = [run(H / "stuck.py", cwd=d, stdin=json.dumps(dict(base, tool_input={"pattern": "eval", "path": f"/tmp/proj/src/{x}"}))).stdout for x in "abcdef"]
+    assert not any(o.strip() for o in outs), outs
+    same = dict(base, tool_input={"pattern": "eval", "path": "/tmp/proj/src/a"})
+    for _ in range(6): run(H / "stuck.py", cwd=d, stdin=json.dumps(same))
+    for _ in range(3): run(H / "stuck.py", cwd=d, stdin=json.dumps(same))
+    assert len((d / ".critic/stuck.jsonl").read_text().splitlines()) == 2, "one row per episode, not one per call"
 
 if __name__ == "__main__":
     shutil.rmtree(TMP, ignore_errors=True)
