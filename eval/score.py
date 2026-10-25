@@ -147,7 +147,10 @@ def clean_counts(path):
     if rows: chm = [r for r in rows if r.get("impact") in ("Critical", "High", "Medium")]; blocks_ = [" ".join(str(r.get(k, "")) for k in ("file", "line", "category", "title", "quote", "evidence", "failing_case", "remediation")) for r in chm]
     else: blocks_ = [m.group(0) for m in re.finditer(r"IMPACT:\s*\**\s*(Critical|High|Medium)[^\n]*", review)]
     labs_ = [labels.get(lab_key(b), "unlabelled") for b in blocks_]
-    return {"fp": len(blocks_) - labs_.count("real"), "unlabelled": labs_.count("unlabelled"), "block": verdict_word(review) == "BLOCK",
+    imps = [r.get("impact") for r in chm] if rows else [m.group(1) for m in re.finditer(r"IMPACT:\s*\**\s*(Critical|High|Medium)", review)]
+    backed = any(l == "real" and i in ("Critical", "High") for l, i in zip(labs_, imps))  # decision 39: a real Critical/High justifies BLOCK
+    return {"fp": len(blocks_) - labs_.count("real"), "unlabelled": labs_.count("unlabelled"), "block": verdict_word(review) == "BLOCK" and not backed,
+            "block_backed": verdict_word(review) == "BLOCK" and backed,
             "labs": labs_, "chm": len(blocks_), "low": (sum(1 for r in rows if r.get("impact") == "Low") if rows else len(re.findall(r"IMPACT:\s*\**\s*Low", review)))}
 
 IMPACT_RANK = {"Critical": 0, "High": 1, "Medium": 2, "Low": 3}

@@ -2978,6 +2978,21 @@ def _(d):
     sys.path.insert(0, str(S)); import importlib, critic_run; importlib.reload(critic_run); assert critic_run.VERIFY_BATCH == 5
     assert not (S / "critic_skeleton.py").exists()
 
+@test("decision 39: a clean-twin BLOCK fails the gate only when no Critical or High in that run is labelled a real bug")
+def _(d):
+    EV = HERE.parent / "eval"
+    def run_(name, impact, label):
+        r = d / name; write(r, ".critic/teardown.md", "**BLOCK** · Counts: 0 Critical, 1 High, 0 Medium, 0 Low\n\n#### 5. VERDICT\n**BLOCK**\n")
+        row = {"id": "F-1", "file": "store.js", "line": 75, "category": "data", "impact": impact, "title": f"Every save overwrites the list ({name})", "quote": "x"}
+        write(r, ".critic/findings.jsonl", json.dumps(row) + "\n")
+        key = re.sub(r"\W+", " ", " ".join(str(row.get(k, "")) for k in ("file", "line", "category", "title", "quote", "evidence", "failing_case", "remediation")).lower())[:160]
+        return str(r / ".critic/teardown.md"), key
+    a, ka = run_("real", "High", "real"); b, kb = run_("trivial", "High", "nitpick")
+    write(d, "labels.json", json.dumps({ka: "real", kb: "nitpick"}))
+    o = lambda t: subprocess.run([sys.executable, str(EV / "score.py"), t, "--clean", "1", "--baseline", str(d / "none.json"), "--labels", str(d / "labels.json")], capture_output=True, text=True).stdout
+    assert "verdict BLOCK: False" in o(a), o(a)
+    assert "verdict BLOCK: True" in o(b), o(b)
+
 if __name__ == "__main__":
     shutil.rmtree(TMP, ignore_errors=True)
     bad = [r for r in RESULTS if not r[1]]
