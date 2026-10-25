@@ -79,6 +79,11 @@ def reading_list(files):
     if lenses: out.append("lenses.md, only the sections " + ", ".join(f'"{x[0].upper() + x[1:]}"' for x in lenses))
     return "; ".join(out) + "."
 
+SECURITY_FOCUS = ("- Focus: security (security scan mode). Look for ways this can be attacked, abused or made to leak: injection, "
+                  "authentication and access control, secrets, unsafe parsing or deserialisation, requests the server makes for a "
+                  "user (SSRF), path traversal, the supply chain, and the integrity of what a page loads, links to or posts to. "
+                  "Report a defect outside security only when it is Critical.")
+
 def main(a):
     if a[:1] in (["-h"], ["--help"]): print(__doc__); return 0
     letters, intent = None, None
@@ -100,6 +105,7 @@ def main(a):
     shared = ["# Curmudgeon review brief", "",
               "You are reviewing work by an unknown contractor. Follow your agent instructions; this brief only says what to review.", "",
               f"- Tier: {tier}",
+              *([SECURITY_FOCUS] if load(D / "focus.json", {}).get("focus") == "security" else []),
               f"- Stated intent: {intent if intent else '(none stated; do not guess one)'}",
               f"- References folder: {refs}. Read: " + reading_list(files),
               f"- Change map: {D / 'change-map.md'}",

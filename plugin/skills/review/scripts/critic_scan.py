@@ -29,7 +29,7 @@ on localhost or a file are refused unless .critic/scope.json lists the origin an
 (the owner's typed confirmation; scope.py), and then only GET, HEAD and OPTIONS, up to the target's request cap."""
 import argparse, fnmatch, json, os, pathlib, re, signal, subprocess, sys, time, urllib.parse
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
-import scan_secrets, scan_html, scan_graph, scan_deps, scan_rules_extra, scan_mutation, scan_ci, scan_agentcfg, scan_migrations, scan_reqs, scan_ops
+import scan_secrets, scan_html, scan_graph, scan_deps, scan_rules_extra, scan_mutation, scan_ci, scan_agentcfg, scan_migrations, scan_reqs, scan_ops, scan_integrity
 import scope as scope_file
 import safe_web
 from critic_findings import log_run, refuse_linked_state
@@ -261,6 +261,7 @@ def static(src, root, excludes):
     lockp = root / ".github" / "workflows" / "actions.lock"
     try: lock_text = lockp.read_text(encoding="utf-8")[:2_000_000] if lockp.is_file() and not lockp.is_symlink() else ""
     except OSError: lock_text = ""
+    integrity_was = scan_integrity.load_baseline(root)  # the recorded copy, if the owner made one (SC-74)
     for p in walk(src, excludes):
         try: text = read_text(p)
         except UnicodeDecodeError: NOT_READ.append((p, "not UTF-8 or UTF-16 text")); continue
@@ -275,6 +276,7 @@ def static(src, root, excludes):
         elif scan_agentcfg.wants(rel): G("scan_agentcfg", scan_agentcfg.scan, rel, f, rel, text, f, agent_names)  # the agent and MCP configuration lens (SC-52)
         if scan_migrations.wants(rel): G("scan_migrations", scan_migrations.scan, rel, f, rel, text, f)  # the release and rollback lens (SC-53)
         G("scan_ops", scan_ops.scan, rel, f, rel, text, f, root)  # the operations lens (SC-54)
+        if scan_integrity.wants(rel): G("scan_integrity", scan_integrity.scan, rel, f, rel, text, f, root, integrity_was)  # the browser integrity lens (SC-74)
         if scan_reqs.is_doc(rel): req_docs[rel] = text  # the requirements lens (SC-55)
         elif scan_reqs.is_test(rel): req_tests[rel] = text
         if p.suffix not in SCAN_EXT:
@@ -335,7 +337,7 @@ def static(src, root, excludes):
             for row in json.loads(r.stdout or "[]"): f(*row)
         except subprocess.TimeoutExpired: f("WARN", "rule-file-timeout", "structure", ".critic/rules", "the project's rule files took over 20 s and were stopped (a pattern may be too slow); their results are missing")
         except ValueError: f("NOTE", "rule-file-invalid", "structure", ".critic/rules", "the rule runner returned no readable results")
-    if texts: state("static", *family_state({"safety", "errors", "state", "async", "perf", "a11y", "layout", "domain", "html", "theming", "ux", "tests", "supply-chain", "agent-config", "release", "requirements", "operations"}, f"{n} source files, {len(CONFIG_TEXTS)} config files, {texts} text files checked for secrets, {len(custom)} rule-file rules"
+    if texts: state("static", *family_state({"safety", "errors", "state", "async", "perf", "a11y", "layout", "domain", "html", "theming", "ux", "tests", "supply-chain", "agent-config", "release", "requirements", "operations", "integrity"}, f"{n} source files, {len(CONFIG_TEXTS)} config files, {texts} text files checked for secrets, {len(custom)} rule-file rules"
                               + (("; not checked beyond secrets: " + ", ".join(f"{k} {v}" for k, v in sorted(secrets_only.items(), key=lambda kv: -kv[1])[:8])) if secrets_only else "")))
     else: state("static", "blocked", "no readable files found")
     try:
@@ -724,6 +726,22 @@ def runtime(page, src, root, out, axe_arg, interact, allow_live, baseline=None, 
 
 def esc_cell(s): return str(s).replace("\\", "\\\\").replace("|", "\\|").replace("\n", " ")
 
+SECURITY_AREAS = {"safety", "deps", "supply-chain", "agent-config", "integrity", "ci"}  # the security scan mode's areas (5.2)
+
+def integrity_record(src, root, excludes):
+    """Write the recorded copy the integrity lens compares against: hosts only, one entry per page."""
+    files = {}
+    for p in walk(src, excludes):
+        try: rel = str(p.resolve().relative_to(root)).replace("\\", "/")
+        except ValueError: continue
+        if not scan_integrity.wants(rel) or scan_integrity.HEADER_FILES.search(rel): continue
+        try: files[rel] = scan_integrity.record(rel, read_text(p))
+        except (OSError, UnicodeDecodeError): continue
+    bp = root / ".critic" / "integrity-baseline.json"; bp.parent.mkdir(parents=True, exist_ok=True)
+    if bp.is_symlink(): print("critic_scan: refusing to write through a link at", bp, file=sys.stderr); return 2
+    bp.write_text(json.dumps({"recorded": time.strftime("%Y-%m-%d"), "files": files}, indent=1, sort_keys=True), encoding="utf-8")
+    print(f"recorded {len(files)} pages to {bp}"); return 0
+
 def main(argv):
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0], formatter_class=argparse.RawDescriptionHelpFormatter, epilog=__doc__.split("\n\n", 1)[1])
     ap.add_argument("src"); ap.add_argument("--root"); ap.add_argument("--page"); ap.add_argument("--out"); ap.add_argument("--axe")
@@ -731,6 +749,8 @@ def main(argv):
     ap.add_argument("--online", action="store_true"); ap.add_argument("--mutate", nargs="+", default=[]); ap.add_argument("--test-cmd"); ap.add_argument("--project-checks", action="store_true"); ap.add_argument("--no-project-rules", action="store_true")
     ap.add_argument("--only", help="a file listing the exact paths (relative to --root) to scan; the background check uses it")
     ap.add_argument("--baseline", choices=("save", "compare")); ap.add_argument("--budget-kb", type=int, default=1500)
+    ap.add_argument("--focus", choices=("security",), help="security: keep only the security areas' rows (the security scan mode)")
+    ap.add_argument("--integrity-record", action="store_true", help="record the link, form and script hosts of every page as the trusted copy (.critic/integrity-baseline.json), then stop")
     a = ap.parse_args(argv)
     global NO_PROJECT_RULES, SCAN_ROOT, ONLY; NO_PROJECT_RULES = a.no_project_rules
     SCAN_ROOT = pathlib.Path(a.root or os.environ.get("CRITIC_ROOT") or os.getcwd()).resolve()
@@ -741,6 +761,7 @@ def main(argv):
     log_run(SCAN_ROOT, "script", "critic_scan.py " + " ".join(argv))
     src = pathlib.Path(a.src).resolve()
     if not src.exists(): print(f"critic_scan: {a.src} does not exist", file=sys.stderr); return 2
+    if a.integrity_record: return integrity_record(src, SCAN_ROOT, a.exclude)
     root = pathlib.Path(a.root or os.environ.get("CRITIC_ROOT") or os.getcwd()).resolve()
     out = pathlib.Path(a.out).resolve() if a.out else root / ".critic" / "scan"
     led = root / ".critic" / "ledger.json"
@@ -770,6 +791,9 @@ def main(argv):
     expected = ["static", "structure", "deps", "ci"] + (list(RUNTIME_CHECKS) if a.page else []) + (["mutation"] if a.mutate else [])
     for k in expected:
         if k not in CHECKS: state(k, "blocked", "this check never reported (treated as not run)")
+    if a.focus == "security":
+        kept = [x for x in R if x["area"] in SECURITY_AREAS]; dropped = len(R) - len(kept); R[:] = kept
+        if dropped: state("focus", "pass", f"security focus: {dropped} row(s) outside the security areas not shown")
     order = {"FAIL": 0, "WARN": 1, "NOTE": 2}; R.sort(key=lambda x: (order[x["sev"]], x["area"], x["where"]))
     for i, x in enumerate(R, 1): x["id"] = f"S{i:03d}"
     out.mkdir(parents=True, exist_ok=True)

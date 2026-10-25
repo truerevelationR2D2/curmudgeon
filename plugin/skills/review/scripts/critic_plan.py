@@ -56,6 +56,12 @@ def history():
         by.setdefault(r.get("role", "?"), []).append(tot)
     return {k: int(statistics.median(v)) for k, v in by.items() if v}
 
+SECURITY_LENSES = ["secrets", "dependencies (with the local security feed when switched on)", "CI and supply chain", "agent and MCP configuration", "browser integrity"]
+
+def focus():
+    try: return json.loads((D / "focus.json").read_text()).get("focus") if (D / "focus.json").is_file() and not (D / "focus.json").is_symlink() else None
+    except (OSError, ValueError): return None
+
 def plan(forced=None):
     try: cm = json.loads((D / "change-map.json").read_text())
     except (OSError, ValueError): sys.exit("critic_plan: no .critic/change-map.json; run critic_map.py first")
@@ -79,6 +85,10 @@ def plan(forced=None):
         p["expected_tokens"] = est; p["expected_basis"] = "medians of this project's recorded runs, by role"
     else: p["expected_tokens"] = None; p["expected_basis"] = "no recorded runs yet: the first run's cost is measured, not guessed"
     if docs_only: p["note"] = "a document doesn't need the full code sweep: one reviewer and the claims check"
+    if focus() == "security":  # the security scan mode (5.2): same panel size as the tier, security lenses and focus only
+        p["focus"] = "security"; p["lenses"] = SECURITY_LENSES
+        p["checks"] = ["scripted security checks (critic_scan.py --focus security)", "the security feed: status, and an update when switched on and due"]
+        p.pop("note", None)
     return p
 
 def main(a):
@@ -89,7 +99,7 @@ def main(a):
     refuse_linked_state(ROOT)
     (D / "plan.json").write_text(json.dumps(p, indent=1))
     if "--json" in a: print(json.dumps(p, indent=1)); return 0
-    print(f"plan: {p['tier']} tier for {p['files']} file(s) ({p['kind']}); {p['reviewers']} blind reviewer(s); verify {p['verification']}")
+    print(f"plan: {'security scan, ' if p.get('focus') == 'security' else ''}{p['tier']} tier for {p['files']} file(s) ({p['kind']}); {p['reviewers']} blind reviewer(s); verify {p['verification']}")
     if p["lenses"]: print("  lenses: " + ", ".join(p["lenses"]))
     print("  checks: " + "; ".join(p["checks"]) + ("; variant hunt" if p["variant_hunt"] else ""))
     print("  expected cost: " + (f"about {p['expected_tokens']:,} tokens ({p['expected_basis']})" if p["expected_tokens"] else p["expected_basis"]))

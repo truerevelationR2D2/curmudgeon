@@ -4,9 +4,10 @@ scripted step itself, and prints what the lead must do next: which agents to sta
 in critic_merge.py and the ledger; the models still write the reviews, the dedup groups and the verdicts.
 
 usage:
-  critic_run.py begin [--audit | --fix] [--tier trivial|lite|full] [--base GIT_REF] [--files PATH ...] [--intent TEXT]
+  critic_run.py begin [--audit | --fix] [--security] [--tier trivial|lite|full] [--base GIT_REF] [--files PATH ...] [--intent TEXT]
         start a run (critic_ledger.py start) and map the change (critic_map.py); prints the reviewers to start. --fix
-        records a full-mode run (review and fix), so the stop gate holds open Critical and High findings to it
+        records a full-mode run (review and fix), so the stop gate holds open Critical and High findings to it.
+        --security is the security scan mode (5.2): the tier's panel, security lenses and focus only, and the feed step
   critic_run.py next [--apply-now]
         look at the run and do the next step: the first tally, the tally with the dedup groups, or apply (verdict files
         go in .critic/verdicts/*.json); prints the next agents to start, or that the teardown can be written
@@ -117,7 +118,12 @@ def main(a):
     if cmd in ("begin", "next"):
         from critic_findings import refuse_linked_state; refuse_linked_state(ROOT)
     if cmd == "begin":
-        audit = "--audit" in rest; fix = "--fix" in rest and not audit; rest = [x for x in rest if x not in ("--audit", "--fix")]
+        audit = "--audit" in rest; fix = "--fix" in rest and not audit; security = "--security" in rest
+        rest = [x for x in rest if x not in ("--audit", "--fix", "--security")]
+        D.mkdir(parents=True, exist_ok=True); fp = D / "focus.json"
+        if fp.is_symlink(): sys.exit("critic_run: .critic/focus.json is a link; refusing")
+        if security: fp.write_text(json.dumps({"focus": "security"}) + "\n")
+        elif fp.exists(): fp.unlink()  # a plain run never inherits an earlier run's focus
         tier = rest[rest.index("--tier") + 1] if "--tier" in rest and rest.index("--tier") + 1 < len(rest) else ""
         if audit:
             tier = "full"
@@ -149,6 +155,13 @@ def main(a):
         only = ""
         if files and not (D / "scan-only.txt").is_symlink():
             (D / "scan-only.txt").write_text("\n".join(files) + "\n", encoding="utf-8"); only = " --only .critic/scan-only.txt"
+        if security:
+            r = subprocess.run([sys.executable, str(HERE / "security_feed.py"), "status"], capture_output=True, text=True)
+            print(r.stdout.strip().splitlines()[0] if r.stdout.strip() else "security feed: status unreadable")
+            print(f"  feed step: if it says never switched on and the user is present, ask once (default off): \"Keep a local copy of public vulnerability data "
+                  f"(OSV, CISA KEV) so dependency checks send nothing about your project? Schedule: daily, weekly, biweekly, monthly or off.\" Record the answer with "
+                  f"python3 {HERE / 'security_feed.py'} set --cadence <answer>. Unattended: don't ask; it stays off. If it is on and due: python3 {HERE / 'security_feed.py'} update")
+            only += " --focus security"
         print(f"now, in the background (Bash with run_in_background), while the reviewers work: python3 {HERE / 'critic_scan.py'} . --root .{only} "
               "(add --page <page> for a UI). Reviewers can't read its output (their private copies and the read guard), so it no longer waits for them.")
         st, L, tier, items = state(); say_next(st, tier, items); return 0

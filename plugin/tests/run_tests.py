@@ -11,7 +11,7 @@ RESULTS = []
 TMP = tempfile.mkdtemp(prefix="critic-tmp-")  # the hooks' TMPDIR, so agent workspaces made by tests are removed with it
 
 def run(script, *a, cwd, stdin=None, env=None):
-    e = dict(os.environ, CRITIC_ROOT=str(cwd), TMPDIR=TMP); e.update(env or {})
+    e = dict(os.environ, CRITIC_ROOT=str(cwd), TMPDIR=TMP, CURMUDGEON_FEED_DIR=os.path.join(TMP, "no-feed")); e.update(env or {})  # a user's own feed never changes a test
     return subprocess.run([sys.executable, str(script), *a], cwd=cwd, capture_output=True, text=True, input=stdin, env=e, timeout=300)
 
 ONLY = os.environ.get("CRITIC_TEST_ONLY", "")  # run only the tests whose name contains this text
@@ -2977,6 +2977,90 @@ def _(d):
     assert (d / ".critic/verify" / f"{fid}.json").exists(), "every surviving Medium gets its blind verifier"
     sys.path.insert(0, str(S)); import importlib, critic_run; importlib.reload(critic_run); assert critic_run.VERIFY_BATCH == 5
     assert not (S / "critic_skeleton.py").exists()
+
+@test("5.2 SC-74: the integrity lens finds every planted look-alike link, punycode host, http form, off-site form, unpinned script and weak CSP, with no row on decoys or the clean twin")
+def _(d):
+    r = run(HERE.parent / "eval" / "lens.py", str(HERE.parent / "eval" / "lens12.json"), "--json", cwd=d); out = json.loads(r.stdout)
+    assert r.returncode == 0 and out["recall"] == "10 of 10" and out["precision"] == "10 of 10" and not out["decoy_rows"] and not out["clean_twin_rows"], out
+
+@test("5.2 SC-74: --integrity-record writes hosts only, and a later swap of a link target, a form action or a new script origin fails against it")
+def _(d):
+    page = '<a href="https://help.example.com/">Contact support</a>\n<form action="/pay"></form>\n<script src="https://cdn.example.org/a.js" integrity="sha384-x"></script>\n'
+    write(d, "site/index.html", page)
+    r = run(S / "critic_scan.py", ".", "--root", ".", "--integrity-record", cwd=d); assert r.returncode == 0, r.stderr
+    rec = json.loads((d / ".critic/integrity-baseline.json").read_text())["files"]["site/index.html"]
+    assert rec == {"links": ["Contact support\texample.com"], "forms": ["(this site)"], "origins": ["example.org"]}, rec
+    run(S / "critic_scan.py", ".", "--root", ".", cwd=d)
+    assert not [x for x in json.loads((d / ".critic/scan/report.json").read_text())["findings"] if x["area"] == "integrity"], "an unchanged page raises nothing"
+    write(d, "site/index.html", page.replace("help.example.com", "help.example.net").replace('"/pay"', '"https://pay.example.net/c"').replace("cdn.example.org", "cdn.example.net"))
+    run(S / "critic_scan.py", ".", "--root", ".", cwd=d)
+    got = sorted((x["rule"], x["where"]) for x in json.loads((d / ".critic/scan/report.json").read_text())["findings"] if x["area"] == "integrity" and x["sev"] == "FAIL")
+    assert got == [("integrity-changed", "site/index.html:1"), ("integrity-changed", "site/index.html:2"), ("integrity-new-origin", "site/index.html:3")], got
+
+def _feed_mirror(d, npm_records, kev_cves):
+    import zipfile
+    for eco, recs in (("npm", npm_records), ("PyPI", [{"id": "PYSEC-1", "affected": [{"package": {"ecosystem": "PyPI", "name": "Django"}, "versions": ["3.2.0"]}]}])):
+        (d / "mirror" / eco).mkdir(parents=True, exist_ok=True)
+        with zipfile.ZipFile(d / "mirror" / eco / "all.zip", "w") as z:
+            for r in recs: z.writestr(r["id"] + ".json", json.dumps(r))
+    write(d, "mirror/kev.json", json.dumps({"vulnerabilities": [{"cveID": c} for c in kev_cves]}))
+    return {"CURMUDGEON_FEED_DIR": str(d / "feed"), "CURMUDGEON_FEED_OSV": (d / "mirror").as_uri(), "CURMUDGEON_FEED_KEV": (d / "mirror/kev.json").as_uri()}
+
+@test("5.2 SC-75: the security feed downloads nothing until switched on, and off never downloads")
+def _(d):
+    env = _feed_mirror(d, [{"id": "GHSA-1", "affected": []}], [])
+    F = S / "security_feed.py"
+    r = run(F, "update", cwd=d, env=env); assert r.returncode == 3 and "off" in r.stdout and not (d / "feed/osv-npm.json").exists(), r.stdout
+    assert run(F, "due", cwd=d, env=env).returncode == 1
+    run(F, "set", "--cadence", "off", cwd=d, env=env)
+    r = run(F, "update", "--force", cwd=d, env=env); assert r.returncode == 3 and not (d / "feed/osv-npm.json").exists()
+    assert json.loads((d / "feed/feed.json").read_text())["consent"] == "no"
+
+@test("5.2 SC-75: with the feed on, lockfiles are checked locally; a CISA KEV CVE makes it a FAIL, a range and an exact version both match, and a fixed version does not")
+def _(d):
+    rec = {"id": "GHSA-lp", "aliases": ["CVE-2099-0001"], "summary": "bad pad", "affected": [{"package": {"ecosystem": "npm", "name": "left-pad"}, "ranges": [{"type": "SEMVER", "events": [{"introduced": "0"}, {"fixed": "1.3.0"}]}]}]}
+    env = _feed_mirror(d, [rec], ["CVE-2099-0001"]); F = S / "security_feed.py"
+    run(F, "set", "--cadence", "weekly", cwd=d, env=env)
+    r = run(F, "update", cwd=d, env=env); assert r.returncode == 0 and "npm 1" in r.stdout, r.stdout + r.stderr
+    assert json.loads((d / "feed/feed-log.jsonl").read_text().splitlines()[-1])["downloads"][0]["sha256"]
+    assert run(F, "due", cwd=d, env=env).returncode == 1, "just updated: not due for a week"
+    lock = {"lockfileVersion": 3, "packages": {"": {}, "node_modules/left-pad": {"version": "1.1.0"}, "node_modules/safe": {"version": "1.3.0"}}}
+    write(d, "p/package.json", json.dumps({"dependencies": {"left-pad": "1.1.0"}})); write(d, "p/package-lock.json", json.dumps(lock))
+    write(d, "p/requirements.txt", "django==3.2.0\n")
+    run(S / "critic_scan.py", ".", "--root", ".", cwd=d / "p", env=env)
+    got = {(x["sev"], x["what"].split(" has")[0]) for x in json.loads((d / "p/.critic/scan/report.json").read_text())["findings"] if x["rule"] == "deps-vulnerable"}
+    assert got == {("FAIL", "left-pad 1.1.0"), ("WARN", "django 3.2.0")}, got
+    sys.path.insert(0, str(S)); import importlib, security_feed; importlib.reload(security_feed)
+    assert security_feed.vkey("1.0.0-rc1") < security_feed.vkey("1.0.0") < security_feed.vkey("1.10") and security_feed.vkey("1.9") < security_feed.vkey("1.10")
+    assert not security_feed.affected("1.3.0", ["x", [], [["SEMVER", [["introduced", "0"], ["fixed", "1.3.0"]]]], [], ""])
+
+@test("5.2 SC-75: a damaged or shrunken download keeps the old copy")
+def _(d):
+    rec = lambda i: {"id": f"GHSA-{i}", "affected": [{"package": {"ecosystem": "npm", "name": f"p{i}"}, "versions": ["1.0.0"]}]}
+    env = _feed_mirror(d, [rec(i) for i in range(10)], []); F = S / "security_feed.py"
+    run(F, "set", "--cadence", "daily", cwd=d, env=env); assert run(F, "update", cwd=d, env=env).returncode == 0
+    before = (d / "feed/osv-npm.json").read_text()
+    _feed_mirror(d, [rec(1)], [])
+    r = run(F, "update", "--force", cwd=d, env=env); assert r.returncode == 1 and "lost over half" in r.stdout, r.stdout
+    (d / "mirror/npm/all.zip").write_bytes(b"not a zip")
+    r = run(F, "update", "--force", cwd=d, env=env); assert r.returncode == 1 and "old copy is kept" in r.stdout
+    assert (d / "feed/osv-npm.json").read_text() == before
+
+@test("5.2 security scan mode: begin --security keeps the tier's panel, focuses the briefs and plan on security, runs the scan with --focus security, asks about the feed only through the lead, and a plain run drops the focus")
+def _(d):
+    write(d, "src/app.js", APP); write(d, "src/page.html", '<div style="color:red">x</div>\n<a href="https://bank.example.net/">bank.example.com</a>\n')
+    out = run(S / "critic_run.py", "begin", "--security", "--files", "src/app.js", "src/page.html", "--tier", "full", cwd=d).stdout
+    assert "security scan, full tier" in out and "A, B, C" in out and "--focus security" in out, out
+    assert "security feed: off" in out and "set --cadence" in out and "Unattended: don't ask" in out, out
+    assert not (d / "feed").exists() and not (pathlib.Path(TMP) / "no-feed" / "feed.json").exists(), "begin never switches the feed on"
+    assert all("Focus: security" in (d / f".critic/briefs/brief-{x}.md").read_text() for x in "ABC")
+    assert "browser integrity" in json.loads((d / ".critic/plan.json").read_text())["lenses"]
+    run(S / "critic_scan.py", ".", "--root", ".", "--focus", "security", cwd=d)
+    rep = json.loads((d / ".critic/scan/report.json").read_text())
+    assert rep["findings"] and {x["area"] for x in rep["findings"]} <= {"safety", "deps", "supply-chain", "agent-config", "integrity", "ci"}, {x["area"] for x in rep["findings"]}
+    assert any(x["rule"] == "integrity-link-mismatch" for x in rep["findings"])
+    out = run(S / "critic_run.py", "begin", "--files", "src/app.js", "--tier", "lite", cwd=d).stdout
+    assert not (d / ".critic/focus.json").exists() and "Focus: security" not in (d / ".critic/briefs/brief-A.md").read_text() and "--focus" not in out
 
 @test("decision 39: a clean-twin BLOCK fails the gate only when no Critical or High in that run is labelled a real bug")
 def _(d):

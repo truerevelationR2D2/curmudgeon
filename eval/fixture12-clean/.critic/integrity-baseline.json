@@ -1,0 +1,10 @@
+{
+ "files": {
+  "site/checkout.html": {
+   "forms": ["example.com"],
+   "links": ["Contact support\texample.com"],
+   "origins": ["example.org"]
+  }
+ },
+ "recorded": "2026-10-01"
+}
