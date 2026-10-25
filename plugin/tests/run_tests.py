@@ -2941,21 +2941,6 @@ def _(d):
     assert "early results" not in run(S / "critic_run.py", "next", cwd=d).stdout, "shown once per scan report"
     assert "early results" in run(S / "critic_run.py", "early", cwd=d).stdout, "asked for, it shows again"
 
-@test("5.1 SC-78: a Medium two reviewers ran and saw fail needs no verifier, a High always gets one, and verifiers take ten packets each")
-def _(d):
-    write(d, "src/app.js", APP); run(S / "critic_ledger.py", "start", "full", cwd=d)
-    med = finding(impact="Medium", verified="executed"); high = finding(impact="High", verified="executed", line=4, quote="const price = total * 1.0825;", title="Tax rule in render code", category="domain")
-    write(d, "a.json", json.dumps([med, high])); write(d, "b.json", json.dumps([med, high]))
-    run(S / "critic_merge.py", "tally", "a.json", "b.json", cwd=d)
-    t = json.loads((d / ".critic/tally.json").read_text()); ids = {f["title"]: f["id"] for f in t["kept"]}
-    assert all(f["executed_by"] == 2 for f in t["kept"]), t["kept"]
-    assert not (d / ".critic/verify" / f"{ids['Title rendered as HTML']}.json").exists(), "a twice-executed Medium is not re-verified"
-    assert (d / ".critic/verify" / f"{ids['Tax rule in render code']}.json").exists(), "a High is always verified"
-    write(d, "v.json", "[]"); run(S / "critic_merge.py", "apply", "v.json", cwd=d)
-    conf = {json.loads(l)["title"]: json.loads(l)["confidence"] for l in (d / ".critic/findings.jsonl").read_text().splitlines()}
-    assert conf["Title rendered as HTML"] == "confirmed", conf
-    sys.path.insert(0, str(S)); import critic_run; assert critic_run.VERIFY_BATCH == 10
-
 @test("5.1 SC-79: Nits are listed but never counted or verified, a verifier may lower a Low to a Nit, and the scorer credits a planted bug found as a Nit only as an impact miss")
 def _(d):
     write(d, "src/app.js", APP); run(S / "critic_ledger.py", "start", "full", cwd=d)
@@ -2976,28 +2961,22 @@ def _(d):
     out = subprocess.run([sys.executable, str(HERE.parent / "eval" / "score.py"), str(r / ".critic/teardown.md"), "--suite", "1", "--baseline", str(d / "none.json"), "--labels", str(d / "none.json")], capture_output=True, text=True).stdout
     assert "impact miss" in out and "unlabelled 0" in out, out[:900]
 
-@test("5.1 SC-76 lab: with CURMUDGEON_LAB=skeleton the teardown's mechanical half is scripted in the contract's layout, and the lead fills only the marked parts")
-def _(d):
-    write(d, "src/app.js", APP); run(S / "critic_ledger.py", "start", "full", cwd=d)
-    write(d, "a.json", json.dumps({"findings": [finding(), finding(impact="Nit", line=4, quote="const price = total * 1.0825;", title="Name the constant", category="style")], "sandbox": [{"scenario": "empty list", "happens": "shows nothing", "result": "holds", "how": "traced"}]}))
-    write(d, "b.json", json.dumps([finding()]))
-    run(S / "critic_merge.py", "tally", "a.json", "b.json", cwd=d); write(d, "v.json", "[]"); run(S / "critic_merge.py", "apply", "v.json", cwd=d)
-    assert run(S / "critic_skeleton.py", cwd=d).returncode == 0
-    sk = (d / ".critic/teardown-skeleton.md").read_text()
-    assert sk.startswith("**BLOCK** · Counts: 1 Critical, 0 High, 0 Medium, 0 Low"), sk[:120]
-    for h in ("#### INTENT GATE", "#### RISK MAP", "#### SANDBOX LEDGER", "#### 1. CODE AND ARCHITECTURE", "#### 5. VERDICT", "Not reviewed", "/curmudgeon:review fix"): assert h in sk, h
-    assert "Name the constant" in sk and "SB1 empty list" in sk and "**Evidence:**" in sk and sk.count("<!-- LEAD:") == 4, sk
-    code = "import os, sys; sys.path.insert(0, %r); import critic_run; critic_run.say_next('teardown', 'full', [])" % str(S)
-    out = subprocess.run([sys.executable, "-c", code], cwd=d, capture_output=True, text=True, env=dict(os.environ, CURMUDGEON_LAB="skeleton")).stdout
-    assert "fill only its <!-- LEAD" in out and "wrote .critic/teardown-skeleton.md" in out, out
-    out = subprocess.run([sys.executable, "-c", code], cwd=d, capture_output=True, text=True, env={k: v for k, v in os.environ.items() if k != "CURMUDGEON_LAB"}).stdout
-    assert "output-contract.md" in out and "skeleton" not in out, "the lab is off unless switched on"
-
 @test("5.1 SC-79 measured fix: the stricter Low never covers a data loss, a wrong result or a failure shown as success, however rare the path")
 def _(d):
     r = (HERE / "skills/review/references/rubrics.md").read_text()
     assert "a missing message on a rare path" not in r, "the measured run showed reviewers reading this as permission to rate a false 'Deleted' Low"
     assert re.search(r"However rare the path, anything that loses or corrupts data, gives a wrong result, or reports a failure as success is High or worse", r)
+
+@test("5.1 measured reverts: verifiers keep five packets each and a Medium two reviewers executed is still verified (SC-78 measured worse), and the lead-diet lab is gone (no saving)")
+def _(d):
+    write(d, "src/app.js", APP); run(S / "critic_ledger.py", "start", "full", cwd=d)
+    med = finding(impact="Medium", verified="executed")
+    write(d, "a.json", json.dumps([med])); write(d, "b.json", json.dumps([med]))
+    run(S / "critic_merge.py", "tally", "a.json", "b.json", cwd=d)
+    fid = json.loads((d / ".critic/tally.json").read_text())["kept"][0]["id"]
+    assert (d / ".critic/verify" / f"{fid}.json").exists(), "every surviving Medium gets its blind verifier"
+    sys.path.insert(0, str(S)); import importlib, critic_run; importlib.reload(critic_run); assert critic_run.VERIFY_BATCH == 5
+    assert not (S / "critic_skeleton.py").exists()
 
 if __name__ == "__main__":
     shutil.rmtree(TMP, ignore_errors=True)

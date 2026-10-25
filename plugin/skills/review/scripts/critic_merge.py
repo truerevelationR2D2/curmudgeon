@@ -282,7 +282,7 @@ def tally(paths):
     clusters = {}
     for r, ri, f in accepted:
         c = clusters.setdefault(find(r), {"members": [], "reviewers": set(), "scan": False, "outside": False})
-        c["members"].append(f); c.setdefault("member_ri", []).append(ri)
+        c["members"].append(f)
         if ri is None: c["scan"] = True
         elif ri == OUTSIDE_RI: c["outside"] = True
         else: c["reviewers"].add(ri)
@@ -305,8 +305,7 @@ def tally(paths):
         human = [x for x in m if x.get("source") not in ("scan", "outside")] or [x for x in m if x.get("source") != "outside"] or m
         best = sorted(human, key=lambda x: (["executed", "traced", "inferred"].index(x["verified"]), IMP_RANK[x["impact"]]))[0]
         theirs = [x["impact"] for x in m if x.get("source") == "outside"]
-        ran = {ri for ri, x in zip(c.get("member_ri", []), m) if x.get("verified") == "executed" and x.get("quote_checked")}  # our reviewers who ran it and saw it fail
-        f = dict(best, votes=votes, votes_ours=len(c["reviewers"]), executed_by=len(ran), of=of, impact=median_impact([x["impact"] for x in human]), scan_confirmed=bool(c.get("scan")),
+        f = dict(best, votes=votes, votes_ours=len(c["reviewers"]), of=of, impact=median_impact([x["impact"] for x in human]), scan_confirmed=bool(c.get("scan")),
                  locations=sorted({f"{x['file']}:{x.get('line', '')}" for x in m}), raised_by=sorted({x["source"] for x in m}))
         if theirs: f["outside_impact"] = theirs[0]  # shown, never used: the outside reviewer's own rating
         if c.get("scan") and best.get("source") != "scan":  # a reviewer restated a scripted row: keep the script's evidence too
@@ -324,7 +323,6 @@ def tally(paths):
     for old in vd.glob("*.json"): old.unlink()
     for f in out["kept"] + out["contested"]:
         if f["impact"] == "Low" and f.get("votes_ours", f["votes"]) >= need and not f.get("outside_only"): continue  # agreed by OUR reviewers (an outside vote alone never skips verification): agreed Lows skip verification
-        if f.get("executed_by", 0) >= 2 and f["impact"] in ("Medium", "Low") and f in out["kept"] and not f.get("outside_only"): continue  # SC-78: reproduced by two of our reviewers; Critical and High are always verified
         if f.get("raised_by") == ["scan"] and f.get("verified") == "executed" and MEASURED.match(str(f.get("category"))): continue  # a measurement, not an interpretation: nothing to reproduce
         packet = {k: f.get(k) for k in ("id", "category", "impact", "file", "line", "quote", "title", "failing_case", "preconditions", "root_cause") if k in f}
         (vd / f"{f['id']}.json").write_text(json.dumps(scrub(packet), indent=1, ensure_ascii=False))

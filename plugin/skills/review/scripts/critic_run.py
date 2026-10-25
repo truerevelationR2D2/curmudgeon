@@ -24,7 +24,7 @@ import json, os, pathlib, subprocess, sys, re, time
 HERE = pathlib.Path(__file__).resolve().parent
 ROOT = pathlib.Path(os.environ.get("CRITIC_ROOT") or re.sub(r"[\\/]\.critic[\\/]scratch(?:[\\/].*)?$", "", os.getcwd()) or os.getcwd()).resolve(); D = ROOT / ".critic"
 REVIEWERS = {"trivial": ["A"], "lite": ["A"], "full": ["A", "B", "C"]}
-VERIFY_BATCH = 10  # SC-78: packets per verifier agent (5 in 5.0); each packet is still judged on its own
+VERIFY_BATCH = 5  # packets per verifier agent; 10 (SC-78) was measured and reverted: no saving, quality worse (03 §5.37)
 FORCE = False  # next --apply-now: apply with the verdicts there are (a finding with no verdict stays, at lower confidence)
 
 def sh(script, *a):
@@ -108,11 +108,7 @@ def say_next(st, tier, items):
               "then critic_run.py next. If a verifier can't answer, critic_run.py next --apply-now applies what there is (a finding with no verdict stays, at lower confidence):")
         for i, b in enumerate(batches, 1): print(f"  verifier {i}: " + " ".join(rel(p) for p in b))
     elif st == "teardown":
-        if "skeleton" in os.environ.get("CURMUDGEON_LAB", "").split(","):  # SC-76 lab: the mechanical half is scripted
-            sh("critic_skeleton.py")
-            print("next: copy .critic/teardown-skeleton.md to .critic/last-review.md and fill only its <!-- LEAD: ... --> parts (intent gate, pre-mortem, "
-                  "five fixes, Not checked); everything else is already the output contract's layout, so don't re-read output-contract.md. Then critic_ledger.py stamp <payload>.")
-        else: print("next: write the teardown from .critic/counts.md (references/output-contract.md), save .critic/last-review.md, then critic_ledger.py stamp <payload>.")
+        print("next: write the teardown from .critic/counts.md (references/output-contract.md), save .critic/last-review.md, then critic_ledger.py stamp <payload>.")
     elif st == "idle": print("next: no run is active; critic_run.py begin starts one.")
 
 def main(a):
