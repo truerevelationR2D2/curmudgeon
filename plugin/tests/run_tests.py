@@ -2993,6 +2993,12 @@ def _(d):
     out = subprocess.run([sys.executable, "-c", code], cwd=d, capture_output=True, text=True, env={k: v for k, v in os.environ.items() if k != "CURMUDGEON_LAB"}).stdout
     assert "output-contract.md" in out and "skeleton" not in out, "the lab is off unless switched on"
 
+@test("5.1 SC-79 measured fix: the stricter Low never covers a data loss, a wrong result or a failure shown as success, however rare the path")
+def _(d):
+    r = (HERE / "skills/review/references/rubrics.md").read_text()
+    assert "a missing message on a rare path" not in r, "the measured run showed reviewers reading this as permission to rate a false 'Deleted' Low"
+    assert re.search(r"However rare the path, anything that loses or corrupts data, gives a wrong result, or reports a failure as success is High or worse", r)
+
 if __name__ == "__main__":
     shutil.rmtree(TMP, ignore_errors=True)
     bad = [r for r in RESULTS if not r[1]]
