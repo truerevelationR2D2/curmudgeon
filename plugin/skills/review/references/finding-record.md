@@ -10,12 +10,12 @@ What every reviewer and verifier writes, and how it reads. Reviewers read this f
 - Unsure? Write `q:` and the question. Don't hedge.
 
 ## Finding record (what reviewers write, as JSON)
-A review file is `{"findings": [ ...finding records... ], "set_aside": [ {"file", "line", "what", "guard"} ], "sandbox": [ {"scenario", "happens", "result", "how"} ]}`; `sandbox` holds one line per scenario from `sandbox.md` (result "holds" or the finding's title, how driven or traced), numbered SB1, SB2 ... by the script into `.critic/counts.md`; a plain list of findings is still accepted. `set_aside` lists candidates the reviewer dropped and the guard it relied on: logged in the tally, never counted. `coverage` (`read`, `not_reached`: file paths) is how the script computes the Not reviewed line.
+A review file is `{"findings": [ ...finding records... ], "set_aside": [ {"file", "line", "what", "guard"} ], "sandbox": [ {"scenario", "happens", "result", "how"} ]}`; `sandbox` holds one line per scenario from `sandbox.md` (result "holds" or the finding's title, how driven or traced), numbered SB1, SB2 ... by the script into `.critic/counts.md`; a plain list of findings is still accepted. `impact` is Critical, High, Medium, Low or Nit (`rubrics.md`): a Nit is listed under Nits and never counted, so use it for anything true that is not a failure. `set_aside` lists candidates the reviewer dropped and the guard it relied on: logged in the tally, never counted. `coverage` (`read`, `not_reached`: file paths) is how the script computes the Not reviewed line.
 
 | Field | Meaning |
 | --- | --- |
 | `category` | Short kind of problem: xss, data-loss, race, a11y-focus, domain-leak, claim, ai-tell… |
-| `impact` | Critical, High, Medium or Low (see `rubrics.md`) |
+| `impact` | Critical, High, Medium, Low or Nit (see `rubrics.md`; Nits are listed, never counted) |
 | `file`, `line` | Where. For a UI finding with no line, the file that renders it |
 | `quote` | The code or text, **copied exactly** from the file. The merge script retracts a finding whose quote isn't there |
 | `title` | One line: the problem |

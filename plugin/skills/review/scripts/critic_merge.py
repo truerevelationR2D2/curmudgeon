@@ -38,7 +38,7 @@ apply:
   records every kept finding in the ledger (new, known or regressed)."""
 import hashlib, json, math, os, pathlib, re, subprocess, sys, time
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
-from critic_findings import IMPACTS, extract_findings, norm_code, relocate_quote, fingerprint, quote_check, read_jsonl, refutation_problem, confirmation_problem, security_refutation_problem, similar, log_run, append_line, refuse_linked_state, to_sarif, validate, write_jsonl, tokens, scrub, redact_finding_text, write_manifest, strip_workspace_path, _cites_real_line
+from critic_findings import NIT, IMPACTS, extract_findings, norm_code, relocate_quote, fingerprint, quote_check, read_jsonl, refutation_problem, confirmation_problem, security_refutation_problem, similar, log_run, append_line, refuse_linked_state, to_sarif, validate, write_jsonl, tokens, scrub, redact_finding_text, write_manifest, strip_workspace_path, _cites_real_line
 
 ROOT = pathlib.Path(os.environ.get("CRITIC_ROOT") or re.sub(r"[\\/]\.critic[\\/]scratch(?:[\\/].*)?$", "", os.getcwd()) or os.getcwd()).resolve(); D = ROOT / ".critic"
 
@@ -123,9 +123,9 @@ def memory_note(f, L):
             MEMORY_HITS.append(i + 1); return {"memory": i + 1, "reason": m.get("reason"), "pattern": m.get("pattern"), "dismissed": m.get("count", 3)}
     return None
 
-IMP_RANK = {k: i for i, k in enumerate(IMPACTS)}
+IMP_RANK = {k: i for i, k in enumerate(IMPACTS + (NIT,))}  # a verifier may lower a Low to a Nit (SC-79)
 def median_impact(xs):
-    r = sorted(IMP_RANK[x] for x in xs if x in IMP_RANK)
+    r = sorted(IMP_RANK[x] for x in xs if x in IMP_RANK and x != NIT)
     return IMPACTS[r[len(r) // 2]] if r else "Low"
 
 # A scripted FAIL's impact by rule (it used to be High for every rule). A live credential is Critical; code that runs
@@ -196,7 +196,7 @@ def tally(paths):
     n = len(reviews); need = 1 if n == 1 else math.ceil(2 * n / 3)
     # an outside run we can't see never counts as executed: verification decides
     outside_rows = [dict(r, source="outside", verified=r.get("verified") if r.get("verified") == "inferred" else "traced") for r in load_review(outside)] if outside else []
-    L = ledger(); out = {"reviewers": n, "votes_needed": need, "outside": None, "kept": [], "contested": [], "dropped": [], "retracted": [], "rejected": [], "suppressed": [], "set_aside": set_aside, "sandbox": sandbox, "coverage": coverage_report(coverage)}
+    L = ledger(); out = {"reviewers": n, "votes_needed": need, "outside": None, "kept": [], "contested": [], "dropped": [], "retracted": [], "rejected": [], "suppressed": [], "set_aside": set_aside, "sandbox": sandbox, "nits": [], "coverage": coverage_report(coverage)}
     scanned = scan_rows(scan) if scan else []
     accepted = []  # (raw_id, reviewer_index or None for scan, finding)
     OUTSIDE_RI = len(reviews) + 1
@@ -231,6 +231,9 @@ def tally(paths):
                 f["impact_capped_from"] = f["impact"]; f["impact"] = "Medium"
             s_ = suppressed_by_ledger(f, L)
             if s_: out["suppressed"].append({"finding": f, "why": s_}); continue
+            if f["impact"] == NIT:  # SC-79: listed under Nits, never counted, never voted on, never verified
+                if not any(similar(f, x) for x in out["nits"]): out["nits"].append(f)
+                continue
             note = memory_note(f, L)
             if note: f["memory_note"] = note
             accepted.append((f["raw"], None if is_scan else ri, f))
@@ -279,7 +282,7 @@ def tally(paths):
     clusters = {}
     for r, ri, f in accepted:
         c = clusters.setdefault(find(r), {"members": [], "reviewers": set(), "scan": False, "outside": False})
-        c["members"].append(f)
+        c["members"].append(f); c.setdefault("member_ri", []).append(ri)
         if ri is None: c["scan"] = True
         elif ri == OUTSIDE_RI: c["outside"] = True
         else: c["reviewers"].add(ri)
@@ -302,7 +305,8 @@ def tally(paths):
         human = [x for x in m if x.get("source") not in ("scan", "outside")] or [x for x in m if x.get("source") != "outside"] or m
         best = sorted(human, key=lambda x: (["executed", "traced", "inferred"].index(x["verified"]), IMP_RANK[x["impact"]]))[0]
         theirs = [x["impact"] for x in m if x.get("source") == "outside"]
-        f = dict(best, votes=votes, votes_ours=len(c["reviewers"]), of=of, impact=median_impact([x["impact"] for x in human]), scan_confirmed=bool(c.get("scan")),
+        ran = {ri for ri, x in zip(c.get("member_ri", []), m) if x.get("verified") == "executed" and x.get("quote_checked")}  # our reviewers who ran it and saw it fail
+        f = dict(best, votes=votes, votes_ours=len(c["reviewers"]), executed_by=len(ran), of=of, impact=median_impact([x["impact"] for x in human]), scan_confirmed=bool(c.get("scan")),
                  locations=sorted({f"{x['file']}:{x.get('line', '')}" for x in m}), raised_by=sorted({x["source"] for x in m}))
         if theirs: f["outside_impact"] = theirs[0]  # shown, never used: the outside reviewer's own rating
         if c.get("scan") and best.get("source") != "scan":  # a reviewer restated a scripted row: keep the script's evidence too
@@ -319,7 +323,8 @@ def tally(paths):
     vd = D / "verify"; vd.mkdir(parents=True, exist_ok=True)
     for old in vd.glob("*.json"): old.unlink()
     for f in out["kept"] + out["contested"]:
-        if f["impact"] == "Low" and f.get("votes_ours", f["votes"]) >= need and not f.get("outside_only"): continue  # agreed by OUR reviewers; an outside vote alone never skips verification  # agreed Low findings skip verification to save usage
+        if f["impact"] == "Low" and f.get("votes_ours", f["votes"]) >= need and not f.get("outside_only"): continue  # agreed by OUR reviewers (an outside vote alone never skips verification): agreed Lows skip verification
+        if f.get("executed_by", 0) >= 2 and f["impact"] in ("Medium", "Low") and f in out["kept"] and not f.get("outside_only"): continue  # SC-78: reproduced by two of our reviewers; Critical and High are always verified
         if f.get("raised_by") == ["scan"] and f.get("verified") == "executed" and MEASURED.match(str(f.get("category"))): continue  # a measurement, not an interpretation: nothing to reproduce
         packet = {k: f.get(k) for k in ("id", "category", "impact", "file", "line", "quote", "title", "failing_case", "preconditions", "root_cause") if k in f}
         (vd / f"{f['id']}.json").write_text(json.dumps(scrub(packet), indent=1, ensure_ascii=False))
@@ -444,6 +449,10 @@ def apply(paths):
     for f in final: f["fix"] = fix_status(f)  # SC-37: never offer an empty fix, a no-op fix, or one with unbalanced brackets
     mark_origin(final)
     final = scrub(final); unverified = scrub(unverified)  # a verifier's note can quote a secret too: mask before anything is written
+    lowered = [f for f in final if f["impact"] == NIT]  # a verifier lowered a Low to a Nit: it leaves the counted findings
+    final = [f for f in final if f["impact"] != NIT]
+    nits = list(T.get("nits") or []) + lowered
+    write_jsonl(D / "nits.jsonl", nits)  # SC-79: listed, never counted; the eval still credits a planted bug found here (as an impact miss)
     write_jsonl(D / "findings.jsonl", final)
     write_verifier_log()
     (D / "findings.sarif").write_text(json.dumps(to_sarif(final), indent=1))
@@ -458,6 +467,7 @@ def apply(paths):
     cov = T.get("coverage") or {}
     md += ["", "Not reviewed (computed from the reviewers' coverage reports): " + (", ".join(cov.get("not_reviewed") or []) or "nothing") if cov.get("known")
            else "", "Not reviewed: unknown (no reviewer reported coverage); say so in the teardown." if not cov.get("known") else ""]
+    if nits: md += ["", f"## Nits ({len(nits)}; listed, not counted, not verified, never blocking)"] + [f"- {cell_(f.get('file'))}:{f.get('line', '')} {cell_(f.get('title'))}" for f in nits[:30]] + ([f"- and {len(nits) - 30} more in .critic/nits.jsonl"] if len(nits) > 30 else [])
     sbx = T.get("sandbox") or []
     md += ["", "## Sandbox ledger (copy these lines; cite them as SB ids)", "| SB | Reviewer | Scenario | What happens | Result | How |", "| --- | --- | --- | --- | --- | --- |"] + \
           [f"| {x['id']} | {x['reviewer']} | {cell_(x['scenario'])} | {cell_(x['happens'])} | {cell_(x['result'])} | {x['how']} |" for x in sbx] if sbx else \

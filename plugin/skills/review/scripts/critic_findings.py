@@ -7,7 +7,8 @@ A finding is a dict:
   source (reviewer name, "scan", or a tool), votes (filled by the tally)."""
 import hashlib, json, pathlib, re, subprocess, time, os, sys
 
-IMPACTS = ("Critical", "High", "Medium", "Low")
+IMPACTS = ("Critical", "High", "Medium", "Low")  # the counted levels: the verdict, the ledger and SARIF use only these
+NIT = "Nit"  # SC-79: below Low; listed under Nits, never counted, never verified, never blocking
 VERIFIED = ("executed", "traced", "inferred")
 CODE_EXT = (".js", ".mjs", ".cjs", ".ts", ".jsx", ".tsx", ".py", ".html", ".htm", ".css", ".scss", ".vue", ".svelte", ".go", ".rb", ".php", ".java", ".cs", ".rs", ".sh", ".json", ".md")
 
@@ -114,7 +115,7 @@ def extract_findings(text):
 def validate(f):
     """Return a list of problems with one finding (empty when it meets the contract)."""
     errs = []
-    if f.get("impact") not in IMPACTS: errs.append("impact must be Critical, High, Medium or Low")
+    if f.get("impact") not in IMPACTS + (NIT,): errs.append("impact must be Critical, High, Medium, Low or Nit")
     for k in ("category", "title", "file"):
         if not f.get(k): errs.append(f"missing {k}")
     if f.get("impact") in ("Critical", "High", "Medium"):

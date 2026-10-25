@@ -213,6 +213,14 @@ def score_one(path, suite):
     keyf = HERE / ("answer_key.json" if suite == "1" else f"answer_key{suite}.json")
     if not keyf.exists(): print(f"score.py: no answer key for suite {suite}"); sys.exit(2)
     key = json.loads(keyf.read_text()); review, rows, blocks = load(path)
+    counted_rows = list(rows)  # the contract check (verdict counts) sees counted findings only
+    nf = pathlib.Path(path).parent / "nits.jsonl"  # SC-79: Nits are listed, never counted. A planted bug found only there still
+    first_nit = len(rows)                          # counts as found (an impact miss when it was planted Critical or High),
+    if nf.is_file() and (pathlib.Path(path).parent / "findings.jsonl").is_file():  # and an unmatched Nit is left out of precision
+        for line in nf.read_text().splitlines():
+            if line.strip(): r = json.loads(line); r["impact"] = "Nit"; rows.append(r)
+        blocks = [" ".join(str(r.get(k, "")) for k in ("file", "line", "category", "title", "quote", "evidence", "failing_case", "remediation")) for r in rows]
+    nit_idx = set(range(first_nit, len(rows))) if len(rows) > first_nit else set()
     locs = locs_of(rows, blocks); strict = strict_mode(f"suite{suite}")
     imp = {i: r.get("impact") for i, r in enumerate(rows)} if rows else None
     strict_hits, _ = match_key(key, blocks, locs, imp); loose_hits, _ = match_key(key, blocks, None, imp)
@@ -223,13 +231,13 @@ def score_one(path, suite):
         return f"{rows[bi].get('title', '')} {rows[bi].get('category', '')}" if rows else blocks[bi]
     for name, d in decoys.items():  # decision 36 (Ryan, 24 Oct 2026): a decoy hit points at the decoy's place and makes the decoy's claim
         for bi, b in enumerate(blocks):
-            if bi in used: continue
+            if bi in used or bi in nit_idx: continue  # a Nit is not a claim of a defect
             if d.get("at") and strict and not keymatch.points_at(d, locs[bi]): continue
             c = claim_of(bi) if d.get("at") and strict else b
             if (not d["file"] or d["file"].lower() in (b + " " + locs[bi]).lower()) and any(re.search(p, c, re.I) for p in d["any"]) and re.search(d["categories"], str(rows[bi].get("category", "")) if rows and d.get("at") and strict else b, re.I):  # the finding's own kind (a11y-focus is not perf)
                 decoy_hits.append(name); used.add(bi)
                 decoy_detail.append((name, (rows[bi].get("id"), rows[bi].get("impact"), rows[bi].get("title")) if rows else (None, (re.search(r"\b(Critical|High|Medium|Low)\b", b) or [None, None])[1], b[:80]))); break
-    unmatched = [b for bi, b in enumerate(blocks) if bi not in used and re.search(r"\b(Critical|High|Medium|Low)\b|IMPACT", b) and len(b) > 40] if not rows else [b for bi, b in enumerate(blocks) if bi not in used]
+    unmatched = [b for bi, b in enumerate(blocks) if bi not in used and re.search(r"\b(Critical|High|Medium|Low)\b|IMPACT", b) and len(b) > 40] if not rows else [b for bi, b in enumerate(blocks) if bi not in used and bi not in nit_idx]
     lab = {"real": 0, "hallucinated": 0, "nitpick": 0, "unlabelled": 0}
     for b in unmatched: lab[labels.get(lab_key(b), "unlabelled")] += 1
     tp = len(hits) + lab["real"]; fp = lab["hallucinated"] + lab["nitpick"] + len(decoy_hits)
@@ -238,6 +246,7 @@ def score_one(path, suite):
     by = {}
     hit_idx = set(hits.values()); decoy_idx = {bi for bi in used if bi not in hit_idx}
     for bi, b in enumerate(blocks):
+        if bi in nit_idx and bi not in hit_idx: continue
         # the finding's own category and title decide its kind; the full text is only a fallback
         # the finding's own category decides; the title only when the category names no area; the whole block last
         kind = area_of(str(rows[bi].get("category", ""))) if rows else "other"
@@ -249,7 +258,7 @@ def score_one(path, suite):
             l_ = labels.get(lab_key(b))
             if l_ == "real": by.setdefault(kind, [0, 0])[0] += 1
             elif l_ in ("hallucinated", "nitpick"): by.setdefault(kind, [0, 0])[1] += 1
-    c, stated, actual, verdict = contract(review, rows)
+    c, stated, actual, verdict = contract(review, counted_rows)
     ids = {r.get("id") for r in rows} if rows else set()
     impact_misses = []  # a planted Critical or High that the review rated below Medium
     for name, bi in hits.items():

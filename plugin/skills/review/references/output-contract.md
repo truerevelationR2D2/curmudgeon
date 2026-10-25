@@ -26,6 +26,7 @@ Findings of every impact, worst first.
 - **Evidence:** what was checked and what was seen, with ids (S012 for a scripted row, SB4 for a sandbox line).
 - **Failing case:** the concrete input or sequence, and the wrong result.
 - **Remediation theory:** the structural change in one or two sentences.
+After the Lows, a **Nits** line lists the Nits from `.critic/counts.md` (one short line each, or "none"): true but not failures, never counted in the verdict.
 #### 2. UI/UX & INTERACTION FRICTION
 - **U1** `screen / component` | **IMPACT: High** | **UX flaw:** … then Evidence, Failing case, **Heuristic violated** (named heuristic or WCAG criterion with the right level), Remediation theory.
 #### 3. THE "ANTI-AI" CLEANUP

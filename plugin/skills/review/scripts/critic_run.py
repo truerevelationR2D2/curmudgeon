@@ -12,6 +12,10 @@ usage:
         go in .critic/verdicts/*.json); prints the next agents to start, or that the teardown can be written
   critic_run.py status
         say where the run stands, change nothing
+  critic_run.py early
+        the scripted checks' FAIL rows, as soon as the background scan has written its report (SC-80, fastest results
+        first): show them to the user while the reviewers work; they are scripted, not yet reviewed, and the teardown
+        repeats them. Prints each scan report once; `next` prints it too if nobody has yet
 
 Steps it never takes: starting agents (only the lead can), writing a review or a verdict, or deciding anything a model
 decides. Each script it runs is logged in .critic/runlog.jsonl like any other."""
@@ -20,6 +24,7 @@ import json, os, pathlib, subprocess, sys, re, time
 HERE = pathlib.Path(__file__).resolve().parent
 ROOT = pathlib.Path(os.environ.get("CRITIC_ROOT") or re.sub(r"[\\/]\.critic[\\/]scratch(?:[\\/].*)?$", "", os.getcwd()) or os.getcwd()).resolve(); D = ROOT / ".critic"
 REVIEWERS = {"trivial": ["A"], "lite": ["A"], "full": ["A", "B", "C"]}
+VERIFY_BATCH = 10  # SC-78: packets per verifier agent (5 in 5.0); each packet is still judged on its own
 FORCE = False  # next --apply-now: apply with the verdicts there are (a finding with no verdict stays, at lower confidence)
 
 def sh(script, *a):
@@ -73,6 +78,24 @@ def state():
     if mtime(D / "findings.jsonl") < max([mtime(tally)] + [mtime(v) for v in fresh]): return "apply", L, tier, fresh
     return "teardown", L, tier, []
 
+def early(force=False):
+    """The scan's FAIL rows, once per scan report (SC-80). Returns True when it printed something."""
+    rp = D / "scan" / "report.json"; mark = D / "early-shown"
+    L = ledger(); started = L.get("started_at") or 0
+    if not rp.is_file() or mtime(rp) < started: return False
+    try: shown = float(mark.read_text().strip() or 0)
+    except (OSError, ValueError): shown = 0
+    if not force and shown >= mtime(rp): return False
+    try: j = json.loads(rp.read_text())
+    except (OSError, ValueError): return False
+    fails = [x for x in j.get("findings", []) if x.get("sev") == "FAIL"]
+    deg = j.get("degraded") or []
+    print(f"early results (scripted checks, not yet reviewed; the teardown repeats them): {len(fails)} FAIL" + (f"; could not run: {', '.join(deg)}" if deg else ""))
+    for x in fails[:10]: print(f"  - {x.get('id', '')} {x.get('where', '')}: {x.get('what', '')}")
+    if len(fails) > 10: print(f"  - and {len(fails) - 10} more in .critic/scan/report.md")
+    if not mark.is_symlink(): mark.write_text(str(mtime(rp)) + "\n")
+    return True
+
 def say_next(st, tier, items):
     rel = lambda p: str(p.relative_to(ROOT))
     if st == "reviewing":
@@ -80,11 +103,16 @@ def say_next(st, tier, items):
               + ", ".join(p.stem[-1] for p in items) + ". Give each the text of its brief, unchanged, as its prompt: " + ", ".join(f".critic/briefs/brief-{p.stem[-1]}.md" for p in items) + ". Each writes " + ", ".join(rel(p) for p in items) + ".")
     elif st == "dedup": print(f"next: start curmudgeon:curmudgeon-dedup on {rel(items[0])}; it writes .critic/groups.json. Then run critic_run.py next.")
     elif st == "verify":
-        batches = [items[i:i + 5] for i in range(0, len(items), 5)]
+        batches = [items[i:i + VERIFY_BATCH] for i in range(0, len(items), VERIFY_BATCH)]
         print(f"next: start {len(batches)} curmudgeon:curmudgeon-verifier agent(s), blind, on these packets without a verdict yet (save each agent's ```json verdict list as .critic/verdicts/<n>.json, a new n each time); "
               "then critic_run.py next. If a verifier can't answer, critic_run.py next --apply-now applies what there is (a finding with no verdict stays, at lower confidence):")
         for i, b in enumerate(batches, 1): print(f"  verifier {i}: " + " ".join(rel(p) for p in b))
-    elif st == "teardown": print("next: write the teardown from .critic/counts.md (references/output-contract.md), save .critic/last-review.md, then critic_ledger.py stamp <payload>.")
+    elif st == "teardown":
+        if "skeleton" in os.environ.get("CURMUDGEON_LAB", "").split(","):  # SC-76 lab: the mechanical half is scripted
+            sh("critic_skeleton.py")
+            print("next: copy .critic/teardown-skeleton.md to .critic/last-review.md and fill only its <!-- LEAD: ... --> parts (intent gate, pre-mortem, "
+                  "five fixes, Not checked); everything else is already the output contract's layout, so don't re-read output-contract.md. Then critic_ledger.py stamp <payload>.")
+        else: print("next: write the teardown from .critic/counts.md (references/output-contract.md), save .critic/last-review.md, then critic_ledger.py stamp <payload>.")
     elif st == "idle": print("next: no run is active; critic_run.py begin starts one.")
 
 def main(a):
@@ -128,10 +156,14 @@ def main(a):
         print(f"now, in the background (Bash with run_in_background), while the reviewers work: python3 {HERE / 'critic_scan.py'} . --root .{only} "
               "(add --page <page> for a UI). Reviewers can't read its output (their private copies and the read guard), so it no longer waits for them.")
         st, L, tier, items = state(); say_next(st, tier, items); return 0
+    if cmd == "early":
+        if not early(force=True): print("early results: the scan has not written its report for this run yet")
+        return 0
     if cmd == "status":
         st, L, tier, items = state(); print(f"run {L.get('run', 0)}, tier {tier}, round {L.get('round', 0)}: {st}"); say_next(st, tier, items); return 0
     if cmd == "next":
         global FORCE; FORCE = "--apply-now" in rest
+        early()  # fastest results first: the scan's FAILs as soon as they exist, once
         st, L, tier, items = state()
         letters = [f".critic/reviews/review-{x}.json" for x in REVIEWERS.get(tier, REVIEWERS["full"])]
         for _ in range(4):  # run the scripted steps back to back until one needs an agent (or the teardown)
