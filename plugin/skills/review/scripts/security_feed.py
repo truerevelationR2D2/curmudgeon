@@ -139,16 +139,28 @@ def _log(d, row):
     d.mkdir(parents=True, exist_ok=True)
     with open(d / "feed-log.jsonl", "a", encoding="utf-8") as fh: fh.write(json.dumps(row) + "\n")
 
+PRE = re.compile(r"(?i)^(a|alpha|b|beta|c|rc|pre|preview)$")
 def vkey(v):
-    """A sortable version key: numbers compare as numbers; a pre-release (1.0.0-rc1, 1.0rc1) sorts before its release."""
-    v = str(v).strip().lstrip("vV").split("+", 1)[0]
-    main, _, pre = v.partition("-")
-    m = re.match(r"^([\d.]+)(.*)$", main)
-    if m and m.group(2) and not pre: main, pre = m.group(1), m.group(2)
-    nums = [int(x) for x in main.split(".") if x.isdigit()] if main else [0]
+    """A sortable version key for semver and PEP 440: numbers compare as numbers; an epoch (1!2.0) outranks everything;
+    a dev release sorts before a pre-release, a pre-release (1.0.0-rc1, 1.0rc1) before its release, and a post-release
+    (1.0.post1, 1.0-1, 1.0.r1) after it. Local labels (+abc) are ignored."""
+    v = str(v).strip().lstrip("vV").split("+", 1)[0].lower()
+    epoch = 0
+    if "!" in v:
+        e, _, v = v.partition("!"); epoch = int(e) if e.isdigit() else 0
+    m = re.match(r"^(\d+(?:\.\d+)*)(.*)$", v)
+    if not m: return (epoch, (0,), 1, ())
+    nums = [int(x) for x in m.group(1).split(".")]
     while len(nums) > 1 and nums[-1] == 0: nums.pop()
-    preparts = tuple((0, int(x)) if x.isdigit() else (1, x) for x in re.findall(r"\d+|[A-Za-z]+", pre))
-    return (tuple(nums), 0 if pre else 1, preparts)
+    rest = m.group(2).lstrip(".-_")
+    if not rest: return (epoch, tuple(nums), 2, ())
+    toks = re.findall(r"\d+|[a-z]+", rest)
+    words = [t for t in toks if not t.isdigit()]
+    parts = tuple((0, int(t)) if t.isdigit() else (1, t) for t in toks)
+    if not words or words[0] in ("post", "r", "rev"): phase = 3  # 1.0-1 (PEP 440 implicit post) and 1.0.post1
+    elif words[0] == "dev": phase = 0
+    else: phase = 1  # a pre-release word, or a semver pre-release label of any name
+    return (epoch, tuple(nums), phase, parts)
 
 def affected(version, entry):
     _, versions, ranges, _, _ = entry
@@ -182,18 +194,21 @@ def load_tables(d=None):
     return tabs, kev
 
 def match(pkgs, d=None):
-    """pkgs: (lockfile, ecosystem, name, version, dev) rows from scan_deps. Returns None when there is no local copy or
-    the feed is off; otherwise one row per vulnerable package: (lockfile, eco, name, version, dev, [ids], exploited)."""
+    """pkgs: (lockfile, ecosystem, name, version, dev) rows from scan_deps. Returns None when the feed is off or has no
+    local copy; otherwise (rows, checked, unchecked): one row per vulnerable package, (lockfile, eco, name, version, dev,
+    [ids], exploited), and how many packages were checked and how many could not be (their ecosystem has no readable
+    table). A package is never counted as checked against a table that isn't there."""
     cfg = load_cfg(d)
     if not switched_on(cfg) or not cfg.get("last_update"): return None
     tabs, kev = load_tables(d)
     if not tabs: return None
-    out = []
+    out, checked, unchecked = [], 0, 0
     for lf, eco, name, version, dev in pkgs:
-        key = norm(eco, name)
-        hits = [e for e in tabs.get(eco, {}).get(key, []) if affected(version, e)]
+        if eco not in tabs: unchecked += 1; continue
+        checked += 1
+        hits = [e for e in tabs[eco].get(norm(eco, name), []) if affected(version, e)]
         if hits: out.append((lf, eco, name, version, dev, sorted({e[0] for e in hits}), any(c in kev for e in hits for c in e[3])))
-    return out
+    return out, checked, unchecked
 
 def main(argv):
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0], formatter_class=argparse.RawDescriptionHelpFormatter, epilog=__doc__.split("\n\n", 1)[1])
@@ -206,7 +221,11 @@ def main(argv):
     a = ap.parse_args(argv); cfg = load_cfg()
     if a.cmd == "set":
         cfg.update(asked=now().date().isoformat(), cadence=a.cadence, consent="no" if a.cadence == "off" else "yes")
-        if a.ecosystems: cfg["ecosystems"] = [e for e in a.ecosystems.split(",") if e in ECOSYSTEMS]
+        if a.ecosystems:
+            names = {e.lower(): e for e in ECOSYSTEMS}; asked = [x.strip() for x in a.ecosystems.split(",") if x.strip()]
+            bad = [x for x in asked if x.lower() not in names]
+            if bad or not asked: print(f"security_feed: unknown ecosystem(s) {', '.join(bad) or '(none given)'}; choose from {', '.join(ECOSYSTEMS)}", file=sys.stderr); return 2
+            cfg["ecosystems"] = sorted({names[x.lower()] for x in asked})
         save_cfg(cfg); print(f"feed {'off: nothing will be downloaded' if a.cadence == 'off' else 'on, schedule ' + a.cadence} (saved in {data_dir()})"); return 0
     if a.cmd == "due":
         due, why = is_due(cfg); print(("due: " if due else "not due: ") + why); return 0 if due else 1
@@ -219,11 +238,12 @@ def main(argv):
             if not scan_deps._skip(lf, root): pkgs += [(str(lf.relative_to(root)), *x) for x in scan_deps._lock_npm(lf)]
         for rf in root.rglob("requirements*.txt"):
             if not scan_deps._skip(rf, root): pkgs += [(str(rf.relative_to(root)), *x) for x in scan_deps._reqs(rf)]
-        rows = match(pkgs)
-        if rows is None: print("no local feed copy (the feed is off or has never downloaded)"); return 1
+        got = match(pkgs)
+        if got is None: print("no local feed copy (the feed is off or has never downloaded)"); return 1
+        rows, checked, unchecked = got
         if a.json: print(json.dumps([dict(zip(("lockfile", "ecosystem", "name", "version", "dev", "ids", "exploited"), r)) for r in rows], indent=1))
         else:
-            print(f"{len(pkgs)} packages checked, {len(rows)} vulnerable")
+            print(f"{checked} packages checked, {len(rows)} vulnerable" + (f"; {unchecked} not checked (no local table for their ecosystem)" if unchecked else ""))
             for r in rows: print(f"  {r[2]} {r[3]} ({r[0]}): {', '.join(r[5][:5])}{' EXPLOITED IN THE WILD (CISA KEV)' if r[6] else ''}{' (dev only)' if r[4] else ''}")
         return 0
     due, why = is_due(cfg)

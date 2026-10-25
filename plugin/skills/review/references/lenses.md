@@ -37,3 +37,15 @@ One section per scripted lens. Read only the sections your brief names: the job 
 | Component | Fail condition (what AI code defaults miss) | Inspect | Remediation requirement |
 | --- | --- | --- | --- |
 | Operations | Secrets in logs; DEBUG left on in production settings; alerts with no runbook, or a runbook link to nothing; containers with no probes or limits | Logging calls and what they pass; settings files by environment; alert rules and their annotations; deployment manifests | Log that a secret exists, never its value; per-environment settings with safe defaults; every alert names a runbook that exists; probes and limits set on purpose |
+
+## Secrets and dependencies
+
+| Component | Fail condition (what AI code defaults miss) | Inspect | Remediation requirement |
+| --- | --- | --- | --- |
+| Secrets and dependencies | A key, token or password in code, config, tests or a client bundle; a secret logged or sent to the browser; a dependency at a known vulnerable version, unpinned, installed from a URL, or running an install script nobody checked | Every literal that looks like a credential and where it ends up; the lockfiles against the scan's `deps` rows (with the local security feed, when it is on, a vulnerable version is listed with its advisory ids, and "exploited in the wild" when CISA lists it) | Secrets from the environment or a secret store, never shipped to a client; rotate any that were committed; pin versions in a lockfile; move off vulnerable versions, first those CISA lists as exploited |
+
+## Browser integrity
+
+| Component | Fail condition (what AI code defaults miss) | Inspect | Remediation requirement |
+| --- | --- | --- | --- |
+| Browser integrity | A link whose text shows one address and goes to another; a host that mixes alphabets (a Cyrillic letter in a Latin name); a form or a button's `formaction` that posts over `http` or to another site; a script from another site with no `integrity` hash; a CSP that allows `'unsafe-eval'`, `'unsafe-inline'` without a nonce, or any host; a link, form or script source that changed since the recorded copy | Every `<a>`, `<form>`, `formaction`, `<script src>` and `<iframe>`; the page's own site (canonical, `<base>`, `og:url`); the CSP in meta tags and in `_headers`, `vercel.json`, `netlify.toml`, `nginx.conf`, `.htaccess`. The scan's `integrity` rows point at the mechanical cases | Link text that matches its target; forms posting over HTTPS to the page's own site, or to a named payment provider on purpose; `integrity=` and `crossorigin` on every third-party script; a nonce- or hash-based CSP; a recorded copy refreshed only from a version you trust |

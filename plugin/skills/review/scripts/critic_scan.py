@@ -261,7 +261,8 @@ def static(src, root, excludes):
     lockp = root / ".github" / "workflows" / "actions.lock"
     try: lock_text = lockp.read_text(encoding="utf-8")[:2_000_000] if lockp.is_file() and not lockp.is_symlink() else ""
     except OSError: lock_text = ""
-    integrity_was = scan_integrity.load_baseline(root)  # the recorded copy, if the owner made one (SC-74)
+    integrity_was, why = scan_integrity.load_baseline(root)  # the recorded copy, if the owner made one (SC-74)
+    if why: f("NOTE", "integrity-baseline-unread", "integrity", ".critic/integrity-baseline.json", f"the recorded copy could not be read ({why}): the integrity comparison rules did not run")
     for p in walk(src, excludes):
         try: text = read_text(p)
         except UnicodeDecodeError: NOT_READ.append((p, "not UTF-8 or UTF-16 text")); continue
@@ -727,6 +728,7 @@ def runtime(page, src, root, out, axe_arg, interact, allow_live, baseline=None, 
 def esc_cell(s): return str(s).replace("\\", "\\\\").replace("|", "\\|").replace("\n", " ")
 
 SECURITY_AREAS = {"safety", "deps", "supply-chain", "agent-config", "integrity", "ci"}  # the security scan mode's areas (5.2)
+SECURITY_RULES = {"ops-log-secret", "ops-debug-on"}  # security rows filed under another area
 
 def integrity_record(src, root, excludes):
     """Write the recorded copy the integrity lens compares against: hosts only, one entry per page."""
@@ -739,7 +741,10 @@ def integrity_record(src, root, excludes):
         except (OSError, UnicodeDecodeError): continue
     bp = root / ".critic" / "integrity-baseline.json"; bp.parent.mkdir(parents=True, exist_ok=True)
     if bp.is_symlink(): print("critic_scan: refusing to write through a link at", bp, file=sys.stderr); return 2
-    bp.write_text(json.dumps({"recorded": time.strftime("%Y-%m-%d"), "files": files}, indent=1, sort_keys=True), encoding="utf-8")
+    text = json.dumps({"recorded": time.strftime("%Y-%m-%d"), "files": files}, indent=1, sort_keys=True)
+    if len(text.encode("utf-8")) > scan_integrity.BASELINE_MAX:
+        print(f"critic_scan: the recorded copy would be over {scan_integrity.BASELINE_MAX // 1_000_000} MB, which the scan won't read; record a smaller folder", file=sys.stderr); return 2
+    bp.write_text(text, encoding="utf-8")
     print(f"recorded {len(files)} pages to {bp}"); return 0
 
 def main(argv):
@@ -792,7 +797,7 @@ def main(argv):
     for k in expected:
         if k not in CHECKS: state(k, "blocked", "this check never reported (treated as not run)")
     if a.focus == "security":
-        kept = [x for x in R if x["area"] in SECURITY_AREAS]; dropped = len(R) - len(kept); R[:] = kept
+        kept = [x for x in R if x["area"] in SECURITY_AREAS or x["rule"] in SECURITY_RULES]; dropped = len(R) - len(kept); R[:] = kept
         if dropped: state("focus", "pass", f"security focus: {dropped} row(s) outside the security areas not shown")
     order = {"FAIL": 0, "WARN": 1, "NOTE": 2}; R.sort(key=lambda x: (order[x["sev"]], x["area"], x["where"]))
     for i, x in enumerate(R, 1): x["id"] = f"S{i:03d}"

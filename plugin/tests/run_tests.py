@@ -2985,7 +2985,7 @@ def _(d):
 
 @test("5.2 SC-74: --integrity-record writes hosts only, and a later swap of a link target, a form action or a new script origin fails against it")
 def _(d):
-    page = '<a href="https://help.example.com/">Contact support</a>\n<form action="/pay"></form>\n<script src="https://cdn.example.org/a.js" integrity="sha384-x"></script>\n'
+    page = '<a href="https://help.example.com/">Contact support</a>\n<form action="/pay"></form>\n<script src="https://cdn.example.org/a.js" integrity="sha384-Zm9vYmFyYmF6Zm9vYmFyYmF6Zm9vYmFy"></script>\n'
     write(d, "site/index.html", page)
     r = run(S / "critic_scan.py", ".", "--root", ".", "--integrity-record", cwd=d); assert r.returncode == 0, r.stderr
     rec = json.loads((d / ".critic/integrity-baseline.json").read_text())["files"]["site/index.html"]
@@ -3061,6 +3061,75 @@ def _(d):
     assert any(x["rule"] == "integrity-link-mismatch" for x in rep["findings"])
     out = run(S / "critic_run.py", "begin", "--files", "src/app.js", "--tier", "lite", cwd=d).stdout
     assert not (d / ".critic/focus.json").exists() and "Focus: security" not in (d / ".critic/briefs/brief-A.md").read_text() and "--focus" not in out
+
+def _integrity_rows(d, files, baseline=None):
+    for k, v in files.items(): write(d, k, v)
+    if baseline is not None: write(d, ".critic/integrity-baseline.json", baseline)
+    run(S / "critic_scan.py", ".", "--root", ".", cwd=d)
+    return sorted((x["rule"], x["where"]) for x in json.loads((d / ".critic/scan/report.json").read_text())["findings"] if x["area"] == "integrity")
+
+@test("5.2 self-review: the integrity lens reads URLs as a browser does (user:pass@, tabs), reads formaction and unclosed links, needs a real SRI hash, groups sites right, and reads CSP in every headers file")
+def _(d):
+    page = "\n".join([
+        '<a href="https://bank.example.com:pw@evil.example.net/login">https://bank.example.com/login</a>',
+        '<a href="ht\ttps://evil.example.net/">https://bank.example.com/</a>',
+        '<form action="/pay"><button formaction="http://pay.example.net/c">Pay</button></form>',
+        '<script src="https://cdn.example.org/a.js" integrity=""></script>',
+        '<a href="https://www.gov.uk/">gov.uk</a>',
+        '<a href="https://evil.github.io/">mybank.github.io</a>',
+        '<a href="https://münchen.de/">münchen.de</a>',
+        '<meta http-equiv="Content-Security-Policy" content="script-src \'nonce-r4nd0m\' \'strict-dynamic\' \'unsafe-inline\' https:">',
+        '<meta http-equiv="Content-Security-Policy" content="script-src \'nonce-r4nd0m\' \'unsafe-eval\'">',
+        '<p><a href="https://evil.example.net/">https://bank.example.com/</p>'])
+    rows = _integrity_rows(d, {"site/p.html": page, "site/nginx.conf": "add_header Content-Security-Policy \"default-src 'self'; script-src *\";\n",
+        "site/.htaccess": "Header set Content-Security-Policy \"script-src 'unsafe-inline'\"\n", "site/netlify.toml": "[[headers]]\n  [headers.values]\n    Content-Security-Policy = \"script-src *\"\n",
+        "site/vercel.json": '{"headers": [{"source": "/(.*)", "headers": [{"key": "Content-Security-Policy",\n "value": "script-src \'unsafe-eval\'"}]}]}\n'})
+    want = [("integrity-csp-weak", "site/.htaccess:1"), ("integrity-csp-weak", "site/netlify.toml:3"), ("integrity-csp-weak", "site/nginx.conf:1"), ("integrity-csp-weak", "site/p.html:9"), ("integrity-csp-weak", "site/vercel.json:2"),
+            ("integrity-form-insecure", "site/p.html:3"), ("integrity-link-mismatch", "site/p.html:1"), ("integrity-link-mismatch", "site/p.html:10"), ("integrity-link-mismatch", "site/p.html:2"),
+            ("integrity-link-mismatch", "site/p.html:6"), ("integrity-script-no-sri", "site/p.html:4")]
+    assert rows == want, rows
+
+@test("5.2 self-review: the recorded copy catches a form added to a formless page and a link whose label and target both changed, ignores a relative address written out in full, and says when it can't be read")
+def _(d):
+    old = '<link rel="canonical" href="https://shop.example.com/">\n<a href="https://help.example.com/">Help</a>\n<script src="/app.js"></script>\n'
+    write(d, "site/p.html", old); assert run(S / "critic_scan.py", ".", "--root", ".", "--integrity-record", cwd=d).returncode == 0
+    same = old.replace('"/app.js"', '"https://shop.example.com/app.js"')
+    assert _integrity_rows(d, {"site/p.html": same}) == [], "the page's own site written out in full is not a change"
+    new = old.replace('<a href="https://help.example.com/">Help</a>', '<a href="https://help.example.net/">Support</a>') + '<form action="https://pay.example.net/c"></form>\n'
+    rows = _integrity_rows(d, {"site/p.html": new})
+    assert ("integrity-changed", "site/p.html:2") in rows and ("integrity-changed", "site/p.html:4") in rows, rows
+    rows = _integrity_rows(d, {"site/p.html": new}, baseline="{not json")
+    assert ("integrity-baseline-unread", ".critic/integrity-baseline.json") in rows and not any(r[0] == "integrity-changed" for r in rows), rows
+
+@test("5.2 self-review: the feed never counts a package as checked when its ecosystem has no table, takes ecosystem names in any case, refuses a non-HTTPS source, stays silent when off even with tables on disk, and orders PEP 440 versions")
+def _(d):
+    rec = {"id": "GHSA-lp", "affected": [{"package": {"ecosystem": "npm", "name": "left-pad"}, "versions": ["1.1.0"]}]}
+    env = _feed_mirror(d, [rec], []); F = S / "security_feed.py"
+    assert run(F, "set", "--cadence", "weekly", "--ecosystems", "NPM", cwd=d, env=env).returncode == 0
+    assert json.loads((d / "feed/feed.json").read_text())["ecosystems"] == ["npm"]
+    assert run(F, "set", "--cadence", "weekly", "--ecosystems", "cargo", cwd=d, env=env).returncode == 2
+    assert run(F, "update", cwd=d, env=env).returncode == 0 and not (d / "feed/osv-PyPI.json").exists()
+    write(d, "p/package.json", "{}"); write(d, "p/package-lock.json", json.dumps({"packages": {"node_modules/left-pad": {"version": "1.1.0"}}})); write(d, "p/requirements.txt", "django==3.2.0\n")
+    run(S / "critic_scan.py", ".", "--root", ".", cwd=d / "p", env=env)
+    rep = json.loads((d / "p/.critic/scan/report.json").read_text())
+    assert any(x["rule"] == "deps-feed-gap" and "1 package" in x["what"] for x in rep["findings"]), rep["findings"]
+    assert "1 of 2 packages checked" in rep["checks"]["deps"]["note"], rep["checks"]["deps"]
+    r = run(F, "update", "--force", cwd=d, env=dict(env, CURMUDGEON_FEED_KEV="http://example.com/kev.json")); assert r.returncode == 1 and "non-HTTPS" in r.stdout, r.stdout
+    run(F, "set", "--cadence", "off", cwd=d, env=env)
+    assert run(F, "match", str(d / "p"), cwd=d, env=env).returncode == 1, "off means no feed check, even with tables on disk"
+    sys.path.insert(0, str(S)); import importlib, security_feed; importlib.reload(security_feed); k = security_feed.vkey
+    assert k("1.0.dev1") < k("1.0a1") < k("1.0rc1") < k("1.0") < k("1.0.post1") < k("1.0.1") and k("1!0.5") > k("9.9") and k("1.0-1") > k("1.0")
+
+@test("5.2 self-review: security focus keeps secrets written to logs and DEBUG in production, and every lens it names has a lenses.md section")
+def _(d):
+    write(d, "app/auth.py", "import logging\nlog = logging.getLogger(__name__)\ndef login(user, password):\n    log.info('login %s %s', user, password)\n")
+    write(d, "app/settings/production.py", "DEBUG = True\n")
+    run(S / "critic_scan.py", ".", "--root", ".", "--focus", "security", cwd=d)
+    rules = {x["rule"] for x in json.loads((d / ".critic/scan/report.json").read_text())["findings"]}
+    assert {"ops-log-secret", "ops-debug-on"} <= rules, rules
+    sections = set(re.findall(r"(?m)^## (.+)$", (S.parent / "references/lenses.md").read_text()))
+    sys.path.insert(0, str(S)); import importlib, critic_plan; importlib.reload(critic_plan)
+    for x in critic_plan.SECURITY_LENSES + ["browser integrity", "tests of the tests"]: assert x[0].upper() + x[1:] in sections, x
 
 @test("decision 39: a clean-twin BLOCK fails the gate only when no Critical or High in that run is labelled a real bug")
 def _(d):

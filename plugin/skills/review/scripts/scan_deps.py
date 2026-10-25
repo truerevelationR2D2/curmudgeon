@@ -133,15 +133,17 @@ def scan(root, emit, online=False, state=None):
         return
     if not online:
         try:
-            import security_feed; rows = security_feed.match(pkgs); cfg = security_feed.load_cfg()
-        except Exception: rows = None
-        if rows is None:
+            import security_feed; got = security_feed.match(pkgs); cfg = security_feed.load_cfg()
+        except Exception: got = None
+        if got is None:
             if state: state("deps", "pass", f"{len(pkgs)} pinned packages; vulnerability lookup off (use --online, or switch on the local security feed)")
             return
+        rows, checked, unchecked = got
+        if unchecked: emit("NOTE", "deps-feed-gap", "deps", "lockfiles", f"{unchecked} package(s) were not checked: the local security feed has no readable table for their ecosystem (run security_feed.py update, or add the ecosystem)", "")
         for lf, eco, n, v, dev, ids, exploited in rows:  # SC-75: the local feed copy; nothing about the project left the machine
             sev = "FAIL" if exploited and not dev else "NOTE" if dev else "WARN"
             emit(sev, "deps-vulnerable", "deps", str(lf.relative_to(root)), f"{n} {v} has known vulnerabilities: {', '.join(ids[:5])}{' — exploited in the wild (CISA KEV)' if exploited else ''}{' (dev only)' if dev else ''}", "")
-        if state: state("deps", "fail" if rows else "pass", f"{len(pkgs)} packages checked against the local security feed of {str(cfg.get('last_update', ''))[:10]} (nothing sent), {len(rows)} vulnerable")
+        if state: state("deps", "fail" if rows else "pass", f"{checked} of {len(pkgs)} packages checked against the local security feed of {str(cfg.get('last_update', ''))[:10]} (nothing sent), {len(rows)} vulnerable" + (f"; {unchecked} not checked (no table for their ecosystem)" if unchecked else ""))
         return
     if not pkgs:
         if state: state("deps", "pass", "no pinned versions to look up")

@@ -15,7 +15,7 @@ import json, os, pathlib, re, statistics, sys
 
 ROOT = pathlib.Path(os.environ.get("CRITIC_ROOT") or re.sub(r"[\\/]\.critic[\\/]scratch(?:[\\/].*)?$", "", os.getcwd()) or os.getcwd()).resolve(); D = ROOT / ".critic"
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
-import scan_tests, scan_ci, scan_agentcfg, scan_migrations, scan_reqs
+import scan_tests, scan_ci, scan_agentcfg, scan_migrations, scan_reqs, scan_integrity
 
 UI = {".html", ".htm", ".jsx", ".tsx", ".vue", ".svelte", ".css", ".scss"}
 CODE = {".py", ".js", ".mjs", ".cjs", ".ts", ".jsx", ".tsx", ".go", ".rs", ".java", ".rb", ".php", ".cs", ".kt", ".swift", ".vue", ".svelte"}
@@ -37,6 +37,7 @@ def lenses_for(files):
     if any(scan_agentcfg.wants(f) for f in files): out.append("agent and MCP configuration")
     if any(scan_migrations.wants(f) for f in files): out.append("release and rollback")
     if any(re.search(r"(?i)settings|config|alert|k8s|deploy|helm|logging", f) for f in files): out.append("operations")
+    if any(scan_integrity.wants(f) for f in files): out.append("browser integrity")
     texts = []
     for f in files:
         if scan_reqs.is_doc(f):
@@ -56,7 +57,7 @@ def history():
         by.setdefault(r.get("role", "?"), []).append(tot)
     return {k: int(statistics.median(v)) for k, v in by.items() if v}
 
-SECURITY_LENSES = ["secrets", "dependencies (with the local security feed when switched on)", "CI and supply chain", "agent and MCP configuration", "browser integrity"]
+SECURITY_LENSES = ["secrets and dependencies", "CI and supply chain", "agent and MCP configuration", "browser integrity", "operations"]  # each names a lenses.md section
 
 def focus():
     try: return json.loads((D / "focus.json").read_text()).get("focus") if (D / "focus.json").is_file() and not (D / "focus.json").is_symlink() else None
@@ -86,7 +87,7 @@ def plan(forced=None):
     else: p["expected_tokens"] = None; p["expected_basis"] = "no recorded runs yet: the first run's cost is measured, not guessed"
     if docs_only: p["note"] = "a document doesn't need the full code sweep: one reviewer and the claims check"
     if focus() == "security":  # the security scan mode (5.2): same panel size as the tier, security lenses and focus only
-        p["focus"] = "security"; p["lenses"] = SECURITY_LENSES
+        p["focus"] = "security"; p["lenses"] = (["tests of the tests"] if "tests of the tests" in p["lenses"] else []) + SECURITY_LENSES
         p["checks"] = ["scripted security checks (critic_scan.py --focus security)", "the security feed: status, and an update when switched on and due"]
         p.pop("note", None)
     return p

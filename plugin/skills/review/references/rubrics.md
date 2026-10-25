@@ -22,7 +22,7 @@ When two findings share a score, the more likely one goes first. If you can't na
 | **Domain leaks** | Business rules (pricing, tax, permissions, eligibility) written inside render code, handlers or components; I/O inside view functions; the same rule computed in two places | Arithmetic and conditionals on money, roles or status inside UI files | Move the rule to one pure, named function or domain object with its own test; the view only displays the result |
 | Secrets and trust boundaries | Keys, tokens or passwords in client code or the repo; the client trusted to enforce limits | Any string that looks like a credential; any check that only the browser performs | Secrets live on a server; the server enforces; rotate anything already shipped |
 
-Rows for the scripted lenses (tests of the tests, CI and supply chain, agent and MCP configuration, release and rollback, requirements and intent, operations) are in `lenses.md`; your brief names the sections that apply to this payload.
+Rows for the scripted lenses (tests of the tests, CI and supply chain, agent and MCP configuration, release and rollback, requirements and intent, operations, secrets and dependencies, browser integrity) are in `lenses.md`; your brief names the sections that apply to this payload.
 
 ## Rubric 2: design (interface payloads only; your brief says when)
 | Element | AI laziness pattern | Standard | Remediation requirement |
