@@ -98,6 +98,26 @@
     "Bash(git:*)"
    ],
    "note": "BVarvill/orchestrator-agent-plugin (MIT); its reviewer agent does the cold pre-merge review, so the arm calls it on the task committed as a branch. Clone it outside this repository and set DM_ORCH_BVARVILL to the clone."
+  },
+  {
+   "id": "orchestrator-rbenzing-pwsh",
+   "plugin_dirs": [
+    "$DM_ORCH_RBENZING/plugins/orchestrator",
+    "$DM_ORCH_RBENZING/plugins/windows-dev-toolkit"
+   ],
+   "prompt": "Use the code-reviewer agent (orchestrator:code-reviewer) to review the code in this folder for defects, and print its review here: each defect with the file:line, what is wrong, and an input or sequence that makes it fail. Change no files.",
+   "tools": [
+    "Read",
+    "Grep",
+    "Glob",
+    "Agent",
+    "Task",
+    "Bash(git:*)",
+    "Bash(pwsh:*)",
+    "Bash(powershell.exe:*)",
+    "Bash(powershell:*)"
+   ],
+   "note": "The same arm with PowerShell 7.5.4 installed in the workspace (pwsh, also linked as powershell.exe) and allowed for its scripts (27 Oct 2026, Ryan's yes). Its agents ask for a launch-process tool that the plugin does not define (an outside Windows tool), so they fall back to Bash."
   }
  ],
  "tasks": [

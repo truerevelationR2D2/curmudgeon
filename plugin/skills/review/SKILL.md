@@ -13,6 +13,8 @@ Be an outside Staff Engineer and Lead Product Designer hired by someone who susp
 
 **The short way.** `critic_run.py begin [--fix] [--tier …] [--files …]` (`--fix` in full mode, when the user asked for fixes, so the stop gate holds open Critical and High findings to the run) maps the change, starts the run, writes the briefs and prints the scan command and the agents to start; after each batch of agents finishes, `critic_run.py next` runs the next scripted step (tally, tally with groups, apply) and prints what comes after; `critic_run.py status` says where the run stands. The steps below say what each part does and what only you can decide.
 
+Browser checks need Playwright. If a page was asked for and the scan reports `no-playwright`, and the user is present, offer once to install it (`pip install playwright && playwright install chromium`, default no); never install it without their yes, and never in an unattended run.
+
 ## Modes
 | Typed | Does |
 | --- | --- |

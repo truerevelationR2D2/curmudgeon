@@ -524,7 +524,7 @@ def runtime(page, src, root, out, axe_arg, interact, allow_live, baseline=None, 
     try: from playwright.sync_api import sync_playwright
     except ImportError:
         for k in names: state(k, "unavailable", "Playwright not installed")
-        f("WARN", "no-playwright", "runtime", "setup", "Playwright not installed: runtime checks unavailable; mark runtime findings [UNCERTAIN RISK]"); return {}
+        f("WARN", "no-playwright", "runtime", "setup", "Playwright not installed: runtime checks unavailable; mark runtime findings [UNCERTAIN RISK]. To enable them: pip install playwright && playwright install chromium (offer it to the user; never install without their yes)"); return {}
     stats, srv = {}, None
     import safe_web
     if re.match(r"^https?://", page): url = page; origin = re.match(r"^(https?://[^/]+)", page).group(1); allowed = [safe_web.host_port(page)]

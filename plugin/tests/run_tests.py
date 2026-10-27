@@ -3196,6 +3196,14 @@ def _(d):
     (d / DB).unlink(); (d / DB).symlink_to(d / "elsewhere.sqlite")
     r = run(F, "update", "--force", cwd=d, env=env); assert r.returncode == 1 and "link" in r.stdout and not (d / "elsewhere.sqlite").exists(), r.stdout
 
+@test("5.2: without Playwright, the page check names the install command and says to offer it, never to install it unasked")
+def _(d):
+    write(d, "stub/playwright/__init__.py", "raise ImportError('no playwright here')\n"); write(d, "index.html", "<!doctype html><title>x</title><p>hi</p>\n")
+    run(S / "critic_scan.py", ".", "--root", ".", "--page", "index.html", cwd=d, env={"PYTHONPATH": str(d / "stub")})
+    row = [x for x in json.loads((d / ".critic/scan/report.json").read_text())["findings"] if x["rule"] == "no-playwright"]
+    assert row and "pip install playwright && playwright install chromium" in row[0]["what"] and "never install without their yes" in row[0]["what"], row
+    assert "offer once to install it" in (S.parent / "SKILL.md").read_text()
+
 @test("5.2 self-review: security focus keeps secrets written to logs and DEBUG in production, and every lens it names has a lenses.md section")
 def _(d):
     write(d, "app/auth.py", "import logging\nlog = logging.getLogger(__name__)\ndef login(user, password):\n    log.info('login %s %s', user, password)\n")
