@@ -238,6 +238,14 @@ Cost: $1.01 a run for 4.2.2, $1.33 for 5.0.0 (the whole session, lead and agents
 | Claude Code's built-in `/code-review` | 44 of 147 (30%) | 4 | 59% | $0.10 |
 | Semgrep (its own rules) | 6 of 147 (4%) | 39 | 30% | $0 |
 
+**Against two orchestration plugins** (death match, 27 October 2026, Curmudgeon 5.2, the same tasks and method; details in `eval/deathmatch-2026-10-27.md`):
+
+| Reviewer | Planted bugs found | Wrong findings | Real share of all findings | Cost per run |
+|---|---|---|---|---|
+| Curmudgeon 5.2 | **130 of 147 (88%)** | **1** | **87%** | $1.52 |
+| BVarvill orchestrator-agent-plugin (its reviewer agent) | 84 of 147 (57%) | 8 | 69% | $0.13 |
+| rbenzing Orchestrator (its code-reviewer agent) | 83 of 147 (56%) | 51 | 71% | $0.21 |
+
 Version 4.0.0, measured on 18 October 2026 with a looser scorer, for the record: notes app 16/16 found, 96% real (27 of 28); orders dashboard 27/27, 95% (35 of 37); decoy app 2/2 with no decoy at Medium or above, but only 30% of its findings real (3 decoys and several true-but-trivial nitpicks flagged at Low).
 
 In that 4.0.0 run, after the fix stage, the fixed apps passed 9 of 9 and 12 of 13 browser behaviour tests. The miss was an animation that ignores the reduced-motion setting.
