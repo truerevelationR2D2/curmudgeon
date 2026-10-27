@@ -1,0 +1,50 @@
+{
+ "about": "How Curmudgeon builds its local security database (SC-75, rulings 03 §5.38 and §5.40). Every install builds it from these rules, so two installs that build on the same day hold the same data. security_feed.py reads this file; nothing here is code.",
+ "schema": 1,
+ "database_file": "curmudgeon-security.sqlite",
+ "sources": [
+  {"id": "osv-npm", "kind": "osv-zip", "ecosystem": "npm", "url": "https://storage.googleapis.com/osv-vulnerabilities/npm/all.zip",
+   "what": "known vulnerable npm package versions (OSV.dev bulk export)", "licence": "per original source; GitHub Advisory Database records are CC-BY 4.0 (credit: GitHub, Inc.)"},
+  {"id": "osv-pypi", "kind": "osv-zip", "ecosystem": "PyPI", "url": "https://storage.googleapis.com/osv-vulnerabilities/PyPI/all.zip",
+   "what": "known vulnerable PyPI package versions (OSV.dev bulk export)", "licence": "per original source; GitHub Advisory Database records are CC-BY 4.0 (credit: GitHub, Inc.)"},
+  {"id": "cisa-kev", "kind": "kev-json", "ecosystem": null, "url": "https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json",
+   "what": "the global list: CVEs CISA has seen exploited in the wild", "licence": "CC0 1.0 (https://www.cisa.gov/sites/default/files/licenses/kev/license.txt)"}
+ ],
+ "always": ["cisa-kev"],
+ "build": {
+  "keep": "for each OSV record that is not withdrawn: its id, modified time, CVE aliases, a 160-character summary, and for each affected package in the chosen ecosystem its name (PyPI names in PEP 503 form), its explicit version list and its SEMVER and ECOSYSTEM ranges; for the CISA list: each CVE id and the date CISA added it",
+  "drop": "everything else in the records: descriptions, references, credits, database_specific and ecosystem_specific fields, GIT ranges",
+  "compression": "each advisory's kept fields are stored as one zlib-compressed JSON blob at level 9; names and CVE ids are stored plain so they can be indexed",
+  "tables": {
+   "meta": "key, value: schema, rules hash, built time, source sizes",
+   "advisory": "id, ecosystem, modified, blob",
+   "package": "ecosystem, name, advisory_id (indexed on ecosystem and name)",
+   "alias": "advisory_id, cve (indexed on cve)",
+   "kev": "cve, date_added",
+   "download": "time, source id, url, bytes, sha256"
+  },
+  "write": "the new database is built beside the old one under a temporary name and swapped in only after every check passes; the old copy is kept on any failure"
+ },
+ "estimate": {
+  "method": "a size-only HEAD request to each chosen source (Content-Length), which sends nothing about the user's project; the estimated database size is each download's size times its ratio below, plus the fixed overhead",
+  "ratio": {"osv-zip": 1.1, "kev-json": 0.3},
+  "overhead_bytes": 262144,
+  "ratio_note": "upper bounds until a real build is measured: the kept fields are a subset of the zipped records and are compressed again, so the database should be smaller than the zip. After each build the measured ratio is saved and used for the next estimate.",
+  "stop_over_signed_off": 1.25
+ },
+ "checks": [
+  "HTTPS only, certificate checked",
+  "each download under its size limit (osv-zip 400 MB, kev-json 50 MB)",
+  "the zip passes its own CRC test",
+  "every record parses as JSON and has an id",
+  "a new copy may not hold fewer than half the records of the last one",
+  "the SHA-256 of every download is recorded in the download table and in feed-log.jsonl",
+  "the estimated database size may not exceed 1.25 times the size the user signed off on"
+ ],
+ "matching": {
+  "found": "a locked package version is vulnerable when it is in an advisory's explicit version list, or inside one of its ranges (introduced <= version < fixed, or <= last_affected)",
+  "global_check": "every match is then checked against the CISA list through the advisory's CVE aliases: a match CISA lists as exploited in the wild is a FAIL (a NOTE for a dev-only package); any other match is a WARN (a NOTE for a dev-only package)",
+  "coverage": "a package whose ecosystem is not in the database is never counted as checked; the scan says how many were not checked"
+ },
+ "limits": {"osv-zip": 419430400, "kev-json": 52428800, "record": 2097152}
+}

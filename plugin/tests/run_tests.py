@@ -3004,24 +3004,35 @@ def _feed_mirror(d, npm_records, kev_cves):
         with zipfile.ZipFile(d / "mirror" / eco / "all.zip", "w") as z:
             for r in recs: z.writestr(r["id"] + ".json", json.dumps(r))
     write(d, "mirror/kev.json", json.dumps({"vulnerabilities": [{"cveID": c} for c in kev_cves]}))
+    (d / "db").mkdir(exist_ok=True)
     return {"CURMUDGEON_FEED_DIR": str(d / "feed"), "CURMUDGEON_FEED_OSV": (d / "mirror").as_uri(), "CURMUDGEON_FEED_KEV": (d / "mirror/kev.json").as_uri()}
+
+def _feed_on(d, env, cadence="weekly", *extra):
+    """The setup the lead runs: estimate in the chosen folder, then sign off on that figure."""
+    F = S / "security_feed.py"
+    r = run(F, "estimate", "--folder", str(d / "db"), "--json", *extra, cwd=d, env=env); assert r.returncode == 0, r.stdout + r.stderr
+    est = json.loads(r.stdout)["estimate_bytes"]
+    r = run(F, "set", "--cadence", cadence, "--folder", str(d / "db"), "--signed-off", str(est), *extra, cwd=d, env=env); assert r.returncode == 0, r.stdout + r.stderr
+    return est
+
+DB = "db/curmudgeon-security.sqlite"
 
 @test("5.2 SC-75: the security feed downloads nothing until switched on, and off never downloads")
 def _(d):
     env = _feed_mirror(d, [{"id": "GHSA-1", "affected": []}], [])
     F = S / "security_feed.py"
-    r = run(F, "update", cwd=d, env=env); assert r.returncode == 3 and "off" in r.stdout and not (d / "feed/osv-npm.json").exists(), r.stdout
+    r = run(F, "update", cwd=d, env=env); assert r.returncode == 3 and "off" in r.stdout and not (d / DB).exists(), r.stdout
     assert run(F, "due", cwd=d, env=env).returncode == 1
     run(F, "set", "--cadence", "off", cwd=d, env=env)
-    r = run(F, "update", "--force", cwd=d, env=env); assert r.returncode == 3 and not (d / "feed/osv-npm.json").exists()
+    r = run(F, "update", "--force", cwd=d, env=env); assert r.returncode == 3 and not (d / DB).exists()
     assert json.loads((d / "feed/feed.json").read_text())["consent"] == "no"
 
-@test("5.2 SC-75: with the feed on, lockfiles are checked locally; a CISA KEV CVE makes it a FAIL, a range and an exact version both match, and a fixed version does not")
+@test("5.2 SC-75: with the feed on, lockfiles are checked against the local database; a CISA KEV CVE makes it a FAIL, a range and an exact version both match, and a fixed version does not")
 def _(d):
     rec = {"id": "GHSA-lp", "aliases": ["CVE-2099-0001"], "summary": "bad pad", "affected": [{"package": {"ecosystem": "npm", "name": "left-pad"}, "ranges": [{"type": "SEMVER", "events": [{"introduced": "0"}, {"fixed": "1.3.0"}]}]}]}
     env = _feed_mirror(d, [rec], ["CVE-2099-0001"]); F = S / "security_feed.py"
-    run(F, "set", "--cadence", "weekly", cwd=d, env=env)
-    r = run(F, "update", cwd=d, env=env); assert r.returncode == 0 and "npm 1" in r.stdout, r.stdout + r.stderr
+    _feed_on(d, env)
+    r = run(F, "update", cwd=d, env=env); assert r.returncode == 0 and "npm 1" in r.stdout and (d / DB).is_file(), r.stdout + r.stderr
     assert json.loads((d / "feed/feed-log.jsonl").read_text().splitlines()[-1])["downloads"][0]["sha256"]
     assert run(F, "due", cwd=d, env=env).returncode == 1, "just updated: not due for a week"
     lock = {"lockfileVersion": 3, "packages": {"": {}, "node_modules/left-pad": {"version": "1.1.0"}, "node_modules/safe": {"version": "1.3.0"}}}
@@ -3032,26 +3043,42 @@ def _(d):
     assert got == {("FAIL", "left-pad 1.1.0"), ("WARN", "django 3.2.0")}, got
     sys.path.insert(0, str(S)); import importlib, security_feed; importlib.reload(security_feed)
     assert security_feed.vkey("1.0.0-rc1") < security_feed.vkey("1.0.0") < security_feed.vkey("1.10") and security_feed.vkey("1.9") < security_feed.vkey("1.10")
-    assert not security_feed.affected("1.3.0", ["x", [], [["SEMVER", [["introduced", "0"], ["fixed", "1.3.0"]]]], [], ""])
+    assert not security_feed.affected("1.3.0", ([], [["SEMVER", [["introduced", "0"], ["fixed", "1.3.0"]]]]))
 
-@test("5.2 SC-75: a damaged or shrunken download keeps the old copy")
+@test("5.2 SC-75: a damaged or shrunken download keeps the old database")
 def _(d):
     rec = lambda i: {"id": f"GHSA-{i}", "affected": [{"package": {"ecosystem": "npm", "name": f"p{i}"}, "versions": ["1.0.0"]}]}
     env = _feed_mirror(d, [rec(i) for i in range(10)], []); F = S / "security_feed.py"
-    run(F, "set", "--cadence", "daily", cwd=d, env=env); assert run(F, "update", cwd=d, env=env).returncode == 0
-    before = (d / "feed/osv-npm.json").read_text()
+    _feed_on(d, env, "daily"); assert run(F, "update", cwd=d, env=env).returncode == 0
+    before = (d / DB).read_bytes()
     _feed_mirror(d, [rec(1)], [])
     r = run(F, "update", "--force", cwd=d, env=env); assert r.returncode == 1 and "lost over half" in r.stdout, r.stdout
     (d / "mirror/npm/all.zip").write_bytes(b"not a zip")
     r = run(F, "update", "--force", cwd=d, env=env); assert r.returncode == 1 and "old copy is kept" in r.stdout
-    assert (d / "feed/osv-npm.json").read_text() == before
+    assert (d / DB).read_bytes() == before and not list((d / "db").glob(".building-*"))
+
+@test("5.2 §5.40: the database is built only in a folder the user chose, after a size estimate they signed off on; a bigger download stops and asks again; no window means ask instead")
+def _(d):
+    rec = {"id": "GHSA-1", "summary": "x" * 100, "affected": [{"package": {"ecosystem": "npm", "name": "a"}, "versions": ["1.0.0"]}]}
+    env = _feed_mirror(d, [rec], []); F = S / "security_feed.py"
+    r = run(F, "set", "--cadence", "weekly", cwd=d, env=env); assert r.returncode == 2 and "--folder" in r.stderr, "switching on needs a folder and a signed-off size"
+    assert run(F, "estimate", "--folder", "relative/dir", cwd=d, env=env).returncode == 2
+    r = run(F, "estimate", "--folder", str(d / "db"), cwd=d, env=env); assert r.returncode == 0 and "estimated database size: about" in r.stdout and "--signed-off" in r.stdout, r.stdout
+    est = _feed_on(d, env)
+    import zipfile
+    with zipfile.ZipFile(d / "mirror/npm/all.zip", "w", zipfile.ZIP_STORED) as z: z.writestr("big.json", json.dumps(dict(rec, id="GHSA-2", details="y" * (est * 2))))
+    r = run(F, "update", cwd=d, env=env); assert r.returncode == 5 and "signed off" in r.stdout and not (d / DB).exists(), r.stdout
+    assert {p.name for p in (d / "feed").iterdir()} <= {"feed.json", "feed-log.jsonl"}, "settings only in the plugin's data folder; the database goes where the user chose"
+    r = run(F, "pick-folder", cwd=d, env=dict(env, DISPLAY="", WAYLAND_DISPLAY="")); assert r.returncode == 4 and r.stdout.startswith("NO_WINDOW"), r.stdout
+    rules = json.loads((S.parent / "references/feed-rules.json").read_text())
+    assert {s["id"] for s in rules["sources"]} == {"osv-npm", "osv-pypi", "cisa-kev"} and rules["always"] == ["cisa-kev"] and rules["estimate"]["stop_over_signed_off"] == 1.25
 
 @test("5.2 security scan mode: begin --security keeps the tier's panel, focuses the briefs and plan on security, runs the scan with --focus security, asks about the feed only through the lead, and a plain run drops the focus")
 def _(d):
     write(d, "src/app.js", APP); write(d, "src/page.html", '<div style="color:red">x</div>\n<a href="https://bank.example.net/">bank.example.com</a>\n')
     out = run(S / "critic_run.py", "begin", "--security", "--files", "src/app.js", "src/page.html", "--tier", "full", cwd=d).stdout
     assert "security scan, full tier" in out and "A, B, C" in out and "--focus security" in out, out
-    assert "security feed: off" in out and "set --cadence" in out and "Unattended: don't ask" in out, out
+    assert "security feed: off" in out and "pick-folder" in out and "--signed-off" in out and "never ask unattended" in out, out
     assert not (d / "feed").exists() and not (pathlib.Path(TMP) / "no-feed" / "feed.json").exists(), "begin never switches the feed on"
     assert all("Focus: security" in (d / f".critic/briefs/brief-{x}.md").read_text() for x in "ABC")
     assert "browser integrity" in json.loads((d / ".critic/plan.json").read_text())["lenses"]
@@ -3101,14 +3128,14 @@ def _(d):
     rows = _integrity_rows(d, {"site/p.html": new}, baseline="{not json")
     assert ("integrity-baseline-unread", ".critic/integrity-baseline.json") in rows and not any(r[0] == "integrity-changed" for r in rows), rows
 
-@test("5.2 self-review: the feed never counts a package as checked when its ecosystem has no table, takes ecosystem names in any case, refuses a non-HTTPS source, stays silent when off even with tables on disk, and orders PEP 440 versions")
+@test("5.2 self-review: the feed never counts a package as checked when its ecosystem is not in the database, takes ecosystem names in any case, refuses a non-HTTPS source, stays silent when off even with a database on disk, and orders PEP 440 versions")
 def _(d):
     rec = {"id": "GHSA-lp", "affected": [{"package": {"ecosystem": "npm", "name": "left-pad"}, "versions": ["1.1.0"]}]}
     env = _feed_mirror(d, [rec], []); F = S / "security_feed.py"
-    assert run(F, "set", "--cadence", "weekly", "--ecosystems", "NPM", cwd=d, env=env).returncode == 0
+    _feed_on(d, env, "weekly", "--ecosystems", "NPM")
     assert json.loads((d / "feed/feed.json").read_text())["ecosystems"] == ["npm"]
-    assert run(F, "set", "--cadence", "weekly", "--ecosystems", "cargo", cwd=d, env=env).returncode == 2
-    assert run(F, "update", cwd=d, env=env).returncode == 0 and not (d / "feed/osv-PyPI.json").exists()
+    assert run(F, "set", "--cadence", "weekly", "--folder", str(d / "db"), "--signed-off", "999999", "--ecosystems", "cargo", cwd=d, env=env).returncode == 2
+    assert run(F, "update", cwd=d, env=env).returncode == 0
     write(d, "p/package.json", "{}"); write(d, "p/package-lock.json", json.dumps({"packages": {"node_modules/left-pad": {"version": "1.1.0"}}})); write(d, "p/requirements.txt", "django==3.2.0\n")
     run(S / "critic_scan.py", ".", "--root", ".", cwd=d / "p", env=env)
     rep = json.loads((d / "p/.critic/scan/report.json").read_text())
@@ -3116,7 +3143,7 @@ def _(d):
     assert "1 of 2 packages checked" in rep["checks"]["deps"]["note"], rep["checks"]["deps"]
     r = run(F, "update", "--force", cwd=d, env=dict(env, CURMUDGEON_FEED_KEV="http://example.com/kev.json")); assert r.returncode == 1 and "non-HTTPS" in r.stdout, r.stdout
     run(F, "set", "--cadence", "off", cwd=d, env=env)
-    assert run(F, "match", str(d / "p"), cwd=d, env=env).returncode == 1, "off means no feed check, even with tables on disk"
+    assert run(F, "match", str(d / "p"), cwd=d, env=env).returncode == 1, "off means no feed check, even with a database on disk"
     sys.path.insert(0, str(S)); import importlib, security_feed; importlib.reload(security_feed); k = security_feed.vkey
     assert k("1.0.dev1") < k("1.0a1") < k("1.0rc1") < k("1.0") < k("1.0.post1") < k("1.0.1") and k("1!0.5") > k("9.9") and k("1.0-1") > k("1.0")
 

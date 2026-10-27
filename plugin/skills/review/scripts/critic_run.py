@@ -158,9 +158,13 @@ def main(a):
         if security:
             r = subprocess.run([sys.executable, str(HERE / "security_feed.py"), "status"], capture_output=True, text=True)
             print(r.stdout.strip().splitlines()[0] if r.stdout.strip() else "security feed: status unreadable")
-            print(f"  feed step: if it says never switched on and the user is present, ask once (default off): \"Keep a local copy of public vulnerability data "
-                  f"(OSV, CISA KEV) so dependency checks send nothing about your project? Schedule: daily, weekly, biweekly, monthly or off.\" Record the answer with "
-                  f"python3 {HERE / 'security_feed.py'} set --cadence <answer>. Unattended: don't ask; it stays off. If it is on and due: python3 {HERE / 'security_feed.py'} update")
+            print(f"  feed step (03 §5.38, §5.40), only if it says never switched on and the user is present; never ask unattended (it stays off): "
+                  f"1. ask once, default off: \"Build a local security database (OSV and CISA's exploited list) so dependency checks send nothing about your project?\" No: python3 {HERE / 'security_feed.py'} set --cadence off. "
+                  f"2. python3 {HERE / 'security_feed.py'} pick-folder opens a folder window (prints the path; NO_WINDOW means ask for the full path instead). "
+                  f"3. python3 {HERE / 'security_feed.py'} estimate --folder <folder> (a size-only request to each source) and show the user the estimate. "
+                  f"4. ask them to sign off on that size and pick a schedule (daily, weekly, biweekly, monthly). "
+                  f"5. python3 {HERE / 'security_feed.py'} set --cadence <schedule> --folder <folder> --signed-off <bytes>, then python3 {HERE / 'security_feed.py'} update. "
+                  f"If it is already on and due: python3 {HERE / 'security_feed.py'} update (exit 5 means the database grew past the signed-off size: show the new estimate and ask again)")
             only += " --focus security"
         print(f"now, in the background (Bash with run_in_background), while the reviewers work: python3 {HERE / 'critic_scan.py'} . --root .{only} "
               "(add --page <page> for a UI). Reviewers can't read its output (their private copies and the read guard), so it no longer waits for them.")
