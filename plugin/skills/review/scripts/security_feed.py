@@ -26,7 +26,7 @@ usage:
   security_feed.py due                     exit 0 when an update is due, 1 when not (or off)
   security_feed.py update [--force]        download, check and build; refuses unless switched on
   security_feed.py match ROOT [--json]     check ROOT's lockfiles against the local database (no network)"""
-import argparse, datetime as dt, hashlib, io, json, os, pathlib, platform, re, shutil, sqlite3, subprocess, sys, tempfile, urllib.request, zipfile, zlib
+import argparse, datetime as dt, hashlib, io, json, os, pathlib, platform, re, shlex, shutil, sqlite3, subprocess, sys, tempfile, urllib.request, zipfile, zlib
 
 HERE = pathlib.Path(__file__).resolve().parent
 RULES_PATH = HERE.parent / "references" / "feed-rules.json"
@@ -73,8 +73,11 @@ def is_due(cfg, at=None):
     if not switched_on(cfg): return False, "the feed is off" if cfg.get("asked") else "never switched on (the first security scan asks)"
     last = cfg.get("last_update")
     if not last: return True, "switched on and never built"
-    try: age = (at or now()) - dt.datetime.fromisoformat(last)
-    except ValueError: return True, "the last-update time is unreadable"
+    try:
+        when = dt.datetime.fromisoformat(last)
+        if when.tzinfo is None: when = when.replace(tzinfo=dt.timezone.utc)  # a hand-edited time with no zone counts as UTC
+        age = (at or now()) - when
+    except (ValueError, TypeError): return True, "the last-update time is unreadable"
     return (age >= dt.timedelta(days=CADENCE_DAYS[cfg["cadence"]]), f"last update {age.days} day(s) ago; schedule {cfg['cadence']}")
 
 def source_url(src):
@@ -186,9 +189,14 @@ CREATE TABLE kev(cve TEXT PRIMARY KEY, date_added TEXT);
 CREATE TABLE download(time TEXT, source TEXT, url TEXT, bytes INTEGER, sha256 TEXT);
 """
 
+def ro_uri(path):
+    """A read-only SQLite URI; the path is percent-encoded, so '#', '?' or '%' in a folder name can't cut it short."""
+    return pathlib.Path(path).resolve().as_uri() + "?mode=ro"
+
 def old_counts(path):
+    if not pathlib.Path(path).is_file(): return {}
     try:
-        with sqlite3.connect(f"file:{path}?mode=ro", uri=True) as c:
+        with sqlite3.connect(ro_uri(path), uri=True) as c:
             n = {e: k for e, k in c.execute("SELECT ecosystem, COUNT(*) FROM advisory GROUP BY ecosystem")}
             n["kev"] = c.execute("SELECT COUNT(*) FROM kev").fetchone()[0]
             return n
@@ -213,7 +221,7 @@ def update(cfg, d=None, force=False):
         for s in srcs:
             url = source_url(s); blob = fetch(url, R["limits"][s["kind"]])
             log.append({"source": s["id"], "url": url, "bytes": len(blob), "sha256": hashlib.sha256(blob).hexdigest()}); blobs[s["id"]] = blob
-        fd, tmp = tempfile.mkstemp(dir=folder, prefix=".building-", suffix=".sqlite"); os.close(fd); tmp = pathlib.Path(tmp)
+        fd, tmp = tempfile.mkstemp(dir=folder, prefix=".building-", suffix=".sqlite"); os.close(fd); tmp = pathlib.Path(tmp); c = None
         try:
             c = sqlite3.connect(tmp); c.executescript(SCHEMA); counts = {}
             for s in srcs:
@@ -232,11 +240,12 @@ def update(cfg, d=None, force=False):
             t = now().isoformat()
             c.executemany("INSERT INTO download VALUES (?,?,?,?,?)", [(t, x["source"], x["url"], x["bytes"], x["sha256"]) for x in log])
             c.executemany("INSERT INTO meta VALUES (?,?)", [("schema", str(R["schema"])), ("rules_hash", rules_hash()), ("built", t), ("counts", json.dumps(counts))])
-            c.commit(); c.execute("VACUUM"); c.close()
+            c.commit(); c.execute("VACUUM"); c.close(); c = None
             got = tmp.stat().st_size
             if got > cap: raise ValueError(f"the built database is {human(got)}, over 1.25 times the {human(int(cfg['signed_off_bytes']))} signed off on")
             os.replace(tmp, dst)
         finally:
+            if c is not None: c.close()  # Windows can't delete a file SQLite still holds open
             if tmp.exists(): tmp.unlink()
     except Exception as e:
         _log(d, {"at": now().isoformat(), "ok": False, "error": f"{type(e).__name__}: {str(e)[:200]}", "downloads": log})
@@ -252,7 +261,7 @@ def _log(d, row):
     d.mkdir(parents=True, exist_ok=True)
     with open(d / "feed-log.jsonl", "a", encoding="utf-8") as fh: fh.write(json.dumps(row) + "\n")
 
-def vkey(v):
+def vkey(v, eco=None):
     """A sortable version key for semver and PEP 440: numbers compare as numbers; an epoch (1!2.0) outranks everything;
     a dev release sorts before a pre-release, a pre-release (1.0.0-rc1, 1.0rc1) before its release, and a post-release
     (1.0.post1, 1.0-1, 1.0.r1) after it. Local labels (+abc) are ignored."""
@@ -264,8 +273,10 @@ def vkey(v):
     if not m: return (epoch, (0,), 1, ())
     nums = [int(x) for x in m.group(1).split(".")]
     while len(nums) > 1 and nums[-1] == 0: nums.pop()
-    rest = m.group(2).lstrip(".-_")
+    raw = m.group(2); rest = raw.lstrip(".-_")
     if not rest: return (epoch, tuple(nums), 2, ())
+    if eco == "npm":  # semver: anything after '-' is a pre-release, numeric or not (2.0.0-0 < 2.0.0)
+        return (epoch, tuple(nums), 1 if raw.startswith("-") else 2, tuple((0, int(t)) if t.isdigit() else (1, t) for t in re.findall(r"\d+|[a-z]+", rest)))
     toks = re.findall(r"\d+|[a-z]+", rest)
     words = [t for t in toks if not t.isdigit()]
     parts = tuple((0, int(t)) if t.isdigit() else (1, t) for t in toks)
@@ -274,49 +285,52 @@ def vkey(v):
     else: phase = 1  # a pre-release word, or a semver pre-release label of any name
     return (epoch, tuple(nums), phase, parts)
 
-def affected(version, entry):
-    """entry: (versions, ranges) for one package in one advisory."""
+def affected(version, entry, eco=None):
+    """entry: (versions, ranges) for one package in one advisory; eco picks the version rules (npm: semver)."""
     versions, ranges = entry
     if version in versions: return True
-    v = vkey(version)
+    k = lambda x: vkey(x, eco)
+    v = k(version)
     for _, events in ranges:
         lo = None
-        for k, val in events:
-            if k == "introduced": lo = vkey(val)
-            elif k in ("fixed", "limit") and lo is not None:
-                if lo <= v < vkey(val): return True
+        for kind, val in events:
+            if kind == "introduced": lo = k(val)
+            elif kind in ("fixed", "limit") and lo is not None:
+                if lo <= v < k(val): return True
                 lo = None
-            elif k == "last_affected" and lo is not None:
-                if lo <= v <= vkey(val): return True
+            elif kind == "last_affected" and lo is not None:
+                if lo <= v <= k(val): return True
                 lo = None
         if lo is not None and v >= lo: return True  # introduced with no fix yet
     return False
 
 def match(pkgs, d=None):
-    """pkgs: (lockfile, ecosystem, name, version, dev) rows from scan_deps. Returns None when the feed is off or has no
-    database; otherwise (rows, checked, unchecked): one row per vulnerable package, (lockfile, eco, name, version, dev,
-    [ids], exploited), and how many packages were checked and how many could not be (their ecosystem isn't in the
-    database). A package is never counted as checked against data that isn't there."""
+    """pkgs: (lockfile, ecosystem, name, version, dev) rows from scan_deps. Returns None only when the feed is off or has
+    never built. Otherwise (rows, checked, unchecked, problem): one row per vulnerable package, (lockfile, eco, name,
+    version, dev, [ids], exploited); how many packages were checked and how many could not be (their ecosystem isn't
+    in the database); and why the database couldn't be read at all (missing, moved, a link, damaged), else None. A
+    package is never counted as checked against data that isn't there."""
     cfg = load_cfg(d)
     if not switched_on(cfg) or not cfg.get("last_update"): return None
     p = db_path(cfg)
-    if not p.is_file() or p.is_symlink(): return None
+    if p.is_symlink() or not p.is_file(): return [], 0, len(pkgs), f"the database is missing from {p.parent} (moved or deleted?)"
     try:
-        c = sqlite3.connect(f"file:{p}?mode=ro", uri=True)
-        have = {e for (e,) in c.execute("SELECT DISTINCT ecosystem FROM advisory")} | set((json.loads((c.execute("SELECT value FROM meta WHERE key='counts'").fetchone() or ["{}"])[0])).keys())
-        out, checked, unchecked = [], 0, 0
-        for lf, eco, name, version, dev in pkgs:
-            if eco not in have: unchecked += 1; continue
-            checked += 1; ids, exploited = [], False
-            for aid, blob in c.execute("SELECT a.id, a.blob FROM package p JOIN advisory a ON a.id = p.advisory_id AND a.ecosystem = p.ecosystem WHERE p.ecosystem=? AND p.name=?", (eco, norm(eco, name))):
-                data = json.loads(zlib.decompress(blob))
-                if any(affected(version, (vs, rg)) for n, vs, rg in data["packages"] if n == norm(eco, name)):
-                    ids.append(aid)
-                    exploited = exploited or c.execute("SELECT 1 FROM alias JOIN kev ON kev.cve = alias.cve WHERE alias.advisory_id=? LIMIT 1", (aid,)).fetchone() is not None
-            if ids: out.append((lf, eco, name, version, dev, sorted(set(ids)), exploited))
-        c.close()
-    except (sqlite3.Error, zlib.error, ValueError): return None
-    return out, checked, unchecked
+        c = sqlite3.connect(ro_uri(p), uri=True)
+        try:
+            have = {e for (e,) in c.execute("SELECT DISTINCT ecosystem FROM advisory")} | set((json.loads((c.execute("SELECT value FROM meta WHERE key='counts'").fetchone() or ["{}"])[0])).keys())
+            out, checked, unchecked = [], 0, 0
+            for lf, eco, name, version, dev in pkgs:
+                if eco not in have: unchecked += 1; continue
+                checked += 1; ids, exploited = [], False
+                for aid, blob in c.execute("SELECT a.id, a.blob FROM package p JOIN advisory a ON a.id = p.advisory_id AND a.ecosystem = p.ecosystem WHERE p.ecosystem=? AND p.name=?", (eco, norm(eco, name))):
+                    data = json.loads(zlib.decompress(blob))
+                    if any(affected(version, (vs, rg), eco) for n, vs, rg in data["packages"] if n == norm(eco, name)):
+                        ids.append(aid)
+                        exploited = exploited or c.execute("SELECT 1 FROM alias JOIN kev ON kev.cve = alias.cve WHERE alias.advisory_id=? LIMIT 1", (aid,)).fetchone() is not None
+                if ids: out.append((lf, eco, name, version, dev, sorted(set(ids)), exploited))
+        finally: c.close()
+    except (sqlite3.Error, zlib.error, ValueError) as e: return [], 0, len(pkgs), f"the database at {p} can't be read ({type(e).__name__}); run security_feed.py update"
+    return out, checked, unchecked, None
 
 def main(argv):
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0], formatter_class=argparse.RawDescriptionHelpFormatter, epilog=__doc__.split("\n\n", 1)[1])
@@ -350,7 +364,7 @@ def main(argv):
         if a.json: print(json.dumps({"folder": str(folder), "estimate_bytes": total, "free_bytes": free, "sources": rows}, indent=1))
         else:
             print(f"estimated database size: about {human(total)} in {folder} ({human(free)} free); downloads: " + ", ".join(f"{r['source']} {human(r['download_bytes'])}" for r in rows))
-            print(f"sign off with: set --cadence <schedule> --folder {folder} --signed-off {total}")
+            print(f"sign off with: set --cadence <schedule> --folder {shlex.quote(str(folder))} --signed-off {total}" + (f" --ecosystems {','.join(ecos)}" if ecos else ""))
         return 0
     if a.cmd == "set":
         if a.cadence == "off":
@@ -361,6 +375,8 @@ def main(argv):
         if bad: print(f"security_feed: {bad}", file=sys.stderr); return 2
         ecos, err = parse_ecos(a.ecosystems)
         if err: print(f"security_feed: {err}", file=sys.stderr); return 2
+        if cfg.get("folder") and pathlib.Path(cfg["folder"]) != folder:
+            for k in ("last_update", "counts", "database_bytes"): cfg.pop(k, None)  # a new folder has no database yet: build it on the next update
         cfg.update(asked=now().date().isoformat(), cadence=a.cadence, consent="yes", folder=str(folder), signed_off_bytes=int(a.signed_off))
         if ecos: cfg["ecosystems"] = ecos
         save_cfg(cfg); print(f"feed on, schedule {a.cadence}, database in {folder}, signed off at {human(int(a.signed_off))}"); return 0
@@ -377,7 +393,8 @@ def main(argv):
             if not scan_deps._skip(rf, root): pkgs += [(str(rf.relative_to(root)), *x) for x in scan_deps._reqs(rf)]
         got = match(pkgs)
         if got is None: print("no local security database (the feed is off or has never built)"); return 1
-        rows, checked, unchecked = got
+        rows, checked, unchecked, problem = got
+        if problem: print(f"security_feed: {problem}", file=sys.stderr); return 3
         if a.json: print(json.dumps([dict(zip(("lockfile", "ecosystem", "name", "version", "dev", "ids", "exploited"), r)) for r in rows], indent=1))
         else:
             print(f"{checked} packages checked, {len(rows)} vulnerable" + (f"; {unchecked} not checked (their ecosystem isn't in the database)" if unchecked else ""))

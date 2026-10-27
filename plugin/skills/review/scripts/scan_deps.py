@@ -138,7 +138,11 @@ def scan(root, emit, online=False, state=None):
         if got is None:
             if state: state("deps", "pass", f"{len(pkgs)} pinned packages; vulnerability lookup off (use --online, or switch on the local security feed)")
             return
-        rows, checked, unchecked = got
+        rows, checked, unchecked, problem = got
+        if problem:  # switched on but unreadable: never reported as a pass with the lookup off
+            emit("WARN", "deps-feed-unreadable", "deps", "lockfiles", f"the local security database could not be read: {problem}; no package was checked against it", "")
+            if state: state("deps", "blocked", f"the local security database could not be read ({problem}); {len(pkgs)} packages not checked")
+            return
         if unchecked: emit("NOTE", "deps-feed-gap", "deps", "lockfiles", f"{unchecked} package(s) were not checked: the local security feed has no readable table for their ecosystem (run security_feed.py update, or add the ecosystem)", "")
         for lf, eco, n, v, dev, ids, exploited in rows:  # SC-75: the local feed copy; nothing about the project left the machine
             sev = "FAIL" if exploited and not dev else "NOTE" if dev else "WARN"

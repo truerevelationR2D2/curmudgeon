@@ -3147,6 +3147,55 @@ def _(d):
     sys.path.insert(0, str(S)); import importlib, security_feed; importlib.reload(security_feed); k = security_feed.vkey
     assert k("1.0.dev1") < k("1.0a1") < k("1.0rc1") < k("1.0") < k("1.0.post1") < k("1.0.1") and k("1!0.5") > k("9.9") and k("1.0-1") > k("1.0")
 
+@test("5.2 database self-review: the sign-off line keeps the ecosystems and quotes the folder; a '#' folder is read; a missing database is a WARN, not a pass; a moved folder rebuilds; npm pre-releases sort before their release; a zone-less time doesn't crash")
+def _(d):
+    rec = {"id": "GHSA-lp", "aliases": ["CVE-2099-0001"], "affected": [{"package": {"ecosystem": "npm", "name": "left-pad"}, "versions": ["1.1.0"]},
+           {"package": {"ecosystem": "npm", "name": "pre"}, "ranges": [{"type": "SEMVER", "events": [{"introduced": "2.0.0-0"}, {"fixed": "2.0.0"}]}]}]}
+    env = _feed_mirror(d, [rec], ["CVE-2099-0001"]); F = S / "security_feed.py"
+    odd = d / "Security #2 50%"; odd.mkdir()
+    r = run(F, "estimate", "--folder", str(odd), "--ecosystems", "npm", cwd=d, env=env)
+    line = [x for x in r.stdout.splitlines() if x.startswith("sign off with:")][0]
+    assert "--ecosystems npm" in line and f"'{odd}'" in line, line
+    est = int(line.split("--signed-off ")[1].split()[0])
+    assert run(F, "set", "--cadence", "weekly", "--folder", str(odd), "--signed-off", str(est), "--ecosystems", "npm", cwd=d, env=env).returncode == 0
+    assert run(F, "update", cwd=d, env=env).returncode == 0
+    write(d, "p/package.json", "{}"); write(d, "p/package-lock.json", json.dumps({"packages": {"node_modules/left-pad": {"version": "1.1.0"}, "node_modules/pre": {"version": "2.0.0-1"}}}))
+    r = run(F, "match", str(d / "p"), "--json", cwd=d, env=env); assert r.returncode == 0, r.stdout + r.stderr
+    assert sorted((x["name"], x["exploited"]) for x in json.loads(r.stdout)) == [("left-pad", True), ("pre", True)], r.stdout
+    assert not list(d.glob("Security *")) or [x.name for x in d.glob("Security *")] == [odd.name], "no stray file from a cut-short path"
+    (odd / "curmudgeon-security.sqlite").rename(d / "moved.sqlite")
+    run(S / "critic_scan.py", ".", "--root", ".", cwd=d / "p", env=env)
+    rep = json.loads((d / "p/.critic/scan/report.json").read_text())
+    assert any(x["rule"] == "deps-feed-unreadable" for x in rep["findings"]) and rep["checks"]["deps"]["state"] == "blocked", rep["checks"]["deps"]
+    (d / "db2").mkdir(); run(F, "set", "--cadence", "weekly", "--folder", str(d / "db2"), "--signed-off", str(est), cwd=d, env=env)
+    assert run(F, "due", cwd=d, env=env).returncode == 0, "a new folder has no database yet, so it is due"
+    cfg = json.loads((d / "feed/feed.json").read_text()); cfg["last_update"] = "2026-10-01"; (d / "feed/feed.json").write_text(json.dumps(cfg))
+    r = run(F, "due", cwd=d, env=env); assert r.returncode == 0 and "Traceback" not in r.stderr, r.stderr
+
+@test("5.2 database self-review: each download check stands in for a signature and has a test: a bad CRC, a record with no id, a CISA list that lost over half, an over-size download, a linked folder and a linked database file")
+def _(d):
+    import zipfile
+    rec = lambda i: {"id": f"GHSA-{i}", "affected": [{"package": {"ecosystem": "npm", "name": f"p{i}"}, "versions": ["1.0.0"]}]}
+    env = _feed_mirror(d, [rec(i) for i in range(4)], [f"CVE-2099-{i:04d}" for i in range(10)]); F = S / "security_feed.py"
+    _feed_on(d, env, "daily"); assert run(F, "update", cwd=d, env=env).returncode == 0
+    before = (d / DB).read_bytes()
+    def fails(why):
+        r = run(F, "update", "--force", cwd=d, env=env); assert r.returncode == 1 and why in r.stdout and (d / DB).read_bytes() == before, r.stdout
+    z = d / "mirror/npm/all.zip"; good = z.read_bytes()
+    with zipfile.ZipFile(z, "w", zipfile.ZIP_STORED) as zz: zz.writestr("GHSA-x.json", json.dumps(rec(9)) + " " * 50)
+    b = bytearray(z.read_bytes()); i = b.find(b'"GHSA-9"'); b[i + 2] ^= 1; z.write_bytes(bytes(b)); fails("damaged")
+    with zipfile.ZipFile(z, "w") as zz: zz.writestr("a.json", json.dumps({"affected": []}))
+    fails("has no id")
+    z.write_bytes(good); write(d, "mirror/kev.json", json.dumps({"vulnerabilities": [{"cveID": "CVE-2099-0001"}]})); fails("CISA: 1 entries against 10")
+    write(d, "mirror/kev.json", json.dumps({"vulnerabilities": [{"cveID": f"CVE-2099-{i:04d}"} for i in range(10)]}))
+    sys.path.insert(0, str(S)); import importlib, security_feed; importlib.reload(security_feed)
+    try: security_feed.fetch((d / "mirror/kev.json").as_uri(), 10); assert False, "over the limit must be refused"
+    except ValueError as e: assert "limit" in str(e)
+    (d / "real").mkdir(); (d / "linked").symlink_to(d / "real")
+    assert run(F, "estimate", "--folder", str(d / "linked"), cwd=d, env=env).returncode == 2
+    (d / DB).unlink(); (d / DB).symlink_to(d / "elsewhere.sqlite")
+    r = run(F, "update", "--force", cwd=d, env=env); assert r.returncode == 1 and "link" in r.stdout and not (d / "elsewhere.sqlite").exists(), r.stdout
+
 @test("5.2 self-review: security focus keeps secrets written to logs and DEBUG in production, and every lens it names has a lenses.md section")
 def _(d):
     write(d, "app/auth.py", "import logging\nlog = logging.getLogger(__name__)\ndef login(user, password):\n    log.info('login %s %s', user, password)\n")
