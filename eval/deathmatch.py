@@ -182,7 +182,7 @@ def one_run(a, w, td, model):
     if model: cmd += ["--model", model]
     if a.get("plugin"): cmd += ["--plugin-dir", str(PLUGIN)]
     for pd in a.get("plugin_dirs") or []:  # another plugin under test, kept outside this repository (its own licence); $VARS from the environment
-        d = pathlib.Path(os.path.expandvars(pd))
+        d = pathlib.Path(os.path.expandvars(pd)).resolve()  # absolute: claude runs in the task's temporary folder
         if not (d / ".claude-plugin").is_dir() and not (d / "agents").is_dir() and not (d / "skills").is_dir(): return {"error": f"plugin folder not found: {d} (set its variable; nothing is installed for you)"}
         cmd += ["--plugin-dir", str(d)]
     keep = set(a.get("plugin_enable") or [])

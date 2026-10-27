@@ -2,7 +2,7 @@
 Offline: unpinned or wildcard versions, git/URL dependencies, install-time scripts, packages listed twice.
 Online (--online): asks the free public OSV database (api.osv.dev) about the exact versions in lockfiles. When the
 network is blocked the check reports "unavailable"; it never guesses."""
-import json, pathlib, re, urllib.request
+import json, pathlib, re, sys, urllib.request
 from critic_findings import log_run
 
 def _lock_npm(p):
@@ -133,8 +133,9 @@ def scan(root, emit, online=False, state=None):
         return
     if not online:
         try:
-            import security_feed; got = security_feed.match(pkgs); cfg = security_feed.load_cfg()
-        except Exception: got = None
+            import security_feed; cfg = security_feed.load_cfg(); got = security_feed.match(pkgs)
+        except Exception as e:  # never a silent pass when the user switched the feed on
+            got = ([], 0, len(pkgs), f"the feed check failed ({type(e).__name__})") if "security_feed" in sys.modules and security_feed.switched_on(cfg) else None
         if got is None:
             if state: state("deps", "pass", f"{len(pkgs)} pinned packages; vulnerability lookup off (use --online, or switch on the local security feed)")
             return

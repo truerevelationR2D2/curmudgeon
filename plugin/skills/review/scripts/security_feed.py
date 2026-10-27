@@ -74,6 +74,10 @@ def is_due(cfg, at=None):
     last = cfg.get("last_update")
     if not last: return True, "switched on and never built"
     try:
+        if not db_path(cfg).is_file(): return True, "the database is missing from its folder"
+    except OSError: return True, "the database folder can't be read"
+    if not db_readable(db_path(cfg)): return True, "the database can't be read (damaged?)"
+    try:
         when = dt.datetime.fromisoformat(last)
         if when.tzinfo is None: when = when.replace(tzinfo=dt.timezone.utc)  # a hand-edited time with no zone counts as UTC
         age = (at or now()) - when
@@ -191,7 +195,19 @@ CREATE TABLE download(time TEXT, source TEXT, url TEXT, bytes INTEGER, sha256 TE
 
 def ro_uri(path):
     """A read-only SQLite URI; the path is percent-encoded, so '#', '?' or '%' in a folder name can't cut it short."""
-    return pathlib.Path(path).resolve().as_uri() + "?mode=ro"
+    return sqlite_uri(pathlib.Path(path).resolve().as_uri())
+
+def sqlite_uri(file_uri):
+    """SQLite takes no host in a file: URI, so a Windows network share (file://server/share/...) is written with the
+    host in the path (file:////server/share/...), which SQLite passes on as \\\\server\\share."""
+    m = re.match(r"^file://([^/]+)(/.*)$", file_uri)
+    return (f"file:////{m.group(1)}{m.group(2)}" if m else file_uri) + "?mode=ro"
+
+def db_readable(path):
+    try:
+        with sqlite3.connect(ro_uri(path), uri=True) as c: c.execute("SELECT value FROM meta WHERE key='schema'").fetchone()
+        return True
+    except (sqlite3.Error, OSError): return False
 
 def old_counts(path):
     if not pathlib.Path(path).is_file(): return {}
@@ -275,8 +291,11 @@ def vkey(v, eco=None):
     while len(nums) > 1 and nums[-1] == 0: nums.pop()
     raw = m.group(2); rest = raw.lstrip(".-_")
     if not rest: return (epoch, tuple(nums), 2, ())
-    if eco == "npm":  # semver: anything after '-' is a pre-release, numeric or not (2.0.0-0 < 2.0.0)
-        return (epoch, tuple(nums), 1 if raw.startswith("-") else 2, tuple((0, int(t)) if t.isdigit() else (1, t) for t in re.findall(r"\d+|[a-z]+", rest)))
+    if eco == "npm":  # semver 2.0.0 §11: anything after '-' is a pre-release (2.0.0-0 < 2.0.0); its dot-separated identifiers
+        # compare one by one, numbers as numbers, other identifiers as text (so beta11 < beta2), numbers before text,
+        # and a shorter list first when the rest is equal
+        if not raw.startswith("-"): return (epoch, tuple(nums), 2, ())
+        return (epoch, tuple(nums), 1, tuple((0, int(t)) if t.isdigit() else (1, t) for t in raw[1:].split(".")))
     toks = re.findall(r"\d+|[a-z]+", rest)
     words = [t for t in toks if not t.isdigit()]
     parts = tuple((0, int(t)) if t.isdigit() else (1, t) for t in toks)
@@ -311,9 +330,13 @@ def match(pkgs, d=None):
     in the database); and why the database couldn't be read at all (missing, moved, a link, damaged), else None. A
     package is never counted as checked against data that isn't there."""
     cfg = load_cfg(d)
-    if not switched_on(cfg) or not cfg.get("last_update"): return None
+    if not switched_on(cfg): return None
+    if not cfg.get("last_update"): return [], 0, len(pkgs), "the feed is on but its database has never been built; run security_feed.py update"
     p = db_path(cfg)
-    if p.is_symlink() or not p.is_file(): return [], 0, len(pkgs), f"the database is missing from {p.parent} (moved or deleted?)"
+    try:
+        if p.is_symlink(): return [], 0, len(pkgs), f"the database at {p} is a link, which is never followed; rebuild it with security_feed.py update --force"
+        if not p.is_file(): return [], 0, len(pkgs), f"the database is missing from {p.parent} (moved or deleted?); run security_feed.py update"
+    except OSError as e: return [], 0, len(pkgs), f"the database folder {p.parent} can't be read ({type(e).__name__})"
     try:
         c = sqlite3.connect(ro_uri(p), uri=True)
         try:
@@ -329,7 +352,7 @@ def match(pkgs, d=None):
                         exploited = exploited or c.execute("SELECT 1 FROM alias JOIN kev ON kev.cve = alias.cve WHERE alias.advisory_id=? LIMIT 1", (aid,)).fetchone() is not None
                 if ids: out.append((lf, eco, name, version, dev, sorted(set(ids)), exploited))
         finally: c.close()
-    except (sqlite3.Error, zlib.error, ValueError) as e: return [], 0, len(pkgs), f"the database at {p} can't be read ({type(e).__name__}); run security_feed.py update"
+    except (sqlite3.Error, zlib.error, ValueError, OSError) as e: return [], 0, len(pkgs), f"the database at {p} can't be read ({type(e).__name__}); rebuild it with security_feed.py update"
     return out, checked, unchecked, None
 
 def main(argv):

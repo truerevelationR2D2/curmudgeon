@@ -3169,8 +3169,10 @@ def _(d):
     assert any(x["rule"] == "deps-feed-unreadable" for x in rep["findings"]) and rep["checks"]["deps"]["state"] == "blocked", rep["checks"]["deps"]
     (d / "db2").mkdir(); run(F, "set", "--cadence", "weekly", "--folder", str(d / "db2"), "--signed-off", str(est), cwd=d, env=env)
     assert run(F, "due", cwd=d, env=env).returncode == 0, "a new folder has no database yet, so it is due"
-    cfg = json.loads((d / "feed/feed.json").read_text()); cfg["last_update"] = "2026-10-01"; (d / "feed/feed.json").write_text(json.dumps(cfg))
-    r = run(F, "due", cwd=d, env=env); assert r.returncode == 0 and "Traceback" not in r.stderr, r.stderr
+    assert run(F, "update", cwd=d, env=env).returncode == 0
+    import datetime as _dt
+    cfg = json.loads((d / "feed/feed.json").read_text()); cfg["last_update"] = _dt.date.today().isoformat(); (d / "feed/feed.json").write_text(json.dumps(cfg))
+    r = run(F, "due", cwd=d, env=env); assert r.returncode == 1 and "Traceback" not in r.stderr and "unreadable" not in r.stdout, r.stdout + r.stderr  # a zone-less time today: read as UTC, not due
 
 @test("5.2 database self-review: each download check stands in for a signature and has a test: a bad CRC, a record with no id, a CISA list that lost over half, an over-size download, a linked folder and a linked database file")
 def _(d):
@@ -3203,6 +3205,47 @@ def _(d):
     row = [x for x in json.loads((d / ".critic/scan/report.json").read_text())["findings"] if x["rule"] == "no-playwright"]
     assert row and "pip install playwright && playwright install chromium" in row[0]["what"] and "never install without their yes" in row[0]["what"], row
     assert "offer once to install it" in (S.parent / "SKILL.md").read_text()
+
+@test("5.2 database round 2: a feed that is on is never a silent pass (never built, folder unreadable, damaged); a plain update repairs a missing or damaged database; npm pre-releases follow semver; network shares get a URI SQLite accepts; death-match plugin folders are absolute")
+def _(d):
+    rec = {"id": "GHSA-lp", "affected": [{"package": {"ecosystem": "npm", "name": "left-pad"}, "versions": ["1.1.0"]}]}
+    env = _feed_mirror(d, [rec], []); F = S / "security_feed.py"
+    _feed_on(d, env)
+    write(d, "p/package.json", "{}"); write(d, "p/package-lock.json", json.dumps({"packages": {"node_modules/left-pad": {"version": "1.1.0"}}}))
+    def deps():
+        run(S / "critic_scan.py", ".", "--root", ".", cwd=d / "p", env=env); rep = json.loads((d / "p/.critic/scan/report.json").read_text())
+        return rep["checks"]["deps"]["state"], {x["rule"] for x in rep["findings"]}
+    st, rules = deps(); assert st == "blocked" and "deps-feed-unreadable" in rules, (st, rules)  # on, never built
+    assert run(F, "update", cwd=d, env=env).returncode == 0 and deps()[0] == "fail"
+    (d / DB).write_bytes(b"junk" * 100)
+    st, rules = deps(); assert st == "blocked" and "deps-feed-unreadable" in rules
+    r = run(F, "update", cwd=d, env=env); assert r.returncode == 0 and "built" in r.stdout and deps()[0] == "fail", r.stdout
+    (d / DB).unlink(); assert run(F, "update", cwd=d, env=env).returncode == 0 and (d / DB).is_file()
+    sys.path.insert(0, str(S)); import importlib, security_feed; importlib.reload(security_feed)
+    real = pathlib.Path.is_file
+    def boom(self):
+        if self.name == "curmudgeon-security.sqlite": raise PermissionError("denied")
+        return real(self)
+    pathlib.Path.is_file = boom
+    try:
+        os.environ["CURMUDGEON_FEED_DIR"] = env["CURMUDGEON_FEED_DIR"]
+        got = security_feed.match([("package-lock.json", "npm", "left-pad", "1.1.0", False)])
+    finally: pathlib.Path.is_file = real; os.environ.pop("CURMUDGEON_FEED_DIR", None)
+    assert got[3] and "can't be read" in got[3] and got[1] == 0, got
+    k = lambda v: security_feed.vkey(v, "npm")
+    assert k("1.0.0-alpha") < k("1.0.0-alpha.1") < k("1.0.0-alpha.beta") < k("1.0.0-beta") < k("1.0.0-beta.2") < k("1.0.0-beta.11") < k("1.0.0-rc.1") < k("1.0.0") and k("2.0.0-beta11") < k("2.0.0-beta2")
+    assert security_feed.affected("2.0.0-beta11", ([], [["SEMVER", [["introduced", "0"], ["fixed", "2.0.0-beta2"]]]]), "npm")
+    assert security_feed.sqlite_uri("file://nas/share/a%20b/c.sqlite") == "file:////nas/share/a%20b/c.sqlite?mode=ro" and security_feed.sqlite_uri("file:///x/c.sqlite") == "file:///x/c.sqlite?mode=ro"
+    sys.path.insert(0, str(HERE.parent / "eval")); import deathmatch; importlib.reload(deathmatch)
+    write(d, "rel/plug/.claude-plugin/plugin.json", "{}"); seen = {}
+    real_run = deathmatch.subprocess.run
+    def fake(cmd, **kw): seen["cmd"] = cmd; raise FileNotFoundError("claude")
+    deathmatch.subprocess.run = fake; cwd = os.getcwd(); os.chdir(d)
+    try:
+        try: deathmatch.one_run({"prompt": "x", "plugin_dirs": ["rel/plug"]}, d, d, None)
+        except FileNotFoundError: pass
+    finally: deathmatch.subprocess.run = real_run; os.chdir(cwd)
+    i = seen["cmd"].index("--plugin-dir"); assert seen["cmd"][i + 1] == str((d / "rel/plug").resolve()), seen["cmd"]
 
 @test("5.2 self-review: security focus keeps secrets written to logs and DEBUG in production, and every lens it names has a lenses.md section")
 def _(d):
