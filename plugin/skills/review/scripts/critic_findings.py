@@ -496,6 +496,18 @@ def git_tracked(root, rel):
         except (OSError, subprocess.TimeoutExpired): _TRACKED[key] = False
     return _TRACKED[key]
 
+def ledger_shipped(root):
+    """True when git tracks .critic/ledger.json: then a cloned repository could have written it, so its rulings and
+    decisions are never applied (the merge, the scan and the brief all check this)."""
+    return git_tracked(root, ".critic/ledger.json")
+
+def one_line(text, cap=600):
+    """Text someone else wrote (a commit message, a recorded decision), as one line that can't add a heading, a list
+    item or a code fence to a document an agent reads; capped at cap characters."""
+    lines = [re.sub(r"^\s*(?:#{1,6}\s+|[-*+>]\s+|\d+[.)]\s+|-{3,}\s*$|`{3,}.*$)", "", x).strip() for x in str(text or "").splitlines()]
+    one = " / ".join(x for x in lines if x).replace('"', "'").replace("`", "'")
+    return one[:cap] + " [cut]" if len(one) > cap else one
+
 def runlog_tracked(root):
     t = git_tracked(root, ".critic/runlog.jsonl")
     if t and ("runlog", str(root)) not in _TRACKED:

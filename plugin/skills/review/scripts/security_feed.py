@@ -143,8 +143,9 @@ def pick_folder():
         else: return None, "no folder window can open here (no display, or no dialog tool already installed)"
     except (OSError, subprocess.TimeoutExpired) as e: return None, f"the folder window failed ({type(e).__name__})"
     path = r.stdout.strip().splitlines()[-1].strip() if r.stdout.strip() else ""
-    if r.returncode != 0: return None, f"the folder window failed: {(r.stderr or '').strip()[:160] or 'exit ' + str(r.returncode)}"  # an error is not a cancel: the caller asks for the path instead
-    if not path: return None, "cancelled"
+    err = (r.stderr or "").strip()
+    if not path and (r.returncode == 0 or (r.returncode == 1 and (not err or re.search(r"(?i)cancel", err)))): return None, "cancelled"  # zenity, kdialog and osascript exit 1 on Cancel
+    if r.returncode != 0: return None, f"the folder window failed: {err[:160] or 'exit ' + str(r.returncode)}"  # an error is not a cancel: the caller asks for the path instead
     if re.fullmatch(r"[A-Za-z]:[\\/]?", path): return path[:2] + "\\", "window"  # a drive root keeps its backslash: "D:" alone is not a full path
     return path.rstrip("/\\") or path, "window"
 

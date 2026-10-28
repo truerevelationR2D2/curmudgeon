@@ -97,8 +97,8 @@ def ledger():
 def ledger_committed():
     """True when git tracks .critic/ledger.json: a cloned repository can ship one whose rulings would hide findings,
     so its false-positive rulings never hide anything (they are listed in counts.md instead)."""
-    from critic_findings import git_tracked
-    return git_tracked(ROOT, ".critic/ledger.json")
+    from critic_findings import ledger_shipped
+    return ledger_shipped(ROOT)
 
 MEMORY_HITS = []
 def suppressed_by_ledger(f, L):

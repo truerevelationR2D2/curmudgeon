@@ -93,7 +93,7 @@ def db_url_skip(m):
     local password (postgres:postgres) is a WARN, not a committed secret."""
     pw = re.match(r"[^:]+://[^:\s/]+:([^@\s/]+)@", m.group(0))
     pw = pw.group(1) if pw else ""
-    if PLACEHOLDER.match(pw) or re.fullmatch(r"\$\{[^}]+\}|\$\w+|<[^>]+>|%\(\w+\)s|\{\{.*\}\}", pw): return "skip"
+    if PLACEHOLDER.match(pw) or re.fullmatch(r"\$\{[^}]+\}|\$\w+|<[^>]+>|%\(\w+\)s|\{\{.*\}\}|\{\w+(?:\.\w+)*(?:![rsa])?(?::[^{}]*)?\}", pw): return "skip"
     return "warn" if pw.lower() in LOCAL_DB_PASSWORDS else None
 
 def windows(line, size=20000, overlap=400):

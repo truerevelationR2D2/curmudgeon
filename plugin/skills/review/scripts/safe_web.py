@@ -16,6 +16,10 @@ import functools, http.server, os, pathlib, re, threading, urllib.parse
 
 DEAD_PROXY = "http://127.0.0.1:9"
 
+# Controls named like this are destructive: the browser driver refuses them when writes are real (--allow-writes),
+# and the scan clicks them only in the simulation. One list, so the two can't drift apart (round 3, F-6e011ff2).
+DESTRUCTIVE = re.compile(r"(?i)\b(delete|remove|destroy|erase|drop|purge|wipe|clear|reset|discard|revoke|terminate|trash|archive|uninstall|truncate|disable|reject|log\s*out|sign\s*out|pay|purchase|buy|checkout|place\s*order|send|transfer|withdraw|submit\s*payment|unsubscribe|cancel\s*(subscription|account)|close\s*account|deactivate)\b")
+
 def hidden(part):
     """A dot-named path part (.critic, .git, .env, .ssh) is never served; .well-known is a public convention and is.
     '.' and '..' are left to the folder check."""

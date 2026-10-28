@@ -12,10 +12,10 @@ folders, so the copy has to live in the project; the read guard already gives ea
 What is copied: in a git project, the files git lists as tracked or untracked-but-not-ignored (so build output and
 caches never eat the budget); elsewhere, every file except version-control folders, caches and the build folders the
 scanner also skips. Never the top-level .critic, never a file over MAX_FILE. Dependency folders (node_modules, .venv,
-venv) are linked, not copied, so tests can run. A link to somewhere in the project points at the same place in the
-copy; a link outside the project to a small file becomes a copy of that file (so a write in the copy can't reach it),
-and a link outside to a folder points at its real target (the agent is told); a link into .critic or to the project
-itself is dropped. A submodule or nested repository is copied as files, without its history.
+venv) are linked, not copied, so tests can run, unless a link inside one leads outside the project (then it is left out
+and the agent is told; a virtual environment's own interpreter link is allowed). A link to somewhere in the project
+points at the same place in the copy; a link outside the project becomes a short note saying so, never a copy or a
+link (a project can point at ~/.ssh); a link into .critic or to the project itself is dropped. A submodule or nested repository is copied as files, without its history.
 Past MAX_TOTAL bytes or MAX_FILES files the copy stops and is marked partial; the agent is told, and can still Read the
 project's own files (never its .critic). A link the system won't let us make (Windows without symlink rights) is
 skipped and listed, never fatal.
@@ -35,6 +35,27 @@ import json, os, pathlib, re, shutil, subprocess, time
 SKIP_ANYWHERE = {".git", ".hg", ".svn", "__pycache__", ".mypy_cache", ".pytest_cache", ".ruff_cache", ".tox", ".cache"}
 SKIP_BUILD = {"dist", "build", ".next", "coverage", "target", ".gradle", "out", ".turbo", ".parcel-cache"}  # non-git projects only
 LINK_DIRS = {"node_modules", ".venv", "venv"}
+ESCAPE_SCAN_MAX = 300000  # entries walked in one dependency folder before it counts as too large to check
+
+def escaping_link(folder, root):
+    """The first link inside a dependency folder that leads outside the project (None when there is none). The folder is
+    linked whole into the copy, so such a link would let the reviewer read through it (a node_modules entry pointing at
+    ~/.aws, say). A virtual environment's own interpreter link (bin/python3 -> /usr/bin/python3.12) is allowed."""
+    rt = pathlib.Path(root).resolve(); stack = [folder]; seen = 0
+    while stack:
+        try: it = list(os.scandir(stack.pop()))
+        except OSError: continue
+        for e in it:
+            seen += 1
+            if seen > ESCAPE_SCAN_MAX: return f"{os.path.relpath(folder, root)} (too large to check)"
+            if e.is_symlink():
+                try: real = pathlib.Path(e.path).resolve()
+                except (OSError, RuntimeError): continue
+                if within(real, rt): continue
+                if os.path.basename(os.path.dirname(e.path)) in ("bin", "Scripts") and re.match(r"^(python|pypy)[\d.]*(\.exe)?$", real.name, re.I): continue
+                return os.path.relpath(e.path, root)
+            elif e.is_dir(follow_symlinks=False): stack.append(e.path)
+    return None
 MAX_FILE = 5 * 1024 * 1024
 MAX_TOTAL = 500 * 1024 * 1024
 MAX_FILES = 100_000
@@ -140,7 +161,13 @@ def make(root, agent_id):
     (h / ".git").write_text("gitdir: .git-none-curmudgeon-agent\n")  # git run from notes/ (or here) stops here, never reaching the project's repository
     rec = {"payload": str(payload.resolve()), "notes": str(notes.resolve()), "root": str(root), "made_at": time.time(), "building": True}
     (h / "workspace.json").write_text(json.dumps(rec, indent=1))
-    st = {"files": 0, "bytes": 0, "partial": False, "skipped_large": [], "links_skipped": [], "outside_links": [], "nested": []}
+    st = {"files": 0, "bytes": 0, "partial": False, "skipped_large": [], "links_skipped": [], "outside_links": [], "nested": [], "deps_not_linked": []}
+
+    def link_deps(src, dst, rel):
+        """A dependency folder is linked whole only when nothing inside it leads outside the project (round 3, F-bae6a123)."""
+        bad = escaping_link(src, root)
+        if bad: st["deps_not_linked"].append(f"{rel} (a link inside leads outside the project: {bad})"); return
+        link(src, dst, rel)
 
     def link(target, dst, rel):
         try: os.symlink(target, dst, target_is_directory=os.path.isdir(target) if os.path.isabs(str(target)) else os.path.isdir(os.path.join(os.path.dirname(dst), target)))
@@ -188,7 +215,7 @@ def make(root, agent_id):
             for x in list(dirs):
                 if x in LINK_DIRS and not os.path.islink(os.path.join(top, x)):
                     dst = payload / relt / x
-                    if not os.path.lexists(dst): dst.parent.mkdir(parents=True, exist_ok=True); link(os.path.join(top, x), dst, os.path.normpath(os.path.join(relt, x)))
+                    if not os.path.lexists(dst): dst.parent.mkdir(parents=True, exist_ok=True); link_deps(os.path.join(top, x), dst, os.path.normpath(os.path.join(relt, x)))
             dirs[:] = [x for x in dirs if depth < 3 and x not in LINK_DIRS and x not in SKIP_ANYWHERE and not (relt == "." and x == ".critic") and not os.path.islink(os.path.join(top, x))]
     else:
         stop = False
@@ -197,7 +224,7 @@ def make(root, agent_id):
             for x in sorted(dirs):
                 src = os.path.join(top, x); rel = os.path.normpath(os.path.join(relt, x))
                 if (relt == "." and x == ".critic") or x in SKIP_ANYWHERE or x in SKIP_BUILD: continue
-                if x in LINK_DIRS and not os.path.islink(src): (payload / relt).mkdir(parents=True, exist_ok=True); link(src, payload / rel, rel); continue
+                if x in LINK_DIRS and not os.path.islink(src): (payload / relt).mkdir(parents=True, exist_ok=True); link_deps(src, payload / rel, rel); continue
                 if os.path.islink(src): put(rel); continue
                 (payload / rel).mkdir(parents=True, exist_ok=True); keep.append(x)
             dirs[:] = keep
@@ -206,7 +233,7 @@ def make(root, agent_id):
             if stop: break
     try: rec["git"] = _own_repo(root, payload)
     except OSError: rec["git"] = "stub-failed"
-    for k in ("skipped_large", "links_skipped", "outside_links", "nested"): st[k] = st[k][:200]
+    for k in ("skipped_large", "links_skipped", "outside_links", "nested", "deps_not_linked"): st[k] = st[k][:200]
     rec.update(st); rec.pop("building", None)
     (h / "workspace.json").write_text(json.dumps(rec, indent=1))
     return rec

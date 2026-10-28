@@ -116,27 +116,32 @@ def _restore_pending(*_):
         if (p, backup) in _pending: _pending.remove((p, backup))
 
 def _record_path(root):
-    """The private list of backups this tool made (.critic/private/mutation-pending.json). Only this tool writes it;
-    the plugin's guard refuses .critic/private to agents, and a .gitignore keeps it out of commits, so a cloned
-    repository can never ship one."""
-    c = root / ".critic"; d = c / "private"
-    if c.is_symlink() or d.is_symlink() or (d.exists() and not d.is_dir()): return None
-    return d / "mutation-pending.json"
+    """The list of backups this tool made, kept outside the project in Curmudgeon's own data folder
+    (CLAUDE_PLUGIN_DATA, else ~/.curmudgeon; CURMUDGEON_STATE_DIR overrides), one file per project path. A repository
+    can't ship it, whatever it commits (round 3, F-c3c59c4f)."""
+    base = pathlib.Path(os.environ.get("CURMUDGEON_STATE_DIR") or os.environ.get("CLAUDE_PLUGIN_DATA") or pathlib.Path.home() / ".curmudgeon")
+    key = hashlib.sha256(str(pathlib.Path(root).resolve()).encode()).hexdigest()[:16]
+    return base / "mutation" / f"{key}.json"
 
 def _read_record(root):
     f = _record_path(root)
-    if f is None or not f.is_file() or f.is_symlink(): return []
+    if not f.is_file() or f.is_symlink(): return []
     try: x = json.loads(f.read_text(encoding="utf-8"))
     except (OSError, ValueError): return []
-    return [e for e in x if isinstance(e, dict) and isinstance(e.get("file"), str) and isinstance(e.get("sha256"), str)] if isinstance(x, list) else []
+    if not isinstance(x, dict) or x.get("root") != str(pathlib.Path(root).resolve()): return []
+    return [e for e in x.get("entries", []) if isinstance(e, dict) and isinstance(e.get("file"), str) and isinstance(e.get("sha256"), str)]
 
 def _write_record(root, entries):
     f = _record_path(root)
-    if f is None: raise OSError(".critic/private is a link or not a folder; refusing to keep backups there")
-    d = f.parent
-    if not d.exists():
-        d.mkdir(parents=True); os.chmod(d, 0o700); (d / ".gitignore").write_text("# Curmudgeon's private state. Never commit.\n*\n")
-    tmp = d / (f.name + ".tmp"); tmp.write_text(json.dumps(entries), encoding="utf-8"); os.replace(tmp, f)
+    f.parent.mkdir(parents=True, exist_ok=True)
+    try: os.chmod(f.parent, 0o700)
+    except OSError: pass
+    if not entries: f.unlink(missing_ok=True); return
+    tmp = f.with_name(f.name + ".tmp"); tmp.write_text(json.dumps({"root": str(pathlib.Path(root).resolve()), "entries": entries}), encoding="utf-8"); os.replace(tmp, f)
+
+def pending(root):
+    """Files a killed run left mutated (read only: nothing is restored or changed)."""
+    return [e["file"] for e in _read_record(root)]
 
 def _sha(path): return hashlib.sha256(path.read_bytes()).hexdigest()
 
@@ -174,6 +179,9 @@ def run(root, files, emit, state, given_cmd=None, cap=30, timeout=120, allow_rul
         try: signal.signal(sig, lambda *a: (_restore_pending(), (_ for _ in ()).throw(SystemExit(130))))
         except (ValueError, OSError): pass
     cmd = test_cmd(root, given_cmd, allow_rules)
+    left = pending(root)
+    if left and not cmd:  # read only: a killed run left these mutated, and restoring them waits for a run the user allows
+        emit("WARN", "mutation-pending", "tests", ", ".join(left[:5]), f"an earlier mutation run was killed and left {len(left)} file(s) changed; their originals are beside them as *{BACKUP_SUFFIX}. They are put back at the start of the next run that has a test command", "")
     if not cmd:
         if rules_test_cmd(root):
             state("mutation", "blocked", "rules.md names a test command, but it runs only with --project-checks, after the user has read and approved that file (a cloned repository can ship its own); or pass --test-cmd")

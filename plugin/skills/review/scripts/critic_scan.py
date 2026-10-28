@@ -459,7 +459,9 @@ def find_axe(arg):
     except Exception: pass
     return next((pathlib.Path(c) for c in cands if c and pathlib.Path(c).exists()), None)
 
-DESTRUCTIVE = re.compile(r"\b(delete|remove|refund|pay|purchase|buy|send|submit|transfer|charge|cancel|archive|publish|post|sign ?out|log ?out|wipe|reset|destroy|approve|confirm)\b", re.I)
+import safe_web
+# the driver's list plus words that only matter here (a form submit, a publish): clicked in the simulation, never for real
+DESTRUCTIVE = re.compile(safe_web.DESTRUCTIVE.pattern + r"|\b(refund|submit|charge|cancel|publish|post|approve|confirm)\b")
 FOCUS_REST = r"""() => {
   const label = (e) => (e.getAttribute('aria-label') || e.textContent || e.id || e.tagName).trim().slice(0, 40);
   const vis = (e) => { const r = e.getBoundingClientRect(); const s = getComputedStyle(e); return r.width > 0 && r.height > 0 && s.visibility !== 'hidden' && s.display !== 'none'; };
@@ -533,6 +535,7 @@ def runtime(page, src, root, out, axe_arg, interact, allow_live, baseline=None, 
     if re.match(r"^https?://", page): url = page; origin = re.match(r"^(https?://[^/]+)", page).group(1); allowed = [safe_web.host_port(page)]
     else:
         pp = pathlib.Path(page).resolve(); base = src if src.is_dir() and str(pp).startswith(str(src)) else pp.parent
+        if any(safe_web.hidden(x) for x in pp.relative_to(base).parts[:-1]): base = pp.parent  # a page under a dot folder (.vitepress/dist) is served from its own folder: the server never serves dot paths
         # served from this computer only (loopback), never a file whose real path leaves the folder, never a listing
         srv, origin, hp = safe_web.serve(base); allowed = [hp]; url = origin + "/" + pp.relative_to(base).as_posix()
     would_send = []; sent = [0]
@@ -822,7 +825,10 @@ def main(argv):
     root = pathlib.Path(a.root or os.environ.get("CRITIC_ROOT") or os.getcwd()).resolve()
     out = pathlib.Path(a.out).resolve() if a.out else root / ".critic" / "scan"
     led = root / ".critic" / "ledger.json"
-    if led.exists():
+    from critic_findings import ledger_shipped
+    if led.exists() and ledger_shipped(root):  # a ledger the repository ships could be anyone's: it hides nothing here either
+        f("NOTE", "ledger-shipped", "setup", ".critic/ledger.json", "git tracks .critic/ledger.json, so its false-positive rulings were not applied (to use your own: git rm --cached .critic/ledger.json)")
+    elif led.exists():
         try: FP.extend((json.loads(led.read_text()) or {}).get("false_positives", []))
         except Exception: f("WARN", "ledger-unreadable", "setup", str(led), "ledger unreadable; no false positives suppressed")
     t = time.time()

@@ -54,9 +54,10 @@ import argparse, hashlib, hmac, json, os, pathlib, re, sys, time, urllib.parse
 HERE = pathlib.Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 import scope as scope_file
+import safe_web
 
 ROOT = pathlib.Path(os.environ.get("CRITIC_ROOT") or re.sub(r"[\\/]\.critic[\\/]scratch(?:[\\/].*)?$", "", os.getcwd()) or os.getcwd()).resolve()
-DESTRUCTIVE = re.compile(r"(?i)\b(delete|remove|destroy|erase|drop|purge|wipe|clear|reset|discard|revoke|terminate|trash|archive|uninstall|truncate|disable|reject|log\s*out|sign\s*out|pay|purchase|buy|checkout|place\s*order|send|transfer|withdraw|submit\s*payment|unsubscribe|cancel\s*(subscription|account)|close\s*account|deactivate)\b")
+DESTRUCTIVE = safe_web.DESTRUCTIVE  # one list for the driver and the scan (safe_web.py)
 VERBS = {"goto": 1, "click": 1, "type": 2, "select": 2, "check": 1, "press": 1, "wait": 1, "snapshot": 0}
 NAME_JS = """el => { const lab = (el.labels && el.labels[0]) || (el.id ? document.querySelector('label[for="' + CSS.escape(el.id) + '"]') : null);
   return (el.getAttribute('aria-label') || (lab && lab.innerText) || el.innerText || (el.type === 'password' ? '' : el.value) || el.getAttribute('placeholder') || el.getAttribute('title') || el.getAttribute('name') || '').trim().slice(0, 80); }"""

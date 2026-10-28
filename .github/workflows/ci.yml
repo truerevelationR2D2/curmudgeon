@@ -31,6 +31,7 @@ jobs:
           # each failing test is also raised as an annotation, so it can be read from the run's summary and the API
           set +e; python plugin/tests/run_tests.py 2>&1 | tee tests.out; status=${PIPESTATUS[0]}
           grep -E '^FAIL' tests.out | head -20 | cut -c1-900 | sed 's/^/::error title=script test::/'
+          grep -E '^SKIP' tests.out | head -20 | cut -c1-300 | sed 's/^/::warning title=script test not run here::/'
           exit $status
       - name: Golden tests (rung 2)
         run: python eval/golden.py

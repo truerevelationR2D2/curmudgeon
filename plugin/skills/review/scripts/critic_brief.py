@@ -88,10 +88,9 @@ INTENT_MAX = 600
 def quote_intent(text):
     """The stated intent as one quoted line: a commit message comes from whoever wrote the commit, so it can't add
     headings, list items or new lines to the brief, and it is capped at INTENT_MAX characters."""
-    lines = [re.sub(r"^\s*(?:#{1,6}\s+|[-*+>]\s+|\d+[.)]\s+|-{3,}\s*$|`{3,}.*$)", "", x).strip() for x in str(text or "").splitlines()]
-    one = " / ".join(x for x in lines if x).replace('"', "'")
-    if not one: return "(none stated; do not guess one)"
-    return '"' + (one[:INTENT_MAX] + " [cut]" if len(one) > INTENT_MAX else one) + '"'
+    from critic_findings import one_line
+    one = one_line(text, INTENT_MAX)
+    return '"' + one + '"' if one else "(none stated; do not guess one)"
 
 def main(a):
     if a[:1] in (["-h"], ["--help"]): print(__doc__); return 0
@@ -105,11 +104,13 @@ def main(a):
     letters = letters or (["A", "B", "C"] if tier == "full" else ["A"])
     files = [str(f) for f in cm.get("files") or []]
     intent = intent if intent is not None else (cm.get("intent") or "")
-    decisions = [d.get("text", "") for d in L.get("decisions", []) if isinstance(d, dict) and d.get("text")]
+    from critic_findings import ledger_shipped, one_line
+    shipped = ledger_shipped(ROOT)  # a ledger the repository tracks could be anyone's: its decisions and rulings never reach a reviewer
+    decisions = [] if shipped else [one_line(d.get("text", ""), 300) for d in L.get("decisions", []) if isinstance(d, dict) and d.get("text")]
     fps = []
-    for x in (L.get("false_positives") or [])[-5:]:
+    for x in ([] if shipped else (L.get("false_positives") or [])[-5:]):
         what = (L.get("findings") or {}).get(x.get("id", ""), {}).get("summary", x.get("rule", ""))
-        fps.append(f"{what} at {x.get('where', '')}: {x.get('why', '')}")
+        fps.append(one_line(f"{what} at {x.get('where', '')}: {x.get('why', '')}", 300))
     refs = HERE.parent / "references"
     shared = ["# Curmudgeon review brief", "",
               "You are reviewing work by an unknown contractor. Follow your agent instructions; this brief only says what to review.", "",
@@ -120,8 +121,9 @@ def main(a):
               f"- Change map: {D / 'change-map.md'}",
               f"- Python syntax tree, to trace instead of guess (run from your workspace): python3 {HERE / 'ast_view.py'} FILE [LINE|START-END]"]
     if (D / "rules.md").is_file(): shared.append(f"- Project rules: {D / 'rules.md'} (apply only the rules whose paths match the payload)")
-    shared += ["", "## The owner's recorded decisions (not re-argued on taste)"] + ([f"- {x}" for x in decisions] or ["- none recorded"])
-    shared += ["", "## Not findings (the owner's past rulings)"] + ([f"- {x}" for x in fps] or ["- none recorded"])
+    none_ = "- none used: git tracks .critic/ledger.json, so it may not be the owner's" if shipped else "- none recorded"
+    shared += ["", "## The owner's recorded decisions (not re-argued on taste)"] + ([f"- {x}" for x in decisions] or [none_])
+    shared += ["", "## Not findings (the owner's past rulings)"] + ([f"- {x}" for x in fps] or [none_])
     shared += ["", f"## Payload ({len(files)} files; your reading order is below)"] + [f"- {f}" for f in sorted(files)]
     shared_text = "\n".join(shared) + "\n"
     if "--packet" in a and tier in ("lite", "trivial"):

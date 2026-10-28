@@ -50,12 +50,15 @@ def clean_url(url):
     control characters and spaces trimmed, backslashes read as slashes."""
     return re.sub(r"[\t\n\r]", "", url or "").strip(" \x00-\x1f").replace("\\", "/")
 
-def host_of(url):
+def host_of(url, page_scheme="https"):
     """The host a browser would contact, read the way the URL standard does: tabs and newlines anywhere are dropped,
-    backslashes count as slashes, and a user:password@ part is not the host."""
+    backslashes count as slashes, and a user:password@ part is not the host. With fewer than two slashes, a URL in
+    the page's own scheme (https:docs/intro.html on an https page) is a relative path, and one in the other scheme
+    (http:pay.example.net on an https page) names a host."""
     u = clean_url(url)
-    m = re.match(r"(?i)^(https?:)/*(?=[^/])", u)  # a browser reads http:host, http:/host and http:///host as http://host
-    if m: u = m.group(1) + "//" + u[m.end():]
+    m = re.match(r"(?i)^(https?:)(/*)(?=[^/])", u)
+    if m and len(m.group(2)) < 2 and m.group(1).lower() == page_scheme + ":": return None  # relative to the page
+    if m: u = m.group(1) + "//" + u[m.end():]  # http:host, http:/host and http:///host all name a host
     if not re.match(r"(?i)^(?:https?:)?//", u): return None
     try: h = urllib.parse.urlsplit(u if not u.startswith("//") else "https:" + u).hostname
     except ValueError: return None
@@ -99,7 +102,9 @@ def lookalike(host):
     if u is None: return True
     return any(len(scripts(label)) > 1 for label in u.split("."))
 
-WATCHED_ATTRS = {"href", "src", "action", "formaction", "integrity"}  # a second copy can make a reader (or a tool that keeps the last) see another target than the browser uses
+WATCHED_ATTRS = {"href", "src", "action", "formaction", "integrity"}
+WATCHED_TAGS = {"a", "area", "form", "button", "input", "script", "iframe", "link", "base"}  # the tags whose target the lens judges
+TEMPLATE = re.compile(r"\{[{%#]|<%|\{\{")  # a template tag ({% if %} href=a {% else %} href=b) is not a duplicate in the page a browser gets  # a second copy can make a reader (or a tool that keeps the last) see another target than the browser uses
 
 class Page(HTMLParser):
     def __init__(self):
@@ -113,7 +118,8 @@ class Page(HTMLParser):
         for k, v in attrs:
             k = k.lower()
             if k not in a: a[k] = v or ""  # a browser uses the first of two same-named attributes
-            elif k in WATCHED_ATTRS and (v or "") != a[k]: self.dupes.append({"tag": tag, "attr": k, "used": a[k], "other": v or "", "line": ln})
+            elif k in WATCHED_ATTRS and (v or "") != a[k] and tag in WATCHED_TAGS and not TEMPLATE.search(self.get_starttag_text() or ""):
+                self.dupes.append({"tag": tag, "attr": k, "used": a[k], "other": v or "", "line": ln})
         if tag == "a":
             self._close_a()  # a new <a> ends an open one, as in a browser
             if a.get("href"): self._a = {"href": a["href"], "text": "", "line": ln}
