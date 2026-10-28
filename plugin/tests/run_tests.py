@@ -3529,6 +3529,28 @@ def _(d):
     assert ch.get("page", {}).get("state") != "blocked" and "404" not in json.dumps(ch.get("page", {})), ch.get("page")
     assert ch.get("screenshots", {}).get("state") == "pass" and ch.get("console", {}).get("state") == "pass", (ch.get("screenshots"), ch.get("console"))
 
+@test("5.2.1 Windows run: a source that gives no size on a size-only request (CISA's) is sized by a one-byte ranged request, else by its rule limit as an upper bound, never a failed estimate")
+def _(d):
+    sys.path.insert(0, str(S)); import security_feed as sf, urllib.request as ur, types, contextlib
+    real = ur.urlopen
+    def server(head_len, range_total):
+        def op(req, timeout=None):
+            h = dict(req.header_items()); hd = {}
+            if req.get_method() == "HEAD":
+                if head_len: hd["Content-Length"] = str(head_len)
+            elif "Range" in h and range_total: hd["Content-Range"] = f"bytes 0-0/{range_total}"
+            r = types.SimpleNamespace(headers=hd, status=206 if "Content-Range" in hd else 200)
+            return contextlib.nullcontext(r)
+        return op
+    url = "https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json"
+    try:
+        ur.urlopen = server(1500000, None); assert sf.head_size(url, "kev-json") == 1500000 and sf.SIZE_FROM[url] == "reported"
+        ur.urlopen = server(None, 1400000); assert sf.head_size(url, "kev-json") == 1400000 and sf.SIZE_FROM[url] == "ranged"
+        ur.urlopen = server(None, None); assert sf.head_size(url, "kev-json") == sf.rules()["limits"]["kev-json"] and sf.SIZE_FROM[url] == "upper bound"
+        try: sf.head_size(url); assert False, "with no kind and no size, it says so"
+        except ValueError: pass
+    finally: ur.urlopen = real
+
 @test("decision 39: a clean-twin BLOCK fails the gate only when no Critical or High in that run is labelled a real bug")
 def _(d):
     EV = HERE.parent / "eval"

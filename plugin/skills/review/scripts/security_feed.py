@@ -100,14 +100,26 @@ def fetch(url, limit):
     if len(data) > limit: raise ValueError(f"{url} is over the {limit // (1024 * 1024)} MB limit")
     return data
 
-def head_size(url):
-    """The download's size from a size-only request (HEAD); nothing about the project is sent."""
+SIZE_FROM = {}  # url -> how its size was learned: "reported", "ranged" or "upper bound" (shown with the estimate)
+
+def head_size(url, kind=None):
+    """The download's size, learned without downloading it and without sending anything about the project: a size-only
+    request (HEAD); when the server doesn't say (CISA's doesn't), a one-byte ranged request, whose reply names the total;
+    when neither says, the rules' size limit for that kind of source, as an upper bound."""
     check_scheme(url)
-    if url.startswith("file://"): return os.path.getsize(urllib.request.url2pathname(url[7:]))
-    with urllib.request.urlopen(urllib.request.Request(url, method="HEAD", headers={"User-Agent": "curmudgeon-feed"}), timeout=30) as r:
+    if url.startswith("file://"): SIZE_FROM[url] = "reported"; return os.path.getsize(urllib.request.url2pathname(url[7:]))
+    hdr = {"User-Agent": "curmudgeon-feed", "Accept-Encoding": "identity"}
+    with urllib.request.urlopen(urllib.request.Request(url, method="HEAD", headers=hdr), timeout=30) as r:
         n = r.headers.get("Content-Length")
-    if not n or not n.isdigit(): raise ValueError(f"{url} did not say how big it is")
-    return int(n)
+    if n and n.isdigit() and int(n) > 0: SIZE_FROM[url] = "reported"; return int(n)
+    try:
+        with urllib.request.urlopen(urllib.request.Request(url, headers=dict(hdr, Range="bytes=0-0")), timeout=30) as r:
+            m = re.match(r"^bytes \d+-\d+/(\d+)$", r.headers.get("Content-Range") or "")
+            n = m.group(1) if m else (r.headers.get("Content-Length") if r.status == 200 else None)  # a server that ignores Range: its full length; the body is never read
+    except (OSError, ValueError): n = None
+    if n and str(n).isdigit() and int(n) > 1: SIZE_FROM[url] = "ranged"; return int(n)
+    if kind and kind in rules()["limits"]: SIZE_FROM[url] = "upper bound"; return int(rules()["limits"][kind])
+    raise ValueError(f"{url} did not say how big it is")
 
 def chosen(cfg_or_ecos):
     ecos = cfg_or_ecos if isinstance(cfg_or_ecos, list) else (cfg_or_ecos.get("ecosystems") or ecosystems())
@@ -118,8 +130,8 @@ def estimate(ecos, measured=None):
     build when there is one, else the rules' upper bound), plus the fixed overhead."""
     R = rules(); rows, total = [], R["estimate"]["overhead_bytes"]
     for s in chosen(ecos):
-        size = head_size(source_url(s)); ratio = (measured or {}).get(s["kind"]) or R["estimate"]["ratio"][s["kind"]]
-        rows.append({"source": s["id"], "download_bytes": size, "ratio": ratio, "estimate_bytes": int(size * ratio)}); total += int(size * ratio)
+        size = head_size(source_url(s), s["kind"]); ratio = (measured or {}).get(s["kind"]) or R["estimate"]["ratio"][s["kind"]]
+        rows.append({"source": s["id"], "download_bytes": size, "size_from": SIZE_FROM.get(source_url(s), "reported"), "ratio": ratio, "estimate_bytes": int(size * ratio)}); total += int(size * ratio)
     return total, rows
 
 def human(n):
@@ -242,7 +254,7 @@ def update(cfg, d=None, force=False):
     if dst.is_symlink(): return 1, f"refusing to write through a link at {dst}"
     try:
         srcs = chosen(cfg)
-        sizes = {s["id"]: head_size(source_url(s)) for s in srcs}  # stop before downloading anything too big
+        sizes = {s["id"]: head_size(source_url(s), s["kind"]) for s in srcs}  # stop before downloading anything too big
         est = R["estimate"]["overhead_bytes"] + sum(int(sizes[s["id"]] * ((cfg.get("measured_ratio") or {}).get(s["kind"]) or R["estimate"]["ratio"][s["kind"]])) for s in srcs)
         cap = int(cfg["signed_off_bytes"]) * R["estimate"]["stop_over_signed_off"]
         if est > cap: return 5, f"the database would be about {human(est)}, over the {human(int(cfg['signed_off_bytes']))} you signed off on by more than {int((R['estimate']['stop_over_signed_off'] - 1) * 100)}%: nothing downloaded. Ask the user to sign off on the new size (`estimate`, then `set ... --signed-off`)"
@@ -402,7 +414,7 @@ def main(argv):
         else:
             measured = bool(cfg.get("measured_ratio"))  # before the first build the ratios are upper bounds (feed-rules.json)
             print(f"estimated database size: {'about' if measured else 'up to about'} {human(total)} in {folder} ({human(free)} free)"
-                  + ("" if measured else "; the first build is usually smaller, and later estimates use its measured size") + "; downloads: " + ", ".join(f"{r['source']} {human(r['download_bytes'])}" for r in rows))
+                  + ("" if measured else "; the first build is usually smaller, and later estimates use its measured size") + "; downloads: " + ", ".join(f"{r['source']} {human(r['download_bytes'])}" + (" (the source doesn't say; its size limit, as an upper bound)" if r.get("size_from") == "upper bound" else "") for r in rows))
             print(f"sign off with: set --cadence <schedule> --folder {shlex.quote(str(folder))} --signed-off {total}" + (f" --ecosystems {','.join(ecos)}" if ecos else ""))
         return 0
     if a.cmd == "set":

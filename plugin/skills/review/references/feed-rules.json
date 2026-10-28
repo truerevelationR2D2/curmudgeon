@@ -26,7 +26,7 @@
   "write": "the new database is built beside the old one under a temporary name and swapped in only after every check passes; the old copy is kept on any failure"
  },
  "estimate": {
-  "method": "a size-only HEAD request to each chosen source (Content-Length), which sends nothing about the user's project; the estimated database size is each download's size times its ratio below, plus the fixed overhead",
+  "method": "a size-only HEAD request to each chosen source (Content-Length), which sends nothing about the user's project; when a source doesn't say (CISA's server doesn't), a one-byte ranged request, whose reply names the total; when neither says, that kind of source's size limit below, shown as an upper bound. The estimated database size is each download's size times its ratio below, plus the fixed overhead",
   "ratio": {"osv-zip": 1.1, "kev-json": 0.3},
   "overhead_bytes": 262144,
   "ratio_note": "upper bounds until a real build is measured: the kept fields are a subset of the zipped records and are compressed again, so the database should be smaller than the zip. After each build the measured ratio is saved and used for the next estimate.",
