@@ -5,17 +5,29 @@ network is blocked the check reports "unavailable"; it never guesses."""
 import json, pathlib, re, sys, urllib.request
 from critic_findings import log_run
 
+UNREAD_LOCKS = ("yarn.lock", "pnpm-lock.yaml")  # lockfiles whose format is not read: their packages are never counted as checked
+
 def _lock_npm(p):
-    try: j = json.loads(p.read_text())
-    except Exception: return []
+    """(ecosystem, name, version, dev) for each package in a package-lock.json. Raises ValueError when the file can't be
+    read, so the caller reports it instead of passing it as "0 packages"."""
+    try: j = json.loads(p.read_text(encoding="utf-8-sig"))  # a BOM is allowed
+    except (OSError, ValueError) as e: raise ValueError(f"not readable as JSON: {type(e).__name__}") from None
+    if not isinstance(j, dict): raise ValueError("not a lockfile object")
     out = []
     for path, meta in (j.get("packages") or {}).items():
         if not path or not isinstance(meta, dict) or not meta.get("version"): continue
         if "node_modules/" not in path or meta.get("link"): continue  # a workspace folder (packages/internal-x) is not a registry package, and its path never goes to OSV
-        out.append(("npm", path.split("node_modules/")[-1], meta["version"], meta.get("dev", False)))
-    if not out:
-        for name, meta in (j.get("dependencies") or {}).items():
-            if isinstance(meta, dict) and meta.get("version"): out.append(("npm", name, meta["version"], meta.get("dev", False)))
+        out.append(("npm", meta.get("name") or path.split("node_modules/")[-1], meta["version"], meta.get("dev", False)))  # an alias (mylodash: npm:lodash@4) records its real name
+    if not out:  # lockfile version 1: nested dependencies, each possibly an alias ("npm:real@1.0.0" in version)
+        def walk(deps):
+            for name, meta in (deps or {}).items():
+                if not isinstance(meta, dict): continue
+                v = str(meta.get("version") or "")
+                m = re.match(r"^npm:((?:@[^/@]+/)?[^@]+)@(.+)$", v)
+                if m: name, v = m.group(1), m.group(2)
+                if v: out.append(("npm", name, v, meta.get("dev", False)))
+                walk(meta.get("dependencies"))
+        walk(j.get("dependencies"))
     return out
 
 COPYLEFT = re.compile(r"\b(A?GPL|SSPL|EUPL|OSL|CC-BY-SA|CC-BY-NC)", re.I)  # LGPL/MPL are weaker; reported as NOTE
@@ -93,11 +105,20 @@ def licences(root, emit):
         if unknown: emit("NOTE", "licence-unknown", "deps", rel, f"{len(unknown)} package(s) under a licence that isn't a recognised open-source one (check the terms): {', '.join(unknown[:5])}{' …' if len(unknown) > 5 else ''}", "")
         if missing: emit("NOTE", "licence-missing", "deps", rel, f"{len(missing)} package(s) declare no licence in the lockfile: {', '.join(missing[:5])}{' …' if len(missing) > 5 else ''}", "")
 
-def _reqs(p):
-    out = []
-    for line in p.read_text(errors="replace").splitlines():
-        m = re.match(r"\s*([A-Za-z0-9_.\-\[\]]+)\s*==\s*([\w.\-+]+)", line)
-        if m: out.append(("PyPI", re.sub(r"\[.*\]", "", m.group(1)), m.group(2), False))
+DEV_REQS = re.compile(r"(?i)(^|[-_.])(dev|test|tests|testing|lint|docs?)([-_.]|$)")
+def _reqs(p, wildcards=None):
+    """Exact pins (name==version) in a requirements file. A file named for development (requirements-dev.txt,
+    requirements_test.txt, dev-requirements.txt) is dev-only. A wildcard pin (==1.0.*) is not a version: it is never
+    looked up, and its name goes to wildcards so the scan can say so."""
+    out = []; dev = bool(DEV_REQS.search(p.name.replace("requirements", "")))
+    for line in p.read_text(encoding="utf-8-sig", errors="replace").splitlines():
+        m = re.match(r"\s*([A-Za-z0-9_.\-\[\]]+)\s*===?\s*([\w.\-+*!]+)", line)
+        if not m: continue
+        name = re.sub(r"\[.*\]", "", m.group(1))
+        if "*" in m.group(2):
+            if wildcards is not None: wildcards.append(f"{name}=={m.group(2)}")
+            continue
+        out.append(("PyPI", name, m.group(2), dev))
     return out
 
 SKIP = {"node_modules", ".critic", ".venv", "venv", ".git"}  # never our own outputs or restore copies, never vendored code
@@ -120,14 +141,26 @@ def scan(root, emit, online=False, state=None):
             for n, v in (j.get(sect) or {}).items():
                 v = str(v)
                 if v in ("*", "latest", "") or (v.startswith(">") and "<" not in v): emit("WARN", "deps-unpinned", "deps", rel, f"`{n}` accepts any future version ({v or 'empty'}): a bad release goes straight in", "")
-                elif re.match(r"^(git|https?|github:|file:)", v) or "/" in v and not v.startswith("@"): emit("NOTE", "deps-url", "deps", rel, f"`{n}` comes from a URL or repo ({v[:60]}), not the registry", "")
+                elif re.match(r"^(git|https?|github:|file:)", v) or "/" in v and not v.startswith(("@", "npm:")): emit("NOTE", "deps-url", "deps", rel, f"`{n}` comes from a URL or repo ({v[:60]}), not the registry", "")
         if not (pj.parent / "package-lock.json").exists() and not (pj.parent / "yarn.lock").exists() and not (pj.parent / "pnpm-lock.yaml").exists() and (j.get("dependencies") or j.get("devDependencies")):
             emit("NOTE", "deps-no-lock", "deps", rel, "no lockfile: installs can differ from machine to machine", "")
-    pkgs = []
+    pkgs = []; unread = []; wild = []
     for lf in root.rglob("package-lock.json"):
-        if not _skip(lf, root): pkgs += [(lf, *x) for x in _lock_npm(lf)]; found_manifest = True
+        if _skip(lf, root): continue
+        found_manifest = True
+        try: pkgs += [(lf, *x) for x in _lock_npm(lf)]
+        except ValueError as e:
+            unread.append(str(lf.relative_to(root)))
+            emit("WARN", "deps-lock-unreadable", "deps", str(lf.relative_to(root)), f"the lockfile can't be read ({e}): none of its packages were checked", "")
+    for n in UNREAD_LOCKS:
+        for x in root.rglob(n):
+            if _skip(x, root) or (x.parent / "package-lock.json").exists(): continue
+            found_manifest = True; unread.append(str(x.relative_to(root)))
+            emit("WARN", "deps-lock-unread", "deps", str(x.relative_to(root)), f"{n} is not a format the dependency check reads: none of its packages were checked for known vulnerabilities", "")
     for rf in root.rglob("requirements*.txt"):
-        if not _skip(rf, root): pkgs += [(rf, *x) for x in _reqs(rf)]; found_manifest = True
+        if not _skip(rf, root): pkgs += [(rf, *x) for x in _reqs(rf, wild)]; found_manifest = True
+    if wild: emit("NOTE", "deps-not-exact", "deps", "requirements", f"{len(wild)} wildcard pin(s) are not exact versions, so they were not looked up: {', '.join(wild[:5])}{' …' if len(wild) > 5 else ''}", "")
+    gap = f"; {len(unread)} lockfile(s) not read: {', '.join(unread[:3])}" if unread else ""
     if not found_manifest:
         if state: state("deps", "n/a", "no package manifest or lockfile")
         return
@@ -137,7 +170,7 @@ def scan(root, emit, online=False, state=None):
         except Exception as e:  # never a silent pass when the user switched the feed on
             got = ([], 0, len(pkgs), f"the feed check failed ({type(e).__name__})") if "security_feed" in sys.modules and security_feed.switched_on(cfg) else None
         if got is None:
-            if state: state("deps", "pass", f"{len(pkgs)} pinned packages; vulnerability lookup off (use --online, or switch on the local security feed)")
+            if state: state("deps", "pass", f"{len(pkgs)} pinned packages; vulnerability lookup off (use --online, or switch on the local security feed)" + gap)
             return
         rows, checked, unchecked, problem = got
         if problem:  # switched on but unreadable: never reported as a pass with the lookup off
@@ -148,10 +181,13 @@ def scan(root, emit, online=False, state=None):
         for lf, eco, n, v, dev, ids, exploited in rows:  # SC-75: the local feed copy; nothing about the project left the machine
             sev = "FAIL" if exploited and not dev else "NOTE" if dev else "WARN"
             emit(sev, "deps-vulnerable", "deps", str(lf.relative_to(root)), f"{n} {v} has known vulnerabilities: {', '.join(ids[:5])}{' — exploited in the wild (CISA KEV)' if exploited else ''}{' (dev only)' if dev else ''}", "")
-        if state: state("deps", "fail" if rows else "pass", f"{checked} of {len(pkgs)} packages checked against the local security feed of {str(cfg.get('last_update', ''))[:10]} (nothing sent), {len(rows)} vulnerable" + (f"; {unchecked} not checked (no table for their ecosystem)" if unchecked else ""))
+        worst = "fail" if any(not dev for *_, dev, _ids, _x in rows) else "pass"  # a dev-only package is a NOTE, so it doesn't fail the check
+        if unread and worst == "pass": worst = "unavailable"  # a lockfile nobody read is not a pass
+        if state: state("deps", worst, f"{checked} of {len(pkgs)} packages checked against the local security feed of {str(cfg.get('last_update', ''))[:10]} (nothing sent), {len(rows)} vulnerable"
+                        + (f" ({sum(1 for r in rows if r[4])} dev only)" if any(r[4] for r in rows) else "") + (f"; {unchecked} not checked (no table for their ecosystem)" if unchecked else "") + gap)
         return
     if not pkgs:
-        if state: state("deps", "pass", "no pinned versions to look up")
+        if state: state("deps", "unavailable" if unread else "pass", "no pinned versions to look up" + gap)
         return
     vulns = 0
     try:
@@ -164,8 +200,8 @@ def scan(root, emit, online=False, state=None):
             for (lf, eco, n, v, dev), r in zip(batch, res.get("results", [])):
                 ids = [x.get("id") for x in (r.get("vulns") or [])]
                 if ids:
-                    vulns += 1
+                    vulns += not dev
                     emit("NOTE" if dev else "WARN", "deps-vulnerable", "deps", str(lf.relative_to(root)), f"{n} {v} has known vulnerabilities: {', '.join(ids[:5])}{' (dev only)' if dev else ''}", "")
-        if state: state("deps", "fail" if vulns else "pass", f"{len(pkgs)} packages looked up in OSV, {vulns} vulnerable")
+        if state: state("deps", "fail" if vulns else "unavailable" if unread else "pass", f"{len(pkgs)} packages looked up in OSV, {vulns} vulnerable outside dev" + gap)
     except Exception as e:
         if state: state("deps", "unavailable", f"OSV lookup failed ({type(e).__name__}); offline checks still ran")

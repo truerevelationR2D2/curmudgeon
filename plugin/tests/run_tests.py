@@ -3159,6 +3159,37 @@ def _(d):
     assert security_feed.vkey("1.0.0-rc1") < security_feed.vkey("1.0.0") < security_feed.vkey("1.10") and security_feed.vkey("1.9") < security_feed.vkey("1.10")
     assert not security_feed.affected("1.3.0", ([], [["SEMVER", [["introduced", "0"], ["fixed", "1.3.0"]]]]))
 
+@test("5.2.1 round 3 (database): aliases, v1 nesting, a BOM or a broken lockfile, yarn and pnpm, dev requirements, wildcard pins, a new ecosystem and a negative sign-off are all handled, never a silent pass")
+def _(d):
+    rec = {"id": "GHSA-ld", "aliases": ["CVE-2099-0002"], "affected": [{"package": {"ecosystem": "npm", "name": "lodash"}, "versions": ["4.17.4"]}]}
+    env = _feed_mirror(d, [rec], ["CVE-2099-0002"]); F = S / "security_feed.py"
+    r = run(F, "set", "--cadence", "weekly", "--folder", str(d / "db"), "--signed-off", "-5", cwd=d, env=env); assert r.returncode == 2 and "1 or more" in r.stderr, r.stdout + r.stderr  # F-6e1fac0a
+    _feed_on(d, env, "weekly", "--ecosystems", "npm")
+    assert run(F, "update", cwd=d, env=env).returncode == 0 and run(F, "due", cwd=d, env=env).returncode == 1
+    r = run(F, "set", "--cadence", "weekly", "--folder", str(d / "db"), "--signed-off", "999999999", "--ecosystems", "npm,PyPI", cwd=d, env=env)
+    assert r.returncode == 0 and run(F, "due", cwd=d, env=env).returncode == 0, "a new ecosystem makes the next update build (F-8799c40a)"
+    assert run(F, "update", cwd=d, env=env).returncode == 0
+    def scan(name, files):
+        for k, v in files.items(): (d / name / k).parent.mkdir(parents=True, exist_ok=True); (d / name / k).write_bytes(v if isinstance(v, bytes) else v.encode())
+        run(S / "critic_scan.py", ".", "--root", ".", cwd=d / name, env=env)
+        rep = json.loads((d / name / ".critic/scan/report.json").read_text())
+        return rep["checks"]["deps"], sorted((x["sev"], x["rule"], x["what"][:40]) for x in rep["findings"] if x["area"] == "deps" and x["rule"] != "deps-no-lock")
+    lock3 = lambda pk: json.dumps({"lockfileVersion": 3, "packages": dict({"": {}}, **pk)})
+    st, rows = scan("alias", {"package.json": json.dumps({"dependencies": {"mylodash": "npm:lodash@4.17.4", "s": "npm:@scope/x@1.0.0"}}),
+                              "package-lock.json": lock3({"node_modules/mylodash": {"name": "lodash", "version": "4.17.4"}})})
+    assert any(x[:2] == ("FAIL", "deps-vulnerable") and x[2].startswith("lodash 4.17.4") for x in rows) and not [x for x in rows if x[1] == "deps-url"], rows  # F-b15db7ce, F-e67b5778
+    st, rows = scan("v1", {"package-lock.json": json.dumps({"lockfileVersion": 1, "dependencies": {"a": {"version": "1.0.0", "dependencies": {"lodash": {"version": "4.17.4"}}}}})})
+    assert [x for x in rows if x[1] == "deps-vulnerable"], rows  # F-ef35af7e
+    st, rows = scan("bom", {"package-lock.json": b"\xef\xbb\xbf" + lock3({"node_modules/lodash": {"version": "4.17.4"}}).encode()})
+    assert [x for x in rows if x[1] == "deps-vulnerable"], rows  # F-185d8fa6
+    st, rows = scan("broken", {"package-lock.json": '{"lockfileVersion": 3, "packages": {'})
+    assert [x for x in rows if x[1] == "deps-lock-unreadable"] and st["state"] != "pass", (st, rows)
+    st, rows = scan("yarn", {"package.json": json.dumps({"dependencies": {"lodash": "4.17.4"}}), "yarn.lock": "lodash@4.17.4:\n  version \"4.17.4\"\n"})
+    assert [x for x in rows if x[1] == "deps-lock-unread"] and st["state"] != "pass", (st, rows)  # F-015d3393
+    st, rows = scan("dev", {"requirements-dev.txt": "django==3.2.0\n", "requirements.txt": "django==3.2.*\n"})
+    assert any(x[:2] == ("NOTE", "deps-vulnerable") and x[2].startswith("django 3.2.0") for x in rows) and st["state"] == "pass", (st, rows)  # F-d8a496e2, F-775de434
+    assert any(x[1] == "deps-not-exact" for x in rows) and not any(x[1] == "deps-vulnerable" and x[0] != "NOTE" for x in rows), rows  # F-fbd87ead: the wildcard is listed, never looked up
+
 @test("5.2 SC-75: a damaged or shrunken download keeps the old database")
 def _(d):
     rec = lambda i: {"id": f"GHSA-{i}", "affected": [{"package": {"ecosystem": "npm", "name": f"p{i}"}, "versions": ["1.0.0"]}]}

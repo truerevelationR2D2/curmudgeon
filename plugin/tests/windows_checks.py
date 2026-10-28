@@ -66,6 +66,7 @@ def main():
     if locked: failures.append("cleanup: still open or locked: " + "; ".join(locked[:5]))
     else: print("ok cleanup: every file the checks made could be deleted")
     for f in failures: print("FAIL", f)
-    print(f"windows_checks: {3 - len(failures)} of 3 passed"); return 1 if failures else 0
+    checks = [x for x in failures if not x.startswith("cleanup:")]  # the cleanup is its own line, not one of the three
+    print(f"windows_checks: {3 - len(checks)} of 3 passed" + ("; cleanup FAILED" if len(checks) < len(failures) else "; cleanup ok")); return 1 if failures else 0
 
 if __name__ == "__main__": sys.exit(main())

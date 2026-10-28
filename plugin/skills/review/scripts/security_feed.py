@@ -163,14 +163,18 @@ def check_folder(folder):
     if not os.access(p, os.W_OK): return None, "the folder can't be written to"
     return p.resolve(), None
 
-def compile_osv(blob, eco, R):
-    """A zip of OSV records to rows per the rules: (id, modified, [cves], summary, [(name, versions, ranges)])."""
+def compile_osv(blob, eco, R, too_big=None):
+    """A zip of OSV records to rows per the rules: (id, modified, [cves], summary, [(name, versions, ranges)]). A record
+    over the size limit is skipped and its file name added to too_big, so the build can count it."""
     z = zipfile.ZipFile(io.BytesIO(blob))
     bad = z.testzip()
     if bad: raise ValueError(f"the {eco} zip is damaged at {bad}")
     out = []
     for info in z.infolist():
-        if not info.filename.endswith(".json") or info.file_size > R["limits"]["record"]: continue
+        if not info.filename.endswith(".json"): continue
+        if info.file_size > R["limits"]["record"]:
+            if too_big is not None: too_big.append(info.filename)
+            continue
         rec = json.loads(z.read(info))
         if not isinstance(rec, dict) or not rec.get("id"): raise ValueError(f"{info.filename} has no id")
         if rec.get("withdrawn"): continue
@@ -250,7 +254,8 @@ def update(cfg, d=None, force=False):
             c = sqlite3.connect(tmp); c.executescript(SCHEMA); counts = {}
             for s in srcs:
                 if s["kind"] == "osv-zip":
-                    rows = compile_osv(blobs[s["id"]], s["ecosystem"], R); eco = s["ecosystem"]
+                    big = []; rows = compile_osv(blobs[s["id"]], s["ecosystem"], R, big); eco = s["ecosystem"]
+                    if big: counts[f"{eco}_skipped_over_limit"] = len(big)  # in the log, status and meta: never a silent drop
                     if was.get(eco) and len(rows) < was[eco] // 2: raise ValueError(f"{eco}: {len(rows)} records against {was[eco]} last time; refusing a copy that lost over half")
                     for aid, mod, cves, summ, pkgs in rows:
                         c.execute("INSERT OR REPLACE INTO advisory VALUES (?,?,?,?)", (aid, eco, mod, zlib.compress(json.dumps({"summary": summ, "packages": pkgs}, separators=(",", ":")).encode(), 9)))
@@ -404,6 +409,7 @@ def main(argv):
             cfg.update(asked=now().date().isoformat(), cadence="off", consent="no"); save_cfg(cfg)
             print("feed off: nothing will be downloaded, and the database (if any) is not read"); return 0
         if not a.folder or not a.signed_off: print("security_feed: switching it on needs --folder and --signed-off (the estimate the user signed off on)", file=sys.stderr); return 2
+        if a.signed_off < 1: print("security_feed: --signed-off is the size in bytes the user signed off on, and must be 1 or more", file=sys.stderr); return 2
         folder, bad = check_folder(a.folder)
         if bad: print(f"security_feed: {bad}", file=sys.stderr); return 2
         ecos, err = parse_ecos(a.ecosystems)
@@ -411,6 +417,8 @@ def main(argv):
         if cfg.get("folder") and pathlib.Path(cfg["folder"]) != folder:
             for k in ("last_update", "counts", "database_bytes"): cfg.pop(k, None)  # a new folder has no database yet: build it on the next update
         cfg.update(asked=now().date().isoformat(), cadence=a.cadence, consent="yes", folder=str(folder), signed_off_bytes=int(a.signed_off))
+        if ecos and sorted(ecos) != sorted(cfg.get("ecosystems") or ecosystems()):
+            cfg.pop("last_update", None)  # a new ecosystem has no table yet: the next update builds, whatever the schedule says
         if ecos: cfg["ecosystems"] = ecos
         save_cfg(cfg); print(f"feed on, schedule {a.cadence}, database in {folder}, signed off at {human(int(a.signed_off))}"); return 0
     if a.cmd == "due":
@@ -420,10 +428,15 @@ def main(argv):
     if a.cmd == "match":
         sys.path.insert(0, str(HERE)); import scan_deps
         root = pathlib.Path(a.root).resolve(); pkgs = []
+        unread = []
         for lf in root.rglob("package-lock.json"):
-            if not scan_deps._skip(lf, root): pkgs += [(str(lf.relative_to(root)), *x) for x in scan_deps._lock_npm(lf)]
+            if scan_deps._skip(lf, root): continue
+            try: pkgs += [(str(lf.relative_to(root)), *x) for x in scan_deps._lock_npm(lf)]
+            except ValueError as e: unread.append(f"{lf.relative_to(root)} ({e})")
         for rf in root.rglob("requirements*.txt"):
             if not scan_deps._skip(rf, root): pkgs += [(str(rf.relative_to(root)), *x) for x in scan_deps._reqs(rf)]
+        unread += [f"{x.relative_to(root)} (this lockfile format is not read)" for n in scan_deps.UNREAD_LOCKS for x in root.rglob(n) if not scan_deps._skip(x, root) and not (x.parent / "package-lock.json").exists()]
+        for x in unread: print(f"not checked: {x}")
         got = match(pkgs)
         if got is None: print("no local security database (the feed is off or has never built)"); return 1
         rows, checked, unchecked, problem = got
