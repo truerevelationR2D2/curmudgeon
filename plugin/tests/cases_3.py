@@ -421,15 +421,15 @@ def _(d):
     import scan_secrets as ss
     t0 = time.time(); ss.scan("a.js", "a." * 10000, lambda *a: None); assert time.time() - t0 < 2, time.time() - t0
     rows = []; em = lambda sev, rid, area, where, what, ev="": rows.append((rid, ev))
-    ss.scan("conf.json", '{"db_password": "Zq9xR4!vLm2#Tp8@wK"}', em); assert any(r == "secret-generic" for r, _ in rows), rows
-    rows.clear(); ss.scan(".env", "DB_PASSWORD=Zq9xR4vLm2Tp8wKb7Yh3\n", em); assert any(r == "secret-generic" for r, _ in rows), rows
-    rows.clear(); ss.scan("a.js", '{password: "changeme123456", token: "Zq9xR4vLm2Tp8wKb7Yh3Jd"}', em); assert any(r == "secret-generic" for r, _ in rows), "a placeholder first doesn't hide a real key: " + str(rows)
-    rows.clear(); ss.scan("a.js", 'const t = {token: "testZq9xR4vLm2Tp8wKb7Yh"};', em); assert any(r == "secret-generic" for r, _ in rows), "a real value starting with test is still a value"
+    ss.scan("conf.json", T('{"db_password": "@RND1@"}'), em); assert any(r == "secret-generic" for r, _ in rows), rows
+    rows.clear(); ss.scan(".env", T("DB_PASSWORD=@RND2@\n"), em); assert any(r == "secret-generic" for r, _ in rows), rows
+    rows.clear(); ss.scan("a.js", T('{password: "changeme123456", token: "@RND3@"}'), em); assert any(r == "secret-generic" for r, _ in rows), "a placeholder first doesn't hide a real key: " + str(rows)
+    rows.clear(); ss.scan("a.js", T('const t = {token: "@RND4@"};'), em); assert any(r == "secret-generic" for r, _ in rows), "a real value starting with test is still a value"
     rows.clear(); ss.scan("docker-compose.yml", "url: postgres://user:${DB_PASSWORD}@db/app\nurl2: postgres://user:<password>@db/app\n", em); assert not rows, rows
     rows.clear(); ss.scan("db.py", 'url = f"postgres://u:{pw}@h/db"\nurl2 = "mysql://u:{cfg.password}@h/db".format(cfg=c)\n', em); assert not rows, rows  # an f-string or format field is a reference, not a password
-    rows.clear(); ss.scan("docker-compose.yml", "url: postgres://postgres:postgres@localhost/app\n", em); assert rows and rows[0][0] == "secret-db-url-password", rows
+    rows.clear(); ss.scan("docker-compose.yml", T("url: @PGLOCAL@\n"), em); assert rows and rows[0][0] == "secret-db-url-password", rows
     import critic_scan as cs
-    rows.clear(); line = 'x' * 39000 + ' token: "Zq9xR4vLm2Tp8wKb7Yh3Jd" '; ss.scan("a.js", line, em); assert len([r for r, _ in rows if r == "secret-generic"]) == 1, rows
+    rows.clear(); line = 'x' * 39000 + T(' token: "@RND3@" '); ss.scan("a.js", line, em); assert len([r for r, _ in rows if r == "secret-generic"]) == 1, rows
     write(p, "k.js", T('const k = "@LIVE@"; console.log(k); // TODO remove\n')); run(S / "critic_scan.py", ".", "--root", ".", cwd=p)
     allr = (p / ".critic/scan/report.json").read_text() + (p / ".critic/scan/report.md").read_text(); assert T("@LIVE@") not in allr, "no report row carries the key"
     (p / "big.txt").write_bytes(b"x" * (3 * 1024 * 1024)); (p / "u16.env").write_bytes(T("API_TOKEN=@LIVE@\n").encode("utf-16"))
