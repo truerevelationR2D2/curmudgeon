@@ -150,13 +150,13 @@ Curmudgeon is free and runs its own checks, written for this plugin. It never in
 **The security database (off until you say yes).** The first security scan asks you once whether to build a local database of public vulnerability data. Off is the default; with it off nothing is downloaded and dependencies are checked offline only. An unattended run never asks. If you say yes:
 
 1. A folder window opens (on macOS and Windows, and on Linux when zenity or kdialog is already installed; otherwise you type the folder's full path). You choose, or create, the folder the database goes in.
-2. Curmudgeon asks each source how big its file is (a size-only request that sends nothing about your project) and shows you an estimate of the compressed database's size and your free space.
+2. Curmudgeon asks each source how big its file is (a size-only request that sends nothing about your project) and shows you an estimate of the compressed database's size and your free space. The first estimate is an upper bound: CISA's server doesn't say how big its file is, so its size limit is counted, and on a real build in October 2026 an estimate of up to about 284 MB gave a 73.5 MB database (about 245 MB downloaded). Later estimates use the size the last build measured.
 3. You sign off on that size and choose how often to refresh: daily, weekly, every two weeks or monthly.
-4. The database is built in your folder as one file, `curmudgeon-security.sqlite`.
+4. The database is built in your folder as one file, `curmudgeon-security.sqlite`. Run in a terminal, the build shows its download and build progress.
 
 A refresh happens when a security scan starts and your schedule says it is due. If a refresh would make the database more than 25% bigger than the size you signed off on, it downloads nothing and asks you again. `security_feed.py status` shows where things stand; `security_feed.py set --cadence off` turns it off, after which the database is not read.
 
-With the database on, the scan checks your lockfiles (`package-lock.json`, `requirements*.txt`) against it on your machine, so no package name or version leaves it. Then, like the big security vendors who keep a local signature database and check it against a global list, every match is checked against CISA's list of vulnerabilities known to be exploited in the wild: a match CISA lists is a FAIL, any other match a WARN (a NOTE for a dev-only package). A package whose ecosystem isn't in the database is never counted as checked; the scan says how many weren't.
+With the database on, the scan checks your lockfiles (`package-lock.json` versions 1 to 3, aliases included, and exact `==` pins in `requirements*.txt`) against it on your machine, so no package name or version leaves it. `yarn.lock` and `pnpm-lock.yaml` are not read yet: the scan says so in a WARN row, and the dependency check doesn't pass on them. A wildcard pin (`==1.0.*`) is listed, never looked up, and a requirements file named for development (`requirements-dev.txt`, `requirements_test.txt`) counts as dev-only. Then, like the big security vendors who keep a local signature database and check it against a global list, every match is checked against CISA's list of vulnerabilities known to be exploited in the wild: a match CISA lists is a FAIL, any other match a WARN (a NOTE for a dev-only package). A package whose ecosystem isn't in the database is never counted as checked; the scan says how many weren't.
 
 **How the database is built** is fixed in `skills/review/references/feed-rules.json` (in the plugin folder), so every installation builds the same database from the same sources: what is kept from each record (ids, CVE aliases, a short summary, package names, affected versions and ranges) and what is dropped, the compression (each advisory as a zlib-compressed blob in SQLite), the tables, the size estimate, every check on the downloads, and how a match is judged.
 
@@ -200,9 +200,23 @@ Drop a JSON file of rules into your project's `.critic/rules/` (or, to contribut
 
 ## Benchmarks
 
-**Version 5.0.0 has not been re-measured with models yet.** The table below is from 4.0.0; the model runs that would re-measure it (the baseline from three or more runs, and the death match against other tools) cost money and are the maintainer's call. What 5.0.0 adds that can be measured without a model is measured:
+**Version 5.2.1**, measured on 27 and 28 October 2026 with Sonnet 5.5, three blind reviewers per run and the eval kit in `eval/`. The 5.2 release gate ran three reviews of every test (21 runs); 5.2.1 changes no agent's instructions (its briefs now quote the stated intent on one line), so it got a smoke run of one review per test. A finding counts only when it points at the planted bug's lines.
 
-| Scripted lens (5.0.0, no model) | Planted defects found | Wrong rows | Decoy and clean-twin rows |
+| Test | 5.2 gate, planted bugs (3 runs) | 5.2 gate, findings that are real bugs | 5.2.1 smoke, planted bugs (1 run) |
+|---|---|---|---|
+| Notes app (16 planted bugs) | **48/48** | 65/66 | 15/16 |
+| Orders dashboard (27 planted bugs) | **75/81** | 82/82 | 23/27 |
+| Recipe app (9 decoys that look buggy but aren't, 2 real bugs) | **6/6**; no decoy flagged | 23/23 | 2/2; no decoy flagged |
+| Invoices (4 real bugs behind guards that look right) | **12/12** | 28/29 | 4/4 |
+| Clean twins (nothing planted) | 2 BLOCK runs of 9 | – | 2 BLOCK runs of 3 |
+
+Every BLOCK on a clean twin rests on a High that independent labellers, blind to the answer keys and to which version wrote it, judged a real bug nobody planted: one tab's save overwriting another tab's notes, and an invoice Send whose network failure is never shown (every earlier blind label for them said real: 24 of 24 and 68 of 68). Cost per run: $1.44 for 5.2 (21 runs, $30.18), $1.41 for the 5.2.1 smoke. The accept/kill gate (`score.py --gate`) passed 5.2 on all seven tests. Labels are in `eval/labels-2026-10-27.json`.
+
+Two ways to make reviews cheaper were measured and left out because they found fewer planted bugs: shorter reviewer output with dedup on Haiku 5.5 (13% cheaper; 45/48 and 72/81 on the first two tests), Haiku 5.5 for dedup alone (about 2.5 cents a run cheaper, twice as slow, and on identical inputs it merged two separate XSS sites into one, losing a Critical, in 2 of 10 runs), and short reviews in the lite tier (6% cheaper; 127 against 132 of 147). Details in `eval/lite-2026-10-28.md`.
+
+Scripted lenses, measured without a model (`python3 eval/lens.py eval/lensN.json` reproduces each row):
+
+| Scripted lens | Planted defects found | Wrong rows | Decoy and clean-twin rows |
 |---|---|---|---|
 | Tests of the tests | 7 of 7 | 0 | 0 |
 | CI and supply chain | 13 of 13 | 0 | 0 |
@@ -211,12 +225,13 @@ Drop a JSON file of rules into your project's `.critic/rules/` (or, to contribut
 | Requirements and intent | 4 of 4 | 0 | 0 |
 | Operations | 6 of 6 | 0 | 0 |
 | Code rules read code, not strings or comments | 6 of 6 | 0 | 0 |
+| Browser integrity (look-alike links, insecure or off-site forms, unpinned scripts, weak CSP) | 10 of 10 | 0 | 0 |
 
-`python3 eval/lens.py eval/lensN.json` reproduces each row. The strict YAML reader was compared with PyYAML on 6,191 files and 75,000 generated documents: 0 read differently.
+The strict YAML reader was compared with PyYAML on 6,191 files and 75,000 generated documents: 0 read differently. The local security database was built for real on Windows from the full OSV and CISA feeds (about 245 MB downloaded, a 73.5 MB database in 30 seconds: 230,123 npm and 26,063 PyPI advisories, 1,760 CVEs CISA lists as exploited) and found a known-vulnerable lodash in a sample project.
 
-Budgets for 5.0.0, measured with `claude plugin details` and `wc -w`: about 862 tokens added to every session (4.2.1: about 1,516); the review skill about 7.1k tokens when it runs (4.2.1: about 5.6k); words of instructions a reviewer reads before any code, now only what the payload needs: 2,565 for a code change with no lens, 2,666 to 2,732 with one lens, 3,251 for an interface, 4,020 with everything (4.2.1: 3,333 for every payload; 5.0.0 before this change: 4,563).
+Budgets for 5.2.1, measured with `claude plugin details`: about 862 tokens added to every session (4.2.1: about 1,516); the review skill about 7.8k tokens when it runs (5.0.0: about 7.1k; 4.2.1: about 5.6k).
 
-Measured on 24 October 2026: version 5.0.0 against 4.2.2, three review runs of each on every test, Sonnet 5.5, three blind reviewers per run, with the eval kit in `eval/`. Every finding that matched no planted bug was labelled by independent models that read and ran the code, saw no answer keys and were not told which version wrote it (none was labelled wrong; the rest were real bugs nobody planted, or true but trivial). A finding counts only when it points at the planted bug's lines. One 4.2.2 run of the invoices test fell back to a single context and is left out. All numbers are recorded in `eval/baseline.json` (5.0.0, now the baseline) and `eval/labels-2026-10-24.json`.
+**Earlier measurements, for the record.** Measured on 24 October 2026: version 5.0.0 against 4.2.2, three review runs of each on every test, Sonnet 5.5, three blind reviewers per run, with the eval kit in `eval/`. Every finding that matched no planted bug was labelled by independent models that read and ran the code, saw no answer keys and were not told which version wrote it (none was labelled wrong; the rest were real bugs nobody planted, or true but trivial). A finding counts only when it points at the planted bug's lines. One 4.2.2 run of the invoices test fell back to a single context and is left out. All numbers are recorded in `eval/baseline.json` (5.0.0, now the baseline) and `eval/labels-2026-10-24.json`.
 
 | Test (three runs pooled) | Planted bugs found, 4.2.2 → 5.0.0 | Findings that are real bugs, 4.2.2 → 5.0.0 | Report format checks passed, 4.2.2 → 5.0.0 |
 |---|---|---|---|
