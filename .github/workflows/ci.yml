@@ -54,6 +54,7 @@ jobs:
         run: |
           set +e; python plugin/tests/windows_checks.py 2>&1 | tee win.out; status=${PIPESTATUS[0]}
           grep -E '^(FAIL|ok|windows_checks)' win.out | cut -c1-900 | sed 's/^/::notice title=windows check::/'
+          if [ $status -ne 0 ]; then tail -n 15 win.out | cut -c1-900 | sed 's/^/::error title=windows check output::/'; fi
           exit $status
   validate:
     runs-on: ubuntu-latest

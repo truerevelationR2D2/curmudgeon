@@ -5,10 +5,11 @@
      PermissionError from deleting a file SQLite still holds open;
   2. a database folder on a network share (a UNC path, here the machine's own administrative share \\\\localhost\\C$)
      builds and is read back through the URI form SQLite accepts;
-  3. a folder whose name holds '#', '%' and a space builds and is read back.
+  3. a folder whose name holds '#', '%' and a space builds and is read back;
+  and afterwards every file the checks made can be deleted (no connection left open).
 
 On any other system it says so and exits 0 without testing anything. Exit 0 all passed, 1 a check failed."""
-import json, os, pathlib, platform, sys, tempfile, zipfile
+import json, os, pathlib, platform, shutil, sys, tempfile, zipfile
 
 HERE = pathlib.Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent / "skills" / "review" / "scripts"))
@@ -38,7 +39,8 @@ def main():
     if platform.system() != "Windows": print("windows_checks: not Windows; nothing tested"); return 0
     import security_feed as sf
     failures = []
-    with tempfile.TemporaryDirectory() as t:
+    t = tempfile.mkdtemp()
+    if True:
         root = pathlib.Path(t); os.environ["CURMUDGEON_FEED_DIR"] = str(root / "settings"); mirror(root)
         # 1. a failed build cleans up and keeps the real cause
         db = root / "db1"; db.mkdir(); switch_on(sf, db); build_and_read(sf, db)
@@ -59,6 +61,10 @@ def main():
         odd = root / "Security #2 50% db"; odd.mkdir()
         try: switch_on(sf, odd); print("ok 3: odd folder name:", build_and_read(sf, odd)[:90])
         except Exception as e: failures.append(f"3. odd folder name: {type(e).__name__}: {e}")
+    locked = []  # every file must be deletable afterwards: Windows refuses to delete a file a connection still holds open
+    shutil.rmtree(t, onerror=lambda fn, path, exc: locked.append(f"{path}: {exc[1]}"))
+    if locked: failures.append("cleanup: still open or locked: " + "; ".join(locked[:5]))
+    else: print("ok cleanup: every file the checks made could be deleted")
     for f in failures: print("FAIL", f)
     print(f"windows_checks: {3 - len(failures)} of 3 passed"); return 1 if failures else 0
 

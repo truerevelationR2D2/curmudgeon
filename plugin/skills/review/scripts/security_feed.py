@@ -26,7 +26,7 @@ usage:
   security_feed.py due                     exit 0 when an update is due, 1 when not (or off)
   security_feed.py update [--force]        download, check and build; refuses unless switched on
   security_feed.py match ROOT [--json]     check ROOT's lockfiles against the local database (no network)"""
-import argparse, datetime as dt, hashlib, io, json, os, pathlib, platform, re, shlex, shutil, sqlite3, subprocess, sys, tempfile, urllib.request, zipfile, zlib
+import argparse, contextlib, datetime as dt, hashlib, io, json, os, pathlib, platform, re, shlex, shutil, sqlite3, subprocess, sys, tempfile, urllib.request, zipfile, zlib
 
 HERE = pathlib.Path(__file__).resolve().parent
 RULES_PATH = HERE.parent / "references" / "feed-rules.json"
@@ -205,14 +205,14 @@ def sqlite_uri(file_uri):
 
 def db_readable(path):
     try:
-        with sqlite3.connect(ro_uri(path), uri=True) as c: c.execute("SELECT value FROM meta WHERE key='schema'").fetchone()
+        with contextlib.closing(sqlite3.connect(ro_uri(path), uri=True)) as c: c.execute("SELECT value FROM meta WHERE key='schema'").fetchone()
         return True
     except (sqlite3.Error, OSError): return False
 
 def old_counts(path):
     if not pathlib.Path(path).is_file(): return {}
     try:
-        with sqlite3.connect(ro_uri(path), uri=True) as c:
+        with contextlib.closing(sqlite3.connect(ro_uri(path), uri=True)) as c:
             n = {e: k for e, k in c.execute("SELECT ecosystem, COUNT(*) FROM advisory GROUP BY ecosystem")}
             n["kev"] = c.execute("SELECT COUNT(*) FROM kev").fetchone()[0]
             return n

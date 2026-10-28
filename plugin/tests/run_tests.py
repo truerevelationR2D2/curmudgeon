@@ -1556,6 +1556,15 @@ def _(d):
     rows = [x for x in json.loads((d / ".critic/scan/report.json").read_text())["findings"] if x["rule"] == "console-error"]
     assert rows and not any(T("@LIVE@") in x["what"] for x in rows), rows
 
+@test("5.2.1 CI: every Python file in the plugin and eval compiles on this Python and on every older python3.x found on PATH (the plugin supports 3.9 and later)")
+def _(d):
+    files = [str(x) for x in sorted(HERE.rglob("*.py")) + sorted((HERE.parent / "eval").glob("*.py")) if "__pycache__" not in x.parts and ".critic" not in x.parts]
+    check = "import ast, sys\nbad = []\nfor f in sys.argv[1:]:\n    try: ast.parse(open(f, encoding='utf-8').read(), f)\n    except SyntaxError as e: bad.append(f'{f}:{e.lineno}: {e.msg}')\nprint('\\n'.join(bad)); sys.exit(1 if bad else 0)\n"
+    pys = [sys.executable] + [p for p in (shutil.which(f"python3.{m}") for m in range(9, sys.version_info[1])) if p]
+    for py in pys:
+        r = subprocess.run([py, "-c", check, *files], capture_output=True, text=True)
+        assert r.returncode == 0, f"{py}: {r.stdout.strip()[:400]}"
+
 @test("5.0 §5.29 structural blindness: each reviewer works in a private frozen copy without .critic, its Bash runs there, and the copy is gone at stop")
 def _(d):
     p = d / "proj"; write(p, ".critic/reviews/review-B.json", '[{"title": "SECRET-B"}]'); write(p, ".critic/scan/report.md", "SCAN"); write(p, ".critic/rules.md", "r")

@@ -339,7 +339,8 @@ def show_url(u):
     """A URL for the "answered by the simulation" list: query values kept unless they look like tokens."""
     try:
         x = urllib.parse.urlsplit(u)
-        q = "&".join(f"{k}={'…' if re.fullmatch(r'[A-Za-z0-9_\-]{16,}', v) and re.search(r'\d', v) else v[:40]}" for k, v in urllib.parse.parse_qsl(x.query, keep_blank_values=True))
+        tokenish = lambda v: re.fullmatch(r"[A-Za-z0-9_\-]{16,}", v) and re.search(r"\d", v)  # outside the f-string: Python before 3.12 refuses a backslash there
+        q = "&".join(f"{k}={'…' if tokenish(v) else v[:40]}" for k, v in urllib.parse.parse_qsl(x.query, keep_blank_values=True))
         return urllib.parse.urlunsplit((x.scheme, x.netloc.split("@")[-1], x.path, q, ""))[:200]
     except ValueError: return u[:200]
 
