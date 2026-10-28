@@ -21,7 +21,8 @@ tally:
      rejected with the reason, not silently dropped.
   2. Quote check: the quoted code must be at file:line (within 5 lines). Otherwise the finding is retracted.
   3. Ledger: a finding the owner marked a false positive (by its stable id) is suppressed, whatever its impact: that
-     is an explicit ruling on that exact finding. Learned memories (patterns from repeated dismissals) never suppress a
+     is an explicit ruling on that exact finding. Not when git tracks .critic/ledger.json: a cloned repository could
+     ship rulings, so they are listed in counts.md and hide nothing. Learned memories (patterns from repeated dismissals) never suppress a
      Critical or High finding of any kind.
   4. Cluster the same issue across reviewers; votes = how many reviewers raised it.
      Kept: votes >= 2 of 3, or a single vote with an executed failing case.
@@ -38,9 +39,9 @@ apply:
   records every kept finding in the ledger (new, known or regressed)."""
 import hashlib, json, math, os, pathlib, re, subprocess, sys, time
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
-from critic_findings import IMPACTS, extract_findings, norm_code, relocate_quote, fingerprint, quote_check, read_jsonl, refutation_problem, similar, log_run, append_line, refuse_linked_state, to_sarif, validate, write_jsonl, tokens
+from critic_findings import NIT, IMPACTS, extract_findings, norm_code, relocate_quote, fingerprint, quote_check, read_jsonl, refutation_problem, confirmation_problem, security_refutation_problem, similar, log_run, append_line, refuse_linked_state, to_sarif, validate, write_jsonl, tokens, scrub, redact_finding_text, write_manifest, strip_workspace_path, _cites_real_line
 
-ROOT = pathlib.Path(os.environ.get("CRITIC_ROOT", os.getcwd())).resolve(); D = ROOT / ".critic"
+ROOT = pathlib.Path(os.environ.get("CRITIC_ROOT") or re.sub(r"[\\/]\.critic[\\/]scratch(?:[\\/].*)?$", "", os.getcwd()) or os.getcwd()).resolve(); D = ROOT / ".critic"
 
 # Browser results that are measurements (the same page gives the same number) skip verification. Everything else the
 # detector reports, such as console errors or controls that seem dead, can come from the test setup, so it is verified.
@@ -49,7 +50,7 @@ MEASURED = re.compile(r"^(axe-(?!incomplete)|no-focus-style|not-focusable|focus-
 def die(m): print(f"critic_merge: {m}", file=sys.stderr); sys.exit(2)
 
 def norm_path(p):
-    p = str(p or "").strip().replace("\\", "/")
+    p = strip_workspace_path(str(p or "").strip()).replace("\\", "/")
     try:
         q = pathlib.Path(p)
         if q.is_absolute(): p = str(q.resolve().relative_to(ROOT))
@@ -78,16 +79,41 @@ def inside_root(rel):
     try: (ROOT / rel).resolve().relative_to(ROOT); return True
     except (ValueError, OSError): return False
 
+def cell_(t): return str(t).replace("|", "/").replace("\n", " ")
+
+def coverage_report(cov):
+    """Not reviewed, computed by script: payload files (from the change map) that no reviewer reports reading, plus any
+    file a reviewer says it didn't reach. Unknown when reviewers report nothing."""
+    try: payload = [str(x) for x in json.loads((D / "change-map.json").read_text()).get("files", [])]
+    except (OSError, ValueError): payload = []
+    if not cov["read"] and not cov["not_reached"]: return {"known": False, "payload": len(payload)}
+    missing = sorted((set(payload) - cov["read"]) | (cov["not_reached"] - cov["read"]))
+    return {"known": True, "payload": len(payload), "read": len(cov["read"]), "not_reviewed": missing}
+
 def ledger():
     try: return json.loads((D / "ledger.json").read_text())
     except Exception: return {}
+
+def ledger_committed():
+    """True when git tracks .critic/ledger.json: a cloned repository can ship one whose rulings would hide findings,
+    so its false-positive rulings never hide anything (they are listed in counts.md instead)."""
+    from critic_findings import ledger_shipped
+    return ledger_shipped(ROOT)
 
 MEMORY_HITS = []
 def suppressed_by_ledger(f, L):
     """Only the owner's explicit ruling on this exact finding (fp <id>) hides it, and it is still listed under
     "Hidden by your rulings" in counts.md. Learned memories never hide anything: see memory_note."""
+    from critic_findings import fingerprint2
+    mine = fingerprint2(f); alias = (L.get("aliases") or {}).get(f.get("id"))
     for x in L.get("false_positives", []):
-        if x.get("id") and x.get("id") == f.get("id"): return f"known false positive (owner's ruling on this exact finding): {x.get('why', '')}"
+        xid = x.get("id")
+        if not xid: continue
+        old = (L.get("findings") or {}).get(xid) or {}
+        if old.get("score") and IMP_RANK.get(str(f.get("impact", "")).title(), 2) < IMP_RANK.get(old["score"], 2): continue  # never hide a finding more serious than the one ruled on
+        if xid in (f.get("id"), alias): return f"known false positive (owner's ruling on this exact finding): {x.get('why', '')}"
+        if mine and mine == fingerprint2({"file": str(old.get("where", "")).rsplit(":", 1)[0], "quote": old.get("quote")}):  # the same code filed under another category
+            return f"known false positive (owner's ruling on this exact code, {xid}): {x.get('why', '')}"
     return None
 
 def memory_note(f, L):
@@ -104,10 +130,24 @@ def memory_note(f, L):
             MEMORY_HITS.append(i + 1); return {"memory": i + 1, "reason": m.get("reason"), "pattern": m.get("pattern"), "dismissed": m.get("count", 3)}
     return None
 
-IMP_RANK = {k: i for i, k in enumerate(IMPACTS)}
+IMP_RANK = {k: i for i, k in enumerate(IMPACTS + (NIT,))}  # a verifier may lower a Low to a Nit (SC-79)
 def median_impact(xs):
-    r = sorted(IMP_RANK[x] for x in xs if x in IMP_RANK)
+    r = sorted(IMP_RANK[x] for x in xs if x in IMP_RANK and x != NIT)
     return IMPACTS[r[len(r) // 2]] if r else "Low"
+
+# A scripted FAIL's impact by rule (it used to be High for every rule). A live credential is Critical; code that runs
+# input, or a page that throws, is High; an accessibility or layout failure is Medium unless it locks people out.
+SCAN_IMPACT = {"eval": "High", "py-eval": "High", "console-error": "High", "click-error": "High", "not-focusable": "High",
+               "no-focus-style": "Medium", "focus-obscured": "Medium", "zoom-off": "Medium", "html-nested-interactive": "Medium", "sideways": "Medium",
+               "test-const-assert": "Medium", "test-duplicate-name": "Medium",
+               "ci-pwn-request": "Critical", "ci-if-always-true": "Medium", "agent-literal-credential": "Critical"}  # a test that can't fail hides bugs; it isn't one itself
+def scan_impact(rule):
+    try:
+        import scan_secrets
+        secret = {rid for rid, sev, *_ in scan_secrets.PROVIDERS if sev == "FAIL"} | {"private-key", "db-url-password"}
+    except Exception: secret = set()
+    base = rule[len("secret-"):] if rule.startswith("secret-") else rule  # the secret scan reports its rules as secret-<id>
+    return "Critical" if rule.startswith("secret-") and base in secret else SCAN_IMPACT.get(rule, "High")
 
 def scan_rows(path):
     try: rep = json.loads(pathlib.Path(path).read_text())
@@ -116,7 +156,7 @@ def scan_rows(path):
     for r in rep.get("findings", []):
         if r.get("sev") != "FAIL": continue
         m = re.match(r"(.+?):(\d+)$", r.get("where", ""))
-        out.append({"category": r["rule"], "impact": "High", "file": m.group(1) if m else r.get("where", ""), "line": int(m.group(2)) if m else 0,
+        out.append({"category": r["rule"], "impact": scan_impact(r["rule"]), "file": m.group(1) if m else r.get("where", ""), "line": int(m.group(2)) if m else 0,
                     "quote": "", "title": r["what"], "evidence": f"scripted row {r.get('id')} ({r.get('rule')})", "failing_case": r.get("evidence") or r["what"],
                     "verified": "executed" if r.get("level") == "runtime" else "traced", "remediation": "", "source": "scan", "scan_id": r.get("id")})
     return out
@@ -133,11 +173,37 @@ def tally(paths):
     if "--scan" in paths:
         i = paths.index("--scan"); scan = paths[i + 1] if i + 1 < len(paths) else die("--scan needs a report path"); paths = paths[:i] + paths[i + 2:]
     if not paths: die("tally needs the blind review files (for example .critic/reviews/review-*.json); refusing to count scan rows alone")
+    started = ledger().get("started_at")
+    if started:  # a review file older than this run is left over from an earlier one: counting it would invent votes
+        stale = [p for p in paths if pathlib.Path(p).resolve().parent == (D / "reviews").resolve() and pathlib.Path(p).exists()
+                 and pathlib.Path(p).stat().st_mtime < started - 2]
+        if stale: die(f"refusing to count {', '.join(stale)}: written before this run started, so it is from an earlier run. Remove it, or have a fresh reviewer write it again")
     reviews = [load_review(p) for p in paths]
+    coverage = {"read": set(), "not_reached": set()}  # files the reviewers say they read, and the ones they didn't reach (SC-46)
+    sandbox = []  # sandbox scenario lines: numbered SB1, SB2 ... here, so the teardown's SANDBOX LEDGER has a source (SC: self-review D C6)
+    set_aside = []  # candidates a reviewer dropped, with the guard it relied on: logged so the eval can measure self-filtering, never counted
+    for p in paths:
+        try: v = json.loads(pathlib.Path(p).read_text(encoding="utf-8"))
+        except (ValueError, OSError): continue
+        cov = v.get("coverage") if isinstance(v, dict) else None
+        if isinstance(cov, dict):
+            for k_ in ("read", "not_reached"):
+                if isinstance(cov.get(k_), list): coverage[k_] |= {norm_path(str(x)) for x in cov[k_] if isinstance(x, str)}
+        aside = v.get("set_aside") if isinstance(v, dict) else None
+        if isinstance(aside, list):  # anything else (null, a number) is ignored: the list is only a log
+            set_aside += [dict(scrub(x), reviewer=pathlib.Path(p).stem) for x in aside if isinstance(x, dict)]
+        sb = v.get("sandbox") if isinstance(v, dict) else None
+        if isinstance(sb, list):
+            for x in sb[:40]:
+                if not isinstance(x, dict) or not str(x.get("scenario") or "").strip(): continue
+                x = {k: redact_finding_text(str(x.get(k) or "")) for k in ("scenario", "happens", "result", "how")}  # a key typed into a scenario is masked like any finding text
+                sandbox.append({"id": f"SB{len(sandbox) + 1}", "reviewer": pathlib.Path(p).stem[-1:], "scenario": str(x.get("scenario"))[:200],
+                                "happens": str(x.get("happens") or "")[:300], "result": str(x.get("result") or "")[:120],
+                                "how": "driven" if str(x.get("how") or "").lower() == "driven" else "traced"})
     n = len(reviews); need = 1 if n == 1 else math.ceil(2 * n / 3)
     # an outside run we can't see never counts as executed: verification decides
     outside_rows = [dict(r, source="outside", verified=r.get("verified") if r.get("verified") == "inferred" else "traced") for r in load_review(outside)] if outside else []
-    L = ledger(); out = {"reviewers": n, "votes_needed": need, "outside": None, "kept": [], "contested": [], "dropped": [], "retracted": [], "rejected": [], "suppressed": []}
+    L = ledger(); out = {"reviewers": n, "votes_needed": need, "outside": None, "kept": [], "contested": [], "dropped": [], "retracted": [], "rejected": [], "suppressed": [], "ruling_committed": [], "set_aside": set_aside, "sandbox": sandbox, "nits": [], "coverage": coverage_report(coverage)}
     scanned = scan_rows(scan) if scan else []
     accepted = []  # (raw_id, reviewer_index or None for scan, finding)
     OUTSIDE_RI = len(reviews) + 1
@@ -146,6 +212,7 @@ def tally(paths):
         for k, f in enumerate(rows):
             for k_ in ("impact", "category", "title", "file", "evidence", "failing_case", "verified", "remediation", "quote"):
                 if f.get(k_) is not None and not isinstance(f[k_], str): f[k_] = json.dumps(f[k_], ensure_ascii=False)  # a pasted or malformed value never crashes a later step
+            if f.get("quote") is None: f["quote"] = ""  # "quote": null is no quote, not a crash
             f["impact"] = str(f.get("impact", "")).title(); f["file"] = norm_path(f.get("file"))
             if not inside_root(f["file"]):
                 out["rejected"].append({"finding": f, "why": ["names a file outside the project: never read, never sent to a verifier"]}); continue
@@ -160,10 +227,22 @@ def tally(paths):
             if q is False and ri == OUTSIDE_RI:  # another model's viewer may number lines differently: a long quote found on exactly one line is moved there
                 moved = relocate_quote(f, ROOT)
                 if moved: f["line_cited"], f["line"] = f["line"], moved; f["id"] = fingerprint(f); q = True
-            if q is False: out["retracted"].append({"finding": f, "why": "quoted code is not at the cited file:line"}); continue
+            if q is False:  # retracted all the same; the tally only notes when the exact quote is elsewhere in that file (a wrong line number, often from cat -n over several files)
+                elsewhere = relocate_quote(f, ROOT) if ri != OUTSIDE_RI else None
+                out["retracted"].append({"finding": f, "why": "quoted code is not at the cited file:line" + (f" (the exact quote is at line {elsewhere}: a wrong line number, still retracted)" if elsewhere else "")}); continue
             f["quote_checked"] = q is True
+            req = f.get("requirement") if isinstance(f.get("requirement"), dict) else None
+            if req and req.get("basis") == "stated" and not _cites_real_line(req.get("where"), ROOT):
+                req["basis"] = "inferred"; req["why"] = f"cited {req.get('where')}, which is not a real line"; f["requirement"] = req
+            if req and req.get("basis") == "inferred" and f["impact"] in ("Critical", "High"):  # SC-55: inferred is not stated
+                f["impact_capped_from"] = f["impact"]; f["impact"] = "Medium"
             s_ = suppressed_by_ledger(f, L)
+            if s_ and ledger_committed():  # a ledger the repository ships could be anyone's: its rulings are shown, never applied
+                out["ruling_committed"].append({"finding": f, "why": s_}); s_ = None
             if s_: out["suppressed"].append({"finding": f, "why": s_}); continue
+            if f["impact"] == NIT:  # SC-79: listed under Nits, never counted, never voted on, never verified
+                if not any(similar(f, x) for x in out["nits"]): out["nits"].append(f)
+                continue
             note = memory_note(f, L)
             if note: f["memory_note"] = note
             accepted.append((f["raw"], None if is_scan else ri, f))
@@ -208,7 +287,7 @@ def tally(paths):
         by_file.setdefault(f["file"] or "(no file)", []).append({"id": r, "also": [x for x, _ in mem[1:]], "line": f["line"], "title": f["title"], "quote": f.get("quote", "")[:200]})
     cands = sum(len(v) for v in by_file.values()) if len(roots) > 1 else 0
     (D).mkdir(parents=True, exist_ok=True)
-    (D / "dedup-candidates.json").write_text(json.dumps({"instructions": "Group findings that describe the same underlying issue (same cause, one fix resolves both), within a file or across files. Return {\"groups\": [[id, ...], ...]} listing only merged sets; use the 'id' values.", "findings_by_file": by_file}, indent=1, ensure_ascii=False))
+    (D / "dedup-candidates.json").write_text(json.dumps({"instructions": "Group findings that describe the same underlying issue (same cause, one fix resolves both), within a file or across files. Return {\"groups\": [[id, ...], ...]} listing only merged sets; use the 'id' values.", "findings_by_file": scrub(by_file)}, indent=1, ensure_ascii=False))
     clusters = {}
     for r, ri, f in accepted:
         c = clusters.setdefault(find(r), {"members": [], "reviewers": set(), "scan": False, "outside": False})
@@ -238,6 +317,8 @@ def tally(paths):
         f = dict(best, votes=votes, votes_ours=len(c["reviewers"]), of=of, impact=median_impact([x["impact"] for x in human]), scan_confirmed=bool(c.get("scan")),
                  locations=sorted({f"{x['file']}:{x.get('line', '')}" for x in m}), raised_by=sorted({x["source"] for x in m}))
         if theirs: f["outside_impact"] = theirs[0]  # shown, never used: the outside reviewer's own rating
+        if c.get("scan") and best.get("source") != "scan":  # a reviewer restated a scripted row: keep the script's evidence too
+            f["scan_evidence"] = [x["evidence"] for x in m if x.get("source") == "scan"]
         mn = next((x["memory_note"] for x in m if x.get("memory_note")), None)
         if mn and f["impact"] in ("Medium", "Low"): f["memory_note"] = mn
         else: f.pop("memory_note", None)
@@ -250,11 +331,11 @@ def tally(paths):
     vd = D / "verify"; vd.mkdir(parents=True, exist_ok=True)
     for old in vd.glob("*.json"): old.unlink()
     for f in out["kept"] + out["contested"]:
-        if f["impact"] == "Low" and f.get("votes_ours", f["votes"]) >= need and not f.get("outside_only"): continue  # agreed by OUR reviewers; an outside vote alone never skips verification  # agreed Low findings skip verification to save usage
+        if f["impact"] == "Low" and f.get("votes_ours", f["votes"]) >= need and not f.get("outside_only"): continue  # agreed by OUR reviewers (an outside vote alone never skips verification): agreed Lows skip verification
         if f.get("raised_by") == ["scan"] and f.get("verified") == "executed" and MEASURED.match(str(f.get("category"))): continue  # a measurement, not an interpretation: nothing to reproduce
-        packet = {k: f.get(k) for k in ("id", "category", "impact", "file", "line", "quote", "title", "failing_case")}
-        (vd / f"{f['id']}.json").write_text(json.dumps(packet, indent=1, ensure_ascii=False))
-    (D / "tally.json").write_text(json.dumps(out, indent=1, ensure_ascii=False))
+        packet = {k: f.get(k) for k in ("id", "category", "impact", "file", "line", "quote", "title", "failing_case", "preconditions", "root_cause") if k in f}
+        (vd / f"{f['id']}.json").write_text(json.dumps(scrub(packet), indent=1, ensure_ascii=False))
+    (D / "tally.json").write_text(json.dumps(scrub(out), indent=1, ensure_ascii=False))
     if MEMORY_HITS and (D / "ledger.json").exists():  # keep memories that are in use from retiring
         led = pathlib.Path(__file__).resolve().parent / "critic_ledger.py"
         for n_ in sorted(set(MEMORY_HITS)): subprocess.run([sys.executable, str(led), "memories", "--hit", str(n_)], cwd=ROOT, env=dict(os.environ, CRITIC_ROOT=str(ROOT)), capture_output=True)
@@ -281,9 +362,55 @@ def write_verifier_log():
         except (ValueError, AttributeError, TypeError): continue  # a damaged line never stops apply
     for kind, f, why, rep in VERIFIER_LOG:
         if (run_no, f.get("id"), kind) in seen: continue  # apply run twice on the same verdicts logs each drop once
-        append_line(D / "refutations.jsonl", json.dumps({"run": run_no, "at": time.strftime("%Y-%m-%d %H:%M"), "kind": kind, "id": f.get("id"), "impact": f.get("impact"),
+        append_line(D / "refutations.jsonl", json.dumps(scrub({"run": run_no, "at": time.strftime("%Y-%m-%d %H:%M"), "kind": kind, "id": f.get("id"), "impact": f.get("impact"),
                              "file": f.get("file"), "line": f.get("line"), "title": f.get("title"), "failing_case": f.get("failing_case"),
-                             "why": why, "reproduced": rep, "votes": f.get("votes"), "of": f.get("of")}, ensure_ascii=False) + "\n")
+                             "why": redact_finding_text(why), "reproduced": rep, "votes": f.get("votes"), "of": f.get("of")}), ensure_ascii=False) + "\n")
+
+def revision_stamp(final):
+    """What these findings were reviewed against (SC-38): the git commit, whether the working tree had uncommitted
+    changes, and a sha256 of the cited files' contents."""
+    def git(*a):
+        try: return subprocess.run(["git", *a], cwd=ROOT, capture_output=True, text=True, timeout=10).stdout.strip()
+        except (OSError, subprocess.TimeoutExpired): return ""
+    h = hashlib.sha256()
+    for f in sorted({str(x.get("file") or "") for x in final}):
+        p = ROOT / f
+        if f and inside_root(f) and p.is_file(): h.update(f.encode() + b"\0" + p.read_bytes() + b"\0")
+    return {"sha": git("rev-parse", "--short=12", "HEAD") or None, "dirty": bool(git("status", "--porcelain", "--", ".", ":(exclude).critic")), "payload_sha256": h.hexdigest(),
+            "at": time.strftime("%Y-%m-%d %H:%M:%S")}
+
+def mark_origin(final):
+    """In a review of a change (critic_map.py from a git diff), mark each finding introduced or pre-existing (SC-43),
+    by script: introduced when its line, or any file:line its evidence, failing case or locations cite, falls in a
+    changed hunk, or its file is new. A new caller reaching an old sink therefore counts as introduced. Both kinds are
+    counted; pre-existing ones get their own section."""
+    try: cm = json.loads((D / "change-map.json").read_text())
+    except (OSError, ValueError): return
+    if cm.get("mode") != "diff": return
+    hk, new = cm.get("hunks") or {}, set(cm.get("new_files") or [])
+    def touched(file, line):
+        return file in new or any(a <= line < a + max(c, 1) for a, c in hk.get(file, []))
+    for f in final:
+        locs = [(str(f.get("file") or ""), safe_line(f.get("line")))]
+        for text in (f.get("evidence"), f.get("failing_case"), " ".join(f.get("locations") or [])):
+            locs += [(m.group(1), int(m.group(2))) for m in re.finditer(r"([\w./-]+\.\w+):(\d+)", str(text or ""))]
+        f["origin"] = "introduced" if any(touched(fl, ln) for fl, ln in locs if fl) else "pre-existing"
+
+def safe_line(v):
+    try: return int(v or 0)
+    except (TypeError, ValueError): return 0
+
+def fix_status(f):
+    """Whether a finding's remediation can be offered as a fix: usable, partial (it says so), or not offerable (empty,
+    the same as the quoted code, or with unbalanced brackets or quotes in its code)."""
+    rem = str(f.get("remediation") or "").strip()
+    if not rem: return "none"
+    code = re.findall(r"`([^`]+)`", rem) or ([rem] if re.search(r"[(){}\[\];=]", rem) else [])
+    if any(norm_code(c) and norm_code(c) == norm_code(f.get("quote")) for c in code) or norm_code(rem) == norm_code(f.get("quote")): return "not offerable: the fix is the same as the code"
+    for c in code:
+        if any(c.count(a) != c.count(b) for a, b in ("()", "[]", "{}")) or c.count('"') % 2 or c.count("'") % 2 and not re.search(r"\w'\w", c):
+            return "not offerable: unbalanced brackets or quotes"
+    return "partial" if re.search(r"(?i)\bpartial(ly)?\b|\bonly part\b|\bstop-?gap\b|\bworkaround\b", rem) else "usable"
 
 def apply(paths):
     try: T = json.loads((D / "tally.json").read_text())
@@ -300,9 +427,13 @@ def apply(paths):
             if (D / "verify" / f"{f['id']}.json").exists():
                 notes.append(f"{f['id']}: no verdict returned; kept, confidence lowered"); f["verifier"] = "missing"
             final.append(f); continue
-        kind = str(v.get("verdict", "unclear")).lower(); why = str(v.get("refutation") or v.get("reason") or "")
+        kind = str(v.get("verdict", "unclear")).lower(); raw = str(v.get("refutation") or v.get("reason") or "")
+        why = redact_finding_text(raw)  # a refutation can quote a secret: it is checked raw, stored masked
+        if kind == "confirmed":
+            cp = confirmation_problem(v, root=ROOT)
+            if cp: kind = "unclear"; notes.append(f"{f['id']}: confirmation without evidence counted as unclear ({cp})")
         if kind == "refuted":
-            prob = refutation_problem(why, f["impact"], v.get("reproduced"), root=ROOT)
+            prob = refutation_problem(raw, f["impact"], v.get("reproduced"), root=ROOT) or security_refutation_problem(v, f)
             if not prob:
                 refuted.append({"finding": f, "why": why}); VERIFIER_LOG.append(("refuted", f, why, v.get("reproduced"))); continue
             kind = "unclear"; notes.append(f"{f['id']}: refutation not concrete enough to drop it ({prob}); kept")
@@ -311,7 +442,9 @@ def apply(paths):
             if new in IMP_RANK and IMP_RANK[new] > IMP_RANK[f["impact"]]:
                 VERIFIER_LOG.append(("downgraded", dict(f), f"{f['impact']} to {new}: {v.get('note') or why}", v.get("reproduced")))
                 f["impact_before"] = f["impact"]; f["impact"] = new
-            else: notes.append(f"{f['id']}: downgrade ignored (a verifier may lower, never raise)")
+            else: notes.append(f"{f['id']}: downgrade ignored (a verifier may lower, never raise)"); kind = "unclear"
+        if f.get("outside_only") and kind not in ("confirmed", "downgrade"):  # nobody of ours saw it and no verifier confirmed it
+            unverified.append(f); notes.append(f"{f['id']}: outside-only finding the verifier couldn't confirm ({kind}); left out of the findings"); continue
         f["verifier"] = kind
         if v.get("reproduced") in ("executed", "traced"): f["verifier_reproduced"] = v["reproduced"]
         final.append(f)
@@ -320,6 +453,13 @@ def apply(paths):
         f["confidence"] = "confirmed" if ex or (f.get("votes", 1) >= 2 and f.get("verifier") == "confirmed") else \
                           "likely" if f.get("verifier") in ("confirmed",) or f.get("votes", 1) >= 2 else "possible"
     final.sort(key=lambda f: (IMP_RANK[f["impact"]], {"confirmed": 0, "likely": 1, "possible": 2}[f["confidence"]], f["file"], int(f.get("line") or 0)))
+    for f in final: f["fix"] = fix_status(f)  # SC-37: never offer an empty fix, a no-op fix, or one with unbalanced brackets
+    mark_origin(final)
+    final = scrub(final); unverified = scrub(unverified)  # a verifier's note can quote a secret too: mask before anything is written
+    lowered = [f for f in final if f["impact"] == NIT]  # a verifier lowered a Low to a Nit: it leaves the counted findings
+    final = [f for f in final if f["impact"] != NIT]
+    nits = list(T.get("nits") or []) + lowered
+    write_jsonl(D / "nits.jsonl", nits)  # SC-79: listed, never counted; the eval still credits a planted bug found here (as an impact miss)
     write_jsonl(D / "findings.jsonl", final)
     write_verifier_log()
     (D / "findings.sarif").write_text(json.dumps(to_sarif(final), indent=1))
@@ -327,7 +467,33 @@ def apply(paths):
     md = ["# Curmudgeon merged findings", "", f"Reviewers: {T['reviewers']} (votes needed: {T['votes_needed']}).",
           "Counts for the VERDICT (copy exactly): " + " · ".join(f"{k} {v}" for k, v in cnt.items()) + f" · total {len(final)}", "",
           "| ID | Impact | Confidence | Votes | Verifier | Where | Title |", "| --- | --- | --- | --- | --- | --- | --- |"]
-    md += [f"| {f['id']} | {f['impact']} | {f['confidence']} | {f.get('votes', 1)}/{f.get('of', 1)} | {f.get('verifier', '-')} | {f['file']}:{f.get('line', '')} | {f['title'].replace('|', '/')} |" for f in final]
+    def where_(f):  # every place the merged reviewers cited, first the one the finding is filed under: a reader (and the teardown) sees them all
+        first = f"{f['file']}:{f.get('line', '')}"; more = [x for x in (f.get("locations") or []) if x != first]
+        return first + (" (also at " + ", ".join(more[:6]) + (" ..." if len(more) > 6 else "") + ")" if more else "")
+    md += [f"| {f['id']} | {f['impact']} | {f['confidence']} | {f.get('votes', 1)}/{f.get('of', 1)} | {f.get('verifier', '-')} | {where_(f)} | {f['title'].replace('|', '/')} |" for f in final]
+    cov = T.get("coverage") or {}
+    md += ["", "Not reviewed (computed from the reviewers' coverage reports): " + (", ".join(cov.get("not_reviewed") or []) or "nothing") if cov.get("known")
+           else "", "Not reviewed: unknown (no reviewer reported coverage); say so in the teardown." if not cov.get("known") else ""]
+    if nits: md += ["", f"## Nits ({len(nits)}; listed, not counted, not verified, never blocking)"] + [f"- {cell_(f.get('file'))}:{f.get('line', '')} {cell_(f.get('title'))}" for f in nits[:30]] + ([f"- and {len(nits) - 30} more in .critic/nits.jsonl"] if len(nits) > 30 else [])
+    sbx = T.get("sandbox") or []
+    md += ["", "## Sandbox ledger (copy these lines; cite them as SB ids)", "| SB | Reviewer | Scenario | What happens | Result | How |", "| --- | --- | --- | --- | --- | --- |"] + \
+          [f"| {x['id']} | {x['reviewer']} | {cell_(x['scenario'])} | {cell_(x['happens'])} | {cell_(x['result'])} | {x['how']} |" for x in sbx] if sbx else \
+          ["", "## Sandbox ledger", "No reviewer recorded a sandbox line: write \"none recorded\" in the teardown, never invent one."]
+    pre = [f for f in final if f.get("origin") == "pre-existing"]
+    if pre: md += ["", f"## Pre-existing (already there before this change; still counted above): {len(pre)}"] + [f"- {f['id']} {f['impact']} {f['file']}:{f.get('line', '')}" for f in pre]
+    nofix = [f for f in final if str(f.get("fix", "")).startswith(("none", "not offerable"))]
+    if nofix: md += ["", "## Fixes not to offer (describe the problem; don't present these remediations as fixes)"] + [f"- {f['id']}: {f['fix']}" for f in nofix]
+    try: stuck = [json.loads(x) for x in (D / "stuck.jsonl").read_text().splitlines() if x.strip()] if (D / "stuck.jsonl").is_file() and not (D / "stuck.jsonl").is_symlink() else []
+    except (OSError, ValueError): stuck = []
+    run_now = ledger().get("run"); stuck = [x for x in stuck if x.get("run") == run_now]
+    if stuck: md += ["", "## Stuck (typed; never hidden: say in the teardown what couldn't be checked and why)"] + [f"- {x.get('role')} {x.get('agent_id', '')[:8]}: {x.get('type')} on {x.get('tool')} (round {x.get('round')})" for x in stuck]
+    capped = [f for f in final if f.get("impact_capped_from")]
+    if capped: md += ["", "## Capped at Medium (they rest on an inferred requirement, not a stated one; say so in the teardown)"] + [f"- {f['id']}: raised as {f['impact_capped_from']}; inferred from {str((f.get('requirement') or {}).get('why', ''))[:120]}" for f in capped]
+    part = [f for f in final if f.get("fix") == "partial"]
+    if part: md += ["", "## Partial fixes (label them partial in the teardown)"] + [f"- {f['id']}" for f in part]
+    misnum = [r for r in T["retracted"] if "a wrong line number" in str(r.get("why"))]
+    if misnum: md += ["", f"## Line numbers to check: {len(misnum)} retracted finding(s) quote code that is in the file, at another line",
+                      "Still retracted (the quote check holds a quote to its cited line). Say so in the teardown's Not checked line: a reviewer read with numbering that was off."]
     for name, rows in (("Refuted by verification", refuted), ("Dropped (single vote, not executed)", T["dropped"]), ("Retracted (quote not found)", T["retracted"]),
                        ("Rejected (broke the contract)", T["rejected"]), ("Hidden by your rulings (fp on this exact finding)", T["suppressed"])):
         if rows: md += ["", f"## {name}"] + [f"- {r['finding'].get('id')} {r['finding'].get('file')}:{r['finding'].get('line', '')} {r['finding'].get('title')}: {r['why'] if isinstance(r['why'], str) else '; '.join(r['why'])}" for r in rows]
@@ -335,6 +501,10 @@ def apply(paths):
         o = T["outside"]; theirs = [f for f in final if "outside" in (f.get("raised_by") or [])]
         md += ["", "## Outside reviewer", f"- {o['raised']} raised; {o['accepted']} passed the contract and quote checks ({o.get('lines_corrected', 0)} at a corrected line); {o['matched_ours']} matched our reviewers; "
                f"{o['only_outside']} only theirs, each verified blind. In the final list: " + (", ".join(f"{f['id']} {f['impact']}" for f in theirs) or "none") + "."]
+    if T.get("ruling_committed"):
+        md += ["", "## Not hidden: rulings from a ledger the repository tracks (.critic/ledger.json is committed, so its rulings could be anyone's; these findings stay in the counts above)"]
+        md += [f"- {r['finding'].get('id')} {r['finding'].get('file')}:{r['finding'].get('line', '')} {r['finding'].get('title')}: {r['why']}" for r in T["ruling_committed"]]
+        md += ["To apply your own rulings, stop tracking the ledger (your copy stays): git rm --cached .critic/ledger.json"]
     looks = [f for f in final if f.get("memory_note")]
     if looks:
         md += ["", "## Looks like your past dismissals (still counted above; nothing is hidden)"]
@@ -344,7 +514,7 @@ def apply(paths):
     if unverified: md += ["", "## Outside findings not verified (not counted above; run the verifier on their packets, then apply again)"] + \
                         [f"- {f['id']} {f['impact']} {f['file']}:{f.get('line', '')} {f['title'].replace('|', '/')}" for f in unverified]
     if notes: md += ["", "## Notes"] + [f"- {x}" for x in notes]
-    (D / "counts.md").write_text("\n".join(md) + "\n")
+    (D / "counts.md").write_text("\n".join(redact_finding_text(x) for x in md) + "\n")
     led = pathlib.Path(__file__).resolve().parent / "critic_ledger.py"
     if (D / "ledger.json").exists():
         tmp = D / "findings-import.jsonl"; write_jsonl(tmp, final)
@@ -358,9 +528,14 @@ def apply(paths):
         for r in refuted:
             fid = r["finding"].get("id")
             if fid in known and known[fid].get("status") == "open":
-                subprocess.run([sys.executable, str(led), "status", fid, "wontfix", "refuted by verification: " + r["why"][:200]], cwd=ROOT, env=env, capture_output=True)
+                subprocess.run([sys.executable, str(led), "status", fid, "refuted", "refuted by verification: " + r["why"][:200]], cwd=ROOT, env=env, capture_output=True)  # not the owner's wontfix: it opens again if a later run raises it
     print(f"final: {len(final)} finding(s) — " + ", ".join(f"{k} {v}" for k, v in cnt.items()) + f"; refuted {len(refuted)}")
-    print(f"wrote {D/'findings.jsonl'}, {D/'findings.sarif'}, {D/'counts.md'}")
+    rev = revision_stamp(final)
+    (D / "revision.json").write_text(json.dumps(rev, indent=1) + "\n")
+    with open(D / "counts.md", "a", encoding="utf-8") as fh:
+        fh.write(f"\nRevision reviewed: {rev['sha'] or 'not a git repository'}{' (with uncommitted changes)' if rev['dirty'] else ''}; cited files sha256 {rev['payload_sha256'][:16]}.\n")
+    write_manifest(D)  # a sha256 of every output, so a later hand edit shows (critic_ledger.py integrity)
+    print(f"wrote {D/'findings.jsonl'}, {D/'findings.sarif'}, {D/'counts.md'} (hashes in {D/'manifest.json'})")
     return 0
 
 def show():

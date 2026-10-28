@@ -1,27 +1,49 @@
 #!/usr/bin/env python3
-"""SubagentStop check: a Curmudgeon reviewer or verifier may not finish until its output meets the contract.
+"""SubagentStop check: a Curmudgeon reviewer or verifier may not finish until its output meets the contract. When it
+does finish (the output passes, or this check already blocked once), its private copy of the project is deleted here,
+in order: a separate stop hook would run in parallel and delete the copy while a blocked agent still needs it.
 Reviewers must leave a valid .critic/reviews/review-<X>.json; verifiers must return a ```json verdict list.
 Never blocks twice in a row (stop_hook_active), and never blocks other agents. Fails open on errors, with a message."""
-import json, pathlib, re, sys, time
+import json, os, pathlib, re, sys, time
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import workspace  # this folder's helper: project root, agent workspaces
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent / "skills" / "review" / "scripts"))
-try: from critic_findings import validate, refutation_problem  # both the review and the verdict checks use it
-except Exception as _e:  # a broken install must say so, not fail open silently
+try: from critic_findings import validate, refutation_problem, confirmation_problem, security_refutation_problem  # the same rules apply uses
+except Exception as _e:  # a broken install must say so, not fail open silently, and still never leave a copy behind
+    try:
+        _d = json.load(sys.stdin); workspace.remove(workspace.project_root(_d), _d.get("agent_id"))
+    except Exception: pass
     print(json.dumps({"systemMessage": f"Curmudgeon contract check skipped: its scripts could not be loaded ({type(_e).__name__}: {_e}). Reinstall the plugin."})); sys.exit(0)
 
-def problems_review(root, msg):
+def started_at(root, agent_id):
+    """When this agent started: its workspace record (hooks/workspace.py), else None."""
+    try:
+        h = workspace.home_for(root, agent_id); p = h / "workspace.json" if h else None
+        if not p or p.is_symlink() or not p.is_file(): return None
+        v = json.loads(p.read_text()).get("made_at"); return float(v) if isinstance(v, (int, float)) else None
+    except Exception: return None
+
+def problems_review(root, msg, agent_id=None):
     d = root / ".critic" / "reviews"
     named = re.findall(r"review-([A-Za-z0-9]+)\.json", msg or "")
     if named: rv = [d / f"review-{named[-1]}.json"]  # the file this reviewer says it wrote
     else: return ["the reply must name the review file it wrote (.critic/reviews/review-<letter>.json)"]
     if not rv[0].exists(): return [f"{rv[0].name} was not written"]
+    began = started_at(root, agent_id)
+    if began and rv[0].stat().st_mtime < began - 2: return [f"{rv[0].name} was not written by you (it is older than your start); write your own review file"]
     if time.time() - rv[0].stat().st_mtime > 1800: return [f"{rv[0].name} is older than 30 minutes: this run didn't write it"]
     try: rows = json.loads(rv[-1].read_text())
     except Exception as e: return [f"{rv[-1].name} is not valid JSON ({e})"]
-    if not isinstance(rows, list): return [f"{rv[-1].name} must hold a JSON list of findings"]
     errs = []
+    if isinstance(rows, dict):  # {"findings": [...], "set_aside": [...]}: the set-aside list is logged, never counted
+        aside = rows.get("set_aside", [])
+        if not isinstance(aside, list) or any(not isinstance(x, dict) or not str(x.get("guard") or "").strip() for x in aside):
+            errs.append("every set_aside entry must be an object naming the guard it relied on (guard: file:line and why)")
+        rows = rows.get("findings")
+    if not isinstance(rows, list): return [f"{rv[-1].name} must hold a JSON list of findings, or an object with a findings list"]
     for i, f in enumerate(rows):
         e = validate(f) if isinstance(f, dict) else ["not an object"]
-        if e: errs.append(f"finding {i + 1} ({(f or {}).get('title', '?') if isinstance(f, dict) else '?'}): {'; '.join(e)}")
+        if e: errs.append(f"finding {i + 1}: {'; '.join(e)}")  # never its title: if a reviewer named another's file, the message must not carry that review's words
     return errs[:8]
 
 def problems_verdict(msg, root=None):
@@ -34,25 +56,32 @@ def problems_verdict(msg, root=None):
         if not isinstance(v, dict): errs.append("every verdict must be a JSON object"); continue
         if not v.get("id"): errs.append("a verdict has no id"); continue
         if v.get("verdict") not in ("confirmed", "refuted", "downgrade", "unclear"): errs.append(f"{v.get('id')}: verdict must be confirmed, refuted, downgrade or unclear")
+        packet = {}
+        try: packet = json.loads((pathlib.Path(root or ".") / ".critic" / "verify" / f"{v['id']}.json").read_text())
+        except Exception: pass
+        if v.get("verdict") == "confirmed":
+            cp = confirmation_problem(v, root=root)
+            if cp: errs.append(f"{v.get('id')}: the merge would count this as unclear: {cp}")
         if v.get("verdict") == "refuted":
-            imp = "Critical"  # unknown impact: hold it to the strictest rule
-            try: imp = json.loads((pathlib.Path(root or ".") / ".critic" / "verify" / f"{v['id']}.json").read_text()).get("impact") or imp
-            except Exception: pass
-            prob = refutation_problem(v.get("refutation") or v.get("reason"), imp, v.get("reproduced"), root=root)
+            imp = packet.get("impact") or "Critical"  # unknown impact: hold it to the strictest rule
+            prob = refutation_problem(v.get("refutation") or v.get("reason"), imp, v.get("reproduced"), root=root) or security_refutation_problem(v, packet)
             if prob: errs.append(f"{v.get('id')}: this refutation would be ignored by the merge: {prob}")
     return errs[:8]
 
 def main():
     try: data = json.load(sys.stdin)
     except Exception: return 0
-    if data.get("stop_hook_active"): return 0
     kind = str(data.get("agent_type") or "")
-    root = pathlib.Path(data.get("cwd") or ".")
-    if kind.endswith("curmudgeon-reviewer"): errs = problems_review(root, data.get("last_assistant_message", ""))
+    root = workspace.project_root(data)
+    if data.get("stop_hook_active"): errs = []  # never block twice in a row
+    elif kind.endswith("curmudgeon-reviewer"): errs = problems_review(root, data.get("last_assistant_message", ""), data.get("agent_id"))
     elif kind.endswith("curmudgeon-verifier"): errs = problems_verdict(data.get("last_assistant_message", ""), root)
     else: return 0
     if errs:
         print(json.dumps({"decision": "block", "reason": "Your output doesn't meet Curmudgeon contract yet: " + " | ".join(errs) + ". Fix it, then finish."}))
+        return 0  # the agent keeps working, so its private copy stays
+    try: workspace.remove(root, data.get("agent_id"))  # the agent is really finishing: delete its copy, keep its notes (§5.29)
+    except Exception: pass
     return 0
 
 if __name__ == "__main__":

@@ -1,0 +1,31 @@
+name: safe
+on:
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  check:
+    if: ${{ github.event_name == 'pull_request' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Title through env
+        env:
+          TITLE: ${{ github.event.pull_request.title }}
+          TOKEN: ${{ secrets.API_TOKEN }}
+        run: |
+          echo "PR $TITLE"
+          echo "number ${{ github.event.pull_request.number }}"
+      - uses: thirdparty/setup-thing@8f4b7f84864484a7bf31766abe9204da3cbe65b3
+      - uses: lockedorg/tool@v1
+      - name: Download and check
+        run: |
+          curl -sSLo tool.tgz https://tools.example.com/tool.tgz
+          sha256sum -c tool.sha256
+      - uses: actions/upload-artifact@v4
+        with:
+          path: dist/

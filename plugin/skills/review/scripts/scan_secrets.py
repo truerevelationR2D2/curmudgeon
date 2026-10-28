@@ -29,8 +29,18 @@ PROVIDERS = [
     ("basic-auth-url", "WARN", r"https?://[^:\s/@]+:[^@\s/]{6,}@[\w.-]+", "URL with an embedded password"),
 ]
 COMPILED = [(r, s, re.compile(x), l) for r, s, x, l in PROVIDERS]
-GENERIC = re.compile(r"(?i)\b([\w.-]*(?:api[_-]?key|secret|token|passw(?:or)?d|pwd|auth|credential|private[_-]?key)[\w.-]*)\b\s*[:=]\s*[\"']([^\"'\s]{12,})[\"']")
-PLACEHOLDER = re.compile(r"(?i)^(x+|\*+|your[_-]|example|changeme|placeholder|dummy|test|sample|redacted|<.*>|\$\{.*\}|process\.env|os\.environ|null|none|true|false)")
+# A name with a secret word, then : or =, then a value. Bounded repeats and a token-start lookbehind keep it linear on
+# long runs of word characters (the old [\w.-]* on both sides was quadratic: 20,000 characters took 29 s). The name may
+# be quoted ("db_password": ...), as in JSON and Python dicts.
+_KW = r"(?:api[_-]?key|secret|token|passw(?:or)?d|pwd|auth|credential|private[_-]?key)"
+GENERIC = re.compile(r"(?i)(?<![\w.-])([\w.-]{0,40}?" + _KW + r"[\w.-]{0,40})[\"']?\s*[:=]\s*[\"']([^\"'\s]{12,200})[\"']")
+GENERIC_BARE = re.compile(r"(?i)(?<![\w.-])([\w.-]{0,40}?" + _KW + r"[\w.-]{0,40})\s*[:=]\s*([^\"'\s#,;]{12,200})\s*(?:#.*)?$")  # .env, YAML, ini: unquoted values
+BARE_FILES = re.compile(r"(?i)(^|/)\.env[\w.-]*$|\.(env|ya?ml|ini|cfg|conf|properties|toml)$")
+# A placeholder is a whole value (x, ***, null, changeme ...) or starts with a marker (your_, <..>, ${..}, $VAR ...); a
+# real key that merely starts with "test" or "x" is a key.
+PLACEHOLDER = re.compile(r"(?i)^(?:x+|\*+|null|none|true|false|test|sample|dummy|redacted|placeholder|example|changeme\w*)$"
+                         r"|^(?:your[_-]|<.*>|\$\{.*\}|\$[A-Z_][A-Z0-9_]*$|%\(\w+\)s|\{\{.*\}\}|process\.env|os\.environ|example[._-]|placeholder[._-]|dummy[._-])")
+LOCAL_DB_PASSWORDS = {"postgres", "password", "root", "secret", "admin", "example", "changeme", "pass", "mysql", "test"}
 
 def entropy(s):
     if not s: return 0.0
@@ -41,6 +51,16 @@ def mask(value):
     return value[:4] + "…[redacted]"
 
 TOKEN = re.compile(r"[A-Za-z0-9_\-+/=.]{20,}")
+def redact_spans(text):
+    """Mask every secret the rules know in a piece of evidence (no blanket pass, so ordinary code stays readable)."""
+    spans = secret_spans(text, True)
+    if not spans: return text
+    out, last = [], 0
+    for a, b in sorted(spans):
+        if b <= last: continue
+        a = max(a, last); out.append(text[last:a]); out.append(mask(text[a:b])); last = b
+    return "".join(out) + text[last:]
+
 def redact(line, spans):
     """Replace every secret span in full, then blanket-mask any other long high-randomness token (a second pass, so a
     key no rule knows still never reaches a report), then trim. Evidence never carries a usable secret."""
@@ -53,12 +73,28 @@ def redact(line, spans):
     t = TOKEN.sub(lambda m: mask(m.group(0)) if "[redacted]" not in m.group(0) and entropy(m.group(0)) >= 3.5 else m.group(0), t)
     return t.strip()[:140]
 
-def secret_spans(chunk):
+def generic(chunk, bare=False):
+    """Every generic credential (name, value, value span) on the line: a placeholder first never hides a key after it."""
+    out = []
+    for rx in ((GENERIC, GENERIC_BARE) if bare else (GENERIC,)):
+        for m in rx.finditer(chunk):
+            v = m.group(2)
+            if not PLACEHOLDER.match(v) and entropy(v) >= 3.5 and not any(a <= m.start(2) < b for _n, _v, (a, b) in out): out.append((m.group(1), v, (m.start(2), m.end(2))))
+    return out
+
+def secret_spans(chunk, bare=False):
     """Every secret on the line: all provider matches plus generic credential values."""
     spans = [(m.start(), m.end()) for _r, _s, rx, _l in COMPILED for m in rx.finditer(chunk)]
-    for m in GENERIC.finditer(chunk):
-        if not PLACEHOLDER.match(m.group(2)) and entropy(m.group(2)) >= 3.5: spans.append((m.start(2), m.end(2)))
+    spans += [sp for _n, _v, sp in generic(chunk, bare)]
     return spans
+
+def db_url_skip(m):
+    """A database URL whose password is a reference or a placeholder is the safe way to write it: no row. A well-known
+    local password (postgres:postgres) is a WARN, not a committed secret."""
+    pw = re.match(r"[^:]+://[^:\s/]+:([^@\s/]+)@", m.group(0))
+    pw = pw.group(1) if pw else ""
+    if PLACEHOLDER.match(pw) or re.fullmatch(r"\$\{[^}]+\}|\$\w+|<[^>]+>|%\(\w+\)s|\{\{.*\}\}|\{\w+(?:\.\w+)*(?:![rsa])?(?::[^{}]*)?\}", pw): return "skip"
+    return "warn" if pw.lower() in LOCAL_DB_PASSWORDS else None
 
 def windows(line, size=20000, overlap=400):
     """Very long lines (minified bundles) are scanned in overlapping windows, never skipped."""
@@ -67,21 +103,29 @@ def windows(line, size=20000, overlap=400):
 
 def scan(rel, text, emit):
     """emit(sev, rule, area, where, what, evidence)"""
+    bare = bool(BARE_FILES.search(rel.replace("\\", "/")))
     for i, line in enumerate(text.split("\n"), 1):
         seen = set(); taken = []  # absolute spans already reported: one key is one finding, whichever rules match it
         for off, chunk in windows(line):
-            spans = secret_spans(chunk); hit = False
+            spans = secret_spans(chunk, bare); hit = False
             for rid, sev, rx, label in COMPILED:
                 for m in rx.finditer(chunk):
                     key = (rid, off + m.start()); A, B = off + m.start(), off + m.end()
                     if key in seen or any(A < y and x < B for x, y in taken): continue
+                    if rid == "db-url-password":
+                        how = db_url_skip(m)
+                        if how == "skip": continue
+                        if how == "warn": sev = "WARN"
                     seen.add(key); taken.append((A, B)); hit = True
                     if rid == "private-key": ev = m.group(0)  # the header only: the key body never goes into a report
                     else:
                         a, b = max(0, m.start() - 60), min(len(chunk), m.end() + 40)
                         ev = redact(chunk[a:b], [(max(0, x - a), min(b, y) - a) for x, y in spans if y > a and x < b])
                     emit(sev, f"secret-{rid}", "safety", f"{rel}:{i}", f"{label} in a file (rotate it: anything committed or shipped is exposed)", ev)
-            m = GENERIC.search(chunk)
-            if m and not PLACEHOLDER.match(m.group(2)) and entropy(m.group(2)) >= 3.5 and not any(x <= m.start(2) < y for x, y in [(mm.start(), mm.end()) for _r, _s, rx, _l in COMPILED for mm in rx.finditer(chunk)]):
-                a, b = max(0, m.start() - 20), min(len(chunk), m.end() + 20)
-                emit("WARN", "secret-generic", "safety", f"{rel}:{i}", f"hard-coded credential in `{m.group(1)}` (high-randomness value)", redact(chunk[a:b], [(max(0, x - a), min(b, y) - a) for x, y in spans if y > a and x < b]))
+            prov = [(mm.start(), mm.end()) for _r, _s, rx, _l in COMPILED for mm in rx.finditer(chunk)]
+            for name, val, (vs, ve) in generic(chunk, bare):
+                A = off + vs
+                if any(x <= vs < y for x, y in prov) or any(A < y and x < A + (ve - vs) for x, y in taken): continue  # a provider key, or already reported in the window overlap
+                taken.append((A, A + (ve - vs)))
+                a, b = max(0, vs - len(name) - 24), min(len(chunk), ve + 20)
+                emit("WARN", "secret-generic", "safety", f"{rel}:{i}", f"hard-coded credential in `{name}` (high-randomness value)", redact(chunk[a:b], [(max(0, x - a), min(b, y) - a) for x, y in spans if y > a and x < b]))

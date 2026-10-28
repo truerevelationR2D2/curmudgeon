@@ -4,7 +4,11 @@ from html.parser import HTMLParser
 import re
 
 VOID = {"area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "source", "track", "wbr"}
-INTERACTIVE = {"a", "button", "select", "textarea", "label", "details", "iframe", "audio", "video"}
+INTERACTIVE = {"a", "button", "select", "textarea", "label", "details", "iframe"}  # audio and video only with controls, img only with usemap
+CLOSES_P = {"address", "article", "aside", "blockquote", "details", "div", "dl", "fieldset", "figcaption", "figure", "footer", "form",
+            "h1", "h2", "h3", "h4", "h5", "h6", "header", "hgroup", "hr", "main", "menu", "nav", "ol", "p", "pre", "section", "table", "ul"}
+IMPLIED = {"li": ({"li"}, {"ul", "ol", "menu"}), "dt": ({"dt", "dd"}, {"dl"}), "dd": ({"dt", "dd"}, {"dl"}), "option": ({"option"}, {"select", "datalist", "optgroup"}),
+           "tr": ({"tr", "td", "th"}, {"table", "thead", "tbody", "tfoot"}), "td": ({"td", "th"}, {"tr"}), "th": ({"td", "th"}, {"tr"})}
 PHRASING_ONLY = {"button", "a", "p", "span", "label", "h1", "h2", "h3", "h4", "h5", "h6"}
 BLOCK = {"div", "p", "ul", "ol", "table", "section", "article", "header", "footer", "nav", "form", "h1", "h2", "h3", "h4", "h5", "h6", "main", "aside"}
 OPTIONAL_END = {"p", "li", "dt", "dd", "tr", "td", "th", "thead", "tbody", "tfoot", "option", "optgroup", "colgroup", "caption", "rt", "rp", "html", "head", "body"}
@@ -15,8 +19,19 @@ class Checker(HTMLParser):
         self.stack, self.ids, self.label_for, self.labelled, self.has_lang, self.has_title, self.has_html = [], {}, [], set(), False, False, False
         self.headings, self.inputs = [], []
     def where(self): return f"{self.rel}:{self.getpos()[0]}"
+    def implied_ends(self, tag):
+        """The end tags HTML lets you leave out: a block start closes an open <p>, a new <li> closes the last one, and so on."""
+        if tag in CLOSES_P and self.stack and self.stack[-1][0] == "p": self.stack.pop()
+        if tag in IMPLIED:
+            closes, scope = IMPLIED[tag]
+            for i in range(len(self.stack) - 1, -1, -1):
+                t = self.stack[i][0]
+                if t in scope: break
+                if t in closes: del self.stack[i:]; break
+                if t not in OPTIONAL_END: break
     def handle_starttag(self, tag, attrs):
         a = dict(attrs); ln = self.getpos()[0]
+        self.implied_ends(tag)
         if tag == "html": self.has_html = True; self.has_lang = bool(a.get("lang"))
         if tag == "title": self.has_title = True
         if "id" in a and a["id"]:
@@ -27,7 +42,8 @@ class Checker(HTMLParser):
             self.inputs.append((a.get("id"), ln, bool(a.get("aria-label") or a.get("aria-labelledby") or a.get("title")), any(t == "label" for t, _ in self.stack)))
         if re.fullmatch(r"h[1-6]", tag): self.headings.append((int(tag[1]), ln))
         open_tags = [t for t, _ in self.stack]
-        inter = tag in INTERACTIVE or (tag == "input" and a.get("type") != "hidden") or "tabindex" in a
+        inter = (tag in INTERACTIVE or (tag == "input" and a.get("type") != "hidden") or "tabindex" in a
+                 or (tag in ("audio", "video") and "controls" in a) or (tag == "img" and "usemap" in a))
         if inter and tag != "label":
             outer = next((t for t in reversed(open_tags) if t in ("a", "button")), None)
             if outer: self.emit("FAIL", "html-nested-interactive", "html", self.where(), f"<{tag}> inside <{outer}>: interactive elements must not nest (keyboard and screen readers break)", "")

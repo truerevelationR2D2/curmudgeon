@@ -4,10 +4,11 @@ happened to each (new, known, fixed, regressed, acted on), decisions, false posi
 claims, scores, fingerprints, rounds, restore points, gate overrides and run costs, between runs and sessions.
 
 usage (run from the project root, or set CRITIC_ROOT):
-  init | start review|full [--tier trivial|lite|full]   begin a run (round 1; records mode and tier)
+  init | start review|full|audit [--tier trivial|lite|full]   begin a run (round 1; records mode and tier; an audit refuses fixes)
   import FINDINGS.jsonl                  record merged findings by stable id: new, known (still there) or regressed
   add ID SCORE WHERE "summary" [--verified]   record one finding by hand (round 3 accepts only --verified)
-  status ID open|wontfix "note"          update a finding
+  status ID open|wontfix|refuted "note" update a finding (refuted: set by the merge script after a verifier's refutation;
+                                         unlike the owner's wontfix, it opens again when a later run raises the finding)
   claim ID targeted|no-new-defect|behaviour-unchanged "evidence id or command"   one of the three fix claims
   fixed ID "how verified" [--untested]   mark fixed: needs all three claims (or --untested, which is recorded as such)
   defer ID impossible|conflicts|worse "note"   defer, only for one of the three valid reasons
@@ -19,22 +20,24 @@ usage (run from the project root, or set CRITIC_ROOT):
   examples                               print up to 5 recent false positives as few-shot examples for reviewers
   acted                                  for findings open last run: check whether the quoted code is gone (acted on)
   decision "text" [SOURCE] | override "what" "who" "why"   recorded choices; overrides can't be by "author"
-  score NAME VALUE MAX | cost SECONDS [NOTE]
-  stamp [--add] PATH... | stale | round [--reset]   (--add keeps earlier stamps: use it for /curmudgeon:iterate)
+  score NAME VALUE MAX | cost SECONDS [NOTE] | tokens [--all] | integrity | fresh [ID...]   (fresh: findings whose code changed since the review; tokens: what each agent role cost this run; integrity: outputs edited since the last apply)
+  stamp [--add] PATH... | stale | round [--reset]   (--add keeps earlier stamps: use it for /curmudgeon:fix iterate)
   gate on|async|off                      turn the stop checks on or off (the guard blocks editing these files by hand)
   memories --hit N                       record that memory N noted a finding (keeps it from retiring)
   spotcheck [--n 3]                      pick a few random Medium+ findings and one refutation for the owner to judge
   spotcheck answer ID real|wrong|unsure  record the owner's answer; spotcheck stats shows precision from their answers
   dismiss --like N "why"                 dismiss, on purpose, every finding of the last review that memory N noted
                                          (memories never hide findings; they only note open Medium/Low ones)
-  restore save [--ids ID,ID] PATH... | restore apply   (secret-looking keys are redacted in restore copies; rollback
-                                         keeps the live key lines; --ids records which findings the change is for)
+  restore save [--ids ID,ID] PATH... | restore apply   (restore copies are exact, so rollback is exact: private (0700),
+                                         git-ignored, a warning when a key shape is found; --ids records which findings
+                                         the change is for; apply never writes outside the project)
   show | check                           check exits 1 if a Critical/High is open"""
 import hashlib, json, os, pathlib, re, shutil, sys, time
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 from critic_findings import log_run, norm_code, read_jsonl, refuse_linked_state, tokens
+RANK = {"Critical": 0, "High": 1, "Medium": 2, "Low": 3}
 
-ROOT = pathlib.Path(os.environ.get("CRITIC_ROOT", os.getcwd())).resolve(); D = ROOT / ".critic"; F = D / "ledger.json"
+ROOT = pathlib.Path(os.environ.get("CRITIC_ROOT") or re.sub(r"[\\/]\.critic[\\/]scratch(?:[\\/].*)?$", "", os.getcwd()) or os.getcwd()).resolve(); D = ROOT / ".critic"; F = D / "ledger.json"
 SCORES = ("Critical", "High", "Medium", "Low"); STATES = ("open", "fixed", "deferred", "wontfix", "dismissed")
 REASONS = ("impossible", "conflicts", "worse"); DISMISS = ("false-positive", "out-of-scope", "redundant", "intended", "preference")
 CLAIMS = ("targeted", "no-new-defect", "behaviour-unchanged")
@@ -88,9 +91,15 @@ def render(L):
           "", "## Restore points", *[f"- {r['at']}: {r['dir']} ({len(r['files'])} files)" for r in L["restore"][-5:]]]
     return "\n".join(md) + "\n"
 
+def render_decisions(L):
+    """The recorded decisions alone, for the verifier: no statuses, notes, dismissals or memories, which could sway a
+    blind check (memories note findings for the owner; they never reach a verifier)."""
+    return "\n".join(["# Recorded decisions", "Choices the owner made on purpose. Respect them; they are not defects to re-argue.", "",
+                      *([f"- {d['text']} ({d.get('source', '')})" for d in L["decisions"]] or ["_None recorded._"])]) + "\n"
+
 def save(L):
     md = render(L); D.mkdir(parents=True, exist_ok=True)
-    for path, body in ((F, json.dumps(L, indent=1, ensure_ascii=False)), (D / "ledger.md", md)):
+    for path, body in ((F, json.dumps(L, indent=1, ensure_ascii=False)), (D / "ledger.md", md), (D / "decisions.md", render_decisions(L))):
         tmp = path.with_name(path.name + ".tmp"); tmp.write_text(body, encoding="utf-8"); os.replace(tmp, path)
 
 def rel(p):
@@ -101,6 +110,20 @@ def rel(p):
 def need(rest, n, usage):
     if len(rest) < n: die("usage: " + usage)
 
+def archive_reviews(L, label):
+    """A new run or round starts with no reviews: earlier ones move to .critic/history/<label>/reviews/, and
+    started_at is reset, so the tally refuses any review file written before it."""
+    rv = D / "reviews"
+    if rv.is_dir() and not rv.is_symlink():
+        olds = [p for p in rv.iterdir() if p.is_file() and not p.is_symlink()]
+        if olds:
+            dest, k = D / "history" / label / "reviews", 2
+            while dest.exists():  # never overwrite an earlier archive (round --reset can repeat a label)
+                dest = D / "history" / f"{label}-{k}" / "reviews"; k += 1
+            dest.mkdir(parents=True)
+            for p in olds: os.replace(p, dest / p.name)
+    L["started_at"] = time.time()
+
 def finding(L, fid):
     if fid not in L["findings"]: die(f"no finding {fid}")
     return L["findings"][fid]
@@ -108,6 +131,7 @@ def finding(L, fid):
 def quote_present(f):
     q = norm_code(f.get("quote")); file = (f.get("where") or "").rsplit(":", 1)[0]
     if not q or not file: return None
+    if "[redacted]" in str(f.get("quote")): return None  # a masked quote is not the code: it can't show whether the code is gone
     try: return q in norm_code((ROOT / file).read_text(encoding="utf-8", errors="replace"))
     except OSError: return False
 
@@ -138,14 +162,39 @@ def learn(L, d):
             return f"learned a memory from 3 '{d['reason']}' dismissals: {' '.join(sorted(common))}"
     return None
 
+def family(cat):
+    """The control a category is about: its first word (blindness-bypass and blindness-glob are one control)."""
+    return (re.split(r"[-_ /:]", str(cat or "").strip().lower()) or [""])[0]
+
+def moles(L):
+    """SC-73: the same control in the same file keeps springing new holes. When at least two findings for one
+    (file, control) were already marked fixed and another is open, patching is not converging: stop and escalate one
+    design finding with up to five solutions ranked best to worst (references/escalation.md). Returns
+    [(file, control, fixed_ids, open_ids)]."""
+    groups = {}
+    for k, v in L["findings"].items():
+        fam = family(v.get("category")); file = str(v.get("where") or "").rsplit(":", 1)[0]
+        if not fam or not file: continue
+        g = groups.setdefault((file, fam), {"fixed": [], "open": []})
+        if v.get("status") in ("open", "regressed"): g["open"].append(k)
+        if v.get("status") == "fixed" or any("fixed" in h for h in v.get("history", [])): g["fixed"].append(k)
+    return [(f, c, sorted(set(g["fixed"]) - set(g["open"])) or sorted(g["fixed"]), sorted(g["open"]))
+            for (f, c), g in sorted(groups.items()) if len(set(g["fixed"]) | set(g["open"])) >= 3 and len(g["fixed"]) >= 2 and g["open"]]
+
+def mole_lines(L):
+    return [f"WHACK-A-MOLE in {f} ({c}): {len(fx)} fixed ({', '.join(fx[:5])}) and still open ({', '.join(op[:5])}). Stop patching this control. "
+            f"Write one design finding with up to five solutions ranked best to worst (references/escalation.md) and give it to the owner." for f, c, fx, op in moles(L)]
+
 def main(a):
     if not a or any(x in ("-h", "--help") for x in a): print(__doc__); return 0  # help never changes the ledger
     cmd, rest = a[0], a[1:]; L = load(); msg = "ok"
-    if cmd not in ("show", "check", "stale"): refuse_linked_state(ROOT); log_run(ROOT, "script", "critic_ledger.py " + " ".join(a))
+    if cmd not in ("show", "check", "stale", "tokens", "integrity", "fresh"): refuse_linked_state(ROOT); log_run(ROOT, "script", "critic_ledger.py " + " ".join(a))
+    if cmd in ("fixed", "claim", "restore") and L.get("mode") == "audit":
+        die("this run is an audit of someone else's system: it changes nothing, so nothing is fixed, claimed or restored here (start a review of your own code to fix)")
     if cmd == "init": pass
     elif cmd == "start":
-        need(rest, 1, "start review|full [--tier trivial|lite|full]")
-        if rest[0] not in ("review", "full"): die("start review|full")
+        need(rest, 1, "start review|full|audit [--tier trivial|lite|full]")
+        if rest[0] not in ("review", "full", "audit"): die("start review|full|audit")
         tier = rest[rest.index("--tier") + 1] if "--tier" in rest and rest.index("--tier") + 1 < len(rest) else ""
         if tier and tier not in ("trivial", "lite", "full"): die("tier must be trivial, lite or full")
         L["mode"], L["round"], L["tier"] = rest[0], 1, tier; L["run"] += 1
@@ -153,15 +202,40 @@ def main(a):
             try:
                 if not m.get("retired") and (time.time() - time.mktime(time.strptime(m.get("last_used", m.get("made")), "%Y-%m-%d"))) > MEMORY_TTL_DAYS * 86400: m["retired"] = True
             except Exception: pass
+        archive_reviews(L, f"run-{L['run'] - 1}")
+        sc = D / "scratch"  # the last run's agent scratch folders move aside too: a new run's agents start empty
+        if sc.is_dir() and not sc.is_symlink():
+            for pl in sc.glob("*/payload"):  # an agent's copy of the project (hooks/workspace.py) left by a stop that never ran: a copy, never history
+                if pl.is_dir() and not pl.is_symlink() and not pl.parent.is_symlink(): shutil.rmtree(pl, ignore_errors=True)
+        vd_ = D / "verdicts"  # the last run's verifier answers: never applied to this run (critic_run.py), kept for audit
+        if vd_.is_dir() and not vd_.is_symlink() and any(vd_.iterdir()):
+            dest = D / "history" / f"run-{L['run'] - 1}" / "verdicts"; k = 2
+            while dest.exists(): dest = D / "history" / f"run-{L['run'] - 1}-{k}" / "verdicts"; k += 1
+            dest.parent.mkdir(parents=True, exist_ok=True); os.replace(vd_, dest)
+        if sc.is_dir() and not sc.is_symlink() and any(sc.iterdir()):
+            dest = D / "history" / f"run-{L['run'] - 1}" / "scratch"; k = 2
+            while dest.exists(): dest = D / "history" / f"run-{L['run'] - 1}-{k}" / "scratch"; k += 1
+            dest.parent.mkdir(parents=True, exist_ok=True); os.replace(sc, dest)
         msg = f"{rest[0]} run {L['run']} started{' (' + tier + ' tier)' if tier else ''}, round 1 of 3"
     elif cmd == "import":
         need(rest, 1, "import FINDINGS.jsonl")
         try: rows = read_jsonl(rest[0])
         except ValueError as e: die(str(e))
         new = known = regressed = held = 0
+        from critic_findings import fingerprint2 as fp2_
+        by_fp2 = {}
+        for k_, v_ in L["findings"].items():
+            q_ = fp2_({"file": str(v_.get("where", "")).rsplit(":", 1)[0], "quote": v_.get("quote")})
+            if q_: by_fp2.setdefault(q_, k_)
+        seen_now = set()
         for r in rows:
             fid = r.get("id")
             if not fid: continue
+            imp = RANK.get(str(r.get("impact", "Medium")).title(), 2)
+            if fid not in L["findings"]:  # the same code under another category is the same finding: keep its history
+                same = by_fp2.get(fp2_(r) or "")
+                if same and imp >= RANK.get(L["findings"][same].get("score"), 2): L.setdefault("aliases", {})[fid] = same; fid = same  # never alias across a rise in impact: a new Critical on a dismissed Low's line is new
+            seen_now.add(fid)
             ex = L["findings"].get(fid)
             if ex is None and L["round"] >= 3 and r.get("confidence") != "confirmed":
                 held += 1; print(f"round 3 is verify-only: not recording new unconfirmed finding {fid} ({r.get('title', '')[:60]})", file=sys.stderr); continue
@@ -171,11 +245,31 @@ def main(a):
                 L["findings"][fid] = dict(base, status="open", first_run=L["run"], claims={}, history=[f"run {L['run']}: new"]); new += 1
             elif ex["status"] == "fixed":
                 ex.update(base, status="open", regressed=True); ex["history"].append(f"run {L['run']}: regressed"); regressed += 1
+            elif ex["status"] == "refuted":  # a verifier's refutation is not the owner's ruling: raised again, it is open again
+                ex.update(base, status="open"); ex["history"].append(f"run {L['run']}: raised again after a refutation; open again"); known += 1
+            elif ex["status"] in ("dismissed", "wontfix") and imp < RANK.get(ex.get("score"), 2):  # the owner closed a less serious finding
+                ex["history"].append(f"run {L['run']}: raised again at {base['score']}, above the {ex.get('score')} that was {ex['status']}; open again")
+                ex.update(base, status="open"); known += 1
             elif ex["status"] in ("dismissed", "wontfix"):
                 ex["history"].append(f"run {L['run']}: raised again while {ex['status']}")
             else:
                 ex.update(base); ex["history"].append(f"run {L['run']}: still there"); known += 1
+        try:  # anything a reviewer raised this run counts as seen, even if it was dropped, retracted or hidden by a ruling
+            T_ = json.loads((D / "tally.json").read_text())
+            for k_ in ("kept", "contested", "dropped", "retracted", "suppressed", "rejected"):
+                for x_ in T_.get(k_, []):
+                    f_ = x_.get("finding") or x_
+                    sid = f_.get("id"); sid = (L.get("aliases") or {}).get(sid, sid)
+                    if sid not in L["findings"]: sid = by_fp2.get(fp2_(f_) or "", sid)
+                    if sid: seen_now.add(sid)
+        except (OSError, ValueError): pass
+        if L.get("tier") == "full" and L.get("mode") in ("review", "full", "audit"):  # a full review that didn't raise a finding again
+            for k_, v_ in L["findings"].items():
+                if k_ not in seen_now and v_.get("status") in ("open", "fixed") and v_.get("first_run", L["run"]) < L["run"]:
+                    v_.setdefault("absent_in_full_runs", [])
+                    if L["run"] not in v_["absent_in_full_runs"]: v_["absent_in_full_runs"].append(L["run"])
         msg = f"imported {len(rows)}: {new} new, {known} known, {regressed} regressed" + (f", {held} held back (round 3)" if held else "")
+        msg += "".join("\n" + x for x in mole_lines(L))
     elif cmd == "add":
         need(rest, 4, "add ID Critical|High|Medium|Low WHERE \"summary\" [--verified]")
         if L["round"] >= 3 and "--verified" not in rest: die("round 3 is verify-only: new findings need --verified (an executed failing case)")
@@ -183,12 +277,12 @@ def main(a):
         if sc not in SCORES: die("score must be Critical, High, Medium or Low")
         L["findings"][rest[0]] = {"score": sc, "where": rest[2], "summary": rest[3], "status": "open", "claims": {}, "history": [f"run {L['run']}: added"], "quote": "", "category": ""}
     elif cmd == "status":
-        need(rest, 2, "status ID open|wontfix \"note\"")
+        need(rest, 2, "status ID open|wontfix|refuted \"note\"")
         f = finding(L, rest[0])
         if rest[1] == "deferred": die("use: defer ID impossible|conflicts|worse \"note\"")
         if rest[1] == "fixed": die("use: fixed ID \"how verified\" (needs the three claims)")
         if rest[1] == "dismissed": die("use: dismiss ID REASON \"why\"")
-        if rest[1] not in ("open", "wontfix"): die("status must be open or wontfix")
+        if rest[1] not in ("open", "wontfix", "refuted"): die("status must be open, wontfix or refuted")
         f.update(status=rest[1], note=rest[2] if len(rest) > 2 else "")
     elif cmd == "claim":
         need(rest, 3, "claim ID targeted|no-new-defect|behaviour-unchanged \"evidence\"")
@@ -200,8 +294,10 @@ def main(a):
         need(rest, 2, "fixed ID \"how verified\" [--untested]")
         f = finding(L, rest[0]); missing = [c for c in CLAIMS if c not in f["claims"]]
         if missing and "--untested" not in rest: die(f"not fixed yet: missing claim(s) {', '.join(missing)}. Run the checks, or pass --untested to record it as untested")
+        again = f.get("status") == "fixed" and f.get("fixed_run") == L["run"]  # fix, then approve: one fix, never "marked fixed twice"
         f.update(status="fixed", note=rest[1] + (" [untested: " + ", ".join(missing) + "]" if missing else ""), fixed_run=L["run"], regressed=False)
-        f["history"].append(f"run {L['run']}: fixed{' (untested)' if missing else ''}")
+        if not again: f["history"].append(f"run {L['run']}: fixed{' (untested)' if missing else ''}")
+        else: msg = f"{rest[0]} was already marked fixed in this run; note updated, history unchanged"
     elif cmd == "defer":
         need(rest, 3, "defer ID impossible|conflicts|worse \"note\"")
         f = finding(L, rest[0])
@@ -298,23 +394,27 @@ def main(a):
             if f["status"] in ("open", "fixed") and f.get("quote"):
                 p = quote_present(f)
                 if p is None: continue
-                f["acted_on"] = not p; checked += 1
+                if p: f["acted_on"] = False; checked += 1; continue
+                # the quote left the file; it counts as acted on only once a later full review didn't raise it again (SC-39)
+                if any(r_ > f.get("first_run", 0) for r_ in f.get("absent_in_full_runs", [])): f["acted_on"] = True; checked += 1
+                else: f.pop("acted_on", None); f["acted_pending"] = "quote gone; waiting for a full re-review"
         save(L); print(f"checked {checked} finding(s); see the acted-on rate in ledger.md"); return 0
     elif cmd == "gate":
         need(rest, 1, "gate on|async|off")
         D.mkdir(parents=True, exist_ok=True)
-        if rest[0] == "on": (D / "gate").write_text(""); msg = "stop gate on"
-        elif rest[0] == "async": (D / "gate-async").write_text(""); msg = "background stop check on"
+        if rest[0] == "on": (D / "gate").write_text(""); (D / "watch-off").unlink(missing_ok=True); msg = "stop gate on"
+        elif rest[0] == "async": (D / "gate-async").write_text(""); (D / "watch-off").unlink(missing_ok=True); msg = "background stop check on"
         elif rest[0] == "off":
             for n_ in ("gate", "gate-async", "gate-count"): (D / n_).unlink(missing_ok=True)
-            msg = "stop checks off"
+            (D / "watch-off").write_text("")  # also silences the while-you-work scan (SC-62)
+            msg = "stop checks off, and the while-you-work scan"
         else: die("gate on|async|off")
         print(msg); return 0
     elif cmd == "decision":
         need(rest, 1, "decision \"text\" [SOURCE]"); L["decisions"].append({"text": rest[0], "source": rest[1] if len(rest) > 1 else ""})
     elif cmd == "override":
         need(rest, 3, "override \"what\" \"who\" \"why\"")
-        if rest[1].strip().lower() in ("author", "claude", "critic", "self"): die("an override must come from the owner, not the author")
+        if rest[1].strip().lower() in ("author", "claude", "critic", "curmudgeon", "self"): die("an override must come from the owner, not the author")
         L["overrides"].append({"what": rest[0], "who": rest[1], "why": rest[2], "at": time.strftime("%Y-%m-%d %H:%M")})
     elif cmd == "score":
         need(rest, 3, "score NAME VALUE MAX")
@@ -323,6 +423,53 @@ def main(a):
         prev = [x for x in L["scores"] if x["name"] == rest[0]]
         L["scores"].append({"name": rest[0], "value": v, "max": m, "at": time.strftime("%Y-%m-%d %H:%M")})
         msg = f"{rest[0]}: " + (f"{prev[-1]['value']:g}/{prev[-1]['max']:g} → " if prev else "") + f"{v:g}/{m:g}"
+    elif cmd == "fresh":  # SC-38: are these findings still about the code on disk? /curmudgeon:fix patch runs this first
+        import critic_findings as cf_
+        rows = cf_.read_jsonl(D / "findings.jsonl") if (D / "findings.jsonl").is_file() else []
+        if not rows: print("fresh: no findings.jsonl (run a review first)"); return 1
+        pick = [r for r in rows if not rest or r.get("id") in rest]
+        if rest and len(pick) < len(set(rest)): print("fresh: unknown id(s): " + ", ".join(sorted(set(rest) - {r.get('id') for r in pick}))); return 1
+        stale = 0
+        for r in pick:
+            if r.get("quote_redacted") or not str(r.get("quote") or "").strip():
+                print(f"fresh: {r.get('id')} can't be checked (no quote, or its quote was masked); re-read {r.get('file')}:{r.get('line')} before fixing"); continue
+            if cf_.quote_check(r, ROOT): continue
+            moved = cf_.relocate_quote(r, ROOT)
+            if moved: print(f"fresh: {r.get('id')} moved to {r.get('file')}:{moved}"); continue
+            print(f"fresh: {r.get('id')} is STALE: its quoted code is no longer at {r.get('file')}:{r.get('line')} (the file changed since the review)"); stale += 1
+        if stale: print(f"fresh: {stale} finding(s) stale; review those files again before fixing them"); return 1
+        print(f"fresh: {len(pick)} finding(s) still match the code on disk"); return 0
+    elif cmd == "integrity":  # SC-72: outputs edited since the last apply (detectable, not impossible: see write_manifest)
+        import critic_findings as cf_
+        res = cf_.check_manifest(D)
+        if res is None: print("integrity: no manifest yet (it is written at the end of each critic_merge.py apply)"); return 0
+        if not res: print("integrity: every output matches the hashes recorded at the last apply"); return 0
+        for name, what in res: print(f"integrity: .critic/{name} {what} since the last apply")
+        return 1
+    elif cmd == "tokens":  # what this run's agents cost, from .critic/cost.jsonl (written by the record_cost hook)
+        rows = []
+        cf = D / "cost.jsonl"
+        if cf.is_file() and not cf.is_symlink():
+            for line in cf.read_text(encoding="utf-8", errors="replace").splitlines():
+                try: r_ = json.loads(line)
+                except ValueError: continue
+                if rest[:1] == ["--all"] or r_.get("run") == L["run"]: rows.append(r_)
+        if not rows: print("tokens: unavailable (no agent costs recorded for this run; they need Claude Code's SubagentStop transcript)"); return 0
+        F = ("input_tokens", "cache_creation_input_tokens", "cache_read_input_tokens", "output_tokens")
+        by = {}
+        for r_ in rows:
+            b_ = by.setdefault(r_.get("role", "unknown"), dict.fromkeys(F, 0) | {"agents": 0, "requests": 0, "unavailable": 0})
+            b_["agents"] += 1
+            if r_.get("unavailable"): b_["unavailable"] += 1; continue
+            b_["requests"] += r_.get("requests", 0)
+            for k in F: b_[k] += r_.get(k, 0)
+        print("| role | agents | requests | input | cache write | cache read | output |"); print("| --- | --- | --- | --- | --- | --- | --- |")
+        tot = dict.fromkeys(F, 0)
+        for role, b_ in sorted(by.items()):
+            print(f"| {role} | {b_['agents']}" + (f" ({b_['unavailable']} unavailable)" if b_["unavailable"] else "") + f" | {b_['requests']} | " + " | ".join(f"{b_[k]:,}" for k in F) + " |")
+            for k in F: tot[k] += b_[k]
+        print("| total | | | " + " | ".join(f"{tot[k]:,}" for k in F) + " |")
+        return 0
     elif cmd == "cost":
         need(rest, 1, "cost SECONDS [NOTE]")
         try: L["costs"].append({"run": L["run"], "seconds": float(rest[0]), "note": rest[1] if len(rest) > 1 else ""})
@@ -344,8 +491,22 @@ def main(a):
     elif cmd == "round":
         if rest[:1] == ["--reset"]: L["round"] = 0; msg = "round reset"
         else:
+            archive_reviews(L, f"run-{L['run']}-round-{L['round']}")
+            # convergence (SC-36, after code-improver's detectors; our own rules): escalate instead of looping
+            openf = {k: v for k, v in L["findings"].items() if v.get("status") in ("open", "regressed")}
+            ch = sum(1 for v in openf.values() if v.get("score") in ("Critical", "High"))
+            snaps = L.setdefault("round_snapshots", {}).setdefault(str(L["run"]), [])
+            snaps.append({"round": L["round"], "open": sorted(openf), "critical_high": ch})
+            esc = []
+            esc += [f"{k} was marked fixed twice and is open again" for k, v in openf.items() if sum("fixed" in h for h in v.get("history", [])) >= 2]
+            if len(snaps) >= 3: esc += [f"{k} has stayed open for 3 rounds" for k in sorted(set.intersection(*[set(x["open"]) for x in snaps[-3:]]))]
+            if len(snaps) >= 2 and snaps[-1]["critical_high"] and snaps[-1]["critical_high"] >= snaps[-2]["critical_high"]:
+                esc.append(f"open Critical+High did not fall ({snaps[-2]['critical_high']} -> {snaps[-1]['critical_high']})")
             L["round"] += 1; save(L)
+            esc += mole_lines(L)
+            for e in esc: print(e if e.startswith("WHACK-A-MOLE") else f"ESCALATE to the owner: {e}")
             print(f"review round {L['round']} of 3" + (" (verify-only: no new findings without an executed case)" if L["round"] == 3 else ""))
+            if esc: return 3
             return 1 if L["round"] > 3 else 0
     elif cmd == "restore":
         need(rest, 1, "restore save PATH... | restore apply")
@@ -372,6 +533,10 @@ def main(a):
         elif rest[0] == "apply":
             if not L["restore"]: die("no restore point recorded")
             r = L["restore"][-1]; manual = []
+            rroot, proot = str((ROOT / ".critic" / "restore").resolve()) + os.sep, str(ROOT.resolve()) + os.sep
+            for f_ in r["files"]:  # checked in full before anything is copied: a cloned ledger can't write outside the project
+                if not (str((ROOT / f_).resolve()).startswith(proot) and str((ROOT / r["dir"] / f_).resolve()).startswith(rroot)):
+                    die(f"restore point names {f_!r} (or its folder) outside the project or .critic/restore; nothing was restored")
             for f_ in r["files"]:
                 src = ROOT / r["dir"] / f_
                 if (r.get("redacted") or {}).get(f_):

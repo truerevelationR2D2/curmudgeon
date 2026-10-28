@@ -1,0 +1,190 @@
+{
+ "checks": {
+  "axe": "n/a",
+  "ci": "n/a",
+  "console": "n/a",
+  "deps": "n/a",
+  "focus": "n/a",
+  "interactive": "n/a",
+  "keyboard": "n/a",
+  "obscured": "n/a",
+  "page": "n/a",
+  "responsive": "n/a",
+  "screen-reader": "n/a",
+  "screenshots": "n/a",
+  "speed": "n/a",
+  "static": "fail",
+  "structure": "pass",
+  "visual": "n/a"
+ },
+ "rows": [
+  [
+   "FAIL",
+   "zoom-off",
+   "a11y",
+   "index.html:5",
+   "zoom disabled in the viewport (WCAG 1.4.4)"
+  ],
+  [
+   "NOTE",
+   "ai-palette",
+   "anti-ai",
+   "styles.css:3",
+   "stock indigo/violet palette"
+  ],
+  [
+   "NOTE",
+   "ai-palette",
+   "anti-ai",
+   "styles.css:5",
+   "stock indigo/violet palette"
+  ],
+  [
+   "NOTE",
+   "console-log",
+   "hygiene",
+   "app.js:47",
+   "leftover console.log"
+  ],
+  [
+   "NOTE",
+   "default-font",
+   "anti-ai",
+   "styles.css:1",
+   "overused default typeface"
+  ],
+  [
+   "NOTE",
+   "hover-only",
+   "a11y",
+   "styles.css",
+   "hover styles with no matching focus style: #list li (keyboard users miss the cue)"
+  ],
+  [
+   "NOTE",
+   "html-append",
+   "perf",
+   "app.js:10",
+   "innerHTML += (re-parses the whole container each time; quadratic in a loop)"
+  ],
+  [
+   "NOTE",
+   "log-only-catch",
+   "errors",
+   "app.js:47",
+   "catch only logs; the user is never told"
+  ],
+  [
+   "NOTE",
+   "per-keystroke",
+   "async",
+   "app.js:36",
+   "request-per-keystroke candidate: confirm debounce and stale-response guard"
+  ],
+  [
+   "NOTE",
+   "per-keystroke",
+   "async",
+   "app.js:37",
+   "request-per-keystroke candidate: confirm debounce and stale-response guard"
+  ],
+  [
+   "NOTE",
+   "raw-hex",
+   "theming",
+   "styles.css",
+   "colours are raw hex values with no tokens (custom properties)"
+  ],
+  [
+   "NOTE",
+   "time-id",
+   "state",
+   "store.js:7",
+   "id from Date.now() (collides on fast actions)"
+  ],
+  [
+   "WARN",
+   "empty-catch",
+   "errors",
+   "store.js:26",
+   "empty catch swallows the error"
+  ],
+  [
+   "WARN",
+   "fixed-width",
+   "layout",
+   "styles.css:2",
+   "fixed width of 600 px or more (sideways scroll on phones, WCAG 1.4.10)"
+  ],
+  [
+   "WARN",
+   "html-input-label",
+   "html",
+   "index.html:13",
+   "form control has no label (placeholder text is not a label: WCAG 1.3.1, 3.3.2, 4.1.2)"
+  ],
+  [
+   "WARN",
+   "html-input-label",
+   "html",
+   "index.html:19",
+   "form control has no label (placeholder text is not a label: WCAG 1.3.1, 3.3.2, 4.1.2)"
+  ],
+  [
+   "WARN",
+   "html-input-label",
+   "html",
+   "index.html:20",
+   "form control has no label (placeholder text is not a label: WCAG 1.3.1, 3.3.2, 4.1.2)"
+  ],
+  [
+   "WARN",
+   "outline-none",
+   "a11y",
+   "styles.css:6",
+   "focus outline removed: confirm a :focus-visible replacement"
+  ],
+  [
+   "WARN",
+   "parse-no-try",
+   "state",
+   "store.js:2",
+   "JSON.parse outside try (bad data crashes the load)"
+  ],
+  [
+   "WARN",
+   "placeholder",
+   "anti-ai",
+   "index.html:11",
+   "placeholder content left in"
+  ],
+  [
+   "WARN",
+   "raw-html",
+   "safety",
+   "app.js:46",
+   "raw HTML injection point"
+  ],
+  [
+   "WARN",
+   "status-unchecked",
+   "errors",
+   "app.js",
+   "fetch used but no response status is ever checked (errors look like success)"
+  ],
+  [
+   "WARN",
+   "storage-no-try",
+   "state",
+   "store.js:2",
+   "storage call outside try (throws in private mode or when full)"
+  ],
+  [
+   "WARN",
+   "unescaped-html",
+   "safety",
+   "app.js:10",
+   "HTML built from a template with unescaped value(s): n.id, currentNote && currentNote.id "
+  ]
+ ]
+}

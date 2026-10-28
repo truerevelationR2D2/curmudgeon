@@ -1,0 +1,23 @@
+{
+ "lens": "browser integrity (SC-74)",
+ "fixture": "fixture12",
+ "clean": "fixture12-clean",
+ "area": "integrity",
+ "planted": [
+  {"id": "I1", "rule": "integrity-csp-weak", "where": "site/login.html:7", "why": "script-src allows 'unsafe-inline'"},
+  {"id": "I2", "rule": "integrity-script-no-sri", "where": "site/login.html:8", "why": "a script from another site with no integrity hash"},
+  {"id": "I3", "rule": "integrity-link-mismatch", "where": "site/login.html:13", "why": "the text says bank.example.com, the link goes to bank.example.net"},
+  {"id": "I4", "rule": "integrity-lookalike-host", "where": "site/login.html:14", "why": "a punycode host that decodes to Latin and Cyrillic letters mixed (pаypal)"},
+  {"id": "I5", "rule": "integrity-form-insecure", "where": "site/login.html:15", "why": "the sign-in form posts over plain http"},
+  {"id": "I6", "rule": "integrity-new-origin", "where": "site/checkout.html:7", "why": "a script from a site the recorded copy never used (it has SRI, so only the comparison catches it)"},
+  {"id": "I7", "rule": "integrity-form-offsite", "where": "site/checkout.html:12", "why": "the card form posts to another site"},
+  {"id": "I8", "rule": "integrity-changed", "where": "site/checkout.html:12", "why": "the card form posted to this site in the recorded copy"},
+  {"id": "I9", "rule": "integrity-changed", "where": "site/checkout.html:16", "why": "the support link went to example.com in the recorded copy"},
+  {"id": "I10", "rule": "integrity-csp-weak", "where": "_headers:2", "why": "default-src * in the headers file"}
+ ],
+ "decoy_files": ["site/about.html"],
+ "decoys": [
+  {"where": "site/about.html", "why": "link text shop.example.com to www.example.com (one site); example.co.uk (two-part suffix); file names brochure.pdf and index.html as link text; a mailto; 'read more'; v1.2; a relative form action; a script with SRI; a same-site script; a localhost script; a strict CSP with a nonce; an iframe from another site (frames are not flagged)"}
+ ],
+ "note": "Every host is a reserved example domain. The recorded copy sits in .critic/integrity-baseline.json in both folders."
+}

@@ -6,9 +6,10 @@
 | **Critical** | Data loss or corruption; security (XSS, leaked secrets, broken access); money moved wrongly; crash on a core path; legal exposure; WCAG A failure or keyboard trap; blocks the main task |
 | **High** | Hits users in normal use; WCAG AA failure; a race under ordinary timing; a performance cliff within 10× the current data; a success message for something that failed |
 | **Medium** | Occasional friction; maintainability that will rot; degraded performance with workarounds; inconsistent behaviour |
-| **Low** | Polish: copy, spacing, minor visual inconsistency |
+| **Low** | A real fault a user can notice that loses nothing and misleads no one: a wrong label, a misaligned control, an unclear wording. It needs a concrete failing case like any finding |
+| **Nit** | True but not a failure: polish, naming, style, a speculative concern with no failing case, a better way to write working code. Listed under Nits, never counted, never verified, never blocking (SC-79) |
 
-When two findings share a score, the more likely one goes first.
+When two findings share a score, the more likely one goes first. If you can't name what goes wrong for a user, it is a Nit, not a Low. **However rare the path, anything that loses or corrupts data, gives a wrong result, or reports a failure as success is High or worse, never Low**: how often it happens changes the order of the list, not the impact.
 
 ## Rubric 1: code
 | Component | Fail condition (what AI code defaults miss) | Inspect | Remediation requirement |
@@ -21,7 +22,9 @@ When two findings share a score, the more likely one goes first.
 | **Domain leaks** | Business rules (pricing, tax, permissions, eligibility) written inside render code, handlers or components; I/O inside view functions; the same rule computed in two places | Arithmetic and conditionals on money, roles or status inside UI files | Move the rule to one pure, named function or domain object with its own test; the view only displays the result |
 | Secrets and trust boundaries | Keys, tokens or passwords in client code or the repo; the client trusted to enforce limits | Any string that looks like a credential; any check that only the browser performs | Secrets live on a server; the server enforces; rotate anything already shipped |
 
-## Rubric 2: design
+Rows for the scripted lenses (tests of the tests, CI and supply chain, agent and MCP configuration, release and rollback, requirements and intent, operations, secrets and dependencies, browser integrity) are in `lenses.md`; your brief names the sections that apply to this payload.
+
+## Rubric 2: design (interface payloads only; your brief says when)
 | Element | AI laziness pattern | Standard | Remediation requirement |
 | --- | --- | --- | --- |
 | Visual hierarchy | Everything the same weight; centred cards in a grid; walls of muted grey; a flat type scale | One primary action per screen; a deliberate type scale (steps of at least 1.25×) | Name the primary action, demote the rest; give sizes, weights and spacing |
@@ -48,7 +51,8 @@ These are dropped unless the reviewer shows a concrete, likely failing case with
 | Critical | Loses or corrupts data, leaks a secret, moves money wrongly, runs attacker code, crashes the main path | The main task can't be done at all, or not by keyboard or screen reader | A wrong number or claim that a decision will rest on |
 | High | Wrong result in normal use; a race under ordinary timing; failure shown as success | AA failure on a main path; a dead or misleading control | A requirement missed or contradicted |
 | Medium | Wrong in an edge case with a workaround; code that will rot | Friction or inconsistency off the main path | Unclear or untestable wording |
-| Low | Polish | Polish | Typos, tone |
+| Low | A small real fault with a failing case, nothing lost or misreported | A small visible fault a user will hit | A wrong but minor detail |
+| Nit | Style, naming, a speculative concern | Polish, taste | Tone, wording preference |
 
 ## Heuristic scores (optional, for UI payloads)
 Score Nielsen's ten heuristics 0–4 each. Mark any that don't apply `n/a` and renormalise (for example /32 when two are n/a). Record the total in the ledger with `critic_ledger.py score` so later runs show the trend.

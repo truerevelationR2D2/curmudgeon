@@ -1,0 +1,3 @@
+https://shop.example.com/*
+  Content-Security-Policy: default-src 'self'; script-src 'self'
+  X-Frame-Options: DENY

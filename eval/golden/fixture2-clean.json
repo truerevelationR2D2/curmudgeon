@@ -1,0 +1,36 @@
+{
+ "checks": {
+  "axe": "n/a",
+  "ci": "n/a",
+  "console": "n/a",
+  "deps": "n/a",
+  "focus": "n/a",
+  "interactive": "n/a",
+  "keyboard": "n/a",
+  "obscured": "n/a",
+  "page": "n/a",
+  "responsive": "n/a",
+  "screen-reader": "n/a",
+  "screenshots": "n/a",
+  "speed": "n/a",
+  "static": "pass",
+  "structure": "pass",
+  "visual": "n/a"
+ },
+ "rows": [
+  [
+   "NOTE",
+   "hover-only",
+   "a11y",
+   "styles.css",
+   "hover styles with no matching focus style: .refund, button (keyboard users miss the cue)"
+  ],
+  [
+   "WARN",
+   "clipped-text",
+   "layout",
+   "styles.css .sr-only",
+   "text clipped with no ellipsis or way to read it"
+  ]
+ ]
+}

@@ -1,0 +1,16 @@
+{
+ "files": {
+  "site/checkout.html": {
+   "forms": [
+    "(this site)"
+   ],
+   "links": [
+    "Contact support\t(this site)"
+   ],
+   "origins": [
+    "(this site)"
+   ]
+  }
+ },
+ "recorded": "2026-10-01"
+}

@@ -1,0 +1,80 @@
+# The free rungs of Curmudgeon's evidence ladder, for every push and pull request: no model, no secrets, no login.
+#   rung 0  claude plugin validate (strict, and the directory profile)
+#   rung 1  the script tests on every supported Python
+#   rung 2  golden tests for the scripted checks (eval/golden.py)
+#   rung 3  replays of recorded review runs through today's counting scripts (eval/replay.py)
+#   gate    the accept/kill gate's self-test (a verifier that refutes everything must fail it)
+name: ci
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.9", "3.10", "3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Script tests (rung 1)
+        shell: bash
+        run: |
+          # each failing test is also raised as an annotation, so it can be read from the run's summary and the API
+          set +e; python plugin/tests/run_tests.py 2>&1 | tee tests.out; status=${PIPESTATUS[0]}
+          grep -E '^FAIL' tests.out | head -20 | cut -c1-900 | sed 's/^/::error title=script test::/'
+          grep -E '^SKIP' tests.out | head -20 | cut -c1-300 | sed 's/^/::warning title=script test not run here::/'
+          exit $status
+      - name: Golden tests (rung 2)
+        run: python eval/golden.py
+      - name: Replays (rung 3)
+        run: python eval/replay.py
+      - name: Gate self-test
+        run: python eval/score.py --selftest
+  windows:
+    # the security database's Windows-only paths, run for real (plugin/tests/windows_checks.py)
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.12"
+      - name: Windows checks
+        shell: bash
+        run: |
+          set +e; python plugin/tests/windows_checks.py 2>&1 | tee win.out; status=${PIPESTATUS[0]}
+          grep -E '^(FAIL|ok|windows_checks)' win.out | cut -c1-900 | sed 's/^/::notice title=windows check::/'
+          if [ $status -ne 0 ]; then tail -n 15 win.out | cut -c1-900 | sed 's/^/::error title=windows check output::/'; fi
+          exit $status
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "22"
+      - name: Install Claude Code (pinned; its postinstall puts the native binary in place; validation needs no login)
+        run: npm install --global @anthropic-ai/claude-code@2.1.305
+      - name: Validate the marketplace and the plugin (rung 0)
+        env:
+          DISABLE_TELEMETRY: "1"
+          DISABLE_ERROR_REPORTING: "1"
+        run: |
+          export HOME="$(mktemp -d)"
+          claude plugin validate --strict .
+          claude plugin validate --strict plugin
+          claude plugin validate --strict --profile directory plugin

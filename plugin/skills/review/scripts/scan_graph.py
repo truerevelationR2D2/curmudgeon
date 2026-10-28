@@ -2,13 +2,13 @@
 knip (dead code, unused exports) and jscpd (copy-paste); none of their code or rule text is used.
 
 Layer rules: by default files are placed in layers by folder or file name (ui: ui, components, views, pages,
-screens, app; domain: domain, model(s), core, logic, rules; data: data, api, store, repository, db, services, client).
+screens, widgets; domain: domain, model(s), core, logic, rules; data: data, api, store, repository, db, services, client).
 domain -> ui and data -> ui imports are flagged. Projects can override in .critic/rules.md:
     ## Boundaries
     layer ui: src/components/** src/views/**
     forbid: domain -> ui
 """
-import fnmatch, hashlib, pathlib, re
+import ast, fnmatch, hashlib, pathlib, re
 
 JS = {".js", ".mjs", ".cjs", ".ts", ".jsx", ".tsx"}
 IMPORT = re.compile(r"""(?:^|\s)import\s+(?:[\w*{}\s,]+\s+from\s+)?['"]([^'"]+)['"]|\bimport\(\s*['"]([^'"]+)['"]\s*\)|\brequire\(\s*['"]([^'"]+)['"]\s*\)""")
@@ -54,9 +54,74 @@ def resolve(src_rel, spec, files):
         if c in files: return c
     return None
 
+def python_graph(py):
+    """Module-level imports between the Python files in scope, read with ast. Left out, because Python code uses them to
+    break a cycle on purpose: imports inside functions, under `if TYPE_CHECKING:`, and under `if __name__ == "__main__":`.
+    Each file gets the module name Python would give it: its path from the first folder up that isn't a package (has no
+    __init__.py). An absolute import matches that full name only, so `import calendar` never lands on a local
+    app/components/calendar.py; a bare top-level name (a script beside other scripts) matches only from the same
+    folder. Relative imports resolve from the file's package. Files that don't parse add no edges."""
+    have = set(py)
+    def modname(r):
+        parts = list(pathlib.PurePosixPath(r).with_suffix("").parts)
+        if parts[-1] == "__init__": parts = parts[:-1]
+        k = len(pathlib.PurePosixPath(r).parent.parts)
+        while k > 0 and "/".join(pathlib.PurePosixPath(r).parent.parts[:k]) + "/__init__.py" in have: k -= 1
+        return ".".join(parts[k:]), "/".join(pathlib.PurePosixPath(r).parent.parts[:k])
+    names = {}
+    for r in py:
+        n, base = modname(r)
+        if n: names.setdefault(n, []).append((r, base))
+    def find(dotted, src):
+        hits = names.get(dotted, [])
+        if "." not in dotted:  # a top-level script module: only a sibling script can import it by that name
+            folder = str(pathlib.PurePosixPath(src).parent) if str(pathlib.PurePosixPath(src).parent) != "." else ""
+            hits = [h for h in hits if h[1] == folder]
+        return hits[0][0] if len(hits) == 1 else None
+    def guarded(test):
+        t = ast.unparse(test) if hasattr(ast, "unparse") else ""
+        return t in ("TYPE_CHECKING", "typing.TYPE_CHECKING") or re.fullmatch(r"__name__\s*==\s*['\"]__main__['\"]", t) is not None
+    graph = {r: set() for r in py}
+    for r, t in py.items():
+        try: tree = ast.parse(t)
+        except (SyntaxError, ValueError): continue
+        pkg = list(pathlib.PurePosixPath(r).parent.parts)
+        def top(nodes):
+            for n in nodes:
+                if isinstance(n, ast.If):
+                    if not guarded(n.test): yield from top(n.body)
+                    yield from top(n.orelse)
+                elif isinstance(n, ast.Try) or type(n).__name__ == "TryStar":
+                    yield from top(n.body + n.orelse + [x for h in n.handlers for x in h.body] + n.finalbody)
+                elif isinstance(n, (ast.Import, ast.ImportFrom)): yield n
+        for n in top(tree.body):
+            if isinstance(n, ast.ImportFrom) and n.level:
+                base = pkg[: len(pkg) - (n.level - 1)] if n.level > 1 else pkg
+                mod = base + (n.module.split(".") if n.module else [])
+                def rel_find(c):
+                    path = "/".join(c)
+                    return next((x for x in (path + ".py", path + "/__init__.py") if x in have and x != r), None)
+                hits = [t for t in (rel_find(mod + [a.name]) for a in n.names) if t]  # every imported name: from . import b, c is two edges
+                if not hits and rel_find(mod): hits = [rel_find(mod)]
+                graph[r].update(hits)
+                continue
+            if isinstance(n, ast.Import):  # import b, c: one edge per module
+                for a in n.names:
+                    tgt = find(a.name, r)
+                    if tgt and tgt != r: graph[r].add(tgt)
+                continue
+            hits = [t for t in (find(f"{n.module}.{a.name}", r) for a in n.names) if t and t != r]
+            if not hits:
+                t = find(n.module, r)
+                if t and t != r: hits = [t]
+            graph[r].update(hits)
+    return graph
+
 def scan(root, texts, emit):
-    """texts: {rel_path: text} for every source file in scope (posix rel paths)."""
+    """texts: {rel_path: text} for every source file in scope (posix rel paths). Builds the import graph for
+    JavaScript/TypeScript and Python, and returns the file types it could not analyse."""
     js = {r: t for r, t in texts.items() if pathlib.PurePath(r).suffix in JS}
+    py = {r: t for r, t in texts.items() if pathlib.PurePath(r).suffix == ".py"}
     layers, forbid = read_rules(root); custom = layers is not None
     layers = layers or DEFAULT_LAYERS; forbid = forbid or DEFAULT_FORBID
     graph = {r: set() for r in js}
@@ -65,6 +130,7 @@ def scan(root, texts, emit):
             spec = next(g for g in m.groups() if g)
             tgt = resolve(r, spec, js)
             if tgt: graph[r].add(tgt)
+    graph.update(python_graph(py))
     edges = sum(len(v) for v in graph.values())
     # layer rules
     for r, deps in graph.items():
@@ -92,6 +158,10 @@ def scan(root, texts, emit):
     for comp in out: emit("WARN", "import-cycle", "structure", comp[0], "import cycle: " + " → ".join(comp + [comp[0]]), "")
     # unused exports (module code only) and unreferenced functions (all code)
     all_text = "\n".join(texts.values())
+    import collections
+    bare, dotted = collections.Counter(), collections.Counter()  # counted once, looked up per name (was a regex over the whole project per name)
+    for m in re.finditer(r"(\.)?(?<![\w$])([A-Za-z_$][\w$]*)", all_text): (dotted if m.group(1) else bare)[m.group(2)] += 1
+    exported = {(r, m.group(1)) for r, t in js.items() for m in EXPORT_NAMED.finditer(t)}
     imported_names = set()
     for t in js.values():
         for m in re.finditer(r"import\s+(?:(\w+)\s*,?\s*)?(?:\{([^}]*)\})?\s*from", t):
@@ -103,13 +173,13 @@ def scan(root, texts, emit):
         for r, t in js.items():
             for m in EXPORT_NAMED.finditer(t):
                 name = m.group(1)
-                if name not in imported_names and len(re.findall(rf"(?<![\w$]){re.escape(name)}(?![\w$])", all_text)) <= 1:
+                if name not in imported_names and bare[name] + dotted[name] <= 1:
                     emit("NOTE", "unused-export", "structure", f"{r}:{t[:m.start()].count(chr(10)) + 1}", f"export `{name}` is never imported or used", "")
     for r, t in js.items():
         for m in DEFS.finditer(t):
             name = m.group(1) or m.group(2)
             if not name or name.startswith("_") or name in ("main", "init", "setup"): continue
-            if len(re.findall(rf"(?<![\w$.]){re.escape(name)}(?![\w$])", all_text)) <= 1:  # \b fails on names like $
+            if bare[name] + (dotted[name] if (r, name) in exported else 0) <= 1:  # an exported function may be called as api.name()
                 emit("NOTE", "dead-function", "structure", f"{r}:{t[:m.start()].count(chr(10)) + 1}", f"`{name}` is defined but never used", "")
     # copy-paste: 6-line windows of normalised, non-trivial lines
     W, seen, dups = 6, {}, []
@@ -126,4 +196,8 @@ def scan(root, texts, emit):
             else: seen.setdefault(h, here)
     for (fa, la), (fb, lb) in dups[:10]:
         emit("NOTE", "duplicate-code", "structure", f"{fb}:{lb}", f"{W}+ lines duplicated from {fa}:{la}: one fix will be missed", "")
-    return {"modules": len(js), "import_edges": edges, "cycles": len(out), "duplicates": len(dups)}
+    other = {}
+    for r in texts:
+        ext = pathlib.PurePath(r).suffix
+        if ext not in JS and ext != ".py": other[ext] = other.get(ext, 0) + 1
+    return {"modules": len(js) + len(py), "import_edges": edges, "cycles": len(out), "duplicates": len(dups), "not_analysed": other}

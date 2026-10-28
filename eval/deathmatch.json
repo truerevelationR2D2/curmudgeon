@@ -1,0 +1,160 @@
+{
+ "note": "The death match is a development benchmark (rulings \u00a75.8, \u00a75.20, \u00a75.22). Every arm runs the same tasks on the same model and is scored by deathmatch.py.",
+ "arms": [
+  {
+   "id": "curmudgeon",
+   "plugin": true,
+   "prompt": "/curmudgeon:review deep . (review only; change no files)",
+   "tools": [
+    "Read",
+    "Grep",
+    "Glob",
+    "Agent",
+    "Task",
+    "Write",
+    "Edit",
+    "LSP",
+    "Bash(python3:*)",
+    "Bash(cd:*)",
+    "Bash(git -C:*)",
+    "Bash(git:*)"
+   ]
+  },
+  {
+   "id": "plain-claude",
+   "prompt": "Review the code in this folder for bugs. For each bug give the file:line, what is wrong, and a concrete input or sequence that makes it fail. Change no files.",
+   "tools": [
+    "Read",
+    "Grep",
+    "Glob"
+   ]
+  },
+  {
+   "id": "code-review",
+   "prompt": "/code-review:code-review the change on this branch. There is no GitHub pull request: the change is `git diff main...HEAD` in this folder, so read it with git instead of gh, and print your final review comment here instead of posting it. Change no files.",
+   "tools": [
+    "Read",
+    "Grep",
+    "Glob",
+    "Agent",
+    "Task",
+    "Bash(git:*)"
+   ],
+   "plugin_enable": [
+    "code-review-anthropics@anthropic-plugin-directory"
+   ],
+   "pr": true,
+   "note": "Anthropic's official code-review plugin (code-review-anthropics in the Anthropic directory). It reviews GitHub pull requests; here the task is committed as a branch over an empty base, and the prompt says to read the local diff and print the comment."
+  },
+  {
+   "id": "cc-code-review",
+   "prompt": "/code-review",
+   "tools": [
+    "Read",
+    "Grep",
+    "Glob",
+    "Agent",
+    "Task",
+    "Bash(git:*)"
+   ],
+   "note": "Claude Code's built-in /code-review command (no plugin). It reviews the working folder and replies with a JSON list of findings, which deathmatch.py reads like any other arm's."
+  },
+  {
+   "id": "semgrep",
+   "requires": "semgrep",
+   "command": "semgrep scan --metrics=off --disable-version-check --config \"$SEMGREP_RULES\" --json . | python3 \"$DM_EVAL/semgrep_md.py\"",
+   "note": "Only with local rules in $SEMGREP_RULES, never the registry (it would send data out). The 24 Oct 2026 run used Semgrep's own published javascript/ and html/ rules (semgrep/semgrep-rules, Semgrep Rules License v1.0), kept outside this repository."
+  },
+  {
+   "id": "orchestrator-rbenzing",
+   "plugin_dirs": [
+    "$DM_ORCH_RBENZING/plugins/orchestrator",
+    "$DM_ORCH_RBENZING/plugins/windows-dev-toolkit"
+   ],
+   "prompt": "Use the code-reviewer agent (orchestrator:code-reviewer) to review the code in this folder for defects, and print its review here: each defect with the file:line, what is wrong, and an input or sequence that makes it fail. Change no files.",
+   "tools": [
+    "Read",
+    "Grep",
+    "Glob",
+    "Agent",
+    "Task",
+    "Bash(git:*)"
+   ],
+   "note": "rbenzing/Orchestrator (Apache-2.0), a multi-agent build pipeline; its Code Reviewer agent is the part that reviews, so the arm calls it directly. Its scripts are PowerShell; the 27 Oct 2026 run had no PowerShell in the workspace, so any script step it tried failed. Clone it outside this repository and set DM_ORCH_RBENZING to the clone."
+  },
+  {
+   "id": "orchestrator-bvarvill",
+   "plugin_dirs": [
+    "$DM_ORCH_BVARVILL"
+   ],
+   "pr": true,
+   "prompt": "Use the reviewer agent (orchestrator-agent-plugin:reviewer) to review the change on this branch before merge. There is no GitHub pull request and no order file: the change is `git diff main...HEAD` in this folder, read it with git instead of gh, and the intent is a working app with no bugs. Print its review here, with each problem's file:line. Change no files.",
+   "tools": [
+    "Read",
+    "Grep",
+    "Glob",
+    "Agent",
+    "Task",
+    "Bash(git:*)"
+   ],
+   "note": "BVarvill/orchestrator-agent-plugin (MIT); its reviewer agent does the cold pre-merge review, so the arm calls it on the task committed as a branch. Clone it outside this repository and set DM_ORCH_BVARVILL to the clone."
+  },
+  {
+   "id": "orchestrator-rbenzing-pwsh",
+   "plugin_dirs": [
+    "$DM_ORCH_RBENZING/plugins/orchestrator",
+    "$DM_ORCH_RBENZING/plugins/windows-dev-toolkit"
+   ],
+   "prompt": "Use the code-reviewer agent (orchestrator:code-reviewer) to review the code in this folder for defects, and print its review here: each defect with the file:line, what is wrong, and an input or sequence that makes it fail. Change no files.",
+   "tools": [
+    "Read",
+    "Grep",
+    "Glob",
+    "Agent",
+    "Task",
+    "Bash(git:*)",
+    "Bash(pwsh:*)",
+    "Bash(powershell.exe:*)",
+    "Bash(powershell:*)"
+   ],
+   "note": "The same arm with PowerShell 7.5.4 installed in the workspace (pwsh, also linked as powershell.exe) and allowed for its scripts (27 Oct 2026, Ryan's yes). Its agents ask for a launch-process tool that the plugin does not define (an outside Windows tool), so they fall back to Bash."
+  }
+ ],
+ "tasks": [
+  {
+   "id": "suite1",
+   "fixture": "fixture",
+   "key": "answer_key.json"
+  },
+  {
+   "id": "suite1-clean",
+   "fixture": "fixture-clean",
+   "clean": true
+  },
+  {
+   "id": "suite2",
+   "fixture": "fixture2",
+   "key": "answer_key2.json"
+  },
+  {
+   "id": "suite2-clean",
+   "fixture": "fixture2-clean",
+   "clean": true
+  },
+  {
+   "id": "suite3",
+   "fixture": "fixture3",
+   "key": "answer_key3.json"
+  },
+  {
+   "id": "suite4",
+   "fixture": "fixture4",
+   "key": "answer_key4.json"
+  },
+  {
+   "id": "suite4-clean",
+   "fixture": "fixture4-clean",
+   "clean": true
+  }
+ ]
+}

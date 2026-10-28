@@ -1,0 +1,29 @@
+name: build
+on:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Note the commit
+        env:
+          MSG: ${{ github.event.head_commit.message }}
+        run: echo "Building $MSG"
+      - name: Install tool
+        run: |
+          curl -sSLo install.sh https://tools.example.com/install.sh
+          sha256sum -c install.sha256 && sh install.sh
+      - name: Deploy
+        env:
+          DEPLOY_KEY: ${{ secrets.DEPLOY_KEY }}
+        run: ./deploy.sh --key "$DEPLOY_KEY"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: build
+          path: dist/
