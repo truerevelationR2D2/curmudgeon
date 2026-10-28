@@ -51,6 +51,13 @@ FAKE = {
     "@PW@": "Zq9x" + "&pw!" + "EXAMPLE",  # a placeholder-looking start would (rightly) be skipped by the scan
     "@DBPW@": "EXAMPLE" + "pw" + "55",
     "@PEM@": "-----BEGIN RSA " + "PRIVATE KEY-----" + "EXAMPLEbody" * 8,
+    # high-randomness values the generic rule must catch, in pieces so no whole value sits in a file
+    "@RND1@": "Zq9xR4!" + "vLm2#Tp8@wK",
+    "@RND2@": "Zq9xR4vLm2" + "Tp8wKb7Yh3",
+    "@RND3@": "Zq9xR4vLm2" + "Tp8wKb7Yh3Jd",
+    "@RND4@": "testZq9xR4" + "vLm2Tp8wKb7Yh",
+    "@RND5@": "Zq9xEXAMPLE" + "EXAMPLE7731",
+    "@PGLOCAL@": "postgres://postgres:" + "postgres@localhost/app",
 }
 def T(text):
     for k, v in FAKE.items(): text = text.replace(k, v)

@@ -64,6 +64,11 @@ To try it on code with known bugs, the test apps in `eval/` (for example `eval/f
    - lite: one reviewer, plus verification of Critical and High findings;
    - full: three blind reviewers and full verification.
    The same script lists what calls the changed code.
+
+   **A security scan** (`/curmudgeon:review security [what]`) is sized the same way, one reviewer for a small change and three for a large one, and it changes no file in your project. What differs:
+   - the reviewers' briefs ask about security only: injection, access control, secrets, unsafe parsing, server-side requests, path traversal, the supply chain, and what a page loads, links to or posts to;
+   - the report keeps only the security rows of the scripted checks: secrets, dependencies, CI and supply chain, agent and MCP configuration, browser integrity, and secrets in logs or DEBUG left on;
+   - the **local security database is off by default.** The first security scan asks you once whether to build it, with Off as the default, and an unattended run never asks. With it off, dependencies are checked offline only (unpinned versions, install scripts, packages from URLs). If you say yes, you pick its folder, see a size estimate and sign off on it, and choose how often it refreshes. After that, each security scan refreshes it first when your schedule says it is due, and stops to ask again if it would grow more than 25% past the size you signed off on. The database is checked on your machine, so no package name leaves it. [Security scan](#security-scan) below has the details and the sources.
 2. **Detector.** Free scripted checks run, all written for this plugin. They cover:
    - secrets;
    - HTML validity;

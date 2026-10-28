@@ -925,8 +925,8 @@ def _(d):
     for k, v in [("GOOGLE_APPLICATION_CREDENTIALS", "/Users/me/.config/gcloud/application_default_credentials.json"), ("AUTH_MODE", "service-account"),
                  ("TOKEN_FILE", "~/.config/x/token.json"), ("AUTH_TYPE", "oauth-device"), ("SECRETS_PATH", "C:\\Users\\me\\secrets.json"), ("AUTH_URI", "https://auth.example.invalid/o/oauth2")]:
         assert "agent-literal-credential" not in rules({"mcpServers": {"x": {"command": "x", "env": {k: v}}}}), (k, v)
-    assert "agent-literal-credential" in rules({"mcpServers": {"x": {"command": "x", "env": {"API_TOKEN": "Zq9xEXAMPLEEXAMPLE7731"}}}}), "a real literal is still found"
-    assert "agent-literal-credential" in rules({"mcpServers": {"x": {"command": "x", "headers": {"Authorization": "Bearer Zq9xEXAMPLEEXAMPLE7731"}}}})
+    assert "agent-literal-credential" in rules({"mcpServers": {"x": {"command": "x", "env": {"API_TOKEN": T("@RND5@")}}}}), "a real literal is still found"
+    assert "agent-literal-credential" in rules({"mcpServers": {"x": {"command": "x", "headers": {"Authorization": T("Bearer @RND5@")}}}})
 
 @test("5.0 card-E review B #2, #3, #19, #20, #21: the YAML reader drops a byte-order mark, refuses deep nesting, reads block scalars as YAML does, allows tabs inside them, and reads long flow lists in linear time")
 def _(d):
@@ -1073,8 +1073,8 @@ def _(d):
 def _(d):
     A = _mod("scan_agentcfg")
     def rules(env): return [r for _, r, _ in _rows(A.scan, ".mcp.json", json.dumps({"mcpServers": {"x": {"command": "x", "env": env}}}, indent=1), E, {})]
-    assert "agent-literal-credential" in rules({"AUTH_HEADER": "Bearer Zq9xEXAMPLEEXAMPLE7731"})
-    assert "agent-literal-credential" in rules({"TOKEN_TYPE": "Bearer Zq9xEXAMPLEEXAMPLE7731"})
+    assert "agent-literal-credential" in rules({"AUTH_HEADER": T("Bearer @RND5@")})
+    assert "agent-literal-credential" in rules({"TOKEN_TYPE": T("Bearer @RND5@")})
     assert "agent-literal-credential" not in rules({"AUTH_URL": "https://auth.example.invalid/token"})
 
 @test("5.0 card-E verify round: CI skips only real true/false expressions, honours parentheses on uploads, and a negated guard is no guard")

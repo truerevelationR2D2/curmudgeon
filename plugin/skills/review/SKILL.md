@@ -2,7 +2,7 @@
 name: review
 description: This skill should be used when the user says "/curmudgeon:review", "curmudgeon this", "tear this apart", "review my work", "how did I do", or asks for a merciless review of code, an interface, a document or a plan, or before shipping. It sizes the review to the risk, runs free scripted checks, three blind reviewers whose votes are counted by a script, and blind per-finding verification, then writes an evidence-backed teardown. It changes files only when the user asks for fixes ("curmudgeon and fix", "/curmudgeon:review fix").
 metadata:
-  version: "5.2.2"
+  version: "5.2.3"
 ---
 
 # Curmudgeon
