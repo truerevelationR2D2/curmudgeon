@@ -136,16 +136,24 @@ def pick_folder():
         if sysname == "Darwin" and shutil.which("osascript"):
             r = subprocess.run(["osascript", "-e", f'POSIX path of (choose folder with prompt "{title}")'], capture_output=True, text=True, timeout=600)
         elif sysname == "Windows" and shutil.which("powershell"):
-            ps = ("Add-Type -AssemblyName System.Windows.Forms; $d = New-Object System.Windows.Forms.FolderBrowserDialog; "
-                  f"$d.Description = '{title}'; $d.ShowNewFolderButton = $true; if ($d.ShowDialog() -eq 'OK') {{ $d.SelectedPath }}")
-            r = subprocess.run(["powershell", "-NoProfile", "-STA", "-Command", ps], capture_output=True, text=True, timeout=600)
+            r = subprocess.run(["powershell", "-NoProfile", "-STA", "-Command", windows_dialog_script(title)], capture_output=True, text=True, timeout=600)
         elif sysname == "Linux" and (os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY")) and (shutil.which("zenity") or shutil.which("kdialog")):
             cmd = ["zenity", "--file-selection", "--directory", f"--title={title}"] if shutil.which("zenity") else ["kdialog", "--getexistingdirectory", os.path.expanduser("~"), "--title", title]
             r = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
         else: return None, "no folder window can open here (no display, or no dialog tool already installed)"
     except (OSError, subprocess.TimeoutExpired) as e: return None, f"the folder window failed ({type(e).__name__})"
-    path = r.stdout.strip()
-    return (path.rstrip("/\\") or path, "window") if r.returncode == 0 and path else (None, "cancelled")
+    path = r.stdout.strip().splitlines()[-1].strip() if r.stdout.strip() else ""
+    if r.returncode != 0: return None, f"the folder window failed: {(r.stderr or '').strip()[:160] or 'exit ' + str(r.returncode)}"  # an error is not a cancel: the caller asks for the path instead
+    if not path: return None, "cancelled"
+    if re.fullmatch(r"[A-Za-z]:[\\/]?", path): return path[:2] + "\\", "window"  # a drive root keeps its backslash: "D:" alone is not a full path
+    return path.rstrip("/\\") or path, "window"
+
+def windows_dialog_script(title):
+    """The PowerShell for the folder window. The title goes in a single-quoted string, where a quote is written twice
+    (Curmudgeon's would otherwise end the string and the script would not run)."""
+    t = title.replace("'", "''")
+    return ("Add-Type -AssemblyName System.Windows.Forms; $d = New-Object System.Windows.Forms.FolderBrowserDialog; "
+            f"$d.Description = '{t}'; $d.ShowNewFolderButton = $true; if ($d.ShowDialog() -eq 'OK') {{ $d.SelectedPath }}")
 
 def check_folder(folder):
     p = pathlib.Path(os.path.expanduser(folder))

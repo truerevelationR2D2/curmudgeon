@@ -3395,6 +3395,27 @@ def _(d):
     v = {json.loads((S.parents[3] / ".claude-plugin/marketplace.json").read_text())["plugins"][0]["version"], json.loads((S.parents[2] / ".claude-plugin/plugin.json").read_text())["version"]}
     assert v == {"5.2.1"} and 'version: "5.2.1"' in (S.parent / "SKILL.md").read_text(), v
 
+@test("5.2.1 round 3 F-a6c74ed1, F-e179bf83: the Windows folder window's script parses (the apostrophe in the title is doubled), an error is not a cancel, and a drive root keeps its backslash")
+def _(d):
+    sys.path.insert(0, str(S)); import security_feed as sf, subprocess as sp, platform as pf, types
+    title = "Choose a folder for Curmudgeon's local security database"
+    m = re.search(r"\$d\.Description = '((?:[^']|'')*)';", sf.windows_dialog_script(title))
+    assert m and m.group(1).replace("''", "'") == title, sf.windows_dialog_script(title)
+    if shutil.which("pwsh"):  # where PowerShell is present, it must parse the script
+        r = sp.run(["pwsh", "-NoProfile", "-Command", "$e=$null; [void][System.Management.Automation.Language.Parser]::ParseInput($env:PS_SRC,[ref]$null,[ref]$e); $e.Count"],
+                   capture_output=True, text=True, env=dict(os.environ, PS_SRC=sf.windows_dialog_script(title)))
+        assert r.stdout.strip() == "0", r.stdout + r.stderr
+    real = (pf.system, sp.run, shutil.which)
+    try:
+        pf.system = lambda: "Windows"; shutil.which = lambda x: "powershell" if x == "powershell" else real[2](x)
+        for out, code, err, want in (("", 1, "ParserError: missing terminator", None), ("", 0, "", None), ("D:\\\r\n", 0, "", "D:\\"), ("C:\\Users\\r\\db\r\n", 0, "", "C:\\Users\\r\\db")):
+            sp.run = lambda *a, **k: types.SimpleNamespace(stdout=out, stderr=err, returncode=code)
+            path, how = sf.pick_folder()
+            assert path == want, (out, path, how)
+            if code: assert how.startswith("the folder window failed") and "ParserError" in how, how
+            elif not out: assert how == "cancelled", how
+    finally: pf.system, sp.run, shutil.which = real
+
 @test("decision 39: a clean-twin BLOCK fails the gate only when no Critical or High in that run is labelled a real bug")
 def _(d):
     EV = HERE.parent / "eval"
