@@ -3360,13 +3360,12 @@ def _(d):
     sys.path.insert(0, str(S)); import importlib, critic_plan; importlib.reload(critic_plan)
     for x in critic_plan.SECURITY_LENSES + ["browser integrity", "tests of the tests"]: assert x[0].upper() + x[1:] in sections, x
 
-@test("5.2.1 (03 §5.46): lite and trivial briefs ask for a short review file written once; the full tier's brief does not, and the version is 5.2.1 everywhere")
+@test("5.2.1 (03 §5.45-§5.47): no tier asks for a short review (it found fewer planted bugs in the lite eval too), and the version is 5.2.1 everywhere")
 def _(d):
     write(d, "src/app.js", APP)
-    run(S / "critic_run.py", "begin", "--files", "src/app.js", "--tier", "lite", cwd=d)
-    b = (d / ".critic/briefs/brief-A.md").read_text(); assert "Lite tier, short file" in b and "Write the review file once" in b, b
-    run(S / "critic_run.py", "begin", "--files", "src/app.js", "--tier", "full", cwd=d)
-    assert all("Lite tier, short file" not in (d / f".critic/briefs/brief-{x}.md").read_text() for x in "ABC")
+    for tier in ("lite", "full"):
+        run(S / "critic_run.py", "begin", "--files", "src/app.js", "--tier", tier, cwd=d)
+        assert all("short file" not in p.read_text() for p in (d / ".critic/briefs").glob("brief-*.md")), tier
     v = {json.loads((S.parents[3] / ".claude-plugin/marketplace.json").read_text())["plugins"][0]["version"], json.loads((S.parents[2] / ".claude-plugin/plugin.json").read_text())["version"]}
     assert v == {"5.2.1"} and 'version: "5.2.1"' in (S.parent / "SKILL.md").read_text(), v
 
