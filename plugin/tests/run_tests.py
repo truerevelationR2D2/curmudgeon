@@ -3551,6 +3551,14 @@ def _(d):
         except ValueError: pass
     finally: ur.urlopen = real
 
+@test("5.2.1 Windows run: the build shows download and build progress when asked (CURMUDGEON_PROGRESS=1), and nothing extra when nobody is watching")
+def _(d):
+    env = _feed_mirror(d, [{"id": "GHSA-1", "affected": [{"package": {"ecosystem": "npm", "name": "a"}, "versions": ["1.0.0"]}]}], []); F = S / "security_feed.py"
+    _feed_on(d, env)
+    r = run(F, "update", "--force", cwd=d, env=env); assert r.returncode == 0 and "download" not in r.stderr, r.stderr
+    r = run(F, "update", "--force", cwd=d, env=dict(env, CURMUDGEON_PROGRESS="1")); assert r.returncode == 0, r.stderr
+    for want in ("downloaded osv-npm:", "downloaded osv-pypi:", "downloaded cisa-kev:", "building osv-npm"): assert want in r.stderr, (want, r.stderr)
+
 @test("decision 39: a clean-twin BLOCK fails the gate only when no Critical or High in that run is labelled a real bug")
 def _(d):
     EV = HERE.parent / "eval"

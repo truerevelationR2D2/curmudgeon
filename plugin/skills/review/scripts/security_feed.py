@@ -26,7 +26,7 @@ usage:
   security_feed.py due                     exit 0 when an update is due, 1 when not (or off)
   security_feed.py update [--force]        download, check and build; refuses unless switched on
   security_feed.py match ROOT [--json]     check ROOT's lockfiles against the local database (no network)"""
-import argparse, contextlib, datetime as dt, hashlib, io, json, os, pathlib, platform, re, shlex, shutil, sqlite3, subprocess, sys, tempfile, urllib.request, zipfile, zlib
+import argparse, contextlib, datetime as dt, time, hashlib, io, json, os, pathlib, platform, re, shlex, shutil, sqlite3, subprocess, sys, tempfile, urllib.request, zipfile, zlib
 
 HERE = pathlib.Path(__file__).resolve().parent
 RULES_PATH = HERE.parent / "references" / "feed-rules.json"
@@ -93,11 +93,30 @@ def source_url(src):
 def check_scheme(url):
     if not re.match(r"^(https://|file://)", url): raise ValueError(f"refusing a non-HTTPS source: {url}")  # file:// is for the offline tests
 
-def fetch(url, limit):
+def progress_on():
+    """Progress lines go to stderr when someone is watching (a terminal), or when CURMUDGEON_PROGRESS=1 asks for them
+    (the Windows test script turns them into a progress bar). A review run reading the output gets none."""
+    return os.environ.get("CURMUDGEON_PROGRESS") == "1" or sys.stderr.isatty()
+
+def say(msg):
+    if progress_on(): print(msg, file=sys.stderr, flush=True)
+
+def fetch(url, limit, label=None):
+    """The download, read in 1 MB pieces so its progress can be shown and the size limit holds without reading past it."""
     check_scheme(url)
     with urllib.request.urlopen(urllib.request.Request(url, headers={"User-Agent": "curmudgeon-feed"}), timeout=120) as r:
-        data = r.read(limit + 1)
+        total = r.headers.get("Content-Length"); total = int(total) if total and total.isdigit() else None
+        parts, got, last = [], 0, 0.0
+        while got <= limit:
+            chunk = r.read(min(1 << 20, limit + 1 - got))
+            if not chunk: break
+            parts.append(chunk); got += len(chunk)
+            if label and time.time() - last >= 1:
+                last = time.time()
+                say(f"downloading {label}: {got / 1048576:.1f}" + (f" of {total / 1048576:.1f} MB ({got * 100 // total}%)" if total else " MB"))
+        data = b"".join(parts)
     if len(data) > limit: raise ValueError(f"{url} is over the {limit // (1024 * 1024)} MB limit")
+    if label: say(f"downloaded {label}: {len(data) / 1048576:.1f} MB" + (" (100%)" if total else ""))
     return data
 
 SIZE_FROM = {}  # url -> how its size was learned: "reported", "ranged" or "upper bound" (shown with the estimate)
@@ -260,12 +279,13 @@ def update(cfg, d=None, force=False):
         if est > cap: return 5, f"the database would be about {human(est)}, over the {human(int(cfg['signed_off_bytes']))} you signed off on by more than {int((R['estimate']['stop_over_signed_off'] - 1) * 100)}%: nothing downloaded. Ask the user to sign off on the new size (`estimate`, then `set ... --signed-off`)"
         was = old_counts(dst); blobs = {}
         for s in srcs:
-            url = source_url(s); blob = fetch(url, R["limits"][s["kind"]])
+            url = source_url(s); blob = fetch(url, R["limits"][s["kind"]], s["id"])
             log.append({"source": s["id"], "url": url, "bytes": len(blob), "sha256": hashlib.sha256(blob).hexdigest()}); blobs[s["id"]] = blob
         fd, tmp = tempfile.mkstemp(dir=folder, prefix=".building-", suffix=".sqlite"); os.close(fd); tmp = pathlib.Path(tmp); c = None
         try:
             c = sqlite3.connect(tmp); c.executescript(SCHEMA); counts = {}
             for s in srcs:
+                say(f"building {s['id']}: checking and storing its records")
                 if s["kind"] == "osv-zip":
                     big = []; rows = compile_osv(blobs[s["id"]], s["ecosystem"], R, big); eco = s["ecosystem"]
                     if big: counts[f"{eco}_skipped_over_limit"] = len(big)  # in the log, status and meta: never a silent drop
