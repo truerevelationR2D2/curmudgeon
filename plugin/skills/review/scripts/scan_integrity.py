@@ -8,7 +8,10 @@ guidance; no rule text copied. Markup is read with Python's own HTML parser; not
   integrity-lookalike-host FAIL  a link, form, script or frame host whose labels mix scripts (Latin with Cyrillic or
                                  Greek, say), written plainly or in punycode: a homoglyph look-alike of a real domain.
                                  An internationalised name in one script (münchen.de, 例え.jp) is not flagged.
-  integrity-form-insecure  FAIL  a form (or a button's formaction) that posts to http:// (not localhost).
+  integrity-form-insecure  FAIL  a form (or a button's formaction) that posts over plain http (not localhost), however
+                                 the address is written (http:host, http:/host, with tabs or backslashes).
+  integrity-duplicate-attr FAIL  a link, form, script or frame tag with two different href, src, action, formaction
+                                 or integrity values: the browser uses the first, a reader or tool may see the last.
   integrity-form-offsite   WARN  a form that posts to a different site from the one the page says it is (its canonical,
                                  base or og:url host).
   integrity-script-no-sri  WARN  a script from another site with no integrity= hash: if that site is altered, so is
@@ -42,10 +45,17 @@ SRI = re.compile(r"^\s*(sha256|sha384|sha512)-[A-Za-z0-9+/=_-]{20,}")
 THIS_SITE = "(this site)"
 BASELINE_MAX = 50_000_000
 
+def clean_url(url):
+    """A URL as the URL standard reads it before parsing: tabs and newlines anywhere dropped, leading and trailing
+    control characters and spaces trimmed, backslashes read as slashes."""
+    return re.sub(r"[\t\n\r]", "", url or "").strip(" \x00-\x1f").replace("\\", "/")
+
 def host_of(url):
     """The host a browser would contact, read the way the URL standard does: tabs and newlines anywhere are dropped,
     backslashes count as slashes, and a user:password@ part is not the host."""
-    u = re.sub(r"[\t\n\r]", "", url or "").strip(" \x00-\x1f").replace("\\", "/")
+    u = clean_url(url)
+    m = re.match(r"(?i)^(https?:)/*(?=[^/])", u)  # a browser reads http:host, http:/host and http:///host as http://host
+    if m: u = m.group(1) + "//" + u[m.end():]
     if not re.match(r"(?i)^(?:https?:)?//", u): return None
     try: h = urllib.parse.urlsplit(u if not u.startswith("//") else "https:" + u).hostname
     except ValueError: return None
@@ -89,15 +99,21 @@ def lookalike(host):
     if u is None: return True
     return any(len(scripts(label)) > 1 for label in u.split("."))
 
+WATCHED_ATTRS = {"href", "src", "action", "formaction", "integrity"}  # a second copy can make a reader (or a tool that keeps the last) see another target than the browser uses
+
 class Page(HTMLParser):
     def __init__(self):
         super().__init__(convert_charrefs=True)
         self.links, self.forms, self.scripts, self.frames, self.csp, self.own = [], [], [], [], [], set()
-        self._a = None
+        self._a = None; self.dupes = []
     def _close_a(self):
         if self._a is not None: self.links.append(self._a); self._a = None
     def handle_starttag(self, tag, attrs):
-        a = {k.lower(): (v or "") for k, v in attrs}; ln = self.getpos()[0]
+        a = {}; ln = self.getpos()[0]
+        for k, v in attrs:
+            k = k.lower()
+            if k not in a: a[k] = v or ""  # a browser uses the first of two same-named attributes
+            elif k in WATCHED_ATTRS and (v or "") != a[k]: self.dupes.append({"tag": tag, "attr": k, "used": a[k], "other": v or "", "line": ln})
         if tag == "a":
             self._close_a()  # a new <a> ends an open one, as in a browser
             if a.get("href"): self._a = {"href": a["href"], "text": "", "line": ln}
@@ -197,10 +213,12 @@ def scan(rel, text, emit, root, baseline=None):
             if shown_host.rsplit(".", 1)[-1] in FILE_EXT and not re.match(r"(?i)\s*(https?://|www\.)", shown): continue  # a file name, not an address
             if lookalike(shown_host) or not (same_place(shown_host, h) or same_place(unicode_host(shown_host) or shown_host, unicode_host(h) or h)):
                 emit("FAIL", "integrity-link-mismatch", "integrity", f"{rel}:{l['line']}", f"the link says {shown_host} but goes to {h}: a user who trusts the text lands on another site", show(l["line"]))
+    for x in p.dupes:
+        emit("FAIL", "integrity-duplicate-attr", "integrity", f"{rel}:{x['line']}", f"<{x['tag']}> has two {x['attr']}= values: the browser uses {x['used'][:60]!r}, while a reader or a tool that keeps the last one sees {x['other'][:60]!r}", show(x["line"]))
     for f in p.forms:
         h = host_of(f["action"])
         if lookalike(h): emit("FAIL", "integrity-lookalike-host", "integrity", f"{rel}:{f['line']}", f"the form posts to {h}, a host whose letters mix scripts", show(f["line"])); continue
-        if re.match(r"(?i)^\s*http://", f["action"]) and h and not LOCAL.match(h):
+        if re.match(r"(?i)^http:", clean_url(f["action"])) and h and not LOCAL.match(h):
             emit("FAIL", "integrity-form-insecure", "integrity", f"{rel}:{f['line']}", f"the form posts to {f['action'][:80]} over plain http: what the user types is sent unencrypted", show(f["line"]))
         elif h and p.own and site(h) not in p.own:
             emit("WARN", "integrity-form-offsite", "integrity", f"{rel}:{f['line']}", f"the form posts to {h}, not to this page's own site ({', '.join(sorted(p.own))})", show(f["line"]))

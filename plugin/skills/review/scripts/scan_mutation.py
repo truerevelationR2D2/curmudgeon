@@ -13,7 +13,7 @@ counts as caught; and when git shows changes in a file, only the changed lines a
 The test command comes from --test-cmd, or from a line "Test command: ..." in .critic/rules.md only when the user
 approved that file (--project-checks): a cloned repository can ship its own rules.md, and its command must never run
 without consent."""
-import atexit, pathlib, re, shutil, signal, subprocess, time
+import atexit, hashlib, json, os, pathlib, re, shutil, signal, subprocess, time
 from critic_findings import log_run
 
 # Comparisons need a space on both sides, so TypeScript generics (Array<string>) and arrows are never mutated.
@@ -115,16 +115,60 @@ def _restore_pending(*_):
         except OSError: pass  # restored already (a signal arrived during the finally); never raise from here
         if (p, backup) in _pending: _pending.remove((p, backup))
 
+def _record_path(root):
+    """The private list of backups this tool made (.critic/private/mutation-pending.json). Only this tool writes it;
+    the plugin's guard refuses .critic/private to agents, and a .gitignore keeps it out of commits, so a cloned
+    repository can never ship one."""
+    c = root / ".critic"; d = c / "private"
+    if c.is_symlink() or d.is_symlink() or (d.exists() and not d.is_dir()): return None
+    return d / "mutation-pending.json"
+
+def _read_record(root):
+    f = _record_path(root)
+    if f is None or not f.is_file() or f.is_symlink(): return []
+    try: x = json.loads(f.read_text(encoding="utf-8"))
+    except (OSError, ValueError): return []
+    return [e for e in x if isinstance(e, dict) and isinstance(e.get("file"), str) and isinstance(e.get("sha256"), str)] if isinstance(x, list) else []
+
+def _write_record(root, entries):
+    f = _record_path(root)
+    if f is None: raise OSError(".critic/private is a link or not a folder; refusing to keep backups there")
+    d = f.parent
+    if not d.exists():
+        d.mkdir(parents=True); os.chmod(d, 0o700); (d / ".gitignore").write_text("# Curmudgeon's private state. Never commit.\n*\n")
+    tmp = d / (f.name + ".tmp"); tmp.write_text(json.dumps(entries), encoding="utf-8"); os.replace(tmp, f)
+
+def _sha(path): return hashlib.sha256(path.read_bytes()).hexdigest()
+
+def _inside(root, path):
+    try: path.resolve().relative_to(root.resolve()); return True
+    except (ValueError, OSError): return False
+
 def recover(root, emit):
-    """A run that was killed earlier leaves backups beside the files: put them back before doing anything else."""
+    """A run that was killed earlier leaves backups beside the files. Only backups this tool listed in its private
+    record are put back, and only when the backup is a plain file inside the project whose content still has the
+    hash recorded when it was made. A backup file that is not in the record (one a cloned repository ships, say) is
+    never restored: it is reported and left alone."""
+    entries = _read_record(root)
+    for e in entries:
+        orig = root / e["file"]; b = orig.with_name(orig.name + BACKUP_SUFFIX); rel = e["file"]
+        why = None
+        if pathlib.PurePath(rel).is_absolute() or ".." in pathlib.PurePath(rel).parts: why = "the recorded path leaves the project"
+        elif orig.is_symlink() or b.is_symlink() or any(q.is_symlink() for q in orig.parents if _inside(root, q) and q != root): why = "the file, its backup or a folder on the way is a link"
+        elif not _inside(root, orig) or not _inside(root, b): why = "the file or its backup is outside the project"
+        elif not b.is_file(): why = None if not b.exists() else "the backup is not a plain file"
+        elif _sha(b) != e["sha256"]: why = "the backup's content changed after it was made"
+        if why: emit("WARN", "mutation-backup-ignored", "tests", rel, f"a backup from an interrupted mutation run was not restored: {why}. Check the file by hand", ""); continue
+        if b.is_file():
+            shutil.copy2(b, orig); b.unlink()
+            emit("WARN", "mutation-recovered", "tests", rel, "an earlier mutation run was interrupted; the original file was restored from its backup", "")
+    if entries: _write_record(root, [])
     for b in root.rglob("*" + BACKUP_SUFFIX):
-        orig = b.with_name(b.name[: -len(BACKUP_SUFFIX)])
-        shutil.copy2(b, orig); b.unlink()
-        emit("WARN", "mutation-recovered", "tests", str(orig.relative_to(root)), "an earlier mutation run was interrupted; the original file was restored from its backup", "")
+        if ".git" in b.relative_to(root).parts: continue
+        emit("NOTE", "mutation-backup-unlisted", "tests", str(b.relative_to(root)), "a file named like a mutation backup that this tool did not record; it was not used", "")
 
 def run(root, files, emit, state, given_cmd=None, cap=30, timeout=120, allow_rules=False):
     files = list(files)
-    recover(root, emit)
     atexit.register(_restore_pending)
     for sig in (signal.SIGTERM, signal.SIGHUP, signal.SIGINT):
         try: signal.signal(sig, lambda *a: (_restore_pending(), (_ for _ in ()).throw(SystemExit(130))))
@@ -135,8 +179,8 @@ def run(root, files, emit, state, given_cmd=None, cap=30, timeout=120, allow_rul
             state("mutation", "blocked", "rules.md names a test command, but it runs only with --project-checks, after the user has read and approved that file (a cloned repository can ship its own); or pass --test-cmd")
         else: state("mutation", "blocked", "no test command (pass --test-cmd, or add 'Test command: …' to .critic/rules.md and run with --project-checks)")
         return
+    recover(root, emit)  # after the consent gate: nothing in the project is rewritten until the user has allowed a run
     log_run(root, "command", f"mutation testing: {cmd} (once as a baseline, once per file as a sanity check, then once per mutant, up to {cap})")
-    import os
     env = dict(os.environ, PYTHONDONTWRITEBYTECODE="1")  # a stale .pyc from an earlier mutant can never fake a survivor
     def go(limit):
         """True when the tests fail (the mutant is caught). The command runs in its own process group, so a mutant
@@ -159,7 +203,11 @@ def run(root, files, emit, state, given_cmd=None, cap=30, timeout=120, allow_rul
         view = code_view(p, src)
         if view is None: notes.append(f"{rel}: not mutated (no parser for this file type, or it does not parse)"); continue
         only = changed_lines(root, rel)
-        backup = p.with_name(p.name + BACKUP_SUFFIX); shutil.copy2(p, backup); _pending.append((p, backup))
+        backup = p.with_name(p.name + BACKUP_SUFFIX)
+        if backup.exists() or backup.is_symlink(): notes.append(f"{rel}: not mutated (a file named {backup.name} is already there)"); continue
+        if not _inside(root, p): notes.append(f"{rel}: not mutated (it leads outside the project)"); continue
+        key = p.relative_to(root.resolve()).as_posix()
+        shutil.copy2(p, backup); _pending.append((p, backup)); _write_record(root, _read_record(root) + [{"file": key, "sha256": _sha(backup)}])
         try:
             broken = sanity_break(p.suffix, src)
             if broken is not None:  # break the file on purpose: if the tests still pass, they never load it
@@ -184,6 +232,7 @@ def run(root, files, emit, state, given_cmd=None, cap=30, timeout=120, allow_rul
         finally:
             if backup.exists(): shutil.copy2(backup, p); backup.unlink(missing_ok=True)  # a signal handler may have restored it already
             if (p, backup) in _pending: _pending.remove((p, backup))
+            _write_record(root, [e for e in _read_record(root) if e["file"] != key])
     for rel, ln, before, after in survivors[:20]:
         emit("WARN", "mutant-survived", "tests", f"{rel}:{ln}", f"the tests still pass when `{before}` becomes `{after}`: this behaviour is untested", "")
     score = round(100 * killed / tried) if tried else 0

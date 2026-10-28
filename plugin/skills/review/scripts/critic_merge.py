@@ -21,7 +21,8 @@ tally:
      rejected with the reason, not silently dropped.
   2. Quote check: the quoted code must be at file:line (within 5 lines). Otherwise the finding is retracted.
   3. Ledger: a finding the owner marked a false positive (by its stable id) is suppressed, whatever its impact: that
-     is an explicit ruling on that exact finding. Learned memories (patterns from repeated dismissals) never suppress a
+     is an explicit ruling on that exact finding. Not when git tracks .critic/ledger.json: a cloned repository could
+     ship rulings, so they are listed in counts.md and hide nothing. Learned memories (patterns from repeated dismissals) never suppress a
      Critical or High finding of any kind.
   4. Cluster the same issue across reviewers; votes = how many reviewers raised it.
      Kept: votes >= 2 of 3, or a single vote with an executed failing case.
@@ -92,6 +93,12 @@ def coverage_report(cov):
 def ledger():
     try: return json.loads((D / "ledger.json").read_text())
     except Exception: return {}
+
+def ledger_committed():
+    """True when git tracks .critic/ledger.json: a cloned repository can ship one whose rulings would hide findings,
+    so its false-positive rulings never hide anything (they are listed in counts.md instead)."""
+    from critic_findings import git_tracked
+    return git_tracked(ROOT, ".critic/ledger.json")
 
 MEMORY_HITS = []
 def suppressed_by_ledger(f, L):
@@ -196,7 +203,7 @@ def tally(paths):
     n = len(reviews); need = 1 if n == 1 else math.ceil(2 * n / 3)
     # an outside run we can't see never counts as executed: verification decides
     outside_rows = [dict(r, source="outside", verified=r.get("verified") if r.get("verified") == "inferred" else "traced") for r in load_review(outside)] if outside else []
-    L = ledger(); out = {"reviewers": n, "votes_needed": need, "outside": None, "kept": [], "contested": [], "dropped": [], "retracted": [], "rejected": [], "suppressed": [], "set_aside": set_aside, "sandbox": sandbox, "nits": [], "coverage": coverage_report(coverage)}
+    L = ledger(); out = {"reviewers": n, "votes_needed": need, "outside": None, "kept": [], "contested": [], "dropped": [], "retracted": [], "rejected": [], "suppressed": [], "ruling_committed": [], "set_aside": set_aside, "sandbox": sandbox, "nits": [], "coverage": coverage_report(coverage)}
     scanned = scan_rows(scan) if scan else []
     accepted = []  # (raw_id, reviewer_index or None for scan, finding)
     OUTSIDE_RI = len(reviews) + 1
@@ -230,6 +237,8 @@ def tally(paths):
             if req and req.get("basis") == "inferred" and f["impact"] in ("Critical", "High"):  # SC-55: inferred is not stated
                 f["impact_capped_from"] = f["impact"]; f["impact"] = "Medium"
             s_ = suppressed_by_ledger(f, L)
+            if s_ and ledger_committed():  # a ledger the repository ships could be anyone's: its rulings are shown, never applied
+                out["ruling_committed"].append({"finding": f, "why": s_}); s_ = None
             if s_: out["suppressed"].append({"finding": f, "why": s_}); continue
             if f["impact"] == NIT:  # SC-79: listed under Nits, never counted, never voted on, never verified
                 if not any(similar(f, x) for x in out["nits"]): out["nits"].append(f)
@@ -492,6 +501,10 @@ def apply(paths):
         o = T["outside"]; theirs = [f for f in final if "outside" in (f.get("raised_by") or [])]
         md += ["", "## Outside reviewer", f"- {o['raised']} raised; {o['accepted']} passed the contract and quote checks ({o.get('lines_corrected', 0)} at a corrected line); {o['matched_ours']} matched our reviewers; "
                f"{o['only_outside']} only theirs, each verified blind. In the final list: " + (", ".join(f"{f['id']} {f['impact']}" for f in theirs) or "none") + "."]
+    if T.get("ruling_committed"):
+        md += ["", "## Not hidden: rulings from a ledger the repository tracks (.critic/ledger.json is committed, so its rulings could be anyone's; these findings stay in the counts above)"]
+        md += [f"- {r['finding'].get('id')} {r['finding'].get('file')}:{r['finding'].get('line', '')} {r['finding'].get('title')}: {r['why']}" for r in T["ruling_committed"]]
+        md += ["To apply your own rulings, stop tracking the ledger (your copy stays): git rm --cached .critic/ledger.json"]
     looks = [f for f in final if f.get("memory_note")]
     if looks:
         md += ["", "## Looks like your past dismissals (still counted above; nothing is hidden)"]

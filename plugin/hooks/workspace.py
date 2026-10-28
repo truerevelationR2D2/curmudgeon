@@ -80,6 +80,9 @@ def info(root, agent_id):
     if not j or j.get("building") or not pathlib.Path(j["payload"]).is_dir() or pathlib.Path(j["payload"]).is_symlink(): return None
     return j
 
+OUTSIDE_STUB = ("Curmudgeon: in the project this is a link to something outside the project. Its content was not copied into "
+                "this workspace, because a project can link to private files such as keys. Review it as an outside dependency.\n")
+
 def _link_target(src, root):
     """Where a copied link should point: None to drop it, else the target to write."""
     try: real = pathlib.Path(src).resolve()
@@ -137,7 +140,7 @@ def make(root, agent_id):
     (h / ".git").write_text("gitdir: .git-none-curmudgeon-agent\n")  # git run from notes/ (or here) stops here, never reaching the project's repository
     rec = {"payload": str(payload.resolve()), "notes": str(notes.resolve()), "root": str(root), "made_at": time.time(), "building": True}
     (h / "workspace.json").write_text(json.dumps(rec, indent=1))
-    st = {"files": 0, "bytes": 0, "partial": False, "skipped_large": [], "links_skipped": [], "outside_links": [], "outside_copied": [], "nested": []}
+    st = {"files": 0, "bytes": 0, "partial": False, "skipped_large": [], "links_skipped": [], "outside_links": [], "nested": []}
 
     def link(target, dst, rel):
         try: os.symlink(target, dst, target_is_directory=os.path.isdir(target) if os.path.isabs(str(target)) else os.path.isdir(os.path.join(os.path.dirname(dst), target)))
@@ -149,13 +152,12 @@ def make(root, agent_id):
         if os.path.islink(src):
             t = _link_target(src, root)
             if t is None: return True
-            if os.path.isabs(t) and os.path.isfile(t) and os.path.getsize(t) <= MAX_FILE:  # outside the project: a copy, so a write in the copy can't reach the real file
-                dst.parent.mkdir(parents=True, exist_ok=True)
-                try: shutil.copy2(t, dst); st["outside_copied"].append(rel)
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            if os.path.isabs(t):  # outside the project: neither copied nor linked, so a project can't point a reviewer at ~/.ssh or ~/.aws
+                try: dst.write_text(OUTSIDE_STUB, encoding="utf-8"); st["outside_links"].append(rel)
                 except OSError: st["links_skipped"].append(rel)
                 return True
-            dst.parent.mkdir(parents=True, exist_ok=True); link(t, dst, rel)
-            if os.path.isabs(t): st["outside_links"].append(rel)
+            link(t, dst, rel)
             return True
         if os.path.isdir(src):  # a submodule or nested repository git lists as one entry: its files, without its history
             st["nested"].append(rel)
@@ -204,7 +206,7 @@ def make(root, agent_id):
             if stop: break
     try: rec["git"] = _own_repo(root, payload)
     except OSError: rec["git"] = "stub-failed"
-    for k in ("skipped_large", "links_skipped", "outside_links", "outside_copied", "nested"): st[k] = st[k][:200]
+    for k in ("skipped_large", "links_skipped", "outside_links", "nested"): st[k] = st[k][:200]
     rec.update(st); rec.pop("building", None)
     (h / "workspace.json").write_text(json.dumps(rec, indent=1))
     return rec

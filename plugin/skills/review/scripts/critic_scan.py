@@ -715,11 +715,11 @@ def runtime(page, src, root, out, axe_arg, interact, allow_live, baseline=None, 
             if CHECKS.get("screenshots", {}).get("state") != "blocked":
                 shots_ok = all((out / s).exists() and (out / s).stat().st_size > 2000 for s in ("desktop.png", "phone.png"))
                 state("screenshots", "pass" if shots_ok else "fail", "desktop.png, phone.png")
-            for e in errs[:10]: f("FAIL", "console-error", "runtime", "console", e[:200])
+            for e in errs[:10]: f("FAIL", "console-error", "runtime", "console", scan_secrets.redact_spans(str(e))[:200])  # a page can log a token: masked like evidence
             state("console", "fail" if errs else "pass", f"{len(errs)} error(s)"); stats["console_errors"] = len(errs)
             if would_send:
                 stats["requests_blocked"] = len(would_send)
-                f("NOTE", "would-send", "runtime", "network", f"{len(would_send)} request(s) blocked by the scan's safety guard (the app would have sent them): " + "; ".join(sorted(set(would_send))[:4]))
+                f("NOTE", "would-send", "runtime", "network", f"{len(would_send)} request(s) blocked by the scan's safety guard (the app would have sent them): " + scan_secrets.redact_spans("; ".join(sorted(set(would_send))[:4])))
             b.close()
     finally:
         if srv: srv.shutdown()

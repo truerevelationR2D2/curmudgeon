@@ -2,7 +2,8 @@
 service workers and symlinks getting past the request-by-request guard). Two parts:
 
 1. serve(folder): the local page server. It serves files on 127.0.0.1 only, never a file whose real path (links
-   followed) is outside the folder, and never a directory listing.
+   followed) is outside the folder, never a dot-named file or folder (.critic/, .git/, .env; .well-known is allowed),
+   and never a directory listing.
 2. launch_args(allowed): Chromium starts with every connection sent to a proxy that doesn't exist (127.0.0.1:9, the
    discard port, refuses connections), except the origins in `allowed` (host:port). Chromium's default exemption for
    loopback addresses is switched off (<-loopback>), so another local port is blocked too. Redirects, WebSockets,
@@ -15,6 +16,11 @@ import functools, http.server, os, pathlib, re, threading, urllib.parse
 
 DEAD_PROXY = "http://127.0.0.1:9"
 
+def hidden(part):
+    """A dot-named path part (.critic, .git, .env, .ssh) is never served; .well-known is a public convention and is.
+    '.' and '..' are left to the folder check."""
+    return part.startswith(".") and part not in (".", "..", ".well-known")
+
 class _Handler(http.server.SimpleHTTPRequestHandler):
     def log_message(self, *a): pass
     def list_directory(self, path):
@@ -23,7 +29,10 @@ class _Handler(http.server.SimpleHTTPRequestHandler):
         p = super().translate_path(path)
         base = os.path.realpath(self.directory)
         real = os.path.realpath(p)
-        if real != base and not real.startswith(base.rstrip(os.sep) + os.sep): return os.path.join(base, ".curmudgeon-refused", "404")  # outside the folder: not found
+        refused = os.path.join(base, ".curmudgeon-refused", "404")
+        if real != base and not real.startswith(base.rstrip(os.sep) + os.sep): return refused  # outside the folder: not found
+        asked = urllib.parse.unquote(urllib.parse.urlsplit(path).path).replace("\\", "/").split("/")
+        if any(hidden(x) for x in asked + os.path.relpath(real, base).split(os.sep)): return refused  # .critic/, .git/, .env ...: never served
         return real
 
 def serve(folder):

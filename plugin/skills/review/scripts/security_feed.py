@@ -386,7 +386,9 @@ def main(argv):
         free = shutil.disk_usage(folder).free
         if a.json: print(json.dumps({"folder": str(folder), "estimate_bytes": total, "free_bytes": free, "sources": rows}, indent=1))
         else:
-            print(f"estimated database size: about {human(total)} in {folder} ({human(free)} free); downloads: " + ", ".join(f"{r['source']} {human(r['download_bytes'])}" for r in rows))
+            measured = bool(cfg.get("measured_ratio"))  # before the first build the ratios are upper bounds (feed-rules.json)
+            print(f"estimated database size: {'about' if measured else 'up to about'} {human(total)} in {folder} ({human(free)} free)"
+                  + ("" if measured else "; the first build is usually smaller, and later estimates use its measured size") + "; downloads: " + ", ".join(f"{r['source']} {human(r['download_bytes'])}" for r in rows))
             print(f"sign off with: set --cadence <schedule> --folder {shlex.quote(str(folder))} --signed-off {total}" + (f" --ecosystems {','.join(ecos)}" if ecos else ""))
         return 0
     if a.cmd == "set":
