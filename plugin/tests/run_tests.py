@@ -2464,7 +2464,33 @@ def _(d):
     write(d, "p/index.html", "<!doctype html><title>t</title><button id=delete_account onclick=\"location='wipe.html?all=1'\">Go</button>")
     run(S / "critic_scan.py", "p", "--root", ".", "--page", "p/index.html", cwd=d)
     note = json.loads((d / ".critic/scan/report.json").read_text())["checks"].get("interactive", {}).get("note", "")
-    assert "1 skipped as destructive" in note, note
+    assert "(1 in the simulation)" in note, "decision 34: a destructive-looking control is clicked in the simulation, not skipped: " + note
+
+@test("5.2.1 decision 34: the scan clicks destructive-looking controls in the simulation; a running app is recorded once and replayed, so a write or a GET that deletes never reaches it")
+def _(d):
+    try: import playwright  # noqa: F401
+    except ImportError: return  # CI without Playwright: the page part can't run here
+    import http.server, threading
+    seen = []
+    class H(http.server.SimpleHTTPRequestHandler):
+        def __init__(self, *a, **k): super().__init__(*a, directory=str(d / "app"), **k)
+        def log_message(self, *a): pass
+        def handle_one_request(self):
+            super().handle_one_request()
+            if getattr(self, "command", None): seen.append(f"{self.command} {self.path}")
+    write(d, "app/index.html", "<!doctype html><title>Shop</title><p id=out></p>"
+          "<button id=del onclick=\"fetch('/api/items/1',{method:'DELETE'}).then(()=>{document.getElementById('out').textContent='deleted'})\">Delete item</button>"
+          "<button id=rm onclick=\"location='/delete?id=1'\">Remove all</button><button id=purge>Delete everything</button>")
+    srv = http.server.ThreadingHTTPServer(("127.0.0.1", 0), H); threading.Thread(target=srv.serve_forever, daemon=True).start()
+    try: run(S / "critic_scan.py", "app", "--root", ".", "--page", f"http://127.0.0.1:{srv.server_address[1]}/index.html", cwd=d)
+    finally: srv.shutdown()
+    rep = json.loads((d / ".critic/scan/report.json").read_text())
+    assert "(3 in the simulation)" in rep["checks"]["interactive"]["note"], rep["checks"]["interactive"]
+    assert not [x for x in seen if not x.startswith("GET ") or "/delete" in x], f"only GETs of the page itself reach the app: {seen}"
+    dead = [x["where"] for x in rep["findings"] if x["rule"] == "dead-control"]
+    assert "control “Delete everything”" in dead and "control “Delete item”" not in dead, dead
+    assert any(x["rule"] == "click-simulated" and "DELETE" in x["what"] for x in rep["findings"]), rep["findings"]
+    assert not list(pathlib.Path(tempfile.gettempdir()).glob("curmudgeon-sim-*")), "the recording is deleted after the run"
 
 @test("5.0 card-E round 3: lens and scorer regressions (async downgrade, helper-created tables, mid-line Fix:, 'no issues' replies)")
 def _(d):

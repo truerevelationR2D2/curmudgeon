@@ -23,11 +23,13 @@ Only blocked and unavailable make a run DEGRADED. A false positive recorded with
 
 Safety: the click probe never sends anything. Every non-GET request and every request to another origin is aborted
 and reported as "would have sent", WebSockets are never connected (not even to the page's own server) and workers are
-switched off (their sockets can't be seen from outside the page), controls that
-look destructive by name, id, link, form action or title are not clicked, and pages that aren't
+switched off (their sockets can't be seen from outside the page). Controls that look destructive by name, id, link,
+form action or title are clicked only in the simulation (decision 34): their writes are answered with an OK and never
+sent, and a running app is recorded once (GET only) and replayed offline for them, so even a GET that deletes never
+reaches it. Pages that aren't
 on localhost or a file are refused unless .critic/scope.json lists the origin and the run carries --allow-live HOST
 (the owner's typed confirmation; scope.py), and then only GET, HEAD and OPTIONS, up to the target's request cap."""
-import argparse, fnmatch, json, os, pathlib, re, signal, subprocess, sys, time, urllib.parse
+import argparse, fnmatch, json, os, pathlib, re, shutil, signal, subprocess, sys, time, urllib.parse
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import scan_secrets, scan_html, scan_graph, scan_deps, scan_rules_extra, scan_mutation, scan_ci, scan_agentcfg, scan_migrations, scan_reqs, scan_ops, scan_integrity
 import scope as scope_file
@@ -470,6 +472,7 @@ FOCUS_REST = r"""() => {
 FOCUS_NOW = r"""() => { const e = document.activeElement; if (!e || !e.hasAttribute('data-critic-f')) return null;
   const s = getComputedStyle(e); return [e.getAttribute('data-critic-f'), [s.outlineStyle, s.outlineWidth, s.boxShadow, s.backgroundColor, s.borderColor, s.color, s.textDecorationLine].join('|')]; }"""
 CANDIDATES = "() => [...document.querySelectorAll('button, [role=button], [onclick], a[href], span, div, li')].filter(e => e.getBoundingClientRect().width > 0 && !(e.form && (e.type === 'submit' || e.getAttribute('type') === null && e.tagName === 'BUTTON') && !e.form.checkValidity()) && (e.matches('button,[role=button],[onclick]') || (getComputedStyle(e).cursor === 'pointer' && !e.closest('button,a')))).slice(0, 15).map((e, i) => { e.setAttribute('data-critic-i', i); return [(e.getAttribute('aria-label') || e.textContent || e.id || '').trim().slice(0, 40), (" + safe_web.ATTRS_JS + ")(e)]; })"
+WORKERS_OFF = "for (const k of ['Worker', 'SharedWorker']) { try { Object.defineProperty(globalThis, k, {value: undefined, writable: false, configurable: false}); } catch (e) {} }"
 SIG = "() => document.body.innerText + '|' + document.querySelectorAll('*').length + '|' + location.href + '|' + [...document.querySelectorAll('[aria-expanded],[aria-pressed],dialog[open]')].map(e => (e.getAttribute('aria-expanded')||'') + (e.getAttribute('aria-pressed')||'') + e.open).join('')"
 
 OBSCURED_JS = r"""() => { const e = document.activeElement; if (!e || e === document.body) return null;
@@ -560,7 +563,7 @@ def runtime(page, src, root, out, axe_arg, interact, allow_live, baseline=None, 
             ctx = b.new_context(viewport={"width": 1360, "height": 900}, service_workers="block", accept_downloads=False, permissions=[]); ctx.route("**/*", guard_net)
             if hasattr(ctx, "route_web_socket"):
                 ctx.route_web_socket("**", lambda ws: would_send.append(f"WebSocket {ws.url[:100]}"))  # never connected, not even to the page's own server: a socket can send anything, and the scan sends nothing
-            ctx.add_init_script("for (const k of ['Worker', 'SharedWorker']) { try { Object.defineProperty(globalThis, k, {value: undefined, writable: false, configurable: false}); } catch (e) {} }")  # a worker's socket can't be seen from outside the page
+            ctx.add_init_script(WORKERS_OFF)  # a worker's socket can't be seen from outside the page
             pg = ctx.new_page(); errs = []
             pg.on("pageerror", lambda e: errs.append(str(e))); pg.on("console", lambda m: errs.append(m.text) if m.type == "error" else None)
             pg.on("dialog", lambda d: d.dismiss())
@@ -642,17 +645,66 @@ def runtime(page, src, root, out, axe_arg, interact, allow_live, baseline=None, 
             guarded("screen-reader", screen_reader)
             def interactive():
                 if not interact: state("interactive", NA, "skipped on request (--no-interact)"); return
-                names_ = pg.evaluate(CANDIDATES); clicked = skipped = 0
-                for i, (name, attrs) in enumerate(names_):
-                    if safe_web.looks_destructive(name, DESTRUCTIVE, attrs): skipped += 1; continue  # its id, link, form action and title too, as in browse.py
-                    p2 = ctx.new_page(); e2 = []; p2.on("pageerror", lambda e: e2.append(str(e))); p2.on("dialog", lambda d: d.dismiss())
-                    try:
-                        p2.goto(url, wait_until="load", timeout=15000); p2.wait_for_timeout(400); p2.evaluate(CANDIDATES)
-                        before = p2.evaluate(SIG); p2.click(f"[data-critic-i='{i}']", timeout=1500); p2.wait_for_timeout(500); clicked += 1
-                        if p2.evaluate(SIG) == before and not e2: f("WARN", "dead-control", "ux", f"control “{name}”", "clicking it changes nothing visible (no feedback, no state)")
-                        for x in e2: f("FAIL", "click-error", "ux", f"click “{name}”", x[:160])
-                    except Exception: pass
-                    finally: p2.close()
+                names_ = pg.evaluate(CANDIDATES); clicked = in_sim = 0
+                sim = {"ctx": None, "dir": None, "answered": [], "missed": []}
+                def simulation():
+                    """Decision 34 (Ryan, 28 Oct 2026): a control that looks destructive is clicked in the simulation the
+                    browser driver uses (decision 29), never skipped by its name. Writes get an OK from the simulation and
+                    are never sent; a running app is recorded once (GET only, its own origin) and then replayed offline,
+                    so a GET that deletes (/delete?id=1) never reaches it; a local file is on Curmudgeon's own server."""
+                    if sim["ctx"] is not None: return sim["ctx"]
+                    import tempfile
+                    har = None
+                    if re.match(r"^https?://", page):
+                        sim["dir"] = tempfile.mkdtemp(prefix="curmudgeon-sim-"); har = pathlib.Path(sim["dir"]) / "page.har"
+                        rc = b.new_context(viewport={"width": 1360, "height": 900}, service_workers="block", accept_downloads=False, permissions=[],
+                                           record_har_path=str(har), record_har_content="embed", record_har_url_filter=re.compile("^" + re.escape(origin) + "/"))
+                        rc.route("**/*", guard_net)  # the one real visit: GET to the page's own origin only, inside the request cap
+                        if hasattr(rc, "route_web_socket"): rc.route_web_socket("**", lambda ws: would_send.append(f"WebSocket {ws.url[:100]}"))
+                        rc.add_init_script(WORKERS_OFF)
+                        try: rp = rc.new_page(); rp.goto(url, wait_until="load", timeout=15000); rp.wait_for_timeout(400)
+                        except Exception: pass
+                        finally: rc.close()  # the recording is written on close
+                    sc = b.new_context(viewport={"width": 1360, "height": 900}, service_workers="block", accept_downloads=False, permissions=[])
+                    def sim_route(r):
+                        rq = r.request
+                        if rq.url.startswith(("data:", "blob:")): return r.continue_()
+                        if not same_origin(rq.url): would_send.append(f"{rq.method} {rq.url[:100]}"); return r.abort()
+                        if rq.method not in ("GET", "HEAD", "OPTIONS"):
+                            sim["answered"].append(f"{rq.method} {rq.url[:100]}")
+                            if rq.resource_type == "document":
+                                return r.fulfill(status=200, content_type="text/html", body="<!doctype html><title>Submitted (simulated)</title><p>The simulation answered this form submission; nothing was sent.</p>")
+                            return r.fulfill(status=200, content_type="application/json", body="{}")
+                        if har is not None: sim["missed"].append(f"{rq.method} {rq.url[:100]}"); return r.abort()  # offline: never fetched for real
+                        return r.continue_()  # a local file: Curmudgeon's own static server
+                    sc.route("**/*", sim_route)
+                    if har is not None and har.is_file(): sc.route_from_har(str(har), not_found="fallback")  # registered last, so asked first
+                    if hasattr(sc, "route_web_socket"): sc.route_web_socket("**", lambda ws: would_send.append(f"WebSocket {ws.url[:100]}"))
+                    sc.add_init_script(WORKERS_OFF)
+                    sim["ctx"] = sc; return sc
+                try:
+                    for i, (name, attrs) in enumerate(names_):
+                        risky = safe_web.looks_destructive(name, DESTRUCTIVE, attrs)  # its id, link, form action and title too, as in browse.py
+                        p2 = (simulation() if risky else ctx).new_page(); e2 = []; missed0 = len(sim["missed"])
+                        p2.on("pageerror", lambda e: e2.append(str(e)))
+                        p2.on("dialog", (lambda d: d.accept()) if risky else (lambda d: d.dismiss()))  # in the simulation a confirm is accepted, to see what it guards
+                        p2.on("popup", lambda p_: p_.close())
+                        try:
+                            p2.goto(url, wait_until="load", timeout=15000); p2.wait_for_timeout(400); p2.evaluate(CANDIDATES)
+                            before = p2.evaluate(SIG); p2.click(f"[data-critic-i='{i}']", timeout=1500); p2.wait_for_timeout(500); clicked += 1; in_sim += risky
+                            unknown = risky and len(sim["missed"]) > missed0  # it asked for a page the recording doesn't hold: not judged
+                            if p2.evaluate(SIG) == before and not e2 and not unknown: f("WARN", "dead-control", "ux", f"control “{name}”", "clicking it changes nothing visible (no feedback, no state)" + (" (clicked in the simulation; its requests were answered, never sent)" if risky else ""))
+                            for x in e2: f("FAIL", "click-error", "ux", f"click “{name}”", x[:160])
+                        except Exception: pass
+                        finally: p2.close()
+                finally:
+                    if sim["ctx"] is not None:
+                        try: sim["ctx"].close()
+                        except Exception: pass
+                    if sim["dir"]: shutil.rmtree(sim["dir"], ignore_errors=True)  # the recording holds page content: never kept
+                if sim["answered"] or sim["missed"]:
+                    f("NOTE", "click-simulated", "runtime", "network", scan_secrets.redact_spans(f"{in_sim} control(s) that look destructive were clicked in the simulation: {len(sim['answered'])} request(s) answered by it, never sent"
+                      + (f"; {len(sim['missed'])} page(s) not in the recording, not fetched" if sim["missed"] else "") + ": " + "; ".join(sorted(set(sim["answered"] + sim["missed"]))[:4])))
                 hov = pg.evaluate("() => [...document.querySelectorAll('button, [role=button], a[href]')].filter(e => e.getBoundingClientRect().width > 0).slice(0, 10).map((e, i) => { e.setAttribute('data-critic-h', i); const s = getComputedStyle(e); return [i, (e.textContent||'').trim().slice(0,30), [s.backgroundColor, s.color, s.textDecorationLine, s.boxShadow, s.borderColor].join('|')]; })")
                 nohover = []
                 for i, name, rest in hov:
@@ -663,7 +715,7 @@ def runtime(page, src, root, out, axe_arg, interact, allow_live, baseline=None, 
                 if nohover: f("NOTE", "no-hover", "ux", "hover", f"{len(nohover)} control(s) look the same on hover: " + ", ".join(nohover[:5]))
                 cls = pg.evaluate("() => window.__cls || 0"); stats["layout_shift"] = round(cls, 3)
                 if cls > 0.1: f("WARN", "layout-shift", "ux", "layout shift", f"cumulative layout shift {cls:.2f} (over 0.1)")
-                st, _ = family_state({"ux"}); state("interactive", st, f"{clicked} clicked, {skipped} skipped as destructive, {len(hov)} hovered")
+                st, _ = family_state({"ux"}); state("interactive", st, f"{clicked} clicked ({in_sim} in the simulation), {len(hov)} hovered")
             guarded("interactive", interactive)
             def responsive():
                 worst = {}
