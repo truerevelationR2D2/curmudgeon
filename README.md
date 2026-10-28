@@ -6,7 +6,7 @@ Curmudgeon is a review plugin for Claude Code. It reviews code, interfaces, docu
 
 Most AI reviewers fail in one of two ways. They miss real bugs, or they bury them under confident false alarms. Curmudgeon is built against the second failure. A finding survives only if it makes it through the steps below:
 
-1. Three reviewers work **blind**. Each is told the code came from an unknown contractor, sees the files in a different order, and never sees the other reviewers.
+1. Reviewers work **blind**: three in a full review, one for a small change. Each is told the code came from an unknown contractor, sees the files in a different order, and never sees the other reviewers.
 2. A **Python script** does the counting. A model never does.
 3. Each surviving finding is checked again by a **blind verifier**. The verifier starts from "this is not a defect" and must reproduce or trace the failure. It may lower an impact, but never raise one.
 4. False alarms are **measured** with decoys (code that looks wrong but isn't) and clean twins (the same app without the planted bugs). It isn't just a promise.
@@ -17,14 +17,14 @@ Most AI reviewers fail in one of two ways. They miss real bugs, or they bury the
 /plugin install curmudgeon --marketplace truerevelationR2D2/curmudgeon
 ```
 
-On Claude Code older than 2.1.275, do it in two steps:
+That form works inside a Claude Code session on version 2.1.275 or later. From your shell, `claude plugin install curmudgeon --marketplace truerevelationR2D2/curmudgeon` needs version 2.1.292 or later. On older versions, do it in two steps:
 
 ```
 /plugin marketplace add truerevelationR2D2/curmudgeon
 /plugin install curmudgeon@curmudgeon
 ```
 
-You need Python 3.9 or later. The browser checks also need Playwright with Chromium (`pip install playwright && playwright install chromium`). Without Playwright, those checks are reported as blocked rather than skipped silently.
+You need Python 3.9 or later. The browser checks also need Playwright with Chromium (`pip install playwright && playwright install chromium`). Without Playwright, those checks are reported as unavailable, never as passed, and Curmudgeon offers once to install it. It never installs anything without your yes.
 
 ## Commands
 
@@ -44,10 +44,23 @@ You need Python 3.9 or later. The browser checks also need Playwright with Chrom
 
 You can also just say "tear this apart" or "review my work".
 
+## Examples
+
+Each of these works as typed, in any project:
+
+1. **Review a change before you commit it.** `/curmudgeon:review` reviews what git shows as changed (or, with nothing changed, asks what to review). It sizes the run to the change, runs the free scripted checks, and writes the teardown to `.critic/last-review.md`. Nothing in your project is changed.
+2. **Tear apart one file or folder, with the full panel.** `/curmudgeon:review deep src/payments/` runs three blind reviewers and blind verification on that folder, whatever its size, and lists what it did not check.
+3. **Find and fix, then prove the fix.** `/curmudgeon:review fix src/app.js` reviews the file, fixes the findings, and re-checks each fix (it fixes the target, adds no new defect, and keeps working behaviour working). `/curmudgeon:fix rollback` puts the file back exactly if you don't like the result.
+4. **A security pass.** `/curmudgeon:review security .` focuses the reviewers on security only and runs the security checks. The first time, it asks whether to build the local vulnerability database; say no and dependencies are checked offline only.
+5. **Check an interface in a real browser.** `/curmudgeon:review site/index.html` serves the page on your own computer and checks keyboard reach, focus, a screen-reader view, reflow on a phone-width screen and dead controls, alongside the code review (needs Playwright).
+6. **Audit someone else's system without touching it.** `/curmudgeon:review audit .` reviews in full and changes nothing, even if you ask it to fix; findings come with difficulty, an exploit scenario and short- and long-term fixes.
+
+To try it on code with known bugs, the test apps in `eval/` (for example `eval/fixture`, a notes app with 16 planted bugs, and its clean twin `eval/fixture-clean`) have answer keys in `eval/answer_key*.json`, so you can check what it found.
+
 ## How a review runs
 
 1. **Size it.** A script sets the tier from what changed and how sensitive it is:
-   - trivial: one reviewer;
+   - trivial: one reviewer, with verification of contested findings only;
    - lite: one reviewer, plus verification of Critical and High findings;
    - full: three blind reviewers and full verification.
    The same script lists what calls the changed code.
@@ -66,7 +79,8 @@ You can also just say "tear this apart" or "review my work".
    - WCAG 2.2 rules;
    - dependency hygiene and licences (strong copyleft such as GPL is flagged; missing, unrecognised and proprietary licences are noted);
    - your own rule files (see "Add your own checks");
-   - in a real browser: keyboard reach, focus hidden behind other content, a screen-reader view, reflow at 320 px, speed, and dead controls.
+   - browser integrity, for a page that may have been altered (see [Security scan](#security-scan));
+   - in a real browser: axe-core (WCAG 2.0 to 2.2, when axe-core is installed), keyboard reach, focus hidden behind other content, a screen-reader view, reflow at 320 and 390 px, layout shift, speed (median of three loads), visual baselines, and dead controls. Controls named like Delete, Pay or Send are clicked only in the simulation described in the next item, so nothing they send leaves your machine;
    - a step-by-step browser driver for reviewers and verifiers (`browse.py`): go to, click, type, select, check, press and wait, with the page's controls, console errors, network log and a screenshot after every step. Clicks run on a simulated page: local files are served on 127.0.0.1 by Curmudgeon itself, and a running app or live test site is recorded once (GET only) and then replayed offline, so anything a click tries to send is answered by the simulation and never reaches a real server. That makes even Delete safe to try. With `--expect`, a step returns before-and-after screenshots, the text that changed and what the page tried to send, for the reviewer to compare with what should have happened. Chromium can reach nothing but the page's own origin. Clicks are real mouse clicks, checked as they land. Sending data to your real local server, or recording a live test site listed in `.critic/scope.json`, needs your yes first, asked with a one-line reason;
 3. **Three blind reviewers**, as described above. All three are the same model, so their agreement isn't independent the way three people's would be. The decoys, the clean twins and the optional outside reviewer are the defence against blind spots they share.
 4. **The count.** The script drops any finding whose quoted code isn't at the cited line. It keeps findings that two of three reviewers agree on, or that come with an executed failing case. A dedup step merges the same issue worded differently, so votes count issues, not phrasings.
@@ -83,12 +97,12 @@ Results build up in a per-project ledger (`.critic/`):
 
 ## How it compares with Anthropic's own review options
 
-Checked against Anthropic's documentation on 24 October 2026 ([`/code-review`](https://code.claude.com/docs/en/code-review-local), [ultrareview](https://code.claude.com/docs/en/ultrareview), [Code Review](https://code.claude.com/docs/en/code-review)). There is no head-to-head benchmark yet; the comparison runs are planned, and their results will go in Benchmarks below.
+Checked against Anthropic's documentation on 28 October 2026 ([`/code-review`](https://code.claude.com/docs/en/code-review-local), [ultrareview](https://code.claude.com/docs/en/ultrareview), [Code Review](https://code.claude.com/docs/en/code-review)). `/code-review` and Anthropic's code-review plugin were measured head to head on the same planted-bug tests (see Benchmarks); ultrareview and the managed Code Review were not.
 
 | | Curmudgeon | `/code-review` (`/review` is an alias) | `/code-review ultra` (ultrareview) | Code Review (managed) |
 |---|---|---|---|---|
 | Where it runs | Your Claude Code session and your machine | Your Claude Code session, as a background subagent | A cloud sandbox on Anthropic's infrastructure | Anthropic's infrastructure, on GitHub pull requests |
-| What leaves your machine, beyond the session's own model calls | Nothing by default (opt-in network calls are listed above) | Nothing | For a branch review, your repository state is bundled and uploaded; a PR review clones from GitHub | The GitHub App reads the repository |
+| What leaves your machine, beyond the session's own model calls | Nothing by default (the opt-in network calls are listed under [What it runs, reads and sends](#what-it-runs-reads-and-sends)) | Nothing | For a branch review, your repository state is bundled and uploaded; a PR review clones from GitHub | The GitHub App reads the repository |
 | Who can use it | Anyone with Claude Code | Any plan | Requires a claude.ai sign-in; not on Bedrock, Agent Platform or Foundry, ZDR, HIPAA or CMEK organisations | Team and Enterprise organisations, turned on by an Owner |
 | Cost | Your session's usage; the scripted checks cost no tokens | Your session's usage | 3 free runs on Pro and Max, then typically $5 to $25 per review in usage credits | Billed per review (see Anthropic's cost page) |
 | How findings are checked | Quote at the cited line, script-counted votes of three blind reviewers, then blind per-finding verification that can only lower an impact | Depth scales with the effort level | Every reported finding is independently reproduced and verified | A verification step filters false positives |
@@ -177,9 +191,9 @@ Drop a JSON file of rules into your project's `.critic/rules/` (or, to contribut
 
 - **Runs:** its own Python scripts, plus a test command if you opt in to mutation testing: one you type with `--test-cmd`, or the one in `.critic/rules.md` only when you also pass `--project-checks` (a cloned repository can ship its own rules.md, so Curmudgeon shows you its commands and asks first). Every script a review starts and every outside command or network call it starts itself (git, npm, a Chromium launch, your test or check commands when asked, the opt-in OSV lookup) is listed in `.critic/runlog.jsonl`. The security database's downloads are not project calls, so they are listed in its own `feed-log.jsonl` in the plugin's data folder instead. The requests a page makes inside the browser aren't listed one by one. Tokens, passwords, keys, cookies and signed-URL signatures are masked. The log is git-ignored, and if your repository already tracks it, nothing is written to it and you're told why. In the browser checks it serves your files on `127.0.0.1` and blocks any request that leaves that origin. The scan's own browser checks and the step-by-step driver (`browse.py`) click controls that look destructive (Delete, Pay, Send) only on a simulated page: whatever the page sends is answered locally and never leaves the machine, and a running app is recorded once (reads only) and replayed offline, so even a link-style delete never reaches it. Sending for real needs your yes, and only the driver can do it.
 - **Reads:** the files under review, and your CI's SARIF or JUnit output if present. It never reads its own earlier output as evidence.
-- **Writes:** only inside `.critic/`, unless you ask for fixes. Before a fix it saves exact copies of the files it will change in `.critic/restore/` (private to you, git-ignored, never read by any report), so rollback is exact. If your code holds keys, so do those copies. A guard hook blocks direct edits to `.critic/` state. Each run moves the last run's raw reviews to `.critic/history/`, so they are never counted again. The raw reviews and other files that hold reviewers' exact quotes are git-ignored; everything Curmudgeon writes itself has secrets masked.
+- **Writes:** only inside `.critic/`, unless you ask for fixes, with three exceptions you choose: the security database goes in the folder you picked, its settings go in the plugin's data folder; mutation testing (`--mutate`) changes one source file at a time while your tests run and puts it back each time, keeping a backup beside it and a private list of those backups in the plugin's data folder, so a killed run is restored on the next one. Before a fix it saves exact copies of the files it will change in `.critic/restore/` (private to you, git-ignored, never read by any report), so rollback is exact. If your code holds keys, so do those copies. A guard hook blocks direct edits to `.critic/` state. Each run moves the last run's raw reviews to `.critic/history/`, so they are never counted again. The raw reviews and other files that hold reviewers' exact quotes are git-ignored; everything Curmudgeon writes itself has secrets masked.
 - **Sends:** nothing, by default. It declares no connectors or MCP servers, and it never contacts another AI: the outside reviewer is something you paste to and from yourself, only if you said yes. Three opt-in features reach the network: the security database, once you switch it on, asks the sources for their file sizes and downloads public vulnerability files, sending nothing about your project (see [Security scan](#security-scan)); `--online` sends package names and versions to the free OSV vulnerability API (`api.osv.dev`); and a live URL is loaded only when you list its origin in `.critic/scope.json` and confirm the host on that run with `--allow-live HOST` (then only GET, HEAD and OPTIONS, up to a request cap). Without them, the page checks serve files only on this computer and block any request that would leave it. Secrets found in your code are redacted in every report.
-- **Personal data:** Curmudgeon collects, stores and sends no personal data for itself: no accounts, tracking or analytics. If the code you review contains personal data, the quoted lines, screenshots and restore copies it keeps in your local `.critic/` folder can include it. That folder stays on your machine.
+- **Personal data:** Curmudgeon collects, stores and sends no personal data for itself: no accounts, tracking or analytics (the full privacy policy is in [PRIVACY.md](https://github.com/truerevelationR2D2/curmudgeon/blob/main/plugin/PRIVACY.md); security reports go through [SECURITY.md](https://github.com/truerevelationR2D2/curmudgeon/blob/main/SECURITY.md)). If the code you review contains personal data, the quoted lines, screenshots and restore copies it keeps in your local `.critic/` folder can include it. That folder stays on your machine.
 - **Limits:**
   - Restore copies are exact, so they keep a key that a fix removed until you delete them.
   - On Windows the copies' private folder permission (0700) has no effect.
@@ -196,7 +210,7 @@ Drop a JSON file of rules into your project's `.critic/rules/` (or, to contribut
   - PostToolUse, stuck detection: a script watches each Curmudgeon agent's own recent tool calls. The same action with the same result three times, the same action failing three times, or two actions ping-ponging gets the agent one "rope" (what it repeated, and two ways out: change approach, or declare "cannot verify"). If it happens again, the agent is told to stop that scenario and move on, the repeated action is refused, and a typed STUCK record is listed in the teardown, never hidden. Other sessions and agents are never watched.
   - PreToolUse, stuck refusal: refuses the exact action a stuck Curmudgeon agent was told to stop repeating.
   - PreToolUse, blindness guard: each reviewer and verifier works in its own private, frozen copy of the project, made in its scratch folder when the agent starts (see SubagentStart below). The copy has no `.critic/` folder, so the agent's searches and relative paths can only find code. The guard holds it there. Bash commands must start with `cd <its copy> &&` (or, for git, `git -C <its copy>` on its own, because Claude Code asks before a `cd` followed by `git`), and a command whose paths lead to the project's `.critic/` (another agent's copy included), to a folder above it, or back to the project (`cd -`, `$OLDPWD`) is refused. Reads of the project's `.critic/` are limited to what the role needs: never the other reviews, the scan, the tally, the teardown or other agents' scratch folders. Paths are resolved, links followed and case ignored. This stops an honest agent from seeing what it shouldn't. It is not a sandbox against a hostile one, because any program you run can read any file you can. The guard also refuses a fork during a review run, because a fork inherits the whole conversation. Your own session is never limited. It adds about 30 ms to each read-type tool call;
-  - SubagentStart: gives each Curmudgeon agent its own private scratch folder, `.critic/scratch/<agent id>/`, and gives each reviewer and verifier its private copy of the project in `.critic/scratch/<agent id>/payload/` (Claude Code lets an agent change directory only inside your project). In a git project the copy holds the files git tracks or would track (so build output and ignored files stay out); it never holds `.critic/` or files over 5 MB, links dependency folders such as `node_modules` instead of copying them, and stops at 500 MB (the agent is told when its copy is partial). The copy is its own git repository, sharing the project's history, so `git log` and `blame` work there and `git stash` or `reset` in it can't touch your real files. Making it can take a few seconds on a large project;
+  - SubagentStart: gives each Curmudgeon agent its own private scratch folder, `.critic/scratch/<agent id>/`, and gives each reviewer and verifier its private copy of the project in `.critic/scratch/<agent id>/payload/` (Claude Code lets an agent change directory only inside your project). In a git project the copy holds the files git tracks or would track (so build output and ignored files stay out); it never holds `.critic/` or files over 5 MB, links dependency folders such as `node_modules` instead of copying them (unless a link inside one leads outside the project; then the folder is left out and the agent is told), turns a link to anything outside the project into a short note instead of a copy, and stops at 500 MB (the agent is told when its copy is partial). The copy is its own git repository, sharing the project's history, so `git log` and `blame` work there and `git stash` or `reset` in it can't touch your real files. Making it can take a few seconds on a large project;
 
 ## Benchmarks
 
