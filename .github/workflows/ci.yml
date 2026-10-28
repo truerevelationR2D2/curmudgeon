@@ -26,13 +26,35 @@ jobs:
         with:
           python-version: ${{ matrix.python }}
       - name: Script tests (rung 1)
-        run: python plugin/tests/run_tests.py
+        shell: bash
+        run: |
+          # each failing test is also raised as an annotation, so it can be read from the run's summary and the API
+          set +e; python plugin/tests/run_tests.py 2>&1 | tee tests.out; status=${PIPESTATUS[0]}
+          grep -E '^FAIL' tests.out | head -20 | cut -c1-900 | sed 's/^/::error title=script test::/'
+          exit $status
       - name: Golden tests (rung 2)
         run: python eval/golden.py
       - name: Replays (rung 3)
         run: python eval/replay.py
       - name: Gate self-test
         run: python eval/score.py --selftest
+  windows:
+    # the security database's Windows-only paths, run for real (plugin/tests/windows_checks.py)
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.12"
+      - name: Windows checks
+        shell: bash
+        run: |
+          set +e; python plugin/tests/windows_checks.py 2>&1 | tee win.out; status=${PIPESTATUS[0]}
+          grep -E '^(FAIL|ok|windows_checks)' win.out | cut -c1-900 | sed 's/^/::notice title=windows check::/'
+          exit $status
   validate:
     runs-on: ubuntu-latest
     timeout-minutes: 10
