@@ -8,8 +8,9 @@ usage:
                                                    write blind packets and bare copies of the apps to label against
   label.py ties   RUN_DIR A.json B.json            agreement between the two labellers; packets for the tiebreaker
   label.py final  RUN_DIR A.json B.json [T.json]   write RUN_DIR/labels.json (and labels-detail.json) for the scorer
+  label.py recheck RUN_DIR RECHECK_DIR             how a later blind relabel of a sample agrees with the final labels
 
-A packet holds an opaque id, the app's folder name and the finding's own words with markdown removed: never the arm,
+A packet holds an opaque id, the app's opaque name and the finding's own words with markdown removed: never the arm,
 the run, the task's answer key or another finding's label. The ids are shuffled across arms, so order says nothing.
 The map from id to "<arm>/<task>/<block>" stays in RUN_DIR/labelling/map.json, which no labeller is shown.
 
@@ -49,8 +50,9 @@ def plain(text):
     return re.sub(r"\n{3,}", "\n\n", t).strip()
 
 def unmatched(run_dir):
-    """[(key, task, text)] for every finding block that the answer key did not credit to a plant (on a clean twin,
-    every block), from runs that finished."""
+    """[(key, task, text)] for every finding block that states no planted defect (on a clean twin, every block), from
+    runs that finished. A block that restates a plant another block was credited for is left out too: it is the
+    same bug, not a separate finding."""
     cfg = deathmatch.load_cfg(); tasks = {t["id"]: t for t in cfg["tasks"]}; out = []
     for arm_dir in sorted(p for p in pathlib.Path(run_dir).iterdir() if p.is_dir() and p.name != "labelling"):
         for td in sorted(p for p in arm_dir.iterdir() if p.is_dir()):
@@ -59,10 +61,8 @@ def unmatched(run_dir):
             blocks = deathmatch.blocks_for(td)
             if not t or blocks is None or deathmatch.failed(meta, (td / "output.md").read_text(errors="replace") if (td / "output.md").exists() else ""): continue
             used = set()
-            if not t.get("clean"):
-                key = json.loads((HERE / t["key"]).read_text())
-                plants = deathmatch.plants_of(key)
-                used = set(deathmatch.match_plants(plants, blocks).values())
+            if not t.get("clean"):  # a credited plant, and any second report of one, is the answer key's business
+                used = deathmatch.plant_blocks(deathmatch.plants_of(json.loads((HERE / t["key"]).read_text())), blocks)
             for i, b in enumerate(blocks):
                 if i not in used: out.append((f"{arm_dir.name}/{td.name}/{i}", t, plain(b["claim"] if b["claim"].strip() else b["loc"])))
     return out
@@ -80,16 +80,39 @@ def plant_hits(run_dir):
         out.setdefault(t["id"], []).extend(plain(blocks[i]["claim"]) for i in sorted(hit.values()))
     return out
 
+# Words in the fixtures that tell a reader what the answer is. The labellers' copies get neutral text in their place,
+# line for line, so every line number a finding cites still points at the same code.
+GIVEAWAYS = [(re.compile(r"__PLANTED_([A-Z0-9_]*)__"), r"__\1VALUE__"), (re.compile(r"(?i)\bplanted\b"), "example"),
+             (re.compile(r"(?im)^(\s*(?://|#|<!--|/\*)).*\b(?:decoys?|clean twin|answer key)\b.*$"), r"\1")]
+
+def neutral_copy(src, dst):
+    """Copy an app for the labellers with the GIVEAWAYS replaced in every text file (line count unchanged)."""
+    shutil.copytree(src, dst, ignore=shutil.ignore_patterns(".critic", ".git"))
+    for f in dst.rglob("*"):
+        if not f.is_file(): continue
+        try: text = f.read_text()
+        except (UnicodeDecodeError, OSError): continue
+        new = text
+        for pat, rep in GIVEAWAYS: new = pat.sub(rep, new)
+        if new != text: f.write_text(new)
+
 def export(run_dir, apps, chunk=30, seed=None, controls=3):
+    """Blind packets: each app gets an opaque name (app-<hex>) and its own folder, so neither the name nor the folder
+    says which app is a clean twin; the id-to-finding map and the name-to-app map stay in RUN_DIR/labelling/."""
     run_dir = pathlib.Path(run_dir); lab = run_dir / "labelling"; apps = pathlib.Path(apps)
     if apps.resolve().is_relative_to(HERE.resolve()): sys.exit("--apps must be outside eval/, so a labeller can't reach the answer keys")
     items = unmatched(run_dir); rng = random.Random(seed); rng.shuffle(items)
-    ids = set(); idmap = {}; by_app = {}
+    ids = set(); idmap = {}; by_app = {}; alias = {}
+    def name(fixture):
+        while fixture not in alias:
+            a = "app-" + "".join(rng.choice("0123456789abcdef") for _ in range(6))
+            if a not in alias.values(): alias[fixture] = a
+        return alias[fixture]
     for key, t, text in items:
         pid = "F" + "".join(rng.choice("0123456789abcdef") for _ in range(8))
         while pid in ids: pid = "F" + "".join(rng.choice("0123456789abcdef") for _ in range(8))
         ids.add(pid); idmap[pid] = key
-        by_app.setdefault(t["fixture"], []).append({"id": pid, "app": t["fixture"], "finding": text})
+        by_app.setdefault(t["fixture"], []).append({"id": pid, "app": name(t["fixture"]), "finding": text})
     tasks = {t["id"]: t for t in deathmatch.load_cfg()["tasks"]}; ctl = {}
     for tid, texts in sorted(plant_hits(run_dir).items()):
         twin = tasks.get(tid + "-clean")
@@ -99,19 +122,20 @@ def export(run_dir, apps, chunk=30, seed=None, controls=3):
                 pid = "F" + "".join(rng.choice("0123456789abcdef") for _ in range(8))
                 while pid in ids: pid = "F" + "".join(rng.choice("0123456789abcdef") for _ in range(8))
                 ids.add(pid); ctl[pid] = {"truth": truth, "app": app}
-                by_app.setdefault(app, []).append({"id": pid, "app": app, "finding": text})
+                by_app.setdefault(app, []).append({"id": pid, "app": name(app), "finding": text})
     for ps in by_app.values(): rng.shuffle(ps)
     (lab).mkdir(parents=True, exist_ok=True); (lab / "controls.json").write_text(json.dumps(ctl, indent=1))
     (lab / "packets").mkdir(parents=True, exist_ok=True)
     for app in by_app:
-        dst = apps / app
+        dst = apps / alias[app]
         if dst.exists(): shutil.rmtree(dst)
-        shutil.copytree(HERE / app, dst, ignore=shutil.ignore_patterns(".critic", ".git"))
+        neutral_copy(HERE / app, dst)
     files = []
-    for app, ps in sorted(by_app.items()):
+    for app, ps in sorted(by_app.items(), key=lambda kv: alias[kv[0]]):
         for k in range(0, len(ps), chunk):
-            f = lab / "packets" / f"{app}-{k // chunk + 1}.json"; f.write_text(json.dumps(ps[k:k + chunk], indent=1)); files.append(f)
+            f = lab / "packets" / f"{alias[app]}-{k // chunk + 1}.json"; f.write_text(json.dumps(ps[k:k + chunk], indent=1)); files.append(f)
     (lab / "map.json").write_text(json.dumps(idmap, indent=1))
+    (lab / "apps.json").write_text(json.dumps({v: k for k, v in alias.items()}, indent=1))
     print(f"{len(items)} finding(s) and {len(ctl)} control(s) to label in {len(files)} packet file(s); apps copied to {apps}")
     return files
 
@@ -192,6 +216,22 @@ def final(run_dir, fa, fb, ft=None):
     print(json.dumps(stats), f"\n{len(detail)} label(s) written; {len(tie_ids)} decided by the tiebreaker")
     return detail, stats
 
+def recheck(run_dir, rdir):
+    """Agreement between a later blind relabel of a sample (RECHECK_DIR: map.json, controls.json, labels.json, as
+    export and one labeller write them) and RUN_DIR's final labels, beside how the first labeller (labelling/A.json)
+    agreed with the same final labels on the same sample; and the relabel's accuracy on its controls."""
+    run_dir, rdir = pathlib.Path(run_dir), pathlib.Path(rdir)
+    final = json.loads((run_dir / "labels-detail.json").read_text())["labels"]
+    idmap = json.loads((rdir / "map.json").read_text()); ctl = json.loads((rdir / "controls.json").read_text())
+    new = load_labels(rdir / "labels.json")
+    omap = json.loads((run_dir / "labelling" / "map.json").read_text()); first = {omap[k]: v for k, v in load_labels(run_dir / "labelling" / "A.json").items() if k in omap}
+    keys = [(p, idmap[p]) for p in new if p in idmap and idmap[p] in final]
+    out = {"sample": len(keys), "relabel_agrees": sum(1 for p, k in keys if agree(new[p], final[k])),
+           "first_labeller_agrees": sum(1 for p, k in keys if k in first and agree(first[k], final[k]))}
+    good = lambda p: new[p]["verdict"] == "real" if ctl[p]["truth"] == "real" else new[p]["verdict"] in ("wrong", "none")
+    out["controls"] = f"{sum(1 for p in ctl if p in new and good(p))} of {len(ctl)}"
+    print(json.dumps(out)); return out
+
 def main(a):
     if len(a) >= 2 and a[0] == "export":
         apps = a[a.index("--apps") + 1] if "--apps" in a else sys.exit("--apps DIR is required (outside eval/)")
@@ -199,6 +239,7 @@ def main(a):
         export(a[1], apps, chunk, controls=int(a[a.index("--controls") + 1]) if "--controls" in a else 3); return 0
     if len(a) == 4 and a[0] == "ties": ties(*a[1:]); return 0
     if len(a) in (4, 5) and a[0] == "final": final(*a[1:]); return 0
+    if len(a) == 3 and a[0] == "recheck": recheck(*a[1:]); return 0
     print(__doc__); return 2
 
 if __name__ == "__main__": sys.exit(main(sys.argv[1:]))

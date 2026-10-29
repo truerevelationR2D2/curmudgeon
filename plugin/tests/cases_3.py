@@ -1134,7 +1134,9 @@ def _(d):
     files = label.export(rd, d / "apps", chunk=2, seed=1)
     packets = [p for f in files for p in json.loads(f.read_text())]
     idmap = json.loads((rd / "labelling" / "map.json").read_text())
-    assert len(packets) == len(idmap) == 4 and (d / "apps" / "fixture-clean").is_dir() and not list((d / "apps").rglob("answer_key*"))
+    names = json.loads((rd / "labelling" / "apps.json").read_text())
+    assert len(packets) == len(idmap) == 4 and list(names.values()) == ["fixture-clean"] and (d / "apps" / next(iter(names))).is_dir() and not list((d / "apps").rglob("answer_key*"))
+    assert all(p["app"].startswith("app-") and "fixture" not in p["app"] for p in packets) and all("fixture" not in f.name for f in files)   # no name says which app is a clean twin
     blob = json.dumps(packets)
     assert "arm-one" not in blob and "arm-two" not in blob and "**" not in blob and "##" not in blob, blob
     ids = sorted(idmap); head = next(p for p, k in idmap.items() if k.endswith("/0") and k.startswith("arm-one"))
@@ -1163,7 +1165,7 @@ def _(d):
     assert deathmatch.voided({"is_error": True, "error_text": "Claude AI usage limit reached|1761700000"})
     assert deathmatch.voided({"is_error": True, "error_text": "You've hit your 5-hour limit · resets 5:10am (America/Chicago)"})   # the wording the 29 Oct run met
     assert not deathmatch.voided({"error": "timeout after 3600 s"}) and not deathmatch.voided({"is_error": True, "error_text": "the agent crashed"}) and not deathmatch.voided({"total_cost_usd": 1})
-    assert bs.upper95(0, 24) == 0.125 and bs.upper95(0, 2) == 1.0 and bs.upper95(5, 5) == 1.0 and abs(bs.upper95(1, 10) - 0.445) < 0.001, bs.upper95(1, 10)
+    assert bs.upper95(0, 24) == 0.125 and bs.upper95(0, 2) == 1.0 and bs.upper95(5, 5) == 1.0 and abs(bs.upper95(1, 10) - 0.394) < 0.001, bs.upper95(1, 10)   # one-sided 95% throughout
     rd = d / "run"; res = []
     for arm, founds, costs in (("curmudgeon", [3, 4], [2.0, 2.0]), ("other", [1, 2], [0.5, 0.5])):
         for k, (f, c) in enumerate(zip(founds, costs), 1):
@@ -1199,8 +1201,9 @@ def _(d):
     ctl = json.loads((rd / "labelling" / "controls.json").read_text()); idmap = json.loads((rd / "labelling" / "map.json").read_text())
     assert len(idmap) == 2 and len(ctl) == 2 and not set(ctl) & set(idmap), (idmap, ctl)
     assert sorted((c["truth"], c["app"]) for c in ctl.values()) == [("real", "fixture"), ("wrong", "fixture-clean")]
-    assert all("innerHTML" in packets[p]["finding"] and packets[p]["app"] == ctl[p]["app"] for p in ctl)
-    assert (d / "apps" / "fixture").is_dir() and (d / "apps" / "fixture-clean").is_dir()
+    names = json.loads((rd / "labelling" / "apps.json").read_text())
+    assert all("innerHTML" in packets[p]["finding"] and names[packets[p]["app"]] == ctl[p]["app"] for p in ctl)
+    assert sorted(names.values()) == ["fixture", "fixture-clean"] and all((d / "apps" / a).is_dir() for a in names)
     yes = [{"id": p, "verdict": "real", "actionable": True, "severity": "high"} for p in packets]
     write(d, "a.json", json.dumps(yes)); write(d, "b.json", json.dumps(yes))
     _, stats = label.ties(rd, d / "a.json", d / "b.json")
@@ -1235,3 +1238,80 @@ def _(d):
     labels = {"a/t/0": "false", "a/t/1": "trivial", "a/t/2": "none", "a/t/3": "real"}
     r = deathmatch.score_task({"clean": True}, blocks, labels, "a/t")
     assert r["false_alarms"] == 2 and r["unlabelled"] == 0, r   # block 0 (wrong) and block 4 (cites a line, unlabelled)
+
+@test("5.2.4 benchmark review: a review that discusses a quota or rate-limit bug, or a run whose wall time is 429 s, is never taken for a usage-limit void")
+def _(d):
+    sys.path.insert(0, str(HERE.parent / "eval")); import importlib, deathmatch; importlib.reload(deathmatch)
+    review = '[{"file": "store.js", "line": 78, "summary": "QuotaExceededError is caught but the note is silently dropped"}]'
+    assert deathmatch.failed({"tokens": 0}, review) is None and not deathmatch.voided({"tokens": 0}, review)
+    assert not deathmatch.voided({"tokens": 0}, "- auth.py:12 login has no rate limiting, so passwords can be guessed")
+    assert not deathmatch.voided({"error": "timeout after 3600 s", "wall_s": 429.3}) and deathmatch.failed({"error": "timeout after 3600 s", "wall_s": 429.3})
+    assert not deathmatch.voided({"is_error": True, "total_cost_usd": 1.429, "tokens": 5000, "error_text": "error_max_turns"})
+    assert deathmatch.voided({"tokens": 0}, "You've hit your 5-hour limit · resets 5:10am (America/Chicago)")
+
+@test("5.2.4 benchmark review: a second report of a planted bug is neither labelled nor counted as another confirmed bug")
+def _(d):
+    sys.path.insert(0, str(HERE.parent / "eval")); import importlib, deathmatch, label, bench_stats as bs; importlib.reload(deathmatch); importlib.reload(label); importlib.reload(bs)
+    rd = d / "run"
+    write(rd, "arm/suite1/output.md", "1. app.js:10 note titles are injected into innerHTML unescaped (XSS)\n2. app.js:46 shared titles are injected into innerHTML unescaped (XSS)\n3. app.js:99 the search box ignores case")
+    write(rd, "arm/suite1/meta.json", json.dumps({"total_cost_usd": 1.0, "tokens": 10}))
+    keys = [k for k, _, _ in label.unmatched(rd)]
+    assert keys == ["arm/suite1/2"], keys   # block 1 restates the plant block 0 was credited for
+    import contextlib, io
+    with contextlib.redirect_stdout(io.StringIO()): deathmatch.score(rd)
+    write(rd, "labels-detail.json", json.dumps({"agreement": None, "labels": {"arm/suite1/1": {"verdict": "real", "actionable": True, "severity": "high"},
+                                                                          "arm/suite1/2": {"verdict": "real", "actionable": True, "severity": "low"}}}))
+    _, js = bs.report([rd], base="arm")
+    assert js["arms"]["arm"]["confirmed_bugs"] == 2, js["arms"]["arm"]   # the plant once, plus the search bug; not the XSS twice
+
+@test("5.2.4 benchmark review: the cost-per-bug interval has no upper bound when resamples can confirm nothing, instead of a NaN-ordered number")
+def _(d):
+    sys.path.insert(0, str(HERE.parent / "eval")); import importlib, bench_stats as bs; importlib.reload(bs)
+    lo, hi = bs.ratio_boot([(1.0, 0)] * 8 + [(1.0, 1)] * 2)
+    assert hi is None and lo is not None and lo == lo, (lo, hi)
+    assert "unbounded" in bs.fmt_ci((lo, hi)) and bs.ratio_boot([(1.0, 1)] * 5) == (1.0, 1.0)
+
+@test("5.2.4 benchmark review: the labellers' copy of an app hides the words that give the answer away, line for line")
+def _(d):
+    sys.path.insert(0, str(HERE.parent / "eval")); import importlib, label; importlib.reload(label)
+    src = d / "src"; write(src, "api.js", 'const KEY = "__PLANTED_STRIPE_KEY__";\n// Decoys: none of these is a finding\nlet a = 1; // planted here\n')
+    label.neutral_copy(src, d / "dst"); out = (d / "dst" / "api.js").read_text()
+    assert "PLANTED" not in out and "planted" not in out.lower() and "decoy" not in out.lower() and out.count("\n") == 3, out
+
+@test("5.2.4 benchmark review: a run that failed for a real reason and was run again by hand still counts as a failure, not as a usage-limit void")
+def _(d):
+    sys.path.insert(0, str(HERE.parent / "eval")); import importlib, bench_stats as bs; importlib.reload(bs)
+    rd = d / "run"
+    write(rd, "arm/suite4-clean/meta.json", json.dumps({"total_cost_usd": 1.0, "tokens": 10})); write(rd, "arm/suite4-clean/output.md", "No issues found.")
+    write(rd, "voided.jsonl", json.dumps({"run": "arm/suite4-clean", "voided_by_limit": False, "meta": {"error": "timeout after 3600 s"}}) + "\n" +
+                              json.dumps({"run": "arm/suite4-clean", "voided_by_limit": True, "meta": {"is_error": True}}) + "\n")
+    md, js = bs.report([rd], base="arm")
+    a = js["arms"]["arm"]
+    assert a["runs"] == 2 and a["completed"] == 1 and js["voided"] == 1, (a, js["voided"])
+
+@test("5.2.4 benchmark review: the statistics score a run again when its labels are newer than its scores, so a finding later labelled trivial is no false alarm")
+def _(d):
+    sys.path.insert(0, str(HERE.parent / "eval")); import importlib, contextlib, io, time as _t, deathmatch, bench_stats as bs; importlib.reload(deathmatch); importlib.reload(bs)
+    rd = d / "run"
+    write(rd, "arm/suite1-clean/output.md", "1. app.js:5 an off-by-one in the loop"); write(rd, "arm/suite1-clean/meta.json", json.dumps({"total_cost_usd": 1.0, "tokens": 10}))
+    with contextlib.redirect_stdout(io.StringIO()): deathmatch.score(rd)
+    _t.sleep(0.05); write(rd, "labels.json", json.dumps({"arm/suite1-clean/0": "trivial"}))
+    _, js = bs.report([rd], base="arm")
+    assert js["arms"]["arm"]["clean_runs_with_false_alarm"] == 0, js["arms"]["arm"]
+
+@test("5.2.4 benchmark review: a blind relabel of a sample is compared with the final labels and with the first labeller, and its controls are scored")
+def _(d):
+    sys.path.insert(0, str(HERE.parent / "eval")); import importlib, label; importlib.reload(label)
+    rd, rc = d / "run", d / "re"
+    lab = lambda v: {"verdict": v, "actionable": v == "real", "severity": "low" if v == "real" else None}
+    write(rd, "labels-detail.json", json.dumps({"labels": {"a/t/0": lab("real"), "a/t/1": lab("wrong")}}))
+    write(rd, "labelling/map.json", json.dumps({"F1": "a/t/0", "F2": "a/t/1"})); write(rd, "labelling/A.json", json.dumps([dict(lab("real"), id="F1"), dict(lab("real"), id="F2")]))
+    write(rc, "map.json", json.dumps({"G1": "a/t/0", "G2": "a/t/1"})); write(rc, "controls.json", json.dumps({"C1": {"truth": "wrong", "app": "x"}}))
+    write(rc, "labels.json", json.dumps([dict(lab("real"), id="G1"), dict(lab("wrong"), id="G2"), dict(lab("real"), id="C1")]))
+    assert label.recheck(rd, rc) == {"sample": 2, "relabel_agrees": 2, "first_labeller_agrees": 1, "controls": "0 of 1"}
+
+@test("5.2.4 benchmark review: rerun on a run folder with no recorded settings stops with a reason instead of a traceback")
+def _(d):
+    sys.path.insert(0, str(HERE.parent / "eval")); import importlib, deathmatch; importlib.reload(deathmatch)
+    try: deathmatch.rerun(d); assert False, "rerun must stop"
+    except SystemExit as e: assert "run.json" in str(e), e

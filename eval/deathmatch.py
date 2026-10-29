@@ -119,6 +119,12 @@ def match_plants(plants, blocks):
     return keymatch.max_match({name: [i for i, b in enumerate(blocks) if _points_at(k, b["loc"]) and any(re.search(p, b["claim"], re.I) for p in k["any"])]
                                for name, k in plants.items()})
 
+def plant_blocks(plants, blocks):
+    """Every block that points at a plant and states its defect, credited or not. A second report of an already
+    credited plant (its other site, or the same claim twice) is not a separate bug, so it is neither labelled nor
+    counted as a confirmed finding."""
+    return {i for i, b in enumerate(blocks) for k in plants.values() if _points_at(k, b["loc"]) and any(re.search(p, b["claim"], re.I) for p in k["any"])}
+
 def plants_of(key):
     """The plants of an answer key in match_plants' shape (a scripted lens's key lists them under "planted")."""
     return key.get("planted") and {p["id"]: {"file": p["where"].rsplit(":", 1)[0], "any": [re.escape(p["rule"])], "at": [[p["where"].rsplit(":", 1)[0], int(p["where"].rsplit(":", 1)[1]), int(p["where"].rsplit(":", 1)[1])]]} for p in key["planted"]} or key
@@ -247,20 +253,30 @@ def one_job(a, t, k, repeat, out, model):
 
 VOID = re.compile(r"(?i)usage limit|rate.?limit|limit reached|hit your [\w -]*limit|\b429\b|overloaded|credit balance|quota")
 
+def limit_reply(reply):
+    """True when the whole reply is a usage or rate limit notice: short, not a list of findings, and naming a limit.
+    A review that discusses a quota or rate-limit bug in the app is a review, not a limit notice."""
+    r = (reply or "").strip()
+    return 0 < len(r) <= 300 and r[:1] not in "[{-*#`" and "\n\n" not in r and bool(VOID.search(r))
+
 def failed(meta, reply=""):
     """Why a run failed, or None. reply is the run's output.md. A run whose result shows no model work (0 tokens)
-    and whose reply is empty or a limit message failed even when Claude Code called it a success: on 29 Oct a usage
-    limit came back as is_error false with 0 tokens and the limit message as the reply, and 35 such runs were first
-    scored as clean "found nothing" results. 0 tokens alone is not a failure: the built-in /code-review's result
-    reports 0 tokens even when it reviewed and replied."""
-    zero = meta.get("tokens") == 0 and (not (reply or "").strip() or VOID.search((reply or "")[-500:]))
+    and whose reply is empty or only a limit notice failed even when Claude Code called it a success: on 29 Oct a
+    usage limit came back as is_error false with 0 tokens and the limit message as the reply, and 35 such runs were
+    first scored as clean "found nothing" results. 0 tokens alone is not a failure: the built-in /code-review's
+    result reports 0 tokens even when it reviewed and replied."""
+    zero = meta.get("tokens") == 0 and (not (reply or "").strip() or limit_reply(reply))
     return meta.get("error") or ("the run reported an error (is_error)" if meta.get("is_error") else None) or \
-        ("the run did no model work (0 tokens, and its reply is empty or a limit message)" if zero else None)
+        ("the run did no model work (0 tokens, and its reply is empty or a limit notice)" if zero else None)
 
 def voided(meta, reply=""):
     """True when a run failed because of a usage or rate limit rather than the tool under test (ruling §5.53: such a
-    run is void and is run again; any other failure counts against the arm)."""
-    return bool(failed(meta, reply)) and bool(VOID.search(json.dumps(meta) + "\n" + (reply or "")[-500:]))
+    run is void and is run again; any other failure counts against the arm). Only the failure's own text is read
+    (the error, the failed reply's tail, or a reply that is only a limit notice), never the run's numbers, so a
+    wall time of 429.3 s is not a rate limit."""
+    if not failed(meta, reply): return False
+    text = " ".join(str(meta.get(k) or "") for k in ("error", "error_text"))
+    return bool(VOID.search(text)) or limit_reply(reply)
 
 def run(arms, tasks, model, repeat, parallel=1):
     import concurrent.futures as cf
@@ -282,7 +298,9 @@ def rerun(run_dir, all_errors=False, parallel=1):
     so how many runs were voided is never lost."""
     import concurrent.futures as cf
     global PLUGIN
-    run_dir = pathlib.Path(run_dir); info = json.loads((run_dir / "run.json").read_text())
+    run_dir = pathlib.Path(run_dir)
+    if not (run_dir / "run.json").exists(): raise SystemExit(f"{run_dir}: no run.json (a run folder made before 29 Oct 2026); rerun needs the settings it records")
+    info = json.loads((run_dir / "run.json").read_text())
     PLUGIN = pathlib.Path(info["plugin"]); PLUGINS[:] = info.get("plugins_off") or installed_plugins()
     cfg = load_cfg(); arms = {x["id"]: x for x in cfg["arms"]}; tasks = {x["id"]: x for x in cfg["tasks"]}; jobs = []
     for td in sorted(run_dir.glob("*/*/meta.json")):

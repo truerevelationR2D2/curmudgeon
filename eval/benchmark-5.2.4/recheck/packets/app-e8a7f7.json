@@ -1,0 +1,137 @@
+[
+ {
+  "id": "F9ec646f3",
+  "app": "app-e8a7f7",
+  "finding": "api.js:6 Query is put into the URL without encoding, so the user can inject parameters. Driven: typing a b\"&q=1# requested /orders?q=a%20b%22&q=1 (the browser dropped the # part). The injected second q reached the server. A search for 'Smith & Sons' or 'a&status=refunded' is sent as a different query and returns wrong rows."
+ },
+ {
+  "id": "Fad89f65f",
+  "app": "app-e8a7f7",
+  "finding": "Pagination skips the first page. app.js renderTable: page starts at 1, but start = page * PAGE_SIZE makes page 1 begin at index 10. Orders 0\u20139 can never be shown. The label Page ${page} of ${Math.floor(orders.length / PAGE_SIZE)} is also wrong, because it should round up. Next/Prev have no bounds, so they can go past the last page or below 1."
+ },
+ {
+  "id": "F9ae895cb",
+  "app": "app-e8a7f7",
+  "finding": "api.js:20 refund() does not await the fetch and always returns {ok:true}, and it ignores the response status and any rejection. The network is down or the API returns 4xx/5xx. The UI still shows 'Refunded N orders!' although nothing was refunded, and the rejected promise goes unhandled. README line 9 says refunds are confirmed before they are sent, but no confirmation step exists."
+ },
+ {
+  "id": "F51b20a40",
+  "app": "app-e8a7f7",
+  "finding": "index.html:85 The 'Refund selected' control is a non-focusable <span> with a click handler, and there is no confirmation step before refunding. The README claims refunds are confirmed. Keyboard and screen-reader users cannot reach or activate it. One click immediately sends refunds for the selected ids with no confirm dialog. The selected array is also not cleared after a refund, so a second click re-sends the same ids."
+ },
+ {
+  "id": "F589780db",
+  "app": "app-e8a7f7",
+  "finding": "README.md:6 README says the API key never leaves the server; it is in a public client script. api.js:3 holds the key, loaded by index.html:25 in the browser. Anyone reading the README trusts the key is private; it is world-readable at /api.js."
+ },
+ {
+  "id": "Fdc10a1d6",
+  "app": "app-e8a7f7",
+  "finding": "app.js:34 Page count rounds down and Prev/Next are unbounded, so the pager shows 'Page 3 of 2', 'Page -1 of 2' and blank tables; page is not reset when a search changes the results. app.js:34 uses floor, not ceil; app.js:47-48 decrement and increment with no limits; load() (app.js:38-43) never resets page. Driven with 25 orders: Next x3 -> 'Page 4 of 2' with 0 rows; Prev x5 -> 'Page -1 of 2'. 0 orders -> 'Page 1 of 0'. 25 orders: label reads 'Page 1 of 2' though 3 pages exist; clicking Next twice shows 'Page 3 of 2' and an empty table. Go to page 2, type a search with 5 results: the table is empty because page is still 2."
+ },
+ {
+  "id": "F1ac7dc22",
+  "app": "app-e8a7f7",
+  "finding": "api.js:6 Search text is put into the URL without encoding. api.js:6 interpolates the raw input. Driven: typing 'a&status=refunded#x' requested '/orders?q=a&status=refunded' - the typed text added its own status parameter and the # dropped the real status filter. A user searches for 'Smith & Sons' or 'R#5': the query is cut at & or #, so results are wrong. A crafted string overrides the status filter."
+ },
+ {
+  "id": "F95dfeff8",
+  "app": "app-e8a7f7",
+  "finding": "Search parameters aren't URL-encoded. api.js: q=${query} is not passed through encodeURIComponent. Input such as a&status=refunded or # changes the query.\n\nSecurity"
+ },
+ {
+  "id": "F5d3142f5",
+  "app": "app-e8a7f7",
+  "finding": "app.js:31 avg divides by orders.length with no guard, and revenue is divided by all orders rather than paid orders. Status 'pending' orders are ignored in revenue but counted in the denominator. An empty search result gives 0/0 = NaN, so the card shows '$NaN'. With pending orders, the AVG ORDER figure is understated."
+ },
+ {
+  "id": "F3536c449",
+  "app": "app-e8a7f7",
+  "finding": "Search text isn't URL-encoded (api.js:6). query goes into the URL raw, so a search for Smith & Sons is cut off at the &. A # drops the status filter. status comes from a fixed dropdown, so it isn't affected."
+ },
+ {
+  "id": "Fb241f871",
+  "app": "app-e8a7f7",
+  "finding": "styles.css:13 Fixed 1000px table and three-column card grid force sideways scroll on a phone. Driven at 390px wide: document scrollWidth was 1024. styles.css:6 keeps three columns, no media queries exist. On a 390px phone the whole page scrolls horizontally; the Status column and the toolbar sit off screen."
+ },
+ {
+  "id": "Fa8028b2c",
+  "app": "app-e8a7f7",
+  "finding": "Bugs"
+ },
+ {
+  "id": "F1e3a6594",
+  "app": "app-e8a7f7",
+  "finding": "\"Renders 10,000 orders instantly\" is unsupported. renderTable does tb.innerHTML += in a loop, which is quadratic, and no benchmark backs the claim. It only renders 10 rows at a time, so the claim doesn't describe what the code does."
+ },
+ {
+  "id": "F0a56c206",
+  "app": "app-e8a7f7",
+  "finding": "app.js:40 avg = revenue / orders.length divides by zero for an empty result and is computed as net revenue per order. The revenue also applies the gold discount and tax to totals that may already include them. A search with no matches gives orders.length=0, so avg is NaN and the card shows '$NaN'. The 'AVG ORDER' figure is also net of refunds, so it is not an average order value."
+ },
+ {
+  "id": "Fe73a436a",
+  "app": "app-e8a7f7",
+  "finding": "A secret key is hardcoded in client-side JS. api.js defines API_KEY and sends it as a Bearer token from the browser. It is a placeholder here, but the pattern still exposes any real key to every visitor. This contradicts the README claim \"the API key never leaves the server.\""
+ },
+ {
+  "id": "Faef6076b",
+  "app": "app-e8a7f7",
+  "finding": "Revenue math is wrong (app.js:9-15). The gold discount (0.9) and the 8.25% tax are applied to the stored total, and the comment says \"paid minus refunds\". The table shows the raw $${o.total} while the card shows the adjusted figure, so the two disagree. Adding tax to total (probably already the charged amount) overstates revenue."
+ },
+ {
+  "id": "F6ef29a54",
+  "app": "app-e8a7f7",
+  "finding": "Code review\n\nScope: git diff main...HEAD (\"Add the app\"), 5 new files, 124 lines. No CLAUDE.md exists in the repo, so both compliance agents found nothing to check. Two Opus agents scanned for bugs (diff only, and introduced code). Each of the ten issues below was then checked by its own Opus validator, and every one was confirmed. I didn't run the app, and I posted nothing and changed no files."
+ },
+ {
+  "id": "F54074e32",
+  "app": "app-e8a7f7",
+  "finding": "The accessibility claims are false. The README says \"meets WCAG 2.1 AA, including 44 px touch targets\", but the code breaks this in several places:\nFocus outlines removed. styles.css has button:focus, input:focus, select:focus { outline: none; }, which fails 2.4.7.\nRefund control isn't a control. It is a <span id=\"refundBtn\"> with no role, tabindex or key handling, so keyboard users can't reach it.\nTargets are tiny. Buttons are 12px text with 2px 4px padding, and checkboxes are default size.\nContrast is too low. #aaa on white or #F4F1EA, and #c7c2f0 on the purple gradient, fall below 4.5:1.\nStatus relies on colour alone. The status dots carry no text.\nToast has no live region. It lacks aria-live.\nAnimation can't be stopped. The infinite toast animation ignores prefers-reduced-motion.\n\n \"Renders 10,000 orders instantly\" is also unsupported. tb.innerHTML += inside the loop re-parses the table on every row, and load() re-renders on every keystroke with no debounce and no handling of out-of-order responses.\n\nNot flagged: layout and style nits, such as the fixed width: 1000px table that overflows narrow screens."
+ },
+ {
+  "id": "F4ba6e1a0",
+  "app": "app-e8a7f7",
+  "finding": "api.js:15 query and status are put into the URL without encodeURIComponent, no res.ok check is made, and out-of-order responses are not handled on every keystroke. Typing 'a&status=paid' or '#' corrupts or injects query parameters. A 401/500 JSON error body is assigned to orders, so orders.slice throws. Fast typing fires overlapping requests with no debounce, and a slower, stale response can overwrite the newer one."
+ },
+ {
+  "id": "F923e7b81",
+  "app": "app-e8a7f7",
+  "finding": "app.js:27 Pagination is off by one: the first ten orders are never shown on load, and Prev/Next are unbounded. page starts at 1 (app.js:3) and start = page * PAGE_SIZE (app.js:27) is 10, so orders 0-9 are skipped. app.js:34 prints 'Page 1 of floor(n/10)', which drops the last partial page (n=25 gives 'of 2' with 3 pages of data) and gives 'of 0' for under 10 orders. app.js:47-48 never clamp page. page is not reset to the first page when the search or status changes (app.js:38-43). 20 orders load: the table shows orders 11-20 under 'Page 1 of 2'. Orders 1-10 appear only after clicking Prev, which shows 'Page 0 of 2'. Click Prev again: page -1 gives a negative slice start and wrong rows. With 5 orders the table is empty and the label reads 'Page 1 of 0'."
+ },
+ {
+  "id": "F9d602448",
+  "app": "app-e8a7f7",
+  "finding": "Code review: git diff main...HEAD (commit f335fe5, new OrderDesk dashboard)\n\nI found 9 high-signal issues. There are no CLAUDE.md files, so there is no compliance check. I read the diff myself and did not launch subagents, because the change is small and every issue can be confirmed from the diff text alone.\n\nBugs"
+ },
+ {
+  "id": "F1967f9b0",
+  "app": "app-e8a7f7",
+  "finding": "app.js:57 The selection handler only pushes ids and never removes them on uncheck. It also never clears or dedupes, and it is lost on re-render. The user checks order 5, unchecks it, and clicks Refund. Order 5 is still in selected and is refunded. Checking the same box twice sends duplicate ids. After paging or filtering, checkboxes are redrawn unchecked but selected still holds the old ids, so hidden orders get refunded."
+ },
+ {
+  "id": "F71010b93",
+  "app": "app-e8a7f7",
+  "finding": "styles.css:122 Focus outlines are removed, the controls are tiny, and text contrast is low (#aaa on white, #c7c2f0 on purple). Together these contradict the README's 'WCAG 2.1 AA' and 44px touch target claims. Keyboard users cannot see focus. Buttons are about 12px with 2px padding, far below 44px. The toast animates infinitely with no reduced-motion handling. An accessibility audit fails the README claims."
+ },
+ {
+  "id": "Fa602f26b",
+  "app": "app-e8a7f7",
+  "finding": "Stored XSS (app.js:33). o.customer.name from the API goes into innerHTML unescaped, as do o.id and o.status. A malicious customer name would run script for anyone viewing the table."
+ },
+ {
+  "id": "F032634f0",
+  "app": "app-e8a7f7",
+  "finding": "Bugs"
+ },
+ {
+  "id": "F573771a2",
+  "app": "app-e8a7f7",
+  "finding": "Bugs"
+ },
+ {
+  "id": "F507bf4de",
+  "app": "app-e8a7f7",
+  "finding": "Code review: git diff main...HEAD (commit 7becb4a, 5 new files)\n\nThere is no CLAUDE.md in the repo, so I checked for bugs and for README claims the code contradicts. I read the diff directly and did not launch subagents, because the change is small. I did not run the app. Each finding below is visible in the diff text.\n\nBugs"
+ }
+]

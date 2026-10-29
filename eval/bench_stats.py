@@ -11,12 +11,12 @@ Per arm:
   tiebreaker): how many were labelled real, trivial and wrong, and the share confirmed real and actionable, overall
   and by severity (findings that are not findings at all, such as headings, are left out of every share);
 - false alarms on the clean twins: the share of clean runs with at least one false alarm, with its 95% upper bound
-  (the rule of three, 3/n, when none was seen; otherwise the exact Clopper-Pearson bound), and false alarms per run;
+  (one-sided: the rule of three, 3/n, when none was seen; otherwise Clopper-Pearson), and false alarms per run;
 - cost per confirmed bug: total cost / (planted bugs found + findings confirmed real and actionable);
 - median wall time, and the agent-launch rate (runs that started at least one subagent).
 Paired comparisons: against --base (default curmudgeon), on the same task and repeat, the mean difference in
 confirmed bugs per run and in cost per run, each with a 95% bootstrap interval."""
-import json, math, pathlib, random, statistics, sys
+import collections, contextlib, io, json, math, pathlib, random, statistics, sys
 
 HERE = pathlib.Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
@@ -32,39 +32,67 @@ def boot(values, f=statistics.fmean, seed=0):
     return est[int(0.025 * B)], est[int(0.975 * B) - 1]
 
 def ratio_boot(pairs, seed=0):
-    """Interval for sum(a)/sum(b) over [(a, b)] runs, resampling runs."""
+    """Interval for sum(a)/sum(b) over [(a, b)] runs, resampling runs. A resample whose sum(b) is 0 (no confirmed bug
+    at all) has an unbounded ratio: it counts as infinity, so it still takes its place in the order, and an upper end
+    that lands on it is reported as None (no upper bound) rather than as a number."""
     pairs = [p for p in pairs if p[1] is not None]
     if not pairs or not sum(b for _, b in pairs): return None
-    return boot(pairs, lambda xs: sum(a for a, _ in xs) / (sum(b for _, b in xs) or math.nan), seed)
+    lo, hi = boot(pairs, lambda xs: (sum(a for a, _ in xs) / sum(b for _, b in xs)) if sum(b for _, b in xs) else math.inf, seed)
+    return lo if math.isfinite(lo) else None, hi if math.isfinite(hi) else None
 
 def upper95(k, n):
-    """95% upper bound for a proportion with k of n: 3/n when k is 0 (the rule of three), else Clopper-Pearson."""
+    """One-sided 95% upper bound for a proportion with k of n: the rule of three (3/n) when k is 0, as ruling §5.53
+    asks, else the one-sided Clopper-Pearson bound (the p at which P(X <= k) = 0.05). Both are one-sided 95% bounds,
+    so arms with and without a false alarm are bounded at the same level."""
     if n == 0: return None
-    if k == 0: return min(1.0, 3 / n)
     if k == n: return 1.0
+    if k == 0: return min(1.0, 3 / n)
     lo, hi = k / n, 1.0
-    for _ in range(100):  # one-sided 97.5% bound by bisection on the binomial tail P(X <= k; p) = 0.025
+    for _ in range(100):  # bisection on the binomial tail P(X <= k; p) = 0.05
         mid = (lo + hi) / 2
         tail = sum(math.comb(n, i) * mid ** i * (1 - mid) ** (n - i) for i in range(k + 1))
-        lo, hi = (mid, hi) if tail > 0.025 else (lo, mid)
+        lo, hi = (mid, hi) if tail > 0.05 else (lo, mid)
     return hi
 
 def load(run_dirs):
     cfg = deathmatch.load_cfg(); tasks = {t["id"]: t for t in cfg["tasks"]}; runs = []
     for rd in map(pathlib.Path, run_dirs):
+        lab, res_f = rd / "labels.json", rd / "results.json"
+        if not res_f.exists() or (lab.exists() and lab.stat().st_mtime >= res_f.stat().st_mtime):  # labels newer than the scores: score again
+            with contextlib.redirect_stdout(io.StringIO()): deathmatch.score(rd)
         res = json.loads((rd / "results.json").read_text())
         detail = (json.loads((rd / "labels-detail.json").read_text()) if (rd / "labels-detail.json").exists() else {}).get("labels", {})
         agree = (json.loads((rd / "labels-detail.json").read_text()) if (rd / "labels-detail.json").exists() else {}).get("agreement")
-        voids = sum(1 for _ in open(rd / "voided.jsonl")) if (rd / "voided.jsonl").exists() else 0
+        vrows = [json.loads(x) for x in open(rd / "voided.jsonl") if x.strip()] if (rd / "voided.jsonl").exists() else []
+        voids = sum(1 for v in vrows if v.get("voided_by_limit"))
+        failed_then = collections.Counter(v["run"].split("/")[0] for v in vrows if not v.get("voided_by_limit"))  # a real failure, run again by hand: still a failure
+        dup = plant_duplicates(rd, tasks)
         for r in res:
             tid, _, k = r["task"].partition("~"); t = tasks.get(tid) or {}
             meta = json.loads((rd / r["arm"] / r["task"] / "meta.json").read_text()) if (rd / r["arm"] / r["task"] / "meta.json").exists() else {}
-            labs = [d for key, d in detail.items() if key.startswith(f"{r['arm']}/{r['task']}/")]
+            labs = [d for key, d in detail.items() if key.startswith(f"{r['arm']}/{r['task']}/") and key not in dup]
             runs.append({"dir": rd.name, "arm": r["arm"], "task": tid, "rep": int(k or 1), "clean": bool(t.get("clean")), "ok": not r.get("error"),
                          "found": r.get("found") or 0, "plants": r.get("plants"), "false_alarms": r.get("false_alarms"), "cost": r.get("cost_usd"),
                          "wall": r.get("wall_s"), "agents": meta.get("agents_launched"), "labels": labs, "unlabelled": r.get("unlabelled")})
-        runs.append({"_agreement": agree, "_voids": voids, "dir": rd.name})
+        for arm, n in failed_then.items():
+            runs += [{"dir": rd.name, "arm": arm, "task": "(failed, run again)", "rep": 0, "clean": False, "ok": False, "found": 0, "plants": 0,
+                      "false_alarms": None, "cost": None, "wall": None, "agents": None, "labels": [], "unlabelled": None}] * n
+        runs.append({"_agreement": agree, "_voids": voids, "_dups": len(dup), "dir": rd.name})
     return [r for r in runs if "arm" in r], [r for r in runs if "_agreement" in r]
+
+def plant_duplicates(rd, tasks):
+    """Label keys of blocks that restate a planted defect (deathmatch.plant_blocks) without being the block credited
+    for it: the same bug again, so it adds nothing to the confirmed count, whatever label it got."""
+    out = set()
+    for td in sorted(p for p in pathlib.Path(rd).glob("*/*") if p.is_dir() and p.parent.name != "labelling"):
+        t = tasks.get(td.name.split("~")[0])
+        if not t or t.get("clean"): continue
+        blocks = deathmatch.blocks_for(td)
+        if not blocks: continue
+        plants = deathmatch.plants_of(json.loads((HERE / t["key"]).read_text()))
+        credited = set(deathmatch.match_plants(plants, blocks).values())
+        out |= {f"{td.parent.name}/{td.name}/{i}" for i in deathmatch.plant_blocks(plants, blocks) - credited}
+    return out
 
 def confirmed(r): return r["found"] + sum(1 for d in r["labels"] if d["verdict"] == "real" and d["actionable"])
 
@@ -90,7 +118,7 @@ def arm_stats(rs, seed):
         "false_alarms_per_clean_run": round(statistics.fmean(r["false_alarms"] or 0 for r in clean), 2) if clean else None,
         "cost_usd": round(cost, 2), "confirmed_bugs": conf, "cost_per_confirmed": round(cost / conf, 3) if conf else None,
         "cost_per_confirmed_ci": ratio_boot([(r["cost"] or 0, confirmed(r)) for r in ok], seed),
-        "median_wall_s": statistics.median([r["wall"] for r in ok if r["wall"] is not None]) if ok else None,
+        "median_wall_s": statistics.median(walls) if (walls := [r["wall"] for r in ok if r["wall"] is not None]) else None,
         "agent_launch_rate": round(sum(1 for a in agents if a > 0) / len(agents), 3) if agents else None,
         "agents_per_run": round(statistics.fmean(agents), 1) if agents else None, "agent_counts_known": len(agents),
     }
@@ -105,14 +133,17 @@ def paired(runs, base, other, seed):
             "cost_diff_mean": round(statistics.fmean(d_cost), 3), "cost_diff_ci": boot(d_cost, seed=seed),
             "base_better": sum(1 for x in d_conf if x > 0), "other_better": sum(1 for x in d_conf if x < 0), "tied": sum(1 for x in d_conf if x == 0)}
 
-def fmt_ci(ci, nd=2): return "n/a" if not ci else f"{ci[0]:.{nd}f} to {ci[1]:.{nd}f}"
+def fmt_ci(ci, nd=2):
+    if not ci: return "n/a"
+    f = lambda x: "unbounded" if x is None else f"{x:.{nd}f}"
+    return f"{f(ci[0])} to {f(ci[1])}"
 
 def report(run_dirs, base="curmudgeon", seed=0):
     runs, meta = load(run_dirs)
     arms = sorted({r["arm"] for r in runs}, key=lambda a: (a != base, a))
     S = {a: arm_stats([r for r in runs if r["arm"] == a], seed) for a in arms}
     P = {a: paired(runs, base, a, seed) for a in arms if a != base}
-    md = ["# 5.2.4 benchmark statistics", "", f"Run folders: {', '.join(m['dir'] for m in meta)}. Runs voided by a usage limit and run again: {sum(m['_voids'] for m in meta)}.",
+    md = ["# 5.2.4 benchmark statistics", "", f"Run folders: {', '.join(m['dir'] for m in meta)}. Runs voided by a usage limit and run again: {sum(m['_voids'] for m in meta)}. Findings left out as second reports of a planted bug already counted: {sum(m['_dups'] for m in meta)}.",
           "Labeller agreement: " + "; ".join(f"{m['dir']}: {m['_agreement']['agreed']} of {m['_agreement']['findings']} agreed, kappa {m['_agreement']['kappa_verdict']}" + "".join(f", labeller {x.upper()} right on {c['correct']} of {c['n']} known-truth controls (real {c['real_right']}, wrong {c['wrong_right']})" for x in ("a", "b") for c in [m['_agreement'].get(f"controls_{x}")] if c) if m["_agreement"] else f"{m['dir']}: not labelled" for m in meta) + ".", "",
           "| Arm | Completed | Planted recall (95% CI) | Assessed findings: real / trivial / wrong | Real and actionable | Clean runs with a false alarm (95% upper) | Cost | Confirmed bugs | Cost per confirmed (95% CI) | Median time (s) | Runs that launched agents |",
           "|---|---|---|---|---|---|---|---|---|---|---|"]

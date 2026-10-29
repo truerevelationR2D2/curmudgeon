@@ -121,6 +121,7 @@ python3 eval/deathmatch.py rerun eval/runs/<run> --yes-spend   # rerun the runs 
 python3 eval/label.py export eval/runs/<run> --apps DIR        # blind packets for two labellers, with known-truth controls
 python3 eval/label.py ties  eval/runs/<run> A.json B.json      # agreement; the packets a third labeller decides
 python3 eval/label.py final eval/runs/<run> A.json B.json T.json
+python3 eval/label.py recheck eval/runs/<run> RECHECK_DIR      # a later blind relabel of a sample against the final labels
 python3 eval/bench_stats.py eval/runs/<run> [...]              # recall, actionable share by severity, false-alarm bounds, cost, paired CIs
 ```
 

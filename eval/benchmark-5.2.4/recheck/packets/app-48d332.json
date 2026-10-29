@@ -1,0 +1,177 @@
+[
+ {
+  "id": "F9988b886",
+  "app": "app-48d332",
+  "finding": "Script load order: index.html loads domain.js, then api.js, then app.js. api.js calls normaliseOrder from domain.js, and app.js calls summarise, clampPage and pageCount, so every reference resolves."
+ },
+ {
+  "id": "Fad24c311",
+  "app": "app-48d332",
+  "finding": "app.js:72 Paging to the last (or first) page disables the focused button and drops keyboard focus to the body. Driven with the keyboard: focus on Next, Enter twice. On 'Page 3 of 3' Next became disabled and document.activeElement was BODY. The same happens for Previous on page 1. Nothing announces the page change either: #page is not in a live region. A keyboard or screen-reader user tabs to Next and presses Enter until the last page. Focus is lost, so the next Tab restarts from the top of the document and the user has to tab through the search box, filter, Refund button and Previous again to continue."
+ },
+ {
+  "id": "F14e0f335",
+  "app": "app-48d332",
+  "finding": "app.js:129 Success toast is shown for the whole batch without reading the refund response. api.js:34-38 returns the parsed body, and app.js:128 discards it. Only res.ok is checked (api.js:15). README.md:13 claims success is reported 'only after the server confirms it'. A batch endpoint taking an array of ids can answer 200/207 with per-id outcomes; none is read. The same code treats a 200/204 with an empty body as a failure (api.js:16-20, then app.js:133), so a refund that did succeed shows as 'not confirmed'. POST /refunds with 5 ids; the server refunds 3 and answers 200 {\"refunded\":[...3], \"failed\":[...2]}. The toast says 'Refunded 5 orders.' and the reload then clears the selection, so the user has no cue which 2 failed. Inferred: the response shape is not in the repo."
+ },
+ {
+  "id": "Ff0661a54",
+  "app": "app-48d332",
+  "finding": "Stored XSS (app.js:33). o.customer.name from the API goes into innerHTML unescaped, as do o.id and o.status. A malicious customer name would run script for anyone viewing the table."
+ },
+ {
+  "id": "Fe2104719",
+  "app": "app-48d332",
+  "finding": "styles.css:23 The page title sits 24 px left of the content column on wide screens. The h1 box is 1100 px wide and centred with no inner padding (styles.css:23). main is also 1100 px wide but with 24 px padding (styles.css:24), box-sizing border-box, so its content starts 24 px further in. At 1360 px the h1 starts at x=130 and the stats tiles at x=154. Open at 1360 px: the 'Orders' heading and the first tile edge do not line up."
+ },
+ {
+  "id": "F7d3703a3",
+  "app": "app-48d332",
+  "finding": "Unchecked claims: I could not verify the axe-core result or the \"under 100 ms with 10,000 orders\" timing from the diff alone. Neither is a code defect, and the README already says the timing was not measured against the real API."
+ },
+ {
+  "id": "Fa13d9133",
+  "app": "app-48d332",
+  "finding": "app.js:193 The refund-confirm total is a float sum of dollars, and the confirm dialog is the only guard against stale or off-page selections. Selections persist across pages, so orders on other pages are included in the count and total without being visible. Summing 0.1+0.2-style floats can produce a drifting amount, while the rest of the code uses integer cents. The dialog shows 'totalling' a number that may differ from what the server refunds."
+ },
+ {
+  "id": "Fc4e02b94",
+  "app": "app-48d332",
+  "finding": "app.js:130 After a successful refund the picked orders stay selected if the reload fails, and can be refunded again. state.selected is cleared only inside the success branch of load() (app.js:98). If load() fails, its own catch (app.js:105-108) swallows the error, so refundSelected shows the 'Refunded' toast (app.js:129) and returns normally. The stale table still lists the orders as paid and still checked, and finally (app.js:110) re-enables the refund button once n > 0. Traced. Refund orders 4 and 7 and the server confirms. The follow-up GET /orders returns 500 or times out. The toast says 'Refunded 2 orders.', then the message line switches to 'Orders could not be loaded.' The table still shows #4 and #7 as paid, checked, with 'Refund 2 orders' enabled. A second click and confirm sends a second refund with a new key (see the idempotency finding)."
+ },
+ {
+  "id": "Fc7e41ba4",
+  "app": "app-48d332",
+  "finding": "domain.js:42 The average divides revenue by orders.length, which counts refunded, pending and unknown orders. These contribute 0 to revenue. Two orders: one paid at $100 and one refunded at $100. Revenue is $108.25 and the average is $54.12, not $108.25 per paid order. The 'Average per order' stat is diluted by every unpaid order and gives a misleading figure."
+ },
+ {
+  "id": "F726cd9bb",
+  "app": "app-48d332",
+  "finding": "app.js:27 Pagination is off by one: the first ten orders are never shown on load, and Prev/Next are unbounded. page starts at 1 (app.js:3) and start = page * PAGE_SIZE (app.js:27) is 10, so orders 0-9 are skipped. app.js:34 prints 'Page 1 of floor(n/10)', which drops the last partial page (n=25 gives 'of 2' with 3 pages of data) and gives 'of 0' for under 10 orders. app.js:47-48 never clamp page. page is not reset to the first page when the search or status changes (app.js:38-43). 20 orders load: the table shows orders 11-20 under 'Page 1 of 2'. Orders 1-10 appear only after clicking Prev, which shows 'Page 0 of 2'. Click Prev again: page -1 gives a negative slice start and wrong rows. With 5 orders the table is empty and the label reads 'Page 1 of 0'."
+ },
+ {
+  "id": "F0d21e9e2",
+  "app": "app-48d332",
+  "finding": "Rendering: rows are built with textContent, so there is no HTML injection from order data."
+ },
+ {
+  "id": "Fbd5c2d6a",
+  "app": "app-48d332",
+  "finding": "Not flagged (unconfirmed): In domain.js:33, summarise counts revenue from paid orders only but divides by all orders. With the \"pending\" filter, the page could show \"Average per order $0.00\" next to a non-zero order count. Whether that is a bug depends on what the average is meant to show, so it didn't meet the \"definitely wrong\" bar. It may be worth a look from the author.\n\nI posted nothing and changed no files."
+ },
+ {
+  "id": "F8be785e5",
+  "app": "app-48d332",
+  "finding": "Search races: load() aborts the previous request. The latestRequest !== controller guards stop a stale response from overwriting newer state. The finally block resets loading only for the current request."
+ },
+ {
+  "id": "Fe87a1d5a",
+  "app": "app-48d332",
+  "finding": "Empty refund reply: if the server answers a refund with 204 No Content, the JSON read fails and the page says the refund was not confirmed even though it went through. This only matters if the server really sends 204.\n\nThe summary agent also noted that the PR has no tests, and nothing in it verifies the README's axe-core and performance claims. I did not flag that, because test coverage is excluded under the review rules.\n\nNothing was posted and no files were changed."
+ },
+ {
+  "id": "F6b9ccc6c",
+  "app": "app-48d332",
+  "finding": "app.js:128 A new idempotency key is made on every click, so a retry after an unconfirmed or half-failed refund can pay twice. Driven in Chromium with a routed API. api.js:32 says the key lets the server ignore a repeat of the same attempt, but refundSelected builds a fresh UUID for every click. After a refund that returned 200 and a reload that failed, the selection stayed checked and the button stayed enabled (state.selected is cleared only inside a successful load, app.js:98). A second click sent a different Idempotency-Key. Three clicks on the same order sent keys de8e1b59..., 431fe78a..., 59c556c2.... Select one order and click Refund. The server refunds it and answers 200, but the follow-up GET /orders fails (network blip). The page shows 'Orders could not be loaded', still lists the order as selected, and the Refund button is enabled. The user clicks Refund again and confirms. A new key is sent, so the server's idempotency cannot recognise it, and the customer is refunded twice. The same happens when the first POST times out after the server processed it: the error text only asks the user to check statuses, and the button is not blocked."
+ },
+ {
+  "id": "Fb28fde21",
+  "app": "app-48d332",
+  "finding": "README.md:6 README says the API key never leaves the server; it is in a public client script. api.js:3 holds the key, loaded by index.html:25 in the browser. Anyone reading the README trusts the key is private; it is world-readable at /api.js."
+ },
+ {
+  "id": "F8790dd2c",
+  "app": "app-48d332",
+  "finding": "Scope: I reviewed git diff main...HEAD, titled \"Add the app\". It adds six files, 354 lines in all: index.html, domain.js, api.js, app.js, styles.css and README.md. Together they make a static order dashboard called OrderDesk."
+ },
+ {
+  "id": "Fafe29384",
+  "app": "app-48d332",
+  "finding": "app.js:98 Every load, including the post-refund reload and any search, silently clears the user's selection. The user ticks several orders, then types a search character or filters. The search reloads and clears all selections without notice. The refund button resets to 'Refund selected'. The user can believe a refund covers rows they ticked earlier."
+ },
+ {
+  "id": "Fb7d946bf",
+  "app": "app-48d332",
+  "finding": "index.html:275 The caption hardcodes 'Orders, 10 per page', which duplicates PAGE_SIZE in app.js. Changing PAGE_SIZE leaves the screen-reader caption wrong. The README performance and accessibility claims also point to a single hand-edited number."
+ },
+ {
+  "id": "Fb117e3a2",
+  "app": "app-48d332",
+  "finding": "app.js:128 Every click makes a new idempotency key, so retrying a refund whose response was lost can refund twice. Traced. refundSelected calls newIdempotencyKey() on each run. On a network failure the catch keeps state.selected and re-enables the button (finally). api.js line 32 says the key lets the server ignore a repeat for the same attempt, but a user retry is a new attempt with a new key. Only a text warning ('Reload and check the order statuses') stands in the way, and the page has no reload control apart from changing a filter. The server processes POST /refunds but the response is dropped (timeout, wifi switch). The UI says 'The refund was not confirmed'. The selection is intact; the user clicks Refund again and confirms. A new key is sent and the same orders are refunded a second time."
+ },
+ {
+  "id": "Fb2d319ce",
+  "app": "app-48d332",
+  "finding": "app.js:130 After a successful refund, a failed reload leaves the refunded orders selected and refundable. On success showToast says 'Refunded N orders.' and load() runs (app.js:129-130). load() swallows its own errors (app.js:105-108). Selection is only cleared inside load() after a successful getOrders (app.js:98). On failure state.orders still holds the old rows with status 'paid', state.selected is unchanged, loading goes false in finally (app.js:110), and renderRefundButton (line 83) leaves the button enabled because n > 0. Select an order, refund it successfully. The GET /orders reload then fails (503, offline, session expiry). The page shows the toast 'Refunded 1 order.', an error line, and the old table where the order is still ticked, still 'paid', with 'Refund 1 order' enabled. A second click and confirm sends a second refund for the same order under a new idempotency key."
+ },
+ {
+  "id": "Ff8969105",
+  "app": "app-48d332",
+  "finding": "app.js:130 After a confirmed refund, a failed reload leaves the orders selected, stale and refundable again under a new idempotency key. app.js:128-130 calls refund(), shows the success toast, then awaits load(). load() never throws: it catches its own errors (app.js:105-108) and only clears state.selected and replaces state.orders inside the success branch (app.js:96-98). On a failed reload both stay as they were. renderRefundButton() then runs in the finally at app.js:136 with n > 0 and refunding false, so the button is enabled and reads 'Refund N orders'. Each click makes a new key (app.js:128), so the server cannot dedupe against the first request. Traced, not driven (no shell was available). Select 2 paid orders and click Refund, then confirm. POST /refunds succeeds and the toast says 'Refunded 2 orders.'. The follow-up GET /orders fails with a network blip or a 502. The table still shows both orders as 'paid' and both stay checked. The button still says 'Refund 2 orders'. The user sees the red 'Orders could not be loaded' message, clicks Refund and confirms again. A second POST goes out with a fresh Idempotency-Key and the customers are refunded twice, if the server does not also reject already-refunded orders. The README does not say that it does."
+ },
+ {
+  "id": "F1c1bac7a",
+  "app": "app-48d332",
+  "finding": "app.js:128 Idempotency key is minted per click, so a retry after an unconfirmed refund is a new request and can refund twice. app.js:114-117 builds a fresh key on every call; app.js:128 passes it inline and never stores it. On failure (app.js:131-133) state.selected is left intact and no reload runs, so the same ids stay selected and the button is re-enabled in the finally block (app.js:135-136). api.js:32 and README.md:9 present the key as the guard against a repeated refund. Select 2 orders, click Refund, confirm. The server processes the refund but the connection drops (or a gateway returns 504). request() throws, the UI says 'The refund was not confirmed'. The selection is still checked and the button is live. The user clicks Refund again and confirms; a new UUID is sent, so the server's idempotency check does not match and the same orders are refunded a second time (unless the server independently rejects already-refunded orders, which nothing in this repo shows)."
+ },
+ {
+  "id": "Ff6666259",
+  "app": "app-48d332",
+  "finding": "Agent hiccup: The haiku agent for step 2 couldn't run git (Bash was denied). I searched for CLAUDE.md files myself with Glob instead."
+ },
+ {
+  "id": "F9aad80b8",
+  "app": "app-48d332",
+  "finding": "app.js:38 Orders that are already refunded (or pending) can be selected and sent to Refund. Driven: with the status filter set to 'refunded', the first row's checkbox could be checked and the Refund button became enabled. renderRow gives every row a checkbox. The confirm dialog then says 'This sends money back to the customers.' domain.js has no refund-eligibility rule. The server may reject the request, but the UI never tells the user why, and the confirm total counts orders that cannot be refunded. Filter to 'refunded', tick two rows, click Refund, confirm 'Refund 2 orders totalling $X'. The request is sent for orders that were already refunded. The server either errors (and the user sees a generic failure) or, if it is lenient, refunds again."
+ },
+ {
+  "id": "F72400c49",
+  "app": "app-48d332",
+  "finding": "app.js:145 Paging drops keyboard focus onto a disabled button, and the page change is not announced. renderTable (app.js:62-73) sets prev.disabled / next.disabled after the click. On the last page the focused Next button becomes disabled (same for Previous on page 1), and a disabled button cannot keep keyboard focus. #page (index.html:34) is a plain span, not a live region, and tbody is replaced wholesale (app.js:67). Traced; the page was not run, because Bash was denied. A keyboard user tabs to Next on page 2 of 3 and presses Enter. Page 3 renders and Next becomes disabled. Focus is lost, the next Tab starts from the top of the document, and a screen-reader user hears nothing about 'Page 3 of 3' or the new rows (WCAG 2.4.3, 4.1.3)."
+ },
+ {
+  "id": "F2cb3143f",
+  "app": "app-48d332",
+  "finding": "app.js:128 A fresh Idempotency-Key is made on every click, so retrying an unconfirmed refund can refund twice. api.js:32 says the key lets the server ignore a repeated request 'for the same attempt'. app.js:128 generates a new key inside refundSelected on each click. On failure (app.js:131-133) the selection is kept, the button is re-enabled in the finally block (app.js:135-136) and no load() runs. A retry therefore sends a different key. state.refunding only guards double-clicks while a request is in flight. The user clicks Refund and confirms. The server processes the refund, but the response is lost (504 or dropped connection). The UI shows 'The refund was not confirmed'. The same rows are still ticked and the button is enabled. The user clicks Refund again and confirms. The second request has a new key, so the server refunds the same orders twice. The on-screen warning to 'check the order statuses' is advice only; nothing stops the retry."
+ },
+ {
+  "id": "F0b7ef6bc",
+  "app": "app-48d332",
+  "finding": "domain.js:11 normaliseOrder accepts a missing, null, empty or array total as $0 instead of dropping the record, contradicting its own contract. The comment at domain.js:7 promises null 'when ... no numeric total'. Number(null), Number(''), Number([]) and Number(false) are all 0, and Number.isFinite(0) is true (domain.js:12). Negative totals also pass. Traced from JS coercion rules. Node was not available to run it, since the shell was denied. The server sends {\"id\":7,\"total\":null,\"status\":\"paid\"}. The row shows $0.00, counts in Orders and the average, and can be ticked and refunded. The 'could not be shown because the data is incomplete' note never appears."
+ },
+ {
+  "id": "F72c5e5b7",
+  "app": "app-48d332",
+  "finding": "A 204 reply with an empty body to POST /refunds (api.js:17) would show \"refund not confirmed\" even though it went through."
+ },
+ {
+  "id": "Fa0a8633b",
+  "app": "app-48d332",
+  "finding": "styles.css:13 Fixed 1000px table and three-column card grid force sideways scroll on a phone. Driven at 390px wide: document scrollWidth was 1024. styles.css:6 keeps three columns, no media queries exist. On a 390px phone the whole page scrolls horizontally; the Status column and the toolbar sit off screen."
+ },
+ {
+  "id": "Fb7d180a4",
+  "app": "app-48d332",
+  "finding": "domain.js:35 'Average per order' divides paid revenue by every order, including refunded and pending. orderRevenueCents returns 0 for non-paid orders (domain.js:26), but the divisor is orders.length (domain.js:35). The same number feeds the 'Orders' card. One paid order of $100 and nine pending ones: the card shows Average per order $10.83 (approx; 108.25 / 10), although the only completed order is worth $108.25. Filtering by status=pending shows Revenue $0.00 and Average $0.00 instead of a dash."
+ },
+ {
+  "id": "Fd74089a5",
+  "app": "app-48d332",
+  "finding": "Each Refund click makes a new idempotency key (app.js:120, api.js:33), so a retry after a lost response isn't recognised as a repeat."
+ },
+ {
+  "id": "F734e0717",
+  "app": "app-48d332",
+  "finding": "app.js:108 A failed search leaves the previous results, stats and selection on screen as if they matched. The catch block (app.js:105-108) sets only the message. state.orders, state.selected and the table are not cleared, and the finally block (app.js:110) re-enables the Refund button for the old selection. The user ticks two rows, then types 'smith' and the request returns 500. A red line appears above a table that still shows the old rows with 'smith' typed in the box, and 'Refund 2 orders' is still enabled. The user can refund rows that are not the search results."
+ },
+ {
+  "id": "F9602d1ba",
+  "app": "app-48d332",
+  "finding": "README.md:11 README states measurements and an axe-core result that have no script or artifact in the repo. The repo holds six files: no mock API, benchmark, axe config or test. README.md:5 'axe-core reports no WCAG 2.1 A or AA violations' and README.md:11 cannot be reproduced. README.md:12 gives a Team plan price that nothing in an order dashboard uses. A reader who wants to confirm the 100 ms or the axe result has nothing to run; the 'Pricing' paragraph also describes a product that is not in this code."
+ },
+ {
+  "id": "F6c0d7ce0",
+  "app": "app-48d332",
+  "finding": "domain.js:28 Revenue applies a gold discount and sales tax on top of order.total, while refunds use order.total as is; the two disagree for the same order. orderRevenueCents (domain.js:25-30) turns total into total x 0.9 (gold) x 1.0825. refundSelected sums raw o.total (app.js:122) for the confirm. Nothing in the payload says the API's total is a pre-discount, pre-tax subtotal. A gold customer's paid order has total 100.00. The Revenue card counts it as $97.43 (100 x 0.9 x 1.0825) and a standard-tier one as $108.25. The refund confirm for the same orders says $100.00. One of the two figures is wrong for any order; if total is already what the customer paid, revenue is overstated by 8.25% for standard and understated by 2.6% for gold."
+ }
+]
