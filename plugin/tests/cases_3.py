@@ -1107,3 +1107,13 @@ def _(d):
     o = lambda t: subprocess.run([sys.executable, str(EV / "score.py"), t, "--clean", "1", "--baseline", str(d / "none.json"), "--labels", str(d / "labels.json")], capture_output=True, text=True).stdout
     assert "verdict BLOCK: False" in o(a), o(a)
     assert "verdict BLOCK: True" in o(b), o(b)
+
+@test("5.2.4 benchmark (03 §5.53): the death match counts the subagents each run launched from its own transcript, and says unknown when there is none")
+def _(d):
+    sys.path.insert(0, str(HERE.parent / "eval")); import importlib, deathmatch; importlib.reload(deathmatch)
+    rows = [{"message": {"content": [{"type": "tool_use", "name": "Agent"}, {"type": "text", "text": "x"}]}},
+            {"message": {"content": [{"type": "tool_use", "name": "Task"}, {"type": "tool_use", "name": "Read"}]}},
+            {"message": {"content": "plain text"}}, "not json"]
+    write(d, "proj-a/sess-1.jsonl", "\n".join(r if isinstance(r, str) else json.dumps(r) for r in rows) + "\n")
+    assert deathmatch.agents_launched("sess-1", d) == 2
+    assert deathmatch.agents_launched("missing", d) is None and deathmatch.agents_launched(None, d) is None

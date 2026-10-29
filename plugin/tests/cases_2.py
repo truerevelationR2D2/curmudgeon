@@ -816,7 +816,8 @@ def _(d):
 def _(d):
     DM = HERE.parent / "eval" / "deathmatch.py"
     r = run(DM, "run", cwd=d); assert r.returncode == 2 and "--yes-spend" in r.stdout
-    assert re.search(r"\d+ arm\(s\) x 7 task\(s\)", run(DM, "plan", cwd=d).stdout)
+    n_tasks = len(json.loads((HERE.parent / "eval" / "deathmatch.json").read_text())["tasks"])
+    assert re.search(rf"\d+ arm\(s\) x {n_tasks} task\(s\)", run(DM, "plan", cwd=d).stdout)
     key = json.loads((HERE.parent / "eval" / "answer_key4.json").read_text()); g2 = next(k for k in key if k.startswith("G2"))
     rd = d / "runs"; (rd / "plain-claude" / "suite4").mkdir(parents=True); (rd / "plain-claude" / "suite4-clean").mkdir(parents=True)
     (rd / "plain-claude" / "suite4" / "output.md").write_text("Findings:\n\n1. guards.js:10 canVoid uses indexOf truthiness, so -1 passes and a viewer can void.\n2. app.js:9 the total is wrong for empty carts.\n")

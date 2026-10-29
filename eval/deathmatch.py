@@ -192,8 +192,23 @@ def one_run(a, w, td, model):
         j = json.loads(r.stdout); u = j.get("usage") or {}
         (td / "output.md").write_text(str(j.get("result") or ""))
         return {"total_cost_usd": j.get("total_cost_usd"), "tokens": sum(int(u.get(x) or 0) for x in ("input_tokens", "cache_creation_input_tokens", "cache_read_input_tokens", "output_tokens")),
-                "is_error": j.get("is_error"), "num_turns": j.get("num_turns")}
+                "is_error": j.get("is_error"), "num_turns": j.get("num_turns"), "agents_launched": agents_launched(j.get("session_id"))}
     except ValueError: return {"error": (r.stderr or r.stdout)[-500:] or f"no result (exit {r.returncode})"}
+
+def agents_launched(session_id, root=None):
+    """How many subagents a run started (Agent or Task tool calls in its own transcript), so a reviewer that is meant to
+    fan out to agents and didn't is reported as such, never assumed (ruling §5.53). None when the transcript is missing."""
+    if not session_id: return None
+    root = pathlib.Path(root or os.path.expanduser("~/.claude/projects"))
+    hits = list(root.glob(f"*/{session_id}.jsonl"))
+    if not hits: return None
+    n = 0
+    for line in hits[0].read_text(errors="replace").splitlines():
+        try: rec = json.loads(line)
+        except ValueError: continue
+        for c in ((rec.get("message") or {}).get("content") or []) if isinstance((rec.get("message") or {}).get("content"), list) else []:
+            if isinstance(c, dict) and c.get("type") == "tool_use" and c.get("name") in ("Agent", "Task"): n += 1
+    return n
 
 PLUGINS = []
 GIT = ["git", "-c", "user.email=dm@example.invalid", "-c", "user.name=dm"]
