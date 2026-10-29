@@ -7,6 +7,8 @@ usage:
   deathmatch.py plan  [--arms a,b] [--tasks t1,t2]           show what would run (no model calls)
   deathmatch.py run   --yes-spend [--arms ...] [--tasks ...] [--model ID] [--repeat N] [--parallel N] [--plugin DIR]
                                                               run it (model calls cost money: --yes-spend is required)
+  deathmatch.py rerun RUN_DIR --yes-spend [--all-errors]     run again the runs a usage limit voided (with --all-errors,
+                                                              every failed run); each voided result is kept in voided.jsonl
   deathmatch.py score RUN_DIR                                 score a finished run again (labels added since included)
 
 Tasks come from eval/deathmatch.json: each names a fixture and its answer key (planted defects with file and regex),
@@ -116,14 +118,17 @@ def match_plants(plants, blocks):
     return keymatch.max_match({name: [i for i, b in enumerate(blocks) if _points_at(k, b["loc"]) and any(re.search(p, b["claim"], re.I) for p in k["any"])]
                                for name, k in plants.items()})
 
+def plants_of(key):
+    """The plants of an answer key in match_plants' shape (a scripted lens's key lists them under "planted")."""
+    return key.get("planted") and {p["id"]: {"file": p["where"].rsplit(":", 1)[0], "any": [re.escape(p["rule"])], "at": [[p["where"].rsplit(":", 1)[0], int(p["where"].rsplit(":", 1)[1]), int(p["where"].rsplit(":", 1)[1])]]} for p in key["planted"]} or key
+
 def score_task(task, blocks, labels, prefix):
     if task.get("clean"):  # every claim here is false; one with no file:line still needs a person to say it is a claim
         lab = lambda i: labels.get(f"{prefix}/{i}")
         fa = [i for i, b in enumerate(blocks) if lab(i) == "false" or (CITES.search(b["loc"]) and lab(i) != "real")]
         unl = [i for i, b in enumerate(blocks) if i not in fa and lab(i) is None]
         return {"false_alarms": len(fa), "blocks": len(blocks), "unlabelled": len(unl), "precision": None if unl else (f"0 of {len(fa)}" if fa else "no findings")}
-    key = json.loads((HERE / task["key"]).read_text())
-    plants = key.get("planted") and {p["id"]: {"file": p["where"].rsplit(":", 1)[0], "any": [re.escape(p["rule"])], "at": [[p["where"].rsplit(":", 1)[0], int(p["where"].rsplit(":", 1)[1]), int(p["where"].rsplit(":", 1)[1])]]} for p in key["planted"]} or key
+    plants = plants_of(json.loads((HERE / task["key"]).read_text()))
     hit = match_plants(plants, blocks); used = set(hit.values())
     unl = [i for i in range(len(blocks)) if i not in used and f"{prefix}/{i}" not in labels]
     real = sum(1 for i in range(len(blocks)) if i not in used and labels.get(f"{prefix}/{i}") == "real")
@@ -192,22 +197,29 @@ def one_run(a, w, td, model):
         j = json.loads(r.stdout); u = j.get("usage") or {}
         (td / "output.md").write_text(str(j.get("result") or ""))
         return {"total_cost_usd": j.get("total_cost_usd"), "tokens": sum(int(u.get(x) or 0) for x in ("input_tokens", "cache_creation_input_tokens", "cache_read_input_tokens", "output_tokens")),
-                "is_error": j.get("is_error"), "num_turns": j.get("num_turns"), "agents_launched": agents_launched(j.get("session_id"))}
+                "is_error": j.get("is_error"), "num_turns": j.get("num_turns"), "agents_launched": agents_launched(w),
+                **({"error_text": str(j.get("result") or j.get("subtype") or "")[-300:]} if j.get("is_error") else {})}  # so a usage limit can be told from a real failure
     except ValueError: return {"error": (r.stderr or r.stdout)[-500:] or f"no result (exit {r.returncode})"}
 
-def agents_launched(session_id, root=None):
-    """How many subagents a run started (Agent or Task tool calls in its own transcript), so a reviewer that is meant to
-    fan out to agents and didn't is reported as such, never assumed (ruling §5.53). None when the transcript is missing."""
-    if not session_id: return None
+def agents_launched(work, root=None):
+    """How many subagents a run started (Agent or Task tool calls in its transcript), so a reviewer that is meant to fan
+    out to agents and didn't is reported as such, never assumed (ruling §5.53). The transcript is found by the run's own
+    work folder (Claude Code files it under the folder's path with every other character turned to '-'); a session id
+    is no key, because a headless run started from another session can inherit that session's id. Subagents' own files
+    (in subfolders) are not counted. None when there is no transcript."""
+    if not work: return None
     root = pathlib.Path(root or os.path.expanduser("~/.claude/projects"))
-    hits = list(root.glob(f"*/{session_id}.jsonl"))
-    if not hits: return None
+    folder = root / re.sub(r"[^A-Za-z0-9]", "-", str(work))
+    files = sorted(folder.glob("*.jsonl")) if folder.is_dir() else []
+    if not files: return None
     n = 0
-    for line in hits[0].read_text(errors="replace").splitlines():
-        try: rec = json.loads(line)
-        except ValueError: continue
-        for c in ((rec.get("message") or {}).get("content") or []) if isinstance((rec.get("message") or {}).get("content"), list) else []:
-            if isinstance(c, dict) and c.get("type") == "tool_use" and c.get("name") in ("Agent", "Task"): n += 1
+    for f in files:
+        for line in f.read_text(errors="replace").splitlines():
+            try: rec = json.loads(line)
+            except ValueError: continue
+            content = (rec.get("message") or {}).get("content") if isinstance(rec, dict) else None
+            for c in content if isinstance(content, list) else []:
+                if isinstance(c, dict) and c.get("type") == "tool_use" and c.get("name") in ("Agent", "Task"): n += 1
     return n
 
 PLUGINS = []
@@ -231,10 +243,19 @@ def one_job(a, t, k, repeat, out, model):
         (td / "meta.json").write_text(json.dumps(meta, indent=1))
     return f"done {a['id']} / {td.name} ({meta.get('wall_s')} s)" + (f" error: {str(meta['error'])[:80]}" if meta.get("error") else "")
 
+VOID = re.compile(r"(?i)usage limit|rate.?limit|limit reached|\b429\b|overloaded|credit balance|quota")
+
+def voided(meta):
+    """True when a run failed because of a usage or rate limit rather than the tool under test (ruling §5.53: such a
+    run is void and is run again; any other failure counts against the arm)."""
+    return bool(meta.get("error") or meta.get("is_error")) and bool(VOID.search(json.dumps(meta)))
+
 def run(arms, tasks, model, repeat, parallel=1):
     import concurrent.futures as cf
     PLUGINS[:] = installed_plugins()
     out = HERE / "runs" / time.strftime("%Y-%m-%d-%H%M%S"); out.mkdir(parents=True)
+    (out / "run.json").write_text(json.dumps({"model": model, "repeat": repeat, "plugin": str(PLUGIN), "arms": [a["id"] for a in arms],
+                                               "tasks": [t["id"] for t in tasks], "plugins_off": PLUGINS, "started": time.strftime("%Y-%m-%d %H:%M:%S")}, indent=1))
     jobs = []
     for a in arms:
         if a.get("requires") and not shutil.which(a["requires"]): print(f"skip {a['id']}: {a['requires']} not installed"); continue
@@ -243,10 +264,33 @@ def run(arms, tasks, model, repeat, parallel=1):
         for f in cf.as_completed([ex.submit(one_job, a, t, k, repeat, out, model) for a, t, k in jobs]): print(f.result(), flush=True)
     return score(out)
 
+def rerun(run_dir, all_errors=False, parallel=1):
+    """Run again, in place, every run of RUN_DIR that a usage limit voided (or, with all_errors, that failed at all), with
+    the model, repeat count and plugin folder recorded when it first ran. The voided result is appended to voided.jsonl,
+    so how many runs were voided is never lost."""
+    import concurrent.futures as cf
+    global PLUGIN
+    run_dir = pathlib.Path(run_dir); info = json.loads((run_dir / "run.json").read_text())
+    PLUGIN = pathlib.Path(info["plugin"]); PLUGINS[:] = info.get("plugins_off") or installed_plugins()
+    cfg = load_cfg(); arms = {x["id"]: x for x in cfg["arms"]}; tasks = {x["id"]: x for x in cfg["tasks"]}; jobs = []
+    for td in sorted(run_dir.glob("*/*/meta.json")):
+        meta = json.loads(td.read_text())
+        if not (voided(meta) or (all_errors and (meta.get("error") or meta.get("is_error")))): continue
+        arm, name = td.parent.parent.name, td.parent.name; tid, _, k = name.partition("~")
+        with open(run_dir / "voided.jsonl", "a") as f: f.write(json.dumps({"run": f"{arm}/{name}", "voided_by_limit": voided(meta), "meta": meta}) + "\n")
+        shutil.rmtree(td.parent); jobs.append((arms[arm], tasks[tid], int(k or 1) - 1))
+    with cf.ThreadPoolExecutor(max(1, parallel)) as ex:
+        for f in cf.as_completed([ex.submit(one_job, a, t, k, info.get("repeat") or 1, run_dir, info.get("model")) for a, t, k in jobs]): print(f.result(), flush=True)
+    print(f"{len(jobs)} run(s) run again")
+    return score(run_dir)
+
 def main(a):
     if not a or a[0] in ("-h", "--help"): print(__doc__); return 0
     opt = lambda n, d=None: a[a.index(n) + 1] if n in a and a.index(n) + 1 < len(a) else d
     if a[0] == "score": return score(a[1]) if len(a) > 1 else 2
+    if a[0] == "rerun":
+        if len(a) < 2 or "--yes-spend" not in a: print("refused: a rerun makes paid model calls; pass RUN_DIR and --yes-spend"); return 2
+        return rerun(a[1], "--all-errors" in a, int(opt("--parallel", "1")))
     global PLUGIN
     if opt("--plugin"): PLUGIN = pathlib.Path(opt("--plugin")).resolve()  # a frozen copy of the build under test, not this checkout
     cfg = load_cfg(); arms = pick(cfg["arms"], opt("--arms")); tasks = pick(cfg["tasks"], opt("--tasks"))

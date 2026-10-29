@@ -1108,12 +1108,80 @@ def _(d):
     assert "verdict BLOCK: False" in o(a), o(a)
     assert "verdict BLOCK: True" in o(b), o(b)
 
-@test("5.2.4 benchmark (03 §5.53): the death match counts the subagents each run launched from its own transcript, and says unknown when there is none")
+@test("5.2.4 benchmark (03 §5.53): the death match counts the subagents a run launched from the transcript of its own work folder, not from a session id other runs share, and says unknown when there is none")
 def _(d):
     sys.path.insert(0, str(HERE.parent / "eval")); import importlib, deathmatch; importlib.reload(deathmatch)
     rows = [{"message": {"content": [{"type": "tool_use", "name": "Agent"}, {"type": "text", "text": "x"}]}},
             {"message": {"content": [{"type": "tool_use", "name": "Task"}, {"type": "tool_use", "name": "Read"}]}},
-            {"message": {"content": "plain text"}}, "not json"]
-    write(d, "proj-a/sess-1.jsonl", "\n".join(r if isinstance(r, str) else json.dumps(r) for r in rows) + "\n")
-    assert deathmatch.agents_launched("sess-1", d) == 2
-    assert deathmatch.agents_launched("missing", d) is None and deathmatch.agents_launched(None, d) is None
+            {"message": {"content": "plain text"}}, "not json", "[1]"]
+    agent = json.dumps({"message": {"content": [{"type": "tool_use", "name": "Agent"}]}})
+    # A headless run inherits the parent's session id, so every run's transcript has the same file name.
+    write(d, "-tmp-dm-aaa-work/shared-sess.jsonl", "\n".join(r if isinstance(r, str) else json.dumps(r) for r in rows) + "\n")
+    write(d, "-tmp-dm-aaa-work/shared-sess/subagents/agent-1.jsonl", agent + "\n")   # a subagent's own calls are not the run's
+    write(d, "-tmp-dm-b-work/shared-sess.jsonl", "\n".join([agent] * 5) + "\n")
+    assert deathmatch.agents_launched("/tmp/dm-aaa/work", d) == 2
+    assert deathmatch.agents_launched("/tmp/dm_b/work", d) == 5
+    assert deathmatch.agents_launched("/tmp/dm-none/work", d) is None and deathmatch.agents_launched(None, d) is None
+
+@test("5.2.4 benchmark (03 §5.53): blind labelling hides the arm, keeps the apps away from the answer keys, takes the lower severity on agreement, sends disagreements to a tiebreaker, and never counts a heading as a false alarm")
+def _(d):
+    sys.path.insert(0, str(HERE.parent / "eval")); import importlib, deathmatch, label; importlib.reload(deathmatch); importlib.reload(label)
+    rd = d / "run"
+    for arm, text in (("arm-one", "## Issues found\n\n1. app.js:3 the total is wrong when the cart is empty\n2. store.js:9 titles are injected unescaped"), ("arm-two", "- app.js:5 an off-by-one in the loop")):
+        write(rd, f"{arm}/suite1-clean/output.md", text); write(rd, f"{arm}/suite1-clean/meta.json", json.dumps({"total_cost_usd": 1.0}))
+    try: label.export(rd, label.HERE / "apps-here"); assert False, "apps inside eval/ must be refused"
+    except SystemExit: pass
+    files = label.export(rd, d / "apps", chunk=2, seed=1)
+    packets = [p for f in files for p in json.loads(f.read_text())]
+    idmap = json.loads((rd / "labelling" / "map.json").read_text())
+    assert len(packets) == len(idmap) == 4 and (d / "apps" / "fixture-clean").is_dir() and not list((d / "apps").rglob("answer_key*"))
+    blob = json.dumps(packets)
+    assert "arm-one" not in blob and "arm-two" not in blob and "**" not in blob and "##" not in blob, blob
+    ids = sorted(idmap); head = next(p for p, k in idmap.items() if k.endswith("/0") and k.startswith("arm-one"))
+    rest = [p for p in ids if p != head]
+    A = [{"id": head, "verdict": "none"}] + [{"id": p, "verdict": "real", "actionable": True, "severity": "high"} for p in rest]
+    Bl = [{"id": head, "verdict": "none", "actionable": False, "severity": None}, {"id": rest[0], "verdict": "real", "actionable": True, "severity": "medium"},
+          {"id": rest[1], "verdict": "wrong", "actionable": False, "severity": None}, {"id": rest[2], "verdict": "real", "actionable": True, "severity": "high"}]
+    write(d, "a.json", json.dumps(A)); write(d, "b.json", json.dumps(Bl))
+    tie_ids, stats = label.ties(rd, d / "a.json", d / "b.json")
+    assert tie_ids == [rest[1]] and stats["agreed"] == 3 and stats["findings"] == 4, stats
+    assert json.loads((rd / "labelling" / "ties.json").read_text()) == [p for p in packets if p["id"] == rest[1]]   # the tiebreaker sees neither label
+    try: label.final(rd, d / "a.json", d / "b.json"); assert False, "a tie without a tiebreaker label must stop"
+    except ValueError: pass
+    write(d, "t.json", json.dumps([{"id": rest[1], "verdict": "wrong", "actionable": False, "severity": None}]))
+    detail, _ = label.final(rd, d / "a.json", d / "b.json", d / "t.json")
+    labels = json.loads((rd / "labels.json").read_text())
+    assert labels[idmap[head]] == "none" and labels[idmap[rest[1]]] == "false" and labels[idmap[rest[0]]] == "real"
+    assert detail[idmap[rest[0]]]["severity"] == "medium" and detail[idmap[rest[1]]]["decided_by"] == "tiebreaker"
+    try: write(d, "bad.json", json.dumps([{"id": head, "verdict": "maybe", "actionable": True}])); label.load_labels(d / "bad.json"); assert False
+    except ValueError: pass
+    assert label.kappa([("real", "real"), ("wrong", "wrong")]) == 1.0 and label.kappa([("real", "real")]) is None
+
+@test("5.2.4 benchmark (03 §5.53): a run voided by a usage limit is told from a real failure, and the statistics give the rule-of-three bound, exact bounds, bootstrap intervals and paired differences")
+def _(d):
+    sys.path.insert(0, str(HERE.parent / "eval")); import importlib, deathmatch, bench_stats as bs; importlib.reload(deathmatch); importlib.reload(bs)
+    assert deathmatch.voided({"is_error": True, "error_text": "Claude AI usage limit reached|1761700000"})
+    assert not deathmatch.voided({"error": "timeout after 3600 s"}) and not deathmatch.voided({"is_error": True, "error_text": "the agent crashed"}) and not deathmatch.voided({"total_cost_usd": 1})
+    assert bs.upper95(0, 24) == 0.125 and bs.upper95(0, 2) == 1.0 and bs.upper95(5, 5) == 1.0 and abs(bs.upper95(1, 10) - 0.445) < 0.001, bs.upper95(1, 10)
+    rd = d / "run"; res = []
+    for arm, founds, costs in (("curmudgeon", [3, 4], [2.0, 2.0]), ("other", [1, 2], [0.5, 0.5])):
+        for k, (f, c) in enumerate(zip(founds, costs), 1):
+            res.append({"arm": arm, "task": f"suite4~{k}", "found": f, "plants": 4, "cost_usd": c, "wall_s": 10.0 * k, "unlabelled": 0, "error": None})
+            write(rd, f"{arm}/suite4~{k}/meta.json", json.dumps({"agents_launched": 3 if arm == "curmudgeon" else 0}))
+        res.append({"arm": arm, "task": "suite4-clean~1", "found": None, "false_alarms": 1 if arm == "other" else 0, "cost_usd": 1.0, "wall_s": 5.0, "unlabelled": 0, "error": None})
+        write(rd, f"{arm}/suite4-clean~1/meta.json", "{}")
+    res.append({"arm": "other", "task": "suite4~3", "found": None, "cost_usd": None, "wall_s": 1.0, "unlabelled": "-", "error": "timeout after 3600 s"})
+    write(rd, "results.json", json.dumps(res))
+    write(rd, "labels-detail.json", json.dumps({"agreement": {"findings": 3, "agreed": 2, "kappa_verdict": 0.5}, "labels": {
+        "curmudgeon/suite4~1/5": {"verdict": "real", "actionable": True, "severity": "high"}, "curmudgeon/suite4~2/6": {"verdict": "trivial", "actionable": False, "severity": None},
+        "other/suite4~1/2": {"verdict": "none", "actionable": False, "severity": None}}}))
+    md, js = bs.report([rd])
+    c, o = js["arms"]["curmudgeon"], js["arms"]["other"]
+    assert c["planted_found"] == 7 and c["plants"] == 8 and c["confirmed_bugs"] == 8 and c["cost_per_confirmed"] == 0.625, c
+    assert c["assessed"] == 2 and c["actionable_share"] == 0.5 and c["actionable_by_severity"]["high"]["n"] == 1 and o["assessed"] == 0   # a heading is no finding
+    assert o["completed"] == 3 and o["runs"] == 4 and c["agent_launch_rate"] == 1.0 and o["agent_launch_rate"] == 0.0
+    assert c["false_alarm_run_rate_upper95"] == 1.0 and o["clean_runs_with_false_alarm"] == 1
+    p = js["paired"]["other"]
+    assert p["pairs"] == 3 and p["base_better"] == 2 and p["tied"] == 1 and p["confirmed_diff_mean"] == round((3 + 2 + 0) / 3, 2), p
+    lo, hi = c["recall_ci"]; assert 0.75 <= lo <= hi <= 1.0
+    assert "| curmudgeon | 3 of 3 |" in md and "kappa 0.5" in md, md
