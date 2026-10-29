@@ -1,0 +1,202 @@
+[
+ {
+  "id": "Fbdd9db5b",
+  "app": "fixture",
+  "finding": "app.js:27 Deleting a note re-renders without the active search filter. Driven: with notes A and B, typed 'B' in search (1 row), deleted that row: the list showed 1 row (A) while the search box still read 'B'. User filters, deletes a match, and sees unrelated notes listed under a filter that should exclude them."
+ },
+ {
+  "id": "F0618a496",
+  "app": "fixture",
+  "finding": "store.js:18 Saving never re-renders the list, so renamed titles and the '#rank' badge stay stale. Traced. scheduleSave updates title and updated and persists, but never calls renderList. The list is only rebuilt on open, delete, search or New. Rename the open note 'Untitled' to 'Groceries'. The sidebar still says 'Untitled' and the rank badge still shows the old rank until the user searches or switches notes. Search by the new title also uses stale rendering until the next render."
+ },
+ {
+  "id": "Fd8a2ce22",
+  "app": "fixture",
+  "finding": "Code review: git diff main...HEAD (commit a25253f, \"task\")\n\nI reviewed this directly instead of launching sub-agents. The change is four new files and 126 lines. There is no CLAUDE.md in the repo, so I checked bugs only. I did not run the app; each finding comes from reading the diff."
+ },
+ {
+  "id": "Fe9ac8bda",
+  "app": "fixture",
+  "finding": "app.js:46 Out-of-order search responses are appended to the list, and every keystroke sends the query. Each input event synchronously re-renders local results, then fires an unthrottled fetch; each response appends to whatever is on screen. No AbortController, no sequence check, no res.ok check (a 404 HTML page throws in res.json and is only console.log'd). openNote or removeNote also call renderList, which wipes shared rows silently. Traced. Type 'ab' quickly. Request for 'a' and request for 'ab' are in flight; the render for 'ab' has already cleared the list. Responses arrive in either order and both sets of shared rows are appended, so stale results for 'a' appear under 'ab', often twice. Every keystroke also sends the partial search text to the server with no consent step."
+ },
+ {
+  "id": "F3b095a2a",
+  "app": "fixture",
+  "finding": "app.js:11 Note titles and shared-note titles are written into innerHTML unescaped (stored XSS). app.js:10-11 interpolates n.title into a template assigned via innerHTML; app.js:46 does the same with s.title from /api/shared. Driven: a stored note titled <img src=x onerror=window.x=1> set window.x on page load; a shared result with the same title also executed. A note titled <img src=x onerror=alert(document.cookie)> runs script on every render. The same payload from /api/shared (other users' notes) runs in every searcher's page."
+ },
+ {
+  "id": "F0706a9f3",
+  "app": "fixture",
+  "finding": "app.js:46 Clicking a shared-note row throws and leaves currentNote undefined. Shared li elements carry no data-id. The list click handler (app.js:30-33) matches any li, so Number(undefined) = NaN is passed to openNote. notes.find returns undefined, then app.js:18 reads currentNote.title and throws. Search for anything that returns a shared note, click it: TypeError in the console, nothing opens, currentNote is now undefined so later typing hits scheduleSave with an undefined target and throws again."
+ },
+ {
+  "id": "F543d1771",
+  "app": "fixture",
+  "finding": "app.js:10 Notes cannot be opened by keyboard: list rows are unfocusable li elements with a click handler on the ul. The li has no tabindex, no button or link, no role and no key handler (app.js:10, listener at app.js:30-33). The selected row is shown only by a background class, with no aria-current. With the keyboard only, Tab goes from search to New note to the title field. There is no stop on any note, so the user can never open a note other than the one auto-opened at load. The main task is blocked (WCAG 2.1.1, level A)."
+ },
+ {
+  "id": "F863ef620",
+  "app": "fixture",
+  "finding": "app.js:6 The list shows only filtered notes, but the displayed rank is computed over all notes, and the list is not re-rendered after a save. While searching, the #rank labels skip numbers because they are relative to the unfiltered set. After the debounced save updates a title or updated, renderList is not called, so the list keeps the old title and old ranking until the next click or keystroke."
+ },
+ {
+  "id": "F405c01f6",
+  "app": "fixture",
+  "finding": "app.js:10 List is not re-rendered after a save, so titles and ranks go stale. The save timer in store.js updates the note but never calls renderList. Driven: renamed a note to 'Renamed'; the list still read 'Untitled' with rank #1. Rename the open note: the sidebar keeps the old title and the '#rank' badge (which depends on the updated time) is wrong until some other action re-renders."
+ },
+ {
+  "id": "F9b783541",
+  "app": "fixture",
+  "finding": "app.js:32 Clicking a shared-note result crashes openNote and leaves currentNote undefined. Traced. Shared items are appended to #list as <li class=\"shared\"> with no data-id (app.js:46). The delegated click handler matches any li, so Number(undefined) is NaN. openNote does notes.find(n => n.id === NaN), which gives undefined, assigns it to currentNote, and then reads currentNote.title. Type in the search box so /api/shared returns a result, then click it. TypeError 'Cannot read properties of undefined'. currentNote is now undefined, so the next edit also throws in the save timer and the previously open note's edits are not saved."
+ },
+ {
+  "id": "F59e01574",
+  "app": "fixture",
+  "finding": "app.js:11: <span class=\"t\">${n.title}</span> is built into list.innerHTML."
+ },
+ {
+  "id": "F4a574429",
+  "app": "fixture",
+  "finding": "Typing with no note open throws in the save timer. store.js:15-18 writes to currentNote without a null check. currentNote is null when there are no saved notes (app.js:51) and after the open note is deleted (app.js:26). The title and body inputs stay editable, so the edit is lost after 500 ms."
+ },
+ {
+  "id": "Fd56f2e57",
+  "app": "fixture",
+  "finding": "index.html:17 No empty state for a new user or for a search with no matches. The list is a bare <ul>. On first run, after deleting the last note, or when the filter matches nothing, it renders nothing (app.js:4-14). No copy tells the user what to do. Traced. A first-time visitor sees a banner, a search box, a button, a blank column and an editor they cannot save from (see the null currentNote finding). Searching 'zzz' shows a blank column that looks broken."
+ },
+ {
+  "id": "F2c88870d",
+  "app": "fixture",
+  "finding": "store.js:25 Every save overwrites the whole stored array from this tab's memory (second tab destroys the first tab's notes). notes is loaded once at script start (store.js:2). Each persist writes the entire in-memory array. No storage event listener, no merge, no version. Traced. Open the app in two tabs. Create note X in tab 1. In tab 2 (which has not seen X) edit any note; tab 2's persist writes its array without X and X is gone."
+ },
+ {
+  "id": "Fe05c8af0",
+  "app": "fixture",
+  "finding": "app.js:32 Clicking a shared result throws: it has no data-id. app.js:46 renders <li class=\"shared\"> without data-id. The delegated handler matches any li, so Number(undefined) is NaN and openNote(NaN) sets currentNote to undefined (app.js:17), then app.js:18 throws. Search, wait for a shared result, click it. The console shows 'Cannot read properties of undefined (reading title)', nothing opens and currentNote is now undefined, so later edits throw too."
+ },
+ {
+  "id": "F0ece5d9f",
+  "app": "fixture",
+  "finding": "styles.css:117 Focus outlines are removed with no replacement, and the viewport meta blocks zoom. The layout is also a fixed 1200px width. Keyboard users see no focus indicator, which fails WCAG 2.4.7. maximum-scale=1 prevents pinch zoom. .container{width:1200px} forces horizontal scrolling on phones and small windows."
+ },
+ {
+  "id": "F3f6a0de9",
+  "app": "fixture",
+  "finding": "currentNote starts as null and app.js only calls openNote if a note exists. So on a fresh install, typing into the always-enabled #title or #body throws TypeError: Cannot set properties of null 500 ms later."
+ },
+ {
+  "id": "F3f49ab8f",
+  "app": "fixture",
+  "finding": "app.js:36 The list is not refreshed after an edit: titles and the #rank stay stale. scheduleSave (store.js:13-21) updates the note and persist()s but never calls renderList. The list is redrawn only by openNote, removeNote and search input. Traced. Rename 'Untitled' to 'Groceries'. The left list still says 'Untitled' and its #rank unchanged until the user clicks another note or types in search."
+ },
+ {
+  "id": "Fcfa984c0",
+  "app": "fixture",
+  "finding": "app.js:47 Failed or non-JSON shared-search responses are only logged. res.ok is never checked, so a 404/500 HTML page reaches res.json() and throws. The catch writes to the console. The user sees no error, and a 200 with zero results looks the same as a failure. Traced. The server returns 500 or the user is offline. Search silently shows only local notes, as if no shared notes exist."
+ },
+ {
+  "id": "F51b0af46",
+  "app": "fixture",
+  "finding": "Clicking a shared search result crashes (app.js:30-33 and 46, then 18). Shared <li> items have no data-id. The click handler calls openNote(Number(undefined)), which is openNote(NaN). notes.find returns undefined, so currentNote.title throws a TypeError. After that, edits are no longer saved either."
+ },
+ {
+  "id": "Ffb8d085c",
+  "app": "fixture",
+  "finding": "app.js:30 Notes can only be opened by mouse click on a plain <li>. Traced app.js:10, 30-33. List items have no tabindex, role, key handler or button/link inside; selection is shown by a background colour only (styles.css:10) and no aria-current. A keyboard or screen-reader user presses Tab from 'New note': focus jumps to the title input. No note in the list can be reached or opened (WCAG 2.1.1, level A). The active note is signalled by colour alone (1.4.1)."
+ },
+ {
+  "id": "F0765cb9f",
+  "app": "fixture",
+  "finding": "app.js:26 After deleting the open note the editor still shows it and further typing goes nowhere. Traced app.js:23-28. currentNote is set to null but the title and body inputs are not cleared or disabled. scheduleSave then dereferences null (store.js:16). Open a note, click its trash icon. The note's text stays in the editor. The user types more; after 500 ms a TypeError is thrown and nothing is saved, with no message. The user believes the text is saved."
+ },
+ {
+  "id": "Fdca2d0b1",
+  "app": "fixture",
+  "finding": "app.js:46 Server-returned shared-note titles are inserted with insertAdjacentHTML without escaping. Any other user's shared note with an HTML or script payload in its title runs in this origin whenever a search is typed. This is remote XSS from the /api/shared response."
+ },
+ {
+  "id": "Fcd3b8f1c",
+  "app": "fixture",
+  "finding": "styles.css:2 Fixed 1200px container and 300px list column: sideways scroll below 1200px and unusable on a phone. styles.css:2 sets a hard width and styles.css:7 a fixed 300px first column. There is no media query anywhere. The textarea height is also fixed (400px). At 390px the page is 1200px wide: a horizontal scrollbar appears and the hero, search and editor are mostly off-screen. At 200% zoom on a 1360px screen the effective viewport is 680px with the same overflow (WCAG 1.4.10 reflow)."
+ },
+ {
+  "id": "F34dc567e",
+  "app": "fixture",
+  "finding": "styles.css:2 Fixed 1200 px container scrolls sideways on phones and at 200% zoom. Driven at 390 px: document scrollWidth was 1222. styles.css:7 adds a fixed 300 px sidebar column with the 400 px-high textarea beside it. No media queries. On a 390 px phone the user must pan horizontally; the editor sits off screen right of the list."
+ },
+ {
+  "id": "Fcb09f349",
+  "app": "fixture",
+  "finding": "app.js:46 Titles from /api/shared are inserted as raw HTML, so the server response can inject script. A shared note titled <script> or <img onerror=...>, or a compromised endpoint, executes script in the page when the user types in search."
+ },
+ {
+  "id": "F09faf80a",
+  "app": "fixture",
+  "finding": "store.js:18 The list never updates after an edit, so titles and ranks go stale. The save timer updates the data and persists (store.js:16-19) but never calls renderList. The list is rebuilt only on open, delete, new and search (app.js:20, 27, 42, 50). Traced. Create a note and type the title 'Groceries'. The list still reads 'Untitled' until the user clicks another row or searches. The '#rank' badge also stays at its old value after the edit makes the note the most recent."
+ },
+ {
+  "id": "Ff2d238ff",
+  "app": "fixture",
+  "finding": "store.js:67 The debounced save dereferences currentNote after 500ms without checking it. The note may have been deleted or switched in the meantime. The user types and then deletes the note within 500ms. currentNote is null, so the timer throws a TypeError and the edit is lost. If the user opens another note within the window, the new note's fields are overwritten with the old note's pending title and body, because the values are read from the inputs at fire time. Typing in the title with no note selected also throws, since currentNote starts as null."
+ },
+ {
+  "id": "Fb235d933",
+  "app": "fixture",
+  "finding": "The search handler puts s.title from /api/shared into insertAdjacentHTML unescaped."
+ },
+ {
+  "id": "Ffbe85fe6",
+  "app": "fixture",
+  "finding": "app.js:12 Delete control is an unnamed div that is invisible until mouse hover: unreachable by keyboard, screen reader and touch. app.js:12 uses <div class=\"del\"> with an emoji and no role, name or tabindex. styles.css:12 sets .del { opacity: 0; } and reveals it only on li:hover. On a phone there is no hover, so the delete icon never appears; with a keyboard it cannot be focused. Only a mouse user can delete (WCAG 2.1.1 and 4.1.2, level A)."
+ },
+ {
+  "id": "F692ef05d",
+  "app": "fixture",
+  "finding": "styles.css:2 Fixed 1200 px page and 300 px + 1fr grid scroll sideways on a phone and at 200% zoom. styles.css:2 fixes the width, styles.css:7 fixes a 300 px column, and there is no media query in styles.css. At 390 px width the page needs about 3x horizontal scrolling; at 200% zoom on a 1360 px screen the layout overflows (WCAG 1.4.10 reflow)."
+ },
+ {
+  "id": "Fded03c64",
+  "app": "fixture",
+  "finding": "app.js:27 Deleting a note drops the active search filter, and the editor keeps showing the deleted note. removeNote (app.js:23-28) calls renderList() with no argument while #search still holds text, so the list shows all notes under a filled search box. When the open note is deleted, currentNote is nulled but title and body fields are not cleared (app.js:26). Traced. Search 'milk', delete one match: every note reappears while the box still says 'milk'. Delete the open note: its text stays in the editor as though still saved."
+ },
+ {
+  "id": "F3eb78f2b",
+  "app": "fixture",
+  "finding": "app.js:46: <li class=\"shared\">${s.title}</li> is built from the /api/shared response and passed to insertAdjacentHTML."
+ },
+ {
+  "id": "F570635a8",
+  "app": "fixture",
+  "finding": "index.html:11 Placeholder lorem ipsum text is shipped in the visible hero. index.html:11 renders Latin filler as the product tagline, under a 'Welcome to NoteMaster' heading. The hero uses about 120 px of vertical space on an app whose main task is the note list. Every visitor sees 'Lorem ipsum dolor sit amet' as the first sentence."
+ },
+ {
+  "id": "F299dea19",
+  "app": "fixture",
+  "finding": "Code review\n\nReviewed git diff main...HEAD (\"Add the app\"): app.js, index.html, store.js and styles.css. Nothing was posted and no files were changed.\n\nCLAUDE.md compliance: there are no CLAUDE.md files in the repo, so both compliance agents found nothing to check against.\n\nBugs: four issues were found and confirmed by independent validators. Both bug agents found the first two. Only one bug agent found each of the others."
+ },
+ {
+  "id": "F8369a9bf",
+  "app": "fixture",
+  "finding": "app.js:46 Titles returned by /api/shared are inserted as raw HTML with no escaping. A shared note titled <script> or <img onerror=...> from the server runs in the page when the user searches. The server is untrusted input here."
+ },
+ {
+  "id": "F1bd24c70",
+  "app": "fixture",
+  "finding": "store.js:19 Saving an edit never re-renders the list: titles and rank stay stale. The save callback (store.js:15-20) updates title and updated but nothing calls renderList. The list shows n.title and the #rank (app.js:11) from the last render. Rename 'Untitled' to 'Groceries': the list still reads 'Untitled' and the rank badge does not change until some other action re-renders. A note edited most recently should be #1 but is not shown so."
+ },
+ {
+  "id": "F4555ee60",
+  "app": "fixture",
+  "finding": "styles.css:12 Delete is invisible until hover, has no confirm or undo, and is still tappable when invisible. opacity:0 hides but does not disable the target. removeNote (app.js:23-28) deletes and persists immediately; there is no confirmation or undo. On touch there is no hover, so the control is never visible. Traced from the CSS and handler. On a phone, tap the right end of a note row to open it: the invisible \ud83d\uddd1 sits there and removeNote runs, so the note is deleted and saved to storage without a prompt. On desktop, a mis-click on the same spot does the same."
+ },
+ {
+  "id": "F8d74f4af",
+  "app": "fixture",
+  "finding": "store.js:2 JSON.parse on the stored value is unguarded and its result is not checked to be an array. If localStorage 'notes' is corrupt or not an array (for example {} or truncated JSON), or storage access throws as in private mode, store.js throws at load. app.js never runs and the page is dead. If the value is a non-array object, notes.filter later throws."
+ },
+ {
+  "id": "Fda0987ee",
+  "app": "fixture",
+  "finding": "Typing with no note open throws an error and loses the text (store.js:16)."
+ }
+]

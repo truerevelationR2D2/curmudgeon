@@ -102,7 +102,7 @@ Results build up in a per-project ledger (`.critic/`):
 
 ## How it compares with Anthropic's own review options
 
-Checked against Anthropic's documentation on 28 October 2026 ([`/code-review`](https://code.claude.com/docs/en/code-review-local), [ultrareview](https://code.claude.com/docs/en/ultrareview), [Code Review](https://code.claude.com/docs/en/code-review)). `/code-review` and Anthropic's code-review plugin were measured head to head on the same planted-bug tests (see Benchmarks); ultrareview and the managed Code Review were not.
+Checked against Anthropic's documentation on 28 October 2026 ([`/code-review`](https://code.claude.com/docs/en/code-review-local), [ultrareview](https://code.claude.com/docs/en/ultrareview), [Code Review](https://code.claude.com/docs/en/code-review)). `/code-review` and Anthropic's code-review plugin were measured head to head on the same planted-bug tests, most recently on 29 October 2026 (see Benchmarks); ultrareview and the managed Code Review were not.
 
 | | Curmudgeon | `/code-review` (`/review` is an alias) | `/code-review ultra` (ultrareview) | Code Review (managed) |
 |---|---|---|---|---|
@@ -219,7 +219,19 @@ Drop a JSON file of rules into your project's `.critic/rules/` (or, to contribut
 
 ## Benchmarks
 
-**Version 5.2.1**, measured on 27 and 28 October 2026 with Sonnet 5.5, three blind reviewers per run and the eval kit in `eval/`. The 5.2 release gate ran three reviews of every test (21 runs); 5.2.1 changes no agent's instructions (its briefs now quote the stated intent on one line), so it got a smoke run of one review per test. A finding counts only when it points at the planted bug's lines.
+**Against Anthropic's review options, version 5.2.4** (29 October 2026; Sonnet 5.5 for every run; the seven death-match tasks five times each, plus eight more clean apps once each: 43 runs per reviewer; every run completed). Planted bugs are matched by script against the answer keys. Every other finding (1,150 in all) was judged by two blind labellers, with a third breaking their 89 ties; they agreed on 92% (Cohen's kappa 0.86 on the main tasks, 0.89 on the extra apps) and both judged all 24 known-truth controls correctly. Full method, limits and every file: [`eval/benchmark-5.2.4/`](https://github.com/truerevelationR2D2/curmudgeon/tree/main/eval/benchmark-5.2.4).
+
+| Reviewer | Planted bugs found (95% CI) | Other findings judged real and actionable | Clean runs with a false alarm | Cost per run | Cost per confirmed bug | Launched agents |
+|---|---|---|---|---|---|---|
+| Curmudgeon 5.2.4, full | **222 of 245, 91%** (86–96%) | **96%** (277 real, 6 trivial, 6 wrong) | 6 of 23 | $1.42 | $0.12 | 43 of 43 runs |
+| Curmudgeon 5.2.4, lite | **222 of 245, 91%** (87–95%) | 94% (215, 10, 3) | 1 of 23 | $0.75 | $0.07 | 43 of 43 runs |
+| Claude Code's built-in `/code-review` | 76 of 245, 31% (24–42%) | 72% (220, 71, 16) | 9 of 23 | $0.10 | $0.01 | not visible |
+| Anthropic's code-review plugin, given its PR facts and told to follow its steps | 64 of 245, 26% (17–34%) | 82% (42, 9, 0) | 0 of 23 | $1.00 | $0.41 | 43 of 43 runs |
+| Anthropic's code-review plugin, as it runs | 33 of 245, 13% (6–22%) | 86% (114, 10, 7) | 3 of 23 | $0.09 | $0.03 | **0 of 43 runs** |
+
+Run as it is, the code-review plugin launched none of the agents its instructions name, in every run; told to follow its own steps, it launched them every time and found twice as many planted bugs at eleven times the cost. The lite tier found as many planted bugs as the full tier at 53% of the cost; the full tier found 1.44 more confirmed bugs a run (95% CI 0.74 to 2.14), about $0.47 for each extra one, and raised a false alarm on more clean apps. A confirmed bug is a planted bug found or a finding judged real and actionable; findings are not de-duplicated across a run, which can favour a reviewer that repeats itself. The usage limit voided 47 of the first 175 runs; all were rerun and are on record.
+
+**Planted-bug tests, version 5.2.1**, measured on 27 and 28 October 2026 with Sonnet 5.5, three blind reviewers per run and the eval kit in `eval/`. The 5.2 release gate ran three reviews of every test (21 runs); 5.2.1 changes no agent's instructions (its briefs now quote the stated intent on one line), so it got a smoke run of one review per test. A finding counts only when it points at the planted bug's lines.
 
 | Test | 5.2 gate, planted bugs (3 runs) | 5.2 gate, findings that are real bugs | 5.2.1 smoke, planted bugs (1 run) |
 |---|---|---|---|

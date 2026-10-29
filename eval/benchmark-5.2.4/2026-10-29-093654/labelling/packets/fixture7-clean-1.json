@@ -1,0 +1,112 @@
+[
+ {
+  "id": "F697658cc",
+  "app": "fixture7-clean",
+  "finding": ".claude/settings.json:4 The bare Read permission allows reading any file without a prompt, with no path restriction. Once an auto-enabled MCP server or prompt injection drives the agent, it can read ~/.ssh/*, .env files and cloud credentials with no prompt. The same command or server can then send them out, so the allowlist is far broader than the 'list issues / run tests' purpose it appears to serve."
+ },
+ {
+  "id": "Fa5c18152",
+  "app": "fixture7-clean",
+  "finding": ".claude/settings.json:2 auto-approves repo-defined servers.\nenabledMcpjsonServers: [\"tracker\", \"search\"] skips the approval prompt for these two servers.\nAnyone who opens the repo in Claude Code then runs npx -y tracker-mcp@3.2.1 and uvx search-mcp==2.1.0, with TRACKER_API_TOKEN in the environment, without being asked.\nThe versions are pinned, which helps, but there is no integrity pinning."
+ },
+ {
+  "id": "F417724d1",
+  "app": "fixture7-clean",
+  "finding": ".cursor/mcp.json:4: the env interpolation looks like the wrong syntax for Cursor (lower confidence).\n\"DOCS_API_KEY\": \"${DOCS_API_KEY}\" uses the Claude Code .mcp.json form. As I recall, Cursor expands ${env:NAME}, so the server would receive the literal string ${DOCS_API_KEY}.\n.vscode/mcp.json in this same change uses ${env:LINT_TOKEN}.\nWorth checking against Cursor's docs before merging.\n\nSecurity notes\n\nThese are judgment calls rather than definite bugs, so I'd treat them as discussion points."
+ },
+ {
+  "id": "F3739a717",
+  "app": "fixture7-clean",
+  "finding": ".claude/settings.json:4 Bare Read allow rule approves reads of any file, including credential files outside the project. Read with no path specifier matches every file read. The other two entries are narrow (one MCP tool, one command prefix). Nothing in the repo needs reads beyond the project. Bash(npm test:*) also runs whatever scripts.test in a package.json says, so it is only as safe as that file. Text returned by the tracker (an issue body with injected instructions) asks the agent to read ~/.aws/credentials or ~/.ssh/id_ed25519. No prompt appears because of the blanket rule, so the contents enter the model context silently."
+ },
+ {
+  "id": "Fac071920",
+  "app": "fixture7-clean",
+  "finding": ".cursor/mcp.json:3 Cursor does not expand ${DOCS_API_KEY}; its syntax is ${env:DOCS_API_KEY}, so the literal string is passed as the API key. Cursor's mcp.json interpolation uses ${env:NAME} (plus ${workspaceFolder}, ${userHome}). The bare ${NAME} form belongs to Claude Code's .mcp.json. The sibling file .vscode/mcp.json:6 uses ${env:LINT_TOKEN}, so the repo already uses the right form for VS Code and the Claude form was copied into the Cursor file. Traced against the documented syntax. I could not run Cursor. A developer exports DOCS_API_KEY and opens the repo in Cursor. The docs server starts with DOCS_API_KEY set to the text ${DOCS_API_KEY}. Every call to the docs service is rejected, and the value that reaches the vendor's logs is the placeholder, not a key."
+ },
+ {
+  "id": "F57921e58",
+  "app": "fixture7-clean",
+  "finding": ".claude/settings.json:4 Bash(npm test:*) runs whatever the repo's package.json test script contains, so it is an arbitrary-code-execution allowance for the repo. A malicious or modified scripts.test (or a pre/post-test hook) runs on the user's machine with no prompt as soon as the agent runs npm test. This repo has no package.json yet, so the rule also does nothing today."
+ },
+ {
+  "id": "F67aea0f7",
+  "app": "fixture7-clean",
+  "finding": ".cursor/mcp.json:3 Cursor config uses Claude Code's ${VAR} interpolation; Cursor expects ${env:VAR}. .cursor/mcp.json:3 writes ${DOCS_API_KEY}. The sibling file .vscode/mcp.json:6 uses ${env:LINT_TOKEN}, the form Cursor and VS Code document for environment variables. Cursor's documented interpolation is ${env:NAME}; a bare ${NAME} is not one of its forms. I could not open the vendor docs here, so this rests on my recollection of them. A user has DOCS_API_KEY exported and starts Cursor. The docs server receives the literal string ${DOCS_API_KEY} as its key, and every authenticated call fails with an invalid-key error that does not point at the config."
+ },
+ {
+  "id": "Fb1694e27",
+  "app": "fixture7-clean",
+  "finding": ".claude/settings.json:2 enabledMcpjsonServers auto-approves the project's .mcp.json servers (tracker, search), so they launch without the per-server trust prompt. Anyone who clones this repo and opens it in Claude Code starts npx -y tracker-mcp@3.2.1 and uvx search-mcp==2.1.0 with no consent. Those are arbitrary third-party packages run from repo-controlled config, and tracker receives TRACKER_API_TOKEN from the user's environment. A compromised or typosquatted package, or a later edit to .mcp.json, gets code execution and token theft. The session start in this review shows tracker and search being launched this way."
+ },
+ {
+  "id": "Fd20eb04f",
+  "app": "fixture7-clean",
+  "finding": ".claude/settings.json:2 enabledMcpjsonServers lists only tracker and search, so box is neither approved nor declined, and the allowlist does not match .mcp.json. box still prompts or silently stays off depending on the client, so behaviour differs per machine. Only mcptrackerlist_issues is allow-listed, while search is enabled but has no permission entry. Every search tool call prompts, which defeats the point of pre-enabling it."
+ },
+ {
+  "id": "F63bdebd0",
+  "app": "fixture7-clean",
+  "finding": ".cursor/mcp.json:3 The docs server is a third-party npx package pinned by version only, receives DOCS_API_KEY, and has no integrity pin. npx -y auto-installs without confirmation and runs the package's install scripts. If the package is compromised or a maintainer republishes it, the code runs with the user's DOCS_API_KEY in its environment. The same pattern is repeated for tracker and lint."
+ },
+ {
+  "id": "F9c7eed68",
+  "app": "fixture7-clean",
+  "finding": ".mcp.json:17 search uses a headers key, which is only valid for HTTP/SSE servers, on a stdio (command/args) server. The Authorization: Bearer ${SEARCH_TOKEN} header is ignored for a uvx-launched stdio process, so the token is never delivered. The server starts unauthenticated, or fails. It reported CONNECTION_CLOSED in this session. To pass a token it needs an env entry, as tracker has."
+ },
+ {
+  "id": "F7f3185f5",
+  "app": "fixture7-clean",
+  "finding": ".vscode/mcp.json:6 The lint server is configured with LOG_LEVEL=debug while it holds LINT_TOKEN. Debug logging in an MCP server that has a token in its environment can write request headers or the token itself to stderr or log files, and those logs can end up in CI output or bug reports."
+ },
+ {
+  "id": "Fd7c09716",
+  "app": "fixture7-clean",
+  "finding": "Code review: git diff main...HEAD (commit 5403fc5, four MCP and settings config files)\n\nNo CLAUDE.md exists in the repo, so I checked for bugs only. I read the diff myself rather than launching the agent pipeline, because it is 44 lines of JSON config. I did not run any of the servers or check the config schemas against vendor docs. The .cursor/mcp.json finding below rests on my recollection of Cursor's syntax, so it is lower confidence.\n\nIssues"
+ },
+ {
+  "id": "Fa029127d",
+  "app": "fixture7-clean",
+  "finding": ".vscode/mcp.json:2 The same MCP servers are defined inconsistently across clients: three config files, different schemas, and different server sets. .mcp.json has tracker, box and search. .cursor/mcp.json has only docs. .vscode/mcp.json has lint and local-docker, using the servers key and ${env:...} syntax. Config drift means the security hardening (--network none, :ro) exists in one place and not another, and nobody can tell which servers a given contributor actually runs. A contributor is easily misled about which tools have access to which secrets."
+ },
+ {
+  "id": "F15705505",
+  "app": "fixture7-clean",
+  "finding": "Cursor key syntax: the claim that .cursor/mcp.json needs ${env:DOCS_API_KEY} instead of ${DOCS_API_KEY} was UNVERIFIABLE. The validator could not read Cursor's docs, so I dropped it. It is worth a manual check."
+ },
+ {
+  "id": "F10ead222",
+  "app": "fixture7-clean",
+  "finding": ".claude/settings.json:4 has a bare \"Read\" allow.\nIt permits reading any file, including .env and key files, with no prompt.\nBash(npm test:*) also runs whatever the repo's test script does.\nNarrower patterns such as Read(./src/) would limit this.\n\nNot flagged"
+ },
+ {
+  "id": "Fc6346600",
+  "app": "fixture7-clean",
+  "finding": ".mcp.json:17 search is a stdio server (uvx) but its token is set as headers, which stdio servers do not use. .mcp.json:14-18. The entry has command and args, so Claude Code starts it as a local stdio process. headers is an option of HTTP and SSE entries (type/url). A stdio process has no HTTP request to attach a header to, and the config has no env block, so SEARCH_TOKEN is never passed to the process. .claude/settings.json:2 enables search, so it does start. I traced the config shape only. I did not start Claude Code against it. A teammate exports SEARCH_TOKEN and opens the project. Claude Code approves and spawns uvx search-mcp==2.1.0 through the pre-approval in settings.json. The process gets no token. Every authenticated search call fails (or runs unauthenticated), and nothing in the config says why. The author believes the credential is wired up."
+ },
+ {
+  "id": "Fa774e197",
+  "app": "fixture7-clean",
+  "finding": ".mcp.json:17 search is a stdio server (command/args) but its credential is given as headers, which stdio servers do not use. .mcp.json:14-18 defines search with command: uvx and args, so it is a stdio server. headers is an option of http/sse servers only; for a stdio server it is not read. SEARCH_TOKEN is never put in the process environment (compare tracker, which uses env, lines 6-8). Checked by reading the file; no runtime to run uvx search-mcp. A user exports SEARCH_TOKEN and enables search (settings.json line 2 lists it). Claude Code starts uvx search-mcp==2.1.0 with no token and no header. The server either fails its auth on every tool call or runs unauthenticated, while the config looks as if it were authenticated."
+ },
+ {
+  "id": "F3f2d840b",
+  "app": "fixture7-clean",
+  "finding": "Code review\n\nI reviewed main...HEAD (\"Add the app\") and found one issue. I posted nothing and changed no files.\n\nIssue: the search server's auth token is never sent (.mcp.json, lines 14\u201318, bug)\n\nThe search entry launches a local stdio process with \"command\": \"uvx\" and \"args\": [\"search-mcp==2.1.0\"]. It then sets \"headers\": {\"Authorization\": \"Bearer ${SEARCH_TOKEN}\"}. In Claude Code's MCP config, headers applies only to remote http/sse servers, so a stdio server ignores it. .claude/settings.json enables search through enabledMcpjsonServers, so it starts without SEARCH_TOKEN. The fix is \"env\": {\"SEARCH_TOKEN\": \"${SEARCH_TOKEN}\"}, as the tracker entry does. The variable name search-mcp actually reads wasn't checked.\n\nTwo agents found this independently and a validator confirmed it. The validator could not open the official docs page, so the claim about headers rests on the agents' recall of those docs, not a source I can link.\n\nDropped by validation"
+ },
+ {
+  "id": "Fef114d54",
+  "app": "fixture7-clean",
+  "finding": ".mcp.json:15-17: the search server's auth header is never sent.\nsearch is a stdio server (command: uvx), and headers is only read for http/sse servers. For a stdio server it is ignored.\nSEARCH_TOKEN therefore never reaches the process, and the server starts without credentials."
+ },
+ {
+  "id": "F59013dbd",
+  "app": "fixture7-clean",
+  "finding": "Title and description: the PR adds only four MCP and permission config files, not application code. That mismatch isn't a code defect, so I didn't flag it.\n\nCLAUDE.md compliance: both agents found no CLAUDE.md file in the repo, so there were no rules to check."
+ },
+ {
+  "id": "F50936b29",
+  "app": "fixture7-clean",
+  "finding": ".mcp.json:9 The box server runs docker run example/box-mcp:1.0 with a mutable tag, no digest pin and no sandbox flags. A mutable tag can be repointed to a different image at any time, so teammates silently get different code from what was reviewed. The container has default network and no --network none, read-only or resource limits, unlike the hardened local-docker entry in .vscode/mcp.json. This server also failed with CONNECTION_CLOSED in this session, which suggests the image or docker is unavailable and nothing handles that."
+ }
+]

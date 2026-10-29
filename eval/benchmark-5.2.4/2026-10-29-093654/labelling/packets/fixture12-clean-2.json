@@ -1,0 +1,7 @@
+[
+ {
+  "id": "Fbc3dbb52",
+  "app": "fixture12-clean",
+  "finding": "site/about.html:19 The map iframe is blocked by the page's own CSP (no frame-src, falls back to default-src 'self'). Driven in Chromium: \"Refused to frame 'https://www.example.org/' because it violates ... default-src 'self'. Note that frame-src was not explicitly set\". A visitor opens /about and sees an empty box (with a console error) where the map should be. No fallback text or link is shown."
+ }
+]

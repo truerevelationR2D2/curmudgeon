@@ -1227,3 +1227,11 @@ def _(d):
     calls = []; deathmatch.one_job = lambda a, t, k, repeat, out, model: calls.append((a["id"], t["id"], k)) or "done"
     deathmatch.rerun(rd)
     assert calls == [("cc-code-review", "suite1-clean", 0)] and "5-hour limit" in (rd / "voided.jsonl").read_text()
+
+@test("5.2.4 benchmark (03 §5.53): on a clean twin only a finding labelled wrong, or one that cites a line and is not labelled, is a false alarm; one labelled trivial (true but minor) or none (not a finding) is not")
+def _(d):
+    sys.path.insert(0, str(HERE.parent / "eval")); import importlib, deathmatch; importlib.reload(deathmatch)
+    blocks = [{"loc": f"app.js:{n}", "claim": f"app.js:{n} x"} for n in (1, 2, 3, 4, 5)]
+    labels = {"a/t/0": "false", "a/t/1": "trivial", "a/t/2": "none", "a/t/3": "real"}
+    r = deathmatch.score_task({"clean": True}, blocks, labels, "a/t")
+    assert r["false_alarms"] == 2 and r["unlabelled"] == 0, r   # block 0 (wrong) and block 4 (cites a line, unlabelled)

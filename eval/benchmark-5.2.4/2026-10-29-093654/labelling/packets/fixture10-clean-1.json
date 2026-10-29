@@ -1,0 +1,152 @@
+[
+ {
+  "id": "F6d8448ca",
+  "app": "fixture10-clean",
+  "finding": "app/auth.py:11 login() returns True for every caller; the password is never checked. app/auth.py:[redacted] password is not read anywhere in the function. The only branch, on api_key, logs a warning and falls through to return True. There is no TODO or stub marker. No other file in the payload does the check. login('mallory', 'wrong-password', None) returns True. Any caller that gates access on the return value lets anyone in with any password and no API key."
+ },
+ {
+  "id": "Faef38c29",
+  "app": "fixture10-clean",
+  "finding": "Code review\n\nI read the diff directly (git diff main...HEAD, one commit, 9 new files). The change is small, and there is no CLAUDE.md in the repo, so there was nothing to check for compliance. I did not launch subagents or run the validation step. Three issues stand out."
+ },
+ {
+  "id": "Fb43b48d5",
+  "app": "fixture10-clean",
+  "finding": "docs/runbooks/disk-full.md:3 The runbooks are single-step stubs with no diagnosis, mitigation, verification or escalation steps. During a disk-full or queue-backlog incident, 'Check the largest folders' and 'Scale the workers' give no commands, no safe-to-delete guidance, no worker limits, no success check and no escalation path. The on-call engineer has to improvise."
+ },
+ {
+  "id": "F9cfc71a3",
+  "app": "fixture10-clean",
+  "finding": "rotate writes part of a secret to stdout (app/auth.py, line 15). print(\"rotating the token ending\", token[-4:]) puts the last four characters of a live token into process output, which usually ends up in collected logs. The function also does no rotation: it only prints and returns None.\n\nI did not flag the thin runbooks, the missing summary on QueueBacklog, or the other log lines. None of them is a definite defect."
+ },
+ {
+  "id": "Fbaa6e1bc",
+  "app": "fixture10-clean",
+  "finding": "Code review\n\nLocal change: \"Add the app\" (git diff main...HEAD, 9 new files). Nothing was posted and no files were changed.\n\nThree issues were found, and each was confirmed by a separate validation agent."
+ },
+ {
+  "id": "Ff7f6f942",
+  "app": "fixture10-clean",
+  "finding": "monitoring/alerts.yml:8 CheckoutErrors alert points at the disk-full runbook. monitoring/alerts.yml:4-8 is the CheckoutErrors alert (summary 'Checkout is failing'). Its runbook_url is the same file as DiskFull at line 16. docs/runbooks/disk-full.md says only 'Check the largest folders.' No checkout runbook exists in docs/runbooks/. Checkout errors page the on-call engineer. They open the linked runbook and get disk-cleanup advice. The checkout outage gets no guidance, which wastes time during a revenue-affecting incident."
+ },
+ {
+  "id": "Fa4c02079",
+  "app": "fixture10-clean",
+  "finding": "Unusable Deployment in deploy/web.yaml. It is an apps/v1 Deployment with no spec.selector and no spec.template.metadata.labels. The API server rejects it with spec.selector: Required value, so it cannot be applied. The validation agent read the file and the apps/v1 requirements but did not run it against a cluster."
+ },
+ {
+  "id": "F0b2b69e3",
+  "app": "fixture10-clean",
+  "finding": "The CheckoutErrors alert links to the wrong runbook (monitoring/alerts.yml, line 8). Its runbook_url is docs/runbooks/disk-full.md, which is the DiskFull runbook. Whoever is paged for failing checkouts is sent to disk-space steps. There is no checkout runbook in the change."
+ },
+ {
+  "id": "F95c36f4b",
+  "app": "fixture10-clean",
+  "finding": "monitoring/alerts.yml:8 CheckoutErrors alert points to the disk-full runbook. monitoring/alerts.yml:4-8 (CheckoutErrors, 'Checkout is failing') links docs/runbooks/disk-full.md. That file (docs/runbooks/disk-full.md:1-3) is about disk space and says nothing about checkout. No checkout runbook exists in the payload. Checkout error rate exceeds 1/s, the page fires, the on-call opens the linked runbook and is told to 'check the largest folders'. They lose time on the wrong problem during a revenue-affecting outage."
+ },
+ {
+  "id": "F97e4690a",
+  "app": "fixture10-clean",
+  "finding": "deploy/web.yaml:13 The Deployment has no replicas, rollout strategy, liveness probe, resource requests or securityContext, and the template has no labels or selector. A Deployment without spec.selector and matching template labels is rejected by the API server (apps/v1). Even with those fixed, defaulting to a single replica with no requests gives no availability, bad scheduling and no restart on a hung process. The rollback and rollout behaviour is unspecified."
+ },
+ {
+  "id": "Fb70b7b42",
+  "app": "fixture10-clean",
+  "finding": "The bug agents left out some smaller points that did not meet the high-signal bar. In app/report.py, password_policy is ignored and a hard-coded string is logged, and bool(rows) is logged as \"has token\"."
+ },
+ {
+  "id": "F906fd446",
+  "app": "fixture10-clean",
+  "finding": "The first agent could not run git (Bash was denied), so I listed the changed files and searched for CLAUDE.md myself."
+ },
+ {
+  "id": "F32f00b6e",
+  "app": "fixture10-clean",
+  "finding": "app/auth.py:9 login() ignores the password and always returns True, so authentication is bypassed. login('anyone', 'wrong-password', None) returns True. Any caller that gates access on this function lets every user in with any password."
+ },
+ {
+  "id": "Fd9d02007",
+  "app": "fixture10-clean",
+  "finding": "monitoring/alerts.yml:19 PaymentsDown alerts on up == 0, which is silent when the payments job disappears from scraping. If the payments target is removed from service discovery, or Prometheus stops scraping it, no up series exists and the expression returns nothing. The alert never fires while payments are down. It needs absent(up{job=\"payments\"}) or an or clause."
+ },
+ {
+  "id": "F73416e46",
+  "app": "fixture10-clean",
+  "finding": "app/auth.py:7 The username is logged on every login attempt at INFO and again at DEBUG, with no sanitization. A user who types their password into the username field has it written to the logs. A username containing newlines can forge log lines. The DEBUG line duplicates the INFO line, so it adds nothing. The log also has no outcome and no source IP."
+ },
+ {
+  "id": "F05155278",
+  "app": "fixture10-clean",
+  "finding": "docs/runbooks/disk-full.md:3 Disk-full runbook is one non-actionable step. docs/runbooks/disk-full.md has a single line. docs/runbooks/queue-backlog.md:3 is likewise a single line ('1. Scale the workers.'). Neither gives a command, a safe-to-delete list, a verification or an escalation path. DiskFull fires at under 5% free. The on-call is told only to look at folders, with no path, command, what may be removed, or whom to call. Queue backlog: 'Scale the workers' names no command, limit or check that the backlog is draining."
+ },
+ {
+  "id": "F533f1f78",
+  "app": "fixture10-clean",
+  "finding": "app/auth.py:11 login() returns True for every caller; the password is never checked. app/auth.py:[redacted] The function takes user, password and api_key. It logs, warns when api_key is empty, then returns True. password is never read and no credential store is consulted. The change map shows no other file calls it, so nothing downstream re-checks. login('alice', 'wrong-password', None) returns True (the missing key only logs a warning). Any caller that treats the return value as 'authenticated' admits any user with any password."
+ },
+ {
+  "id": "F818f5d8f",
+  "app": "fixture10-clean",
+  "finding": "Authentication bypass in app/auth.py (login, lines 6\u201311). It ends in an unconditional return True. password is never read, and a missing api_key only logs a warning. Every caller is authenticated. Nothing in the repo marks it as a stub or dev-only."
+ },
+ {
+  "id": "F79e5ee2a",
+  "app": "fixture10-clean",
+  "finding": "app/auth.py:15 rotate() writes the last 4 characters of a live token to stdout. app/auth.py:[redacted] print goes to stdout, which the process manager collects into logs. It bypasses the logging config used elsewhere in the file. It also raises IndexError-free output only because token[-4:] never fails on short strings; a token of 4 characters or fewer is printed in full. rotate('abcd') prints the whole token 'abcd' to stdout and so to the log store. Any token of 8 characters or fewer loses at least half its value, and the suffix cuts guessing effort for longer tokens."
+ },
+ {
+  "id": "F1539f963",
+  "app": "fixture10-clean",
+  "finding": "deploy/web.yaml:11 web container has a readiness probe but no liveness probe. deploy/web.yaml:9-14. Only readinessProbe is set. Memory and CPU limits are set, but no requests. The web process deadlocks but stays alive. Readiness fails and traffic stops, but Kubernetes never restarts the container, so the pod stays out of service until someone intervenes by hand."
+ },
+ {
+  "id": "Fef36437f",
+  "app": "fixture10-clean",
+  "finding": "app/auth.py:12 rotate() does not rotate anything and uses print() instead of logging. rotate(token) only prints the last 4 characters of the token to stdout. No new token is issued and the old one is not revoked, yet callers believe the rotation happened. The print also writes token material to stdout and bypasses the logging config."
+ },
+ {
+  "id": "Fd78ef5b7",
+  "app": "fixture10-clean",
+  "finding": "monitoring/alerts.yml:4 Alerts have no for: duration or severity label, and QueueBacklog and PaymentsDown have no summary annotation. A single 5-minute spike pages immediately, because there is no for: clause to absorb it. Without a severity label, Alertmanager cannot route or prioritize. The QueueBacklog and PaymentsDown pages arrive with no human-readable summary."
+ },
+ {
+  "id": "Fe2574d96",
+  "app": "fixture10-clean",
+  "finding": "monitoring/alerts.yml:8 The CheckoutErrors alert points its runbook_url at the disk-full runbook, which is the wrong runbook. A checkout-error page sends the on-call engineer to 'Disk full: check the largest folders'. That has nothing to do with checkout failures, so mitigation is delayed. No checkout runbook exists in docs/runbooks."
+ },
+ {
+  "id": "F8120fd8d",
+  "app": "fixture10-clean",
+  "finding": "docs/runbooks/queue-backlog.md:3 Queue-backlog runbook is one unactionable step. docs/runbooks/queue-backlog.md has a single line. It does not say which deployment, how to scale it, how to confirm the backlog is draining, or what to do if more workers do not help (poison message, downstream outage). docs/runbooks/disk-full.md is equally thin ('Check the largest folders.') with no cleanup step, no safe-to-delete list and no escalation. queue_depth > 1000 fires at 3am. The engineer reads 'Scale the workers' with no command, name or limit. If the cause is a stuck consumer, scaling does nothing and the runbook has no next step."
+ },
+ {
+  "id": "F909d5e71",
+  "app": "fixture10-clean",
+  "finding": "login never checks the password (app/auth.py, lines 6\u201311). It accepts password and api_key but always returns True. Any user name with any password, or none, counts as authenticated. A missing API key only logs a warning. The function is an authentication bypass for every caller that trusts the return value."
+ },
+ {
+  "id": "F1d751101",
+  "app": "fixture10-clean",
+  "finding": "web/client.js:2 call() logs userName to the console on every request and does not check the fetch response status or handle errors. The user name appears in browser console output on every call. A 401 or 500 response is returned as if it succeeded, so callers must remember to check .ok. A missing apiKey sends an x-api-key: undefined header."
+ },
+ {
+  "id": "F4a359a99",
+  "app": "fixture10-clean",
+  "finding": "deploy/web.yaml:11 web container has no livenessProbe and no resource requests. deploy/web.yaml:9-14. Only a readinessProbe and limits are set. No livenessProbe, no startupProbe, no requests. With limits and no requests, Kubernetes sets requests equal to limits, which may be intended; no comment says so. The web process deadlocks but the port stays open or the container keeps running. Readiness removes it from the service, but nothing restarts it, so capacity quietly shrinks until someone restarts it by hand."
+ },
+ {
+  "id": "Fa483da13",
+  "app": "fixture10-clean",
+  "finding": "The two bug agents reported the same three issues."
+ },
+ {
+  "id": "Fc64c9d5c",
+  "app": "fixture10-clean",
+  "finding": "app/settings/production.py:2 Production settings define no SECRET_KEY, security cookie flags, HTTPS redirect or HSTS. Only DEBUG and ALLOWED_HOSTS are set. If the settings are Django-style, SECRET_KEY comes from an unspecified source and SESSION_COOKIE_SECURE, CSRF_COOKIE_SECURE and SECURE_SSL_REDIRECT stay at their insecure defaults. Cookies can then travel over plain HTTP."
+ },
+ {
+  "id": "Fb5971d39",
+  "app": "fixture10-clean",
+  "finding": "Wrong runbook link in monitoring/alerts.yml (CheckoutErrors). Its runbook_url is docs/runbooks/disk-full.md, the same file the DiskFull alert uses. Every other alert links to a runbook named after itself, and no checkout runbook exists. Whoever is paged for checkout errors is told to check disk space.\n\nCLAUDE.md compliance: both compliance agents found nothing to flag, because the repo has no CLAUDE.md file.\n\nReview process:"
+ }
+]

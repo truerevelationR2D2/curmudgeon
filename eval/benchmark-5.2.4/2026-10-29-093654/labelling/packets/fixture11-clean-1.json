@@ -1,0 +1,52 @@
+[
+ {
+  "id": "F2ff251d1",
+  "app": "fixture11-clean",
+  "finding": "app.js lines 5\u20136: save and report are never defined or imported.\nThe repo contains only app.js and notes.js. app.js imports nothing, and notes.js doesn't export either name.\nsave(data) on line 6 throws a ReferenceError on every call. Its catch then calls report(e), which throws a second, uncaught ReferenceError.\nrender() therefore never reaches return data;, whatever the input. The catch on line 5 fails the same way whenever JSON.parse throws.\nCaveat: the failure assumes nothing outside the repo supplies save and report as globals. Nothing in the repo does, and the validator found no support for that.\nLikely \nFixture note: the header comment calls app.js \"the same module written safely\". If it is meant as a clean twin for a scanner test, it isn't actually clean.\n\nNot flagged: notes.js is clean. Its risky-looking patterns appear only in comments and strings.\n\nThe two bug agents disagreed on item 1. One reported it. The other saw the same calls but held back because the names could be browser globals. The validator then found nothing in the repo that defines them.\n\nThe validator couldn't run Bash, so it checked with Read, Grep, Glob and the git files on disk. It couldn't open the three non-commit git objects, but the file listing shows only the two files.\n\nNothing was posted and no files were changed."
+ },
+ {
+  "id": "Fa41915ad",
+  "app": "fixture11-clean",
+  "finding": "notes.js:17 safe() returns a sum of string lengths that has no relation to its name or its el/text arguments. A caller treats safe(el, text) as a render helper and uses its return value as something meaningful. It gets a constant number (HELP.length + RULE.length + SAMPLE.length) that is unrelated to the input. This is probably a fixture artifact, but it is a misleading API."
+ },
+ {
+  "id": "F41253859",
+  "app": "fixture11-clean",
+  "finding": "app.js:5 A parse failure is reported, but save(null) still runs afterwards. A missing cart (null) is also saved with no guard. The cart key is absent, or its JSON is corrupt. data stays null and save(null) is called. If save persists its argument, it can overwrite the stored cart with null."
+ },
+ {
+  "id": "F7858f42e",
+  "app": "fixture11-clean",
+  "finding": "notes.js:14 SAMPLE is a template literal holding code with an empty catch (e) {}, and notes.js has no report or save. It is only inert string data. A scanner or lint rule that does not strip strings and comments will flag the decoy lines in notes.js and app.js. No runtime bug results, since these are strings, so this is low risk."
+ },
+ {
+  "id": "Fa9be999c",
+  "app": "fixture11-clean",
+  "finding": "app.js looks like a clean-twin fixture, meaning the safe version of a risky module. It uses textContent, wraps JSON.parse in a try block, and its catch blocks call report(e). report and save are not defined in the file. For a fixture that is intentional and not a defect."
+ },
+ {
+  "id": "Fb716b180",
+  "app": "fixture11-clean",
+  "finding": "notes.js looks like a decoy fixture. Every risky pattern (eval(, document.write(, innerHTML +=, empty catch, setInterval(, console.log() appears only in comments, strings or a template literal. None of it runs."
+ },
+ {
+  "id": "F22fb299a",
+  "app": "fixture11-clean",
+  "finding": "app.js:6 render() always throws: save and report are never defined or imported, so the catch handler itself throws. app.js has no import, no declaration and no export of save or report (whole file read, 8 lines). notes.js, the only other file, does not define them either; the change map reports no other file refers to these files. Traced: line 6 calls undefined save -> ReferenceError -> the catch calls undefined report -> a second ReferenceError that nothing catches. Line 5 has the same flaw for corrupt JSON. I could not execute it (Bash was denied), so this is traced, not run. Call render(el, 'x') with an empty localStorage. Line 3 sets textContent, line 5 parses null (fine), line 6 throws ReferenceError: save is not defined, the catch calls report(e), which throws ReferenceError: report is not defined. render() never returns data; the caller gets an exception on every call. With corrupt JSON in the 'cart' key, line 5 fails the same way."
+ },
+ {
+  "id": "F6f59b9ea",
+  "app": "fixture11-clean",
+  "finding": "app.js:5 report is called in the catch blocks but is never defined or imported. The error handler itself throws. localStorage.getItem('cart') returns corrupt JSON, or localStorage is unavailable (SSR, a Node test, or a private window that blocks storage). JSON.parse or the localStorage access throws and the catch calls report(e). That raises a ReferenceError, which masks the original error and crashes render."
+ },
+ {
+  "id": "F57a0e924",
+  "app": "fixture11-clean",
+  "finding": "app.js:6 save is called but never defined or imported in this module, so the call always throws. render() runs. save(data) throws a ReferenceError. The catch block then calls report(e), which is also undefined, so a second ReferenceError escapes from the catch. Every call to render throws, and return data is never reached."
+ },
+ {
+  "id": "F7cd297ca",
+  "app": "fixture11-clean",
+  "finding": "app.js:6 render() always throws: save and report are never defined or imported. app.js has no import and no declaration of save or report (grep over the workspace finds them only at app.js:5 and app.js:6). In an ES module (it uses export) a call to an undeclared identifier throws ReferenceError. Line 6 therefore throws on every call; the catch then calls report(e), which throws a second ReferenceError from inside the catch block. Nothing catches it. Call render(el, 'x') with localStorage.getItem('cart') returning null or valid JSON. el.textContent is set, JSON.parse succeeds, save(data) throws ReferenceError: save is not defined, the catch calls report(e) and throws ReferenceError: report is not defined. render never reaches 'return data', so every caller gets an exception instead of the cart. Corrupt JSON in localStorage ('{bad') also hits line 5's catch, which throws the same ReferenceError, so the error handling meant to survive bad data is itself the crash."
+ }
+]

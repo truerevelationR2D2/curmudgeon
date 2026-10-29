@@ -1,0 +1,122 @@
+[
+ {
+  "id": "F066297ea",
+  "app": "fixture9-clean",
+  "finding": "src/cart.py:2 Money is summed as binary floats with no rounding or display rule, so REQ-3 has no implementation. total([0.1, 0.2]) evaluates to 0.30000000000000004 in Python floats. Nothing in src/ rounds or formats to two decimals (docs/requirements.md:5). A UI that shows str(total([0.1, 0.2])) displays 0.30000000000000004. Sums of many prices drift by fractions of a cent, and the total can differ from the sum of the displayed line prices."
+ },
+ {
+  "id": "F1b7f3aef",
+  "app": "fixture9-clean",
+  "finding": "src/cart.py:1 REQ-4 (empty cart cannot be checked out) is implemented nowhere. docs/requirements.md:9 states REQ-4. src/cart.py holds only total() and discounted(); there is no checkout function, no guard, no raise for an empty list. total([]) returns sum([]) == 0 and nothing refuses it. A caller passes an empty cart: total([]) returns 0 and discounted(0, 10) returns 0.0. Nothing in the module signals 'cannot check out', so a zero-value order goes through."
+ },
+ {
+  "id": "Feb390266",
+  "app": "fixture9-clean",
+  "finding": "tests/test_cart.py:9 The discount tests cover only one case, where the floor is hit (percent above 100). The normal reduction path and the 0% and 100% boundaries are untested. A regression such as swapping to total_ * percent / 100 would still pass test_discount_floor. discounted(10, 150) gives max(0, -5) = 0, and the wrong formula 10 * 150 / 100 = 15 would also not be caught. REQ-2's 'reduces by its percentage' has no test."
+ },
+ {
+  "id": "Fd954067c",
+  "app": "fixture9-clean",
+  "finding": "tests/test_cart.py:16 test_empty_checkout is labelled REQ-4 but does not test it: it only asserts total([]) == 0, and no code rejects an empty cart. REQ-4 says an empty cart cannot be checked out. src/cart.py has no checkout function and nothing raises or refuses on empty input. The test passes while REQ-4 is unimplemented, so traceability shows it as covered. A broken or missing empty-cart guard would never be caught."
+ },
+ {
+  "id": "F025d9749",
+  "app": "fixture9-clean",
+  "finding": "tests/test_cart.py:13 test_rounding applies the two-decimal formatting itself, so it cannot fail on a rounding bug in the code. The :.2f is in the test, not in src/cart.py. Any total within 0.005 of 0.30 gives '0.30'. Traced mutant: changing total to return sum(prices) + 0.001 gives 0.301, which formats as '0.30' and the test still passes. Sandbox bash was denied, so this is traced, not executed. total() returns 0.30000000000000004 or 0.301 and test_rounding still passes. REQ-3 (two decimals shown) is never exercised in product code."
+ },
+ {
+  "id": "F83d22cfa",
+  "app": "fixture9-clean",
+  "finding": "REQ-4 has no implementation, and its test doesn't check it.\ndocs/requirements.md says \"An empty cart cannot be checked out.\"\nsrc/cart.py has no checkout function and no guard that rejects an empty cart.\ntests/test_cart.py:16-17, labelled # REQ-4, only asserts total([]) == 0. That is true whether or not checkout is blocked, so the test would pass on an implementation that violates REQ-4.\nEither implement the guard and test that an empty checkout raises or is refused, or mark REQ-4 as not yet implemented and remove the # REQ-4 label."
+ },
+ {
+  "id": "F1e94b8b4",
+  "app": "fixture9-clean",
+  "finding": "tests/test_cart.py:1 The test imports from src.cart import ..., but there is no init.py or conftest or pytest config, so import success depends on how pytest is run. Running pytest from the repo root uses rootdir/rootless import mode. Without src/init.py or a pythonpath setting, collection can fail with ModuleNotFoundError, depending on the rootdir and invocation. Namespace-package behaviour makes it work only in some setups."
+ },
+ {
+  "id": "F2dc9890f",
+  "app": "fixture9-clean",
+  "finding": "Code review\n\nI reviewed git diff main...HEAD (\"Add the app\") with four agents and validated each bug finding. Two issues were confirmed, and both are false requirement coverage in tests/test_cart.py. I posted nothing and changed no files."
+ },
+ {
+  "id": "F13fd13c1",
+  "app": "fixture9-clean",
+  "finding": "REQ-4 is neither implemented nor tested.\ntest_empty_checkout is tagged # REQ-4. REQ-4 says \"An empty cart cannot be checked out\" (docs/requirements.md).\nThe test only asserts total([]) == 0, which is REQ-1 behaviour.\nsrc/cart.py has only total() and discounted(), so nothing refuses an empty checkout. The test passes either way."
+ },
+ {
+  "id": "F50aa1a48",
+  "app": "fixture9-clean",
+  "finding": "The REQ-3 test never touches the code under test.\ntests/test_cart.py:12-14 builds the string with f\"{...:.2f}\" inside the test. It checks Python's formatting of total([0.1, 0.2]).\nNothing in src/cart.py formats prices, so REQ-3 is not implemented, and this test passes whatever cart.py does.\nEither add a formatting function in src/cart.py and call it from the test, or drop the REQ-3 label.\n\nI did not flag anything else. discounted() clamps correctly for percentages above 100, and total() and its test match REQ-1. The \"REQ-9 \u2026 mentioned here, not defined\" line is deliberate and reads as a decoy."
+ },
+ {
+  "id": "F2f93bec6",
+  "app": "fixture9-clean",
+  "finding": "tests/test_cart.py:16 test_empty_checkout claims REQ-4 but asserts the opposite behaviour of the requirement. The body is assert total([]) == 0. REQ-4 says an empty cart cannot be checked out; the test only pins that the sum of nothing is 0. No checkout is called and no refusal is asserted. Because the citation comment marks REQ-4 as covered, the gap in src/cart.py (no guard) is hidden. Implement REQ-4 by making total([]) raise, and this test fails; leave REQ-4 unimplemented and it passes. It protects the wrong behaviour."
+ },
+ {
+  "id": "F5a29fbac",
+  "app": "fixture9-clean",
+  "finding": "src/cart.py:6 discounted() does not validate percent. A negative percent raises the total, and a percent above 100 is only hidden by the max(0, ...) clamp. discounted(100, -50) returns 150, so a bad or negative discount code increases the price. REQ-2 says a code reduces the total. Passing None or a string raises TypeError."
+ },
+ {
+  "id": "F31e156d8",
+  "app": "fixture9-clean",
+  "finding": "src/cart.py:6 The discounted total is never rounded to two decimals, and it returns an int 0 or a float depending on the branch. discounted(10, 33) returns 6.7 and discounted(1, 33) returns 0.67, which only rounds correctly by luck. Float artifacts such as 6.699999999999999 can come out, which REQ-3 (two decimals) forbids. The int 0 versus float return type is inconsistent for callers."
+ },
+ {
+  "id": "F7e1fc354",
+  "app": "fixture9-clean",
+  "finding": "docs/requirements.md:11 REQ-9 is mentioned as 'dropped' but not defined, and REQ-4 is defined only in a table while REQ-1 to REQ-3 are bullets. The mixed formats and the dangling reference make traceability ambiguous. A requirement-ID scanner that parses only the bullet format misses REQ-4. One that matches any REQ-N token treats REQ-9 as a live requirement with no implementation or test, which reports a false gap. The formats need to be uniform and the dropped ID marked explicitly."
+ },
+ {
+  "id": "F637b8c38",
+  "app": "fixture9-clean",
+  "finding": "src/cart.py:1 total() sums floats directly and does not check for negative or None prices, which risks float drift and negative totals. total([0.1, 0.2]) is 0.30000000000000004. A negative price entry lowers the total silently. REQ-1 and REQ-2 imply nonnegative amounts, but there is no guard. Using Decimal or integer cents would avoid the drift."
+ },
+ {
+  "id": "F0a64f754",
+  "app": "fixture9-clean",
+  "finding": "tests/test_cart.py:12 test_rounding formats the value inside the test with an f-string, so it checks Python's formatting rather than any product code. REQ-3 is not enforced anywhere in src. src/cart.py has no rounding or display function. The test would pass even if total() returned 0.30000000000000004 to users, because the f-string does the rounding. REQ-3 is marked covered but is not."
+ },
+ {
+  "id": "F0bb4d29e",
+  "app": "fixture9-clean",
+  "finding": "Code review: git diff main...HEAD (commit d1be95d)\n\nI read the diff directly. It is 34 added lines in three files, so I didn't launch subagents. There is no CLAUDE.md in the repo, so there was nothing to check for compliance. I changed no files.\n\nTwo issues survived my own validation, and both are requirements without real coverage:"
+ },
+ {
+  "id": "Faf1749a2",
+  "app": "fixture9-clean",
+  "finding": "tests/test_cart.py:13 REQ-3 test formats the value itself, so it tests Python's f-string and not the code; the code returns unrounded floats. The test applies :.2f in the test body; nothing in src/cart.py does any formatting or rounding. total([0.1, 0.2]) returns 0.30000000000000004 (run). The test passes whatever total or any display code does. Any display code that prints total() directly shows 0.30000000000000004 and the suite stays green. Money is also summed as binary floats, so totals drift (0.1 + 0.2 != 0.3)."
+ },
+ {
+  "id": "Fee7d669d",
+  "app": "fixture9-clean",
+  "finding": "tests/test_cart.py:17 test_empty_checkout is labelled REQ-4 but asserts the opposite behaviour. The test (tests/test_cart.py:16-17) checks that an empty cart totals 0. REQ-4 (docs/requirements.md:9) says an empty cart cannot be checked out. The test passes on the current code and would also pass if checkout were wholly missing, as it is. Any implementation that lets an empty cart through to payment still passes this test, so the suite reports REQ-4 as covered while it is not."
+ },
+ {
+  "id": "F6cdeeab0",
+  "app": "fixture9-clean",
+  "finding": "tests/test_cart.py:9 The only discount test covers the floor, so the percentage reduction in REQ-2 is unprotected. Every case in test_discount_floor has a result of 0 because of max(0, ...). Traced mutants that still pass: '[redacted]'; 'max(0, total_ - percent)' (10 - 150 gives 0); 'max(0, total_ * (100 - percent))' with the /100 dropped (10 * -50 gives 0). No test uses a percent in 1..99. discounted(100, 10) could return 90, 99, 0 or 100 and the suite stays green. A wrong discount charges customers the wrong amount."
+ },
+ {
+  "id": "Fa06071c2",
+  "app": "fixture9-clean",
+  "finding": "src/cart.py:6 discounted() accepts any percent, so a negative percent raises the price instead of reducing it. REQ-2 (docs/requirements.md:4) says a code reduces the total. For percent=-50, (100 - -50)/100 = 1.5, so discounted(10, -50) returns 15.0. The function never validates 0 <= percent <= 100. percent > 100 is silently floored, which hides a bad code. A discount code with a negative or mistyped percentage, such as -50, charges 15 on a 10 cart with no error."
+ },
+ {
+  "id": "F1e422e08",
+  "app": "fixture9-clean",
+  "finding": "src/cart.py:1 REQ-4 (an empty cart cannot be checked out) is not implemented anywhere. src/cart.py holds only total() and discounted(). There is no checkout function and no emptiness check. docs/requirements.md:9 states the rule. grep of the three files finds no 'checkout' in code. A caller with an empty cart calls total([]) and gets 0, then proceeds to pay 0. Nothing refuses it, so the written rule is contradicted."
+ },
+ {
+  "id": "Fc1783dbc",
+  "app": "fixture9-clean",
+  "finding": "tests/test_cart.py:9 REQ-2 test only covers the floor; the percentage reduction is untested and negative percentages raise the price. Mutation run in-process: replacing discounted with lambda a, p: 0 still passes test_discount_floor. No test checks a normal discount such as discounted(100, 10) == 90. In src/cart.py:6 percent is not validated. A change that returns 0 for every code (or ignores percent) passes the suite while every customer gets a free cart. Separately, discounted(100, -50) returns 150.0: a negative-percent code increases the total, contradicting 'reduces the total'."
+ },
+ {
+  "id": "F2c88a057",
+  "app": "fixture9-clean",
+  "finding": "docs/requirements.md:9 REQ-4 (empty cart cannot be checked out) is implemented nowhere; its test asserts the opposite-looking behaviour. src/cart.py has only total() and discounted(); no checkout function, no guard, no exception. tests/test_cart.py:16-17 is tagged REQ-4 but asserts total([]) == 0, which treats an empty cart as a valid cart with total 0. Traced; total([]) returned 0 when run. A caller checks out [] : total([]) returns 0 and nothing refuses it, so a zero-value order goes through. The suite is green, so the missing rule is reported as covered."
+ }
+]

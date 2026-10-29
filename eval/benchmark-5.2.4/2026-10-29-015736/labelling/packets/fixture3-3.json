@@ -1,0 +1,182 @@
+[
+ {
+  "id": "Fbfc787c8",
+  "app": "fixture3",
+  "finding": "app.js:71 After Delete, render() rebuilds the list and drops the focused button, so keyboard focus is lost. A keyboard or screen-reader user presses Delete and confirms. The focused button is removed from the DOM and focus resets to the body. They must tab through the page again to reach the next item."
+ },
+ {
+  "id": "F0f45889c",
+  "app": "fixture3",
+  "finding": "app.js:43 importRecipes is dead code and would produce bad records if it were used. Nothing calls it. If it were wired up, it would not trim names or skip blank lines. A trailing newline would yield {name: undefined, minutes: 0}, and a non-numeric minutes value would give NaN. It would also bypass the minutes > 0 validation and the name string filter in loadRecipes."
+ },
+ {
+  "id": "Fa6b00bb6",
+  "app": "fixture3",
+  "finding": "totalMinutes doesn't check that stored minutes is a number, so tampered localStorage could give a wrong total."
+ },
+ {
+  "id": "F1831fc68",
+  "app": "fixture3",
+  "finding": "app.js:33 The delete handler calls describe(r) without checking that the recipe was found. The comment on line 14 says r is never null, but loadRecipes does not guarantee that. localStorage holds [{\"name\":\"x\",\"minutes\":5}] with no id, or with a numeric id. The li renders with data-id=\"undefined\" or a string id, and recipes.find(x => x.id === id) returns undefined. Clicking Delete throws \"Cannot read properties of undefined (reading 'name')\" inside describe, so the entry can never be removed. Duplicate ids also make find return the wrong recipe."
+ },
+ {
+  "id": "F0f463430",
+  "app": "fixture3",
+  "finding": "app.js:37 After a keyboard delete the focused button is destroyed by innerHTML and focus drops to body. Driven: focused the first Delete button, pressed Enter, accepted the confirm; document.activeElement.tagName was BODY. render() at app.js:10 replaces the whole list. Status is announced by role=status, but keyboard position is lost (WCAG 2.4.3 Focus Order, AA). A keyboard or switch user deletes one of ten recipes; focus restarts at the top of the document and they must tab through the form again to reach the next Delete."
+ },
+ {
+  "id": "F434f7192",
+  "app": "fixture3",
+  "finding": "app.js:3 Each tab keeps its own copy of the list and the last save overwrites the other tab's recipes. Driven: two pages on the same origin, both loaded empty. Tab A saved 'FromA', then tab B saved 'FromB'. Storage held only [FromB]. The app never re-reads storage before a write and has no 'storage' event listener. The user keeps the app open in two tabs (or a restored session), adds a recipe in each. The first tab's recipe is erased from storage with a 'Saved' message."
+ },
+ {
+  "id": "Fd47e0de4",
+  "app": "fixture3",
+  "finding": "Dead code: importRecipes in app.js is never called, so its missing trim and NaN handling cannot cause a wrong result today. Likewise getJson in util.js is never called."
+ },
+ {
+  "id": "F34e08836",
+  "app": "fixture3",
+  "finding": "The describe comment says render calls it, which is wrong but harmless."
+ },
+ {
+  "id": "Fbdcf652f",
+  "app": "fixture3",
+  "finding": "The delete handler ignores whether saveRecipes succeeded, so it can show \"Deleted\" after a failed save."
+ },
+ {
+  "id": "Fd90700e0",
+  "app": "fixture3",
+  "finding": "app.js:77 importRecipes is dead code, and it does no validation if it is ever called. Nothing calls it. If it were wired up, a trailing newline or a blank line would produce {name: undefined, minutes: NaN}. A name containing a comma would be truncated. Non-numeric minutes would pass through unchecked. Remove it, or validate its rows and filter out the invalid ones."
+ },
+ {
+  "id": "Fe0f8278b",
+  "app": "fixture3",
+  "finding": "CLAUDE.md compliance: The repo has no CLAUDE.md files, so both compliance agents reported nothing. I did not run git diff main...HEAD for the search; I searched the working tree for CLAUDE.md instead, and I did not confirm that against the diff."
+ },
+ {
+  "id": "Fd6e49b50",
+  "app": "fixture3",
+  "finding": "app.js:37 After delete, render() replaces the whole list. The focused Delete button is destroyed and keyboard focus drops to the body. A keyboard or screen-reader user activates Delete and confirms. Focus resets to the document start and they must tab through the whole page again. The app should move focus to the next item's Delete button, or to the status or heading."
+ },
+ {
+  "id": "F0eb582f1",
+  "app": "fixture3",
+  "finding": "store.js:7 Loader only checks name; records with string, missing or non-finite minutes poison the total and the list. totalMinutes (store.js:23) does sum + r.minutes with no coercion, and the render uses Number(r.minutes). Driven: stored [{name:'Old soup',minutes:'20'},{name:'No time'},{name:'Num id',id:123,minutes:5}], then added New/10. Status read: \"Total cooking time: 020undefined510 minutes.\" and the list showed \"No time NaN min\". Any saved record from an earlier shape (minutes as a string, minutes absent) makes the success message after every add show string-concatenated garbage instead of a number. The wrong total is shown as a confirmed result."
+ },
+ {
+  "id": "F742c14c4",
+  "app": "fixture3",
+  "finding": "app.js:37 Deleting a recipe re-renders the list and drops keyboard focus to the page body. The delete handler (app.js:29-38) activates a button inside li, then render() replaces listEl.innerHTML, which destroys the focused button. Nothing moves focus afterwards. WCAG 2.4.3 Focus Order (Level A) is affected. A keyboard user tabs to the third Delete and confirms. Focus resets to the document start. They must tab through the heading and form again to reach the next recipe. A screen reader loses its position, though it does hear the status text."
+ },
+ {
+  "id": "Fc17ed384",
+  "app": "fixture3",
+  "finding": "app.js:37 After a keyboard delete the focused button is destroyed and focus drops to the page start. The delete handler calls render() (app.js:37). render replaces listEl.innerHTML (app.js:10), which removes the focused Delete button. Nothing moves focus afterwards. Traced; the browser resets focus to body when the focused element is removed. WCAG 2.4.3 Focus Order. A keyboard user tabs to the Delete button on the 5th recipe, presses Enter and confirms. Focus goes to body, so the next Tab starts again at the first control and the user has to tab past every remaining recipe. The status message is announced, but the position is lost."
+ },
+ {
+  "id": "Fb1637d0f",
+  "app": "fixture3",
+  "finding": "app.js:21 The minutes check uses parseInt, so decimal input is silently truncated and trailing junk is accepted. The 1\u2013600 limit is not enforced in JS. Entering \"1.5\" stores 1 minute. Programmatic or paste input such as \"20abc\" stores 20. A value like 99999 passes the JS check if the HTML constraint is bypassed, because only > 0 is tested."
+ },
+ {
+  "id": "Fa07dc70d",
+  "app": "fixture3",
+  "finding": "Validation: Neither bug agent returned an issue, so there was nothing for the step 5 validators to check.\n\nBoth bug agents and the change summary noted problems that fall below the bar for flagging:"
+ },
+ {
+  "id": "F324c892c",
+  "app": "fixture3",
+  "finding": "Delete handler: recipes.find can't return undefined there, because the id comes from a rendered row."
+ },
+ {
+  "id": "Fb6e4e821",
+  "app": "fixture3",
+  "finding": "store.js:7 Loaded records are checked for name only; missing or string minutes produce NaN and garbage totals. totalMinutes (store.js:23) sums r.minutes unchecked and render shows Number(r.minutes). Driven (T1, T1b): stored [{\"name\":\"Soup\"}] then add Pie 30 gave 'Total cooking time: NaN minutes' and 'Soup NaN min'. Stored minutes \"20\" gave 'Total cooking time: 02030 minutes'. Any record from an older version or hand edit with missing or string minutes: the next successful save announces a wrong total ('NaN' or '02030' minutes) as a confirmed save."
+ },
+ {
+  "id": "Fdf38d6c3",
+  "app": "fixture3",
+  "finding": "A comment on describe in app.js says render calls it, but only the delete handler does.\n\nI posted nothing and changed no files."
+ },
+ {
+  "id": "Fb1949438",
+  "app": "fixture3",
+  "finding": "app.js:21 parseInt silently truncates decimals, and the JS never enforces the HTML max of 600. Entering 1.5 stores 1 minute. Entering 0.5 parses to 0 and shows 'Give the recipe a name...' even though the field has a value. The max=600 limit is enforced only by the browser form check, so it is bypassed whenever submit validation is skipped."
+ },
+ {
+  "id": "Ff3d8b672",
+  "app": "fixture3",
+  "finding": "store.js:54 A JSON.parse failure or blocked storage returns [] with no message, although the comment says app.js tells the user. app.js never does. The stored value is corrupt or truncated. The app starts empty and shows 'No recipes yet'. The next add or delete calls saveRecipes and overwrites the corrupt value, so recoverable data is lost permanently and the user was never warned."
+ },
+ {
+  "id": "Faf4c480d",
+  "app": "fixture3",
+  "finding": "app.js:37 After Delete the focused button is destroyed and focus falls to the page body. render() replaces list.innerHTML (app.js:10). Driven: after confirming a delete, document.activeElement was BODY. The status line is announced, but a keyboard user starts again from the top of the page. Keyboard user tabs to the third Delete button, presses Enter, confirms. Focus resets to the document start; to delete the next recipe they must tab through the heading and form again (WCAG 2.4.3 Focus Order)."
+ },
+ {
+  "id": "F5f5d18f2",
+  "app": "fixture3",
+  "finding": "Dead code: importRecipes in app.js and getJson in util.js are never called."
+ },
+ {
+  "id": "F41e3e190",
+  "app": "fixture3",
+  "finding": "app.js:66 A recipe loaded from storage can lack a valid id, so the delete handler's find returns undefined and describe(undefined) throws. loadRecipes only checks typeof r.name === 'string'. A stored entry like {\"name\":\"x\",\"minutes\":5} with no id renders data-id=\"undefined\". dataset.id is then the string 'undefined', which never equals the real undefined id, so r is undefined. Clicking Delete throws a TypeError inside describe (line 49), and the entry can never be removed. The comment on line 48 claims r is never null, which is wrong."
+ },
+ {
+  "id": "F414acb2f",
+  "app": "fixture3",
+  "finding": "Edge cases, not flagged: a hand-edited or corrupt localStorage entry could make totalMinutes concatenate strings. Delete ignores a failed save. Both depend on specific input or state, so I held back under the review's high-signal rule."
+ },
+ {
+  "id": "F2d892fe6",
+  "app": "fixture3",
+  "finding": "app.js:23 Each tab keeps its own in-memory copy and saves the whole list, so a second tab erases the first tab's recipes. Driven with two pages in one browser context, both loaded empty. Tab 1 adds FromTab1, Tab 2 adds FromTab2. localStorage afterwards: [{\"id\":...,\"name\":\"FromTab2\",\"minutes\":6}]. There is no 'storage' event listener and no re-read before save (app.js:3 reads once). Open the app in two tabs, add a recipe in each: the recipe added first is gone after the second save, and no message appears. Delete in a stale tab likewise resurrects or removes the wrong set."
+ },
+ {
+  "id": "Fde4e1628",
+  "app": "fixture3",
+  "finding": "app.js:21 parseInt on a number input stores \"1e2\" (a valid 100) as 1 minute. A type=number input accepts exponent notation and its validity check passes for 1e2 (index.html:17). parseInt stops at 'e'. Driven (T4): entering 1e2 gave 'Saved \u201cRoast\u201d. Total cooking time: 1 minutes.' and a list row of '1 min'. The user types 1e2 or pastes 1.5e1 in Minutes. The app stores 1 or 1, confirms the save, and shows the wrong time."
+ },
+ {
+  "id": "F2124d2d4",
+  "app": "fixture3",
+  "finding": "styles.css:4 A long unbroken recipe name forces sideways scrolling at 390 px. The list item has no overflow-wrap or min-width rule. Driven at a 390 px viewport after saving an 80-character name (the maxlength) with no spaces: documentElement.scrollWidth is 624 against a clientWidth of 390. On a phone, a user saves 'aaaa...' of 80 characters, or a long URL-like name. The whole page scrolls sideways and the Delete button is off-screen. This fails WCAG 1.4.10 (Reflow, level AA)."
+ },
+ {
+  "id": "F1d74de86",
+  "app": "fixture3",
+  "finding": "app.js:74 The 'shortcut' comment promises a few hundred recipes of headroom, but render rebuilds the whole innerHTML on every change and has no virtualization or measurement behind that figure. The threshold is an unmeasured claim in a comment. With large imported or stored lists, each add or delete re-renders the entire list."
+ },
+ {
+  "id": "F80ee5357",
+  "app": "fixture3",
+  "finding": "util.js:15 getJson is unused, and its fetch contradicts the README's 'nothing is sent anywhere'. It is dead code that adds network capability to an app documented as offline-only. A reviewer checking the privacy claim would have to rule it out. Remove it."
+ },
+ {
+  "id": "Fbb7c963b",
+  "app": "fixture3",
+  "finding": "README.md:6 The README line about \"3 recipes of 20, 35 and 45 minutes total 100 minutes\" is a hard-coded example that no code or test backs. The arithmetic is correct (20+35+45=100). The README presents it as a fact about the app, but it is not tied to the code or a fixture, so it goes stale unnoticed if totalMinutes changes."
+ },
+ {
+  "id": "F965f41df",
+  "app": "fixture3",
+  "finding": "The delete handler ignores saveRecipes's return value, so it still says \"Deleted\" if storage fails."
+ },
+ {
+  "id": "F360c428e",
+  "app": "fixture3",
+  "finding": "util.js:11 getJson is unused dead code, and it contradicts the README claim that nothing is sent anywhere. README.md says 'Saves in your browser only; nothing is sent anywhere.' A reviewer finds a network fetch helper in util.js. If someone later calls it, the claim becomes false without any README update. Remove it."
+ },
+ {
+  "id": "F529992b3",
+  "app": "fixture3",
+  "finding": "styles.css:4 A long unbroken recipe name forces sideways scrolling on a phone. Nothing sets overflow-wrap on li or main. The Name field allows 80 characters (index.html:15). Driven at 390 px (T7): an 80-character name gave documentElement.scrollWidth 1264. A user saves a long single-word name (a URL, say) on a 390 px phone. The page scrolls sideways and the Delete button is off screen."
+ },
+ {
+  "id": "F4e7e0bd3",
+  "app": "fixture3",
+  "finding": "Bug scan of the diff (Opus): none. The scripts load in the right order, with no unresolved references or duplicate top-level names. The README's 20+35+45=100 is correct."
+ }
+]

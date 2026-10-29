@@ -23,7 +23,8 @@ the item without a Fix:/Remediation: line). A plant is credited only when the bl
 the answer key gives them, one of the places in its "at" list or its "quote"; keymatch.py, shared with score.py) and its
 pattern is in the claim, never in fix advice; each block credits one plant, each plant once. Every plant in the four
 answer keys has "at" (decision 28).
-On a clean twin a block that cites a file:line, or that someone labelled false, is a false alarm. Every other block,
+On a clean twin a block labelled false, or one that cites a file:line and is not labelled, is a false alarm (one labelled
+trivial or none is not). Every other block,
 there and on the planted suites, is UNLABELLED until someone labels it in RUN_DIR/labels.json ({"<arm>/<task>/<block
 n>": "real"|"false"}), and precision is NOT MEASURED while any are unlabelled: nothing is guessed. A run that failed,
 timed out or wrote nothing is shown with its error and scored NOT MEASURED, never as a clean result. Cost, tokens and wall
@@ -125,7 +126,7 @@ def plants_of(key):
 def score_task(task, blocks, labels, prefix):
     if task.get("clean"):  # every claim here is false; one with no file:line still needs a person to say it is a claim
         lab = lambda i: labels.get(f"{prefix}/{i}")
-        fa = [i for i, b in enumerate(blocks) if lab(i) == "false" or (CITES.search(b["loc"]) and lab(i) != "real")]
+        fa = [i for i, b in enumerate(blocks) if lab(i) == "false" or (CITES.search(b["loc"]) and lab(i) is None)]  # labelled trivial (true but minor) or none (not a finding) is no false alarm
         unl = [i for i, b in enumerate(blocks) if i not in fa and lab(i) is None]
         return {"false_alarms": len(fa), "blocks": len(blocks), "unlabelled": len(unl), "precision": None if unl else (f"0 of {len(fa)}" if fa else "no findings")}
     plants = plants_of(json.loads((HERE / task["key"]).read_text()))
