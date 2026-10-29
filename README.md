@@ -2,13 +2,13 @@
 
 **Prove it. Then I'll grumble.**
 
-Curmudgeon is a review plugin for Claude Code. It reviews code, interfaces, documents and plans the way a grumpy senior engineer would, but it has to show its work: every finding needs a quoted line, a failing case and a vote, and every finding is checked again by someone who didn't write it.
+Curmudgeon is a review plugin for Claude Code. It reviews code, interfaces, documents and plans the way a grumpy senior engineer would, but it has to show its work: every finding needs a quoted line, a failing case and a vote, and findings are checked again by someone who didn't write them.
 
 Most AI reviewers fail in one of two ways. They miss real bugs, or they bury them under confident false alarms. Curmudgeon is built against the second failure. A finding survives only if it makes it through the steps below:
 
 1. Reviewers work **blind**: three in a full review, one for a small change. Each is told the code came from an unknown contractor, sees the files in a different order, and never sees the other reviewers.
 2. A **Python script** does the counting. A model never does.
-3. Each surviving finding is checked again by a **blind verifier**. The verifier starts from "this is not a defect" and must reproduce or trace the failure. It may lower an impact, but never raise one.
+3. Surviving findings are checked again by a **blind verifier**: every one in a full review, the Critical and High ones in a lite review, and the contested ones in the smallest. The verifier starts from "this is not a defect" and must reproduce or trace the failure. It may lower an impact, but never raise one.
 4. False alarms are **measured** with decoys (code that looks wrong but isn't) and clean twins (the same app without the planted bugs). It isn't just a promise.
 
 ## Install
@@ -291,6 +291,10 @@ These are small apps, so treat the numbers as indicative: with 58 findings, "58 
 Curmudgeon also reviewed its own code. A fresh reviewer then checked each round of fixes, five rounds in all. The rounds turned up real bugs in its own scripts (two of them Critical), and each now has a regression test.
 
 The fixtures, answer keys, decoys and scorer are in `eval/` (see `eval/README.md`). Run them yourself, and report runs where Curmudgeon was wrong. Those are the most useful reports there are.
+
+## Changes
+
+What changed in each release, from the first Critic skill to now: [CHANGELOG.md](https://github.com/truerevelationR2D2/curmudgeon/blob/main/CHANGELOG.md).
 
 ## Credits and licence
 
