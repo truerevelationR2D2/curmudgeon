@@ -6,8 +6,8 @@
     {
       "name": "curmudgeon",
       "source": "./plugin",
-      "description": "A grumpy, evidence-first reviewer: three blind reviewers, script-counted votes, blind verification, measured false alarms.",
-      "version": "5.2.3",
+      "description": "A grumpy, evidence-first reviewer: blind reviewers sized to the risk, script-counted votes, blind verification, measured false alarms, and a security scan.",
+      "version": "5.2.4",
       "license": "MIT",
       "category": "development"
     }
