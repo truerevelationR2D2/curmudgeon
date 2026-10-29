@@ -1161,6 +1161,7 @@ def _(d):
 def _(d):
     sys.path.insert(0, str(HERE.parent / "eval")); import importlib, deathmatch, bench_stats as bs; importlib.reload(deathmatch); importlib.reload(bs)
     assert deathmatch.voided({"is_error": True, "error_text": "Claude AI usage limit reached|1761700000"})
+    assert deathmatch.voided({"is_error": True, "error_text": "You've hit your 5-hour limit · resets 5:10am (America/Chicago)"})   # the wording the 29 Oct run met
     assert not deathmatch.voided({"error": "timeout after 3600 s"}) and not deathmatch.voided({"is_error": True, "error_text": "the agent crashed"}) and not deathmatch.voided({"total_cost_usd": 1})
     assert bs.upper95(0, 24) == 0.125 and bs.upper95(0, 2) == 1.0 and bs.upper95(5, 5) == 1.0 and abs(bs.upper95(1, 10) - 0.445) < 0.001, bs.upper95(1, 10)
     rd = d / "run"; res = []
@@ -1209,3 +1210,20 @@ def _(d):
     except ValueError: pass
     detail, _ = label.final(rd, d / "a.json", d / "b.json")
     assert set(detail) == set(idmap.values())   # controls never reach the labels
+
+@test("5.2.4 benchmark (03 §5.53): a usage limit that Claude Code reports as a success (0 tokens, the limit message as the reply) is a failed, voided run, never a clean result, and is run again")
+def _(d):
+    sys.path.insert(0, str(HERE.parent / "eval")); import importlib, deathmatch; importlib.reload(deathmatch)
+    meta = {"total_cost_usd": 0.003, "tokens": 0, "is_error": False, "num_turns": 0}
+    msg = "You've hit your 5-hour limit · resets 5:10am (America/Chicago)"
+    assert deathmatch.failed(meta, msg) and deathmatch.voided(meta, msg) and deathmatch.failed(meta, "  ")
+    assert not deathmatch.failed(meta, '[{"file": "app.js", "line": 6, "summary": "save is never defined"}]')   # the built-in /code-review reports 0 tokens when it did review
+    assert not deathmatch.failed({"tokens": 5, "is_error": False}) and not deathmatch.voided({"tokens": 5}, msg)   # a real review that quotes the words is no void
+    rd = d / "run"; write(rd, "run.json", json.dumps({"model": None, "repeat": 1, "plugin": str(d)}))
+    write(rd, "cc-code-review/suite1-clean/meta.json", json.dumps(meta)); write(rd, "cc-code-review/suite1-clean/output.md", msg)
+    deathmatch.score(rd)
+    r = json.loads((rd / "results.json").read_text())[0]
+    assert r["error"].startswith("the run did no model work (0 tokens") and r["false_alarms"] is None, r   # NOT MEASURED, not "no false alarms"
+    calls = []; deathmatch.one_job = lambda a, t, k, repeat, out, model: calls.append((a["id"], t["id"], k)) or "done"
+    deathmatch.rerun(rd)
+    assert calls == [("cc-code-review", "suite1-clean", 0)] and "5-hour limit" in (rd / "voided.jsonl").read_text()

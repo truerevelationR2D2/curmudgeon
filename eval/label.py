@@ -57,7 +57,7 @@ def unmatched(run_dir):
             t = tasks.get(td.name.split("~")[0])
             meta = json.loads((td / "meta.json").read_text()) if (td / "meta.json").exists() else {}
             blocks = deathmatch.blocks_for(td)
-            if not t or blocks is None or meta.get("error") or meta.get("is_error"): continue
+            if not t or blocks is None or deathmatch.failed(meta, (td / "output.md").read_text(errors="replace") if (td / "output.md").exists() else ""): continue
             used = set()
             if not t.get("clean"):
                 key = json.loads((HERE / t["key"]).read_text())
@@ -75,7 +75,7 @@ def plant_hits(run_dir):
         if not t or t.get("clean") or td.parent.name == "labelling": continue
         meta = json.loads((td / "meta.json").read_text()) if (td / "meta.json").exists() else {}
         blocks = deathmatch.blocks_for(td)
-        if blocks is None or meta.get("error") or meta.get("is_error"): continue
+        if blocks is None or deathmatch.failed(meta, (td / "output.md").read_text(errors="replace") if (td / "output.md").exists() else ""): continue
         hit = deathmatch.match_plants(deathmatch.plants_of(json.loads((HERE / t["key"]).read_text())), blocks)
         out.setdefault(t["id"], []).extend(plain(blocks[i]["claim"]) for i in sorted(hit.values()))
     return out

@@ -146,7 +146,8 @@ def score(run_dir):
             if tid not in tasks: continue
             meta = json.loads((td / "meta.json").read_text()) if (td / "meta.json").exists() else {}
             blocks = blocks_for(td)
-            err = meta.get("error") or ("the run reported an error (is_error)" if meta.get("is_error") else None) or (None if blocks is not None else "no output")
+            out = td / "output.md"
+            err = failed(meta, out.read_text(errors="replace") if out.exists() else "") or (None if blocks is not None else "no output")
             if err: r = {"recall": "NOT MEASURED", "found": None, "precision": None, "false_alarms": None if tasks[tid].get("clean") else "-", "unlabelled": "-"}  # a failed run is never a clean result
             else: r = score_task(tasks[tid], blocks, labels, f"{arm_dir.name}/{td.name}")
             r.update(arm=arm_dir.name, task=td.name, cost_usd=meta.get("total_cost_usd"), wall_s=meta.get("wall_s"), tokens=meta.get("tokens"), error=err)
@@ -243,12 +244,22 @@ def one_job(a, t, k, repeat, out, model):
         (td / "meta.json").write_text(json.dumps(meta, indent=1))
     return f"done {a['id']} / {td.name} ({meta.get('wall_s')} s)" + (f" error: {str(meta['error'])[:80]}" if meta.get("error") else "")
 
-VOID = re.compile(r"(?i)usage limit|rate.?limit|limit reached|\b429\b|overloaded|credit balance|quota")
+VOID = re.compile(r"(?i)usage limit|rate.?limit|limit reached|hit your [\w -]*limit|\b429\b|overloaded|credit balance|quota")
 
-def voided(meta):
+def failed(meta, reply=""):
+    """Why a run failed, or None. reply is the run's output.md. A run whose result shows no model work (0 tokens)
+    and whose reply is empty or a limit message failed even when Claude Code called it a success: on 29 Oct a usage
+    limit came back as is_error false with 0 tokens and the limit message as the reply, and 35 such runs were first
+    scored as clean "found nothing" results. 0 tokens alone is not a failure: the built-in /code-review's result
+    reports 0 tokens even when it reviewed and replied."""
+    zero = meta.get("tokens") == 0 and (not (reply or "").strip() or VOID.search((reply or "")[-500:]))
+    return meta.get("error") or ("the run reported an error (is_error)" if meta.get("is_error") else None) or \
+        ("the run did no model work (0 tokens, and its reply is empty or a limit message)" if zero else None)
+
+def voided(meta, reply=""):
     """True when a run failed because of a usage or rate limit rather than the tool under test (ruling §5.53: such a
     run is void and is run again; any other failure counts against the arm)."""
-    return bool(meta.get("error") or meta.get("is_error")) and bool(VOID.search(json.dumps(meta)))
+    return bool(failed(meta, reply)) and bool(VOID.search(json.dumps(meta) + "\n" + (reply or "")[-500:]))
 
 def run(arms, tasks, model, repeat, parallel=1):
     import concurrent.futures as cf
@@ -274,10 +285,10 @@ def rerun(run_dir, all_errors=False, parallel=1):
     PLUGIN = pathlib.Path(info["plugin"]); PLUGINS[:] = info.get("plugins_off") or installed_plugins()
     cfg = load_cfg(); arms = {x["id"]: x for x in cfg["arms"]}; tasks = {x["id"]: x for x in cfg["tasks"]}; jobs = []
     for td in sorted(run_dir.glob("*/*/meta.json")):
-        meta = json.loads(td.read_text())
-        if not (voided(meta) or (all_errors and (meta.get("error") or meta.get("is_error")))): continue
+        meta = json.loads(td.read_text()); out = td.parent / "output.md"; reply = out.read_text(errors="replace") if out.exists() else ""
+        if not (voided(meta, reply) or (all_errors and failed(meta, reply))): continue
         arm, name = td.parent.parent.name, td.parent.name; tid, _, k = name.partition("~")
-        with open(run_dir / "voided.jsonl", "a") as f: f.write(json.dumps({"run": f"{arm}/{name}", "voided_by_limit": voided(meta), "meta": meta}) + "\n")
+        with open(run_dir / "voided.jsonl", "a") as f: f.write(json.dumps({"run": f"{arm}/{name}", "voided_by_limit": voided(meta, reply), "meta": meta, "reply_tail": reply[-300:]}) + "\n")
         shutil.rmtree(td.parent); jobs.append((arms[arm], tasks[tid], int(k or 1) - 1))
     with cf.ThreadPoolExecutor(max(1, parallel)) as ex:
         for f in cf.as_completed([ex.submit(one_job, a, t, k, info.get("repeat") or 1, run_dir, info.get("model")) for a, t, k in jobs]): print(f.result(), flush=True)
