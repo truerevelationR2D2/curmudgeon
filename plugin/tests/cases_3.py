@@ -1185,3 +1185,27 @@ def _(d):
     assert p["pairs"] == 3 and p["base_better"] == 2 and p["tied"] == 1 and p["confirmed_diff_mean"] == round((3 + 2 + 0) / 3, 2), p
     lo, hi = c["recall_ci"]; assert 0.75 <= lo <= hi <= 1.0
     assert "| curmudgeon | 3 of 3 |" in md and "kappa 0.5" in md, md
+
+@test("5.2.4 benchmark (03 §5.53): known-truth controls go to the labellers blind, a planted finding shown against its app and against the clean twin where it is fixed, and a labeller who calls everything real is caught")
+def _(d):
+    sys.path.insert(0, str(HERE.parent / "eval")); import importlib, deathmatch, label; importlib.reload(deathmatch); importlib.reload(label)
+    rd = d / "run"
+    write(rd, "arm-one/suite1/output.md", "1. app.js:10 note titles are injected into innerHTML unescaped (XSS)\n2. app.js:99 the search box ignores case")
+    write(rd, "arm-one/suite1-clean/output.md", "1. app.js:5 an off-by-one in the loop")
+    for t in ("suite1", "suite1-clean"): write(rd, f"arm-one/{t}/meta.json", "{}")
+    files = label.export(rd, d / "apps", seed=2, controls=3)
+    packets = {p["id"]: p for f in files for p in json.loads(f.read_text())}
+    ctl = json.loads((rd / "labelling" / "controls.json").read_text()); idmap = json.loads((rd / "labelling" / "map.json").read_text())
+    assert len(idmap) == 2 and len(ctl) == 2 and not set(ctl) & set(idmap), (idmap, ctl)
+    assert sorted((c["truth"], c["app"]) for c in ctl.values()) == [("real", "fixture"), ("wrong", "fixture-clean")]
+    assert all("innerHTML" in packets[p]["finding"] and packets[p]["app"] == ctl[p]["app"] for p in ctl)
+    assert (d / "apps" / "fixture").is_dir() and (d / "apps" / "fixture-clean").is_dir()
+    yes = [{"id": p, "verdict": "real", "actionable": True, "severity": "high"} for p in packets]
+    write(d, "a.json", json.dumps(yes)); write(d, "b.json", json.dumps(yes))
+    _, stats = label.ties(rd, d / "a.json", d / "b.json")
+    assert stats["controls_a"] == {"n": 2, "correct": 1, "real_right": "1 of 1", "wrong_right": "0 of 1"}, stats
+    write(d, "short.json", json.dumps([x for x in yes if x["id"] not in ctl]))
+    try: label.ties(rd, d / "short.json", d / "b.json"); assert False, "a missing control label must stop"
+    except ValueError: pass
+    detail, _ = label.final(rd, d / "a.json", d / "b.json")
+    assert set(detail) == set(idmap.values())   # controls never reach the labels

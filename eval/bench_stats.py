@@ -113,7 +113,7 @@ def report(run_dirs, base="curmudgeon", seed=0):
     S = {a: arm_stats([r for r in runs if r["arm"] == a], seed) for a in arms}
     P = {a: paired(runs, base, a, seed) for a in arms if a != base}
     md = ["# 5.2.4 benchmark statistics", "", f"Run folders: {', '.join(m['dir'] for m in meta)}. Runs voided by a usage limit and run again: {sum(m['_voids'] for m in meta)}.",
-          "Labeller agreement: " + "; ".join(f"{m['dir']}: {m['_agreement']['agreed']} of {m['_agreement']['findings']} agreed, kappa {m['_agreement']['kappa_verdict']}" if m["_agreement"] else f"{m['dir']}: not labelled" for m in meta) + ".", "",
+          "Labeller agreement: " + "; ".join(f"{m['dir']}: {m['_agreement']['agreed']} of {m['_agreement']['findings']} agreed, kappa {m['_agreement']['kappa_verdict']}" + "".join(f", labeller {x.upper()} right on {c['correct']} of {c['n']} known-truth controls (real {c['real_right']}, wrong {c['wrong_right']})" for x in ("a", "b") for c in [m['_agreement'].get(f"controls_{x}")] if c) if m["_agreement"] else f"{m['dir']}: not labelled" for m in meta) + ".", "",
           "| Arm | Completed | Planted recall (95% CI) | Assessed findings: real / trivial / wrong | Real and actionable | Clean runs with a false alarm (95% upper) | Cost | Confirmed bugs | Cost per confirmed (95% CI) | Median time (s) | Runs that launched agents |",
           "|---|---|---|---|---|---|---|---|---|---|---|"]
     for a in arms:
