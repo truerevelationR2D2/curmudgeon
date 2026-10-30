@@ -30,7 +30,7 @@ import json, os, pathlib, re, shutil, subprocess, sys, tempfile, time
 
 HERE = pathlib.Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
-import keymatch
+import keymatch, plant_keys
 PLUGIN = HERE.parent / "plugin"
 CFG = HERE / "deathmatch.json"
 
@@ -202,6 +202,7 @@ def one_job(a, t, k, repeat, out, model):
     td = out / a["id"] / (t["id"] + (f"~{k + 1}" if repeat > 1 else "")); td.mkdir(parents=True)
     with tempfile.TemporaryDirectory(prefix="dm-") as tmp:
         w = pathlib.Path(tmp) / "work"; shutil.copytree(HERE / t["fixture"], w, ignore=shutil.ignore_patterns(".critic"))
+        plant_keys.fill(w)  # the planted key, built now: the placeholder's name would point every arm at the bug (03 §5.56 item 19)
         subprocess.run(["git", "init", "-q", "-b", "main"], cwd=w)
         if a.get("pr"):  # a pull-request reviewer: the task is a branch over an empty base, so every line is part of the change
             subprocess.run(GIT + ["commit", "-q", "--allow-empty", "-m", "base"], cwd=w); subprocess.run(["git", "checkout", "-q", "-b", "change"], cwd=w)

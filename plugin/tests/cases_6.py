@@ -36,3 +36,22 @@ def _(d):
         assert sha in ci, sha
     assert re.search(r'"3\.14"|3\.14\b', ci) and "macos" in ci and "Windows" in ci, "3.14, macOS and Windows"
     assert not re.search(r"uses:\s*actions/[\w-]+@v\d", ci), "every action is pinned by commit, not by tag"
+
+@test("§5.56 item 19: the planted key is filled in on each harness's copy, so no arm sees the word PLANTED, and the repository never holds the key")
+def _(d):
+    E = HERE.parent / "eval"; sys.path.insert(0, str(E)); import importlib, plant_keys; importlib.reload(plant_keys)
+    shutil.copytree(E / "fixture2", d / "f")
+    assert plant_keys.fill(d / "f") == 1 and "PLANTED" not in (d / "f/api.js").read_text() and plant_keys.FAKE_KEY in (d / "f/api.js").read_text()
+    assert plant_keys.PLACEHOLDER in (E / "fixture2/api.js").read_text(), "the fixture itself keeps the placeholder"
+    for name in ("deathmatch.py", "golden.py"):
+        assert re.search(r"copytree\(.*\n\s*plant_keys\.fill\(", (E / name).read_text()) or "plant_keys.fill(dst)" in (E / name).read_text(), f"{name} fills its copy"
+    assert run(E / "plant_keys.py", str(E / "fixture2"), cwd=d).returncode != 0, "it never fills in the fixture in the repository"
+
+@test("§5.56 batch 3: the answer key credits E02 when a review says the query goes into the URL 'without encoding' (the lite smoke dip), and still not for an unrelated finding on that line")
+def _(d):
+    k = json.loads((HERE.parent / "eval" / "answer_key2.json").read_text())
+    e02 = next(v for n, v in k.items() if n.startswith("E02"))
+    hit = lambda text: any(re.search(p, text, re.I) for p in e02["any"])
+    for text in ("The status filter is interpolated into the URL without encoding", "query value is never URL-encoded", "status goes into the path unescaped", "no percent-encoding of the query"):
+        assert hit(text), text
+    assert not hit("A live secret key is shipped in client JavaScript") and not hit("The fetch has no timeout"), "an unrelated finding at api.js:6 isn't E02"

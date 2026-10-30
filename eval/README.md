@@ -12,8 +12,8 @@ Planted-flaw apps, their hidden answer keys, clean twins, decoys and a scorer. *
 
 ## Run
 ```
-python3 plant_keys.py                        # once after cloning: puts the fake planted key back (GitHub blocks key-shaped text)
 cp -r fixture2 /tmp/run2                     # always a copy
+python3 plant_keys.py /tmp/run2              # puts the fake planted key in the copy (the repository holds a placeholder: GitHub blocks key-shaped text; deathmatch.py and golden.py do this themselves)
 # fresh agent: only the review skill and /tmp/run2, full mode
 python3 score.py /tmp/run2/.critic/last-review.md --suite 2 --refactored /tmp/run2
 python3 score.py /tmp/clean2/.critic/last-review.md --clean 2
