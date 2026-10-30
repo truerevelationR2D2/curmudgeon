@@ -66,8 +66,10 @@ def _(d):
 def _(d):
     write(d, "site/index.html", "<!doctype html><title>x</title><p>x</p>"); run(S / "critic_ledger.py", "start", "review", cwd=d)
     B = S / "browse.py"
-    out = run(B, "start", "site/index.html", "--session", "s/a.json", "--allow-writes", cwd=d).stdout
-    assert "consent" in out and "refused" in out.lower(), out
+    write(d, "stub/playwright/__init__.py", "raise ImportError('not here')\n")
+    for env in ({}, {"PYTHONPATH": str(d / "stub")}):  # with or without Playwright: the permission check comes first
+        out = run(B, "start", "site/index.html", "--session", "s/a.json", "--allow-writes", cwd=d, env=env).stdout
+        assert "consent" in out and "refused" in out.lower(), (env, out)
     run(S / "critic_ledger.py", "consent", "writes", cwd=d)
     sys.path.insert(0, str(S)); import importlib, critic_findings as cf; importlib.reload(cf)
     assert cf.consent_given(d, "writes") and not cf.consent_given(d, "live", "staging.example.invalid")

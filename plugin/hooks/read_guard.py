@@ -342,7 +342,9 @@ def main(data=None):
                 if why: break
         if not why and tool == "Grep" and above(start, critic):  # a Glob is judged above by what it really matches
             g = str(ti.get("glob") or "").strip()
-            if rec or fold(start) != fold(root) or not re.fullmatch(r"!(\*\*/)?\.critic(/\*{0,2})?", g, re.I):
+            try: root_real = root.resolve()
+            except OSError: root_real = root
+            if rec or fold(start) != fold(root_real) or not re.fullmatch(r"!(\*\*/)?\.critic(/\*{0,2})?", g, re.I):
                 why = ".critic (a search from a folder above it); search your workspace" + (f" (path {rec['payload']})" if rec else ", or the project root with glob \"!.critic\", or a narrower folder")
     elif tool == "Bash":
         cmd = ti.get("command")

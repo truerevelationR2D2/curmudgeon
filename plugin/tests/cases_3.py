@@ -907,7 +907,7 @@ def _(d):
     odd = d / "Security #2 50%"; odd.mkdir()
     r = run(F, "estimate", "--folder", str(odd), "--ecosystems", "npm", cwd=d, env=env)
     line = [x for x in r.stdout.splitlines() if x.startswith("sign off with:")][0]
-    assert "--ecosystems npm" in line and f"'{odd}'" in line, line
+    assert "--ecosystems npm" in line and (f"'{odd}'" in line or f"'{odd.resolve()}'" in line), line  # macOS: /var is a link to /private/var
     est = int(line.split("--signed-off ")[1].split()[0])
     assert run(F, "set", "--cadence", "weekly", "--folder", str(odd), "--signed-off", str(est), "--ecosystems", "npm", cwd=d, env=env).returncode == 0
     assert run(F, "update", cwd=d, env=env).returncode == 0
