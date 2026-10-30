@@ -81,7 +81,7 @@ def find():
     packets = sorted(out.glob("*.json"))
     print(f"variant hunt: {n} possible variant(s) in .critic/verify-variants")
     for i in range(0, len(packets), 5): print(f"  verifier {i // 5 + 1}: " + " ".join(str(p.relative_to(ROOT)) for p in packets[i:i + 5]))
-    if n: print("next: start curmudgeon:curmudgeon-verifier agents on these packets (blind, as in step 4), save each ```json list as a file, then critic_variants.py apply <files>")
+    if n: print("next: start curmudgeon:curmudgeon-verifier agents on these packets (blind, as in step 4); the stop hook saves each verifier's ```json list in .critic/verdicts-variants/ (never retype one), then critic_variants.py apply .critic/verdicts-variants/*.json")
     return 0
 
 def apply(paths):

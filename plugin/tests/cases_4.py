@@ -33,7 +33,7 @@ def _(d):
     c = (e / ".critic/counts.md").read_text()
     assert c.splitlines()[2].startswith("DEGRADED: the scripted checks did not run"), c
 
-@test("§5.56 item 2: the read guard refuses a second cd, so a chain of cd .. can't walk a reviewer into .critic/reviews")
+@test("§5.56 item 2: the read guard follows each cd, so a chain of cd .. can't walk a reviewer into .critic/reviews, and ordinary work isn't refused")
 def _(d):
     p = d / "proj"; write(p, "src/app.js", APP); write(p, ".critic/reviews/review-B.json", '[{"title": "SECRET-B"}]')
     run(H / "scratch_dir.py", cwd=p, stdin=json.dumps({"agent_type": "curmudgeon:curmudgeon-reviewer", "agent_id": "r1", "cwd": str(p)}))
@@ -42,9 +42,16 @@ def _(d):
                 f"cd {ws} && cd ..; cd ..; cd ..; cat reviews/review-B.json",
                 f"cd {ws} && for i in 1 2 3; do cd ..; done; cat reviews/review-B.json",
                 f"cd {ws} && (cd ../../.. && cat reviews/review-B.json)",
-                f"cd {ws} && pushd .. && cat x"):
+                f"cd {ws} && pushd .. && cat x",
+                f"cd {ws} && \\cd .. && \\cd .. && \\cd .. && cat reviews/review-B.json",   # round 1: spellings the shell undoes
+                f"cd {ws} && c''d .. && c''d .. && c''d .. && cat reviews/review-B.json",
+                f"cd {ws} && {{cd,..}} && cat x", f"cd {ws} && cd${{IFS}}..",
+                f"cd {ws} && cd src && cd ../.. && cat x", f"cd {ws} && bash -c 'cd ../../.. && cat reviews/review-B.json'", f"cd {ws} && cd"):
         assert _guard(p, p, "Bash", command=cmd), cmd
-    assert not _guard(p, p, "Bash", command=f"cd {ws} && cat src/app.js && grep -rn innerHTML src"), "ordinary work in the copy still runs"
+    write(pathlib.Path(ws), "deploy.sh", "cd /srv && ./run\n")
+    for cmd in (f"cd {ws} && cat src/app.js && grep -rn innerHTML src", f"cd {ws} && grep -n 'cd ' deploy.sh", f"cd {ws} && grep -rn chdir src",
+                f"cd {ws} && cd src && ls", f"cd {ws} && cd src && cd .. && cat deploy.sh", f"cd {ws} && git log --oneline | grep cd"):
+        assert not _guard(p, p, "Bash", command=cmd), "ordinary work in the copy still runs: " + cmd
 
 @test("§5.56 item 3: the quote check is strict: the cited line or one either side, case and quote marks kept, at least 12 characters with a name, never line 0")
 def _(d):
@@ -148,3 +155,73 @@ def _(d):
     c = (d / ".critic/counts.md").read_text(); (d / ".critic/counts.md").write_text(c.replace("# Curmudgeon merged findings\n", "# Curmudgeon merged findings\n\nDEGRADED: test\n", 1))
     tear("**BLOCK** · Counts: 0 Critical, 1 High, 0 Medium, 0 Low", "Counts: 0 Critical, 1 High, 0 Medium, 0 Low")
     r = run(S / "critic_ledger.py", "stamp", "src", cwd=d); assert r.returncode != 0 and "DEGRADED" in r.stderr + r.stdout, r.stdout + r.stderr
+
+
+@test("§5.56 round 1: a scan or outside answer that arrives after the dedup step keeps the dedup groups, and outside rows never split our agreed finding")
+def _(d):
+    write(d, "src/app.js", APP); run(S / "critic_run.py", "begin", "--files", "src/app.js", "--tier", "full", cwd=d); run(S / "critic_scan.py", ".", "--root", ".", cwd=d)
+    x1 = finding(category="domain", impact="Medium", line=4, quote="const price = total * 1.0825;", title="tax rate hard-coded in render code")
+    x2 = finding(category="config", impact="Medium", line=4, quote="price = total * 1.0825", title="pricing constant duplicated instead of shared")
+    for L_, rows in zip("ABC", ([x1], [x2], [])): write(d, f".critic/reviews/review-{L_}.json", json.dumps(rows))
+    run(S / "critic_run.py", "next", cwd=d)
+    raw = [it["id"] for v in json.loads((d / ".critic/dedup-candidates.json").read_text())["findings_by_file"].values() for it in v]
+    write(d, ".critic/groups.json", json.dumps({"groups": [raw]})); run(S / "critic_run.py", "next", cwd=d)
+    kept = lambda: [(f["title"], f["votes"]) for f in json.loads((d / ".critic/tally.json").read_text())["kept"]]
+    assert len(kept()) == 1 and kept()[0][1] == 2, kept()
+    write(d, ".critic/outside/outside-review.json", "[]"); run(S / "critic_run.py", "next", cwd=d)
+    assert len(kept()) == 1 and kept()[0][1] == 2, "the rerun tally for the late outside answer kept the groups: " + str(kept())
+    e = d / "split"; write(e, "src/app.js", "\n".join(f"// {i}" for i in range(1, 9)) + "\n" + APP); run(S / "critic_ledger.py", "start", "review", "--tier", "full", cwd=e)
+    q = "list.innerHTML = `<li>${n.title}</li>`;"
+    ours = [finding(line=10, quote=q, title=f"Title rendered as HTML ({k})") for k in "abc"]
+    outs = [dict(finding(line=10, quote=q, title="Title rendered as HTML here"), source="outside", outside_id="N1"), dict(finding(line=10, quote=q, title="Title rendered as HTML again"), source="outside", outside_id="N2")]
+    write(e, "o.json", json.dumps(outs))
+    t = _tally3(e, [ours[0]], [ours[1]], [ours[2]], "--outside", "o.json")
+    assert len(t["kept"]) == 1 and t["kept"][0]["votes_ours"] == 3, [(f["title"], f["votes"], f.get("votes_ours")) for f in t["kept"]]
+
+@test("§5.56 round 1: stamp needs this run's teardown, written after counts.md, with the same word in section 5, either counts format, and counts.md's DEGRADED reason")
+def _(d):
+    write(d, "src/app.js", APP); run(S / "critic_ledger.py", "start", "review", "--tier", "full", cwd=d)
+    _tally3(d, [finding(impact="High")], [finding(impact="High")], [])
+    ids = [p.stem for p in (d / ".critic/verify").glob("*.json")]
+    write(d, "v.json", json.dumps([{"id": i, "verdict": "confirmed", "reproduced": "traced", "entry": "render() runs on load", "path": ["src/app.js:2 writes the title as HTML"]} for i in ids]))
+    run(S / "critic_merge.py", "apply", "v.json", cwd=d)
+    stamp = lambda: run(S / "critic_ledger.py", "stamp", "src", cwd=d)
+    r = stamp(); assert r.returncode != 0 and "no .critic/last-review.md" in r.stdout + r.stderr, r.stdout + r.stderr
+    tear = lambda first, w5="BLOCK", c5="Counts: 0 Critical, 1 High, 0 Medium, 0 Low": write(d, ".critic/last-review.md", f"{first}\n\n#### 5. VERDICT\n- **{w5}**\n- {c5}\n- Panel: 2 reviewers\n")
+    tear("**BLOCK** · Counts: Critical 0 · High 1 · Medium 0 · Low 0 · total 1", c5="Counts: Critical 0 · High 1 · Medium 0 · Low 0 · total 1")
+    r = stamp(); assert r.returncode == 0, "counts.md's own format is accepted: " + r.stdout + r.stderr
+    tear("**BLOCK** · Counts: 0 Critical, 1 High, 0 Medium, 0 Low", w5="CLEAN")
+    r = stamp(); assert r.returncode != 0 and "VERDICT section says CLEAN" in r.stdout + r.stderr, r.stdout + r.stderr
+    tear("**BLOCK** · Counts: 0 Critical, 1 High, 0 Medium, 0 Low")
+    old = time.time() - 60; os.utime(d / ".critic/last-review.md", (old, old))
+    r = stamp(); assert r.returncode != 0 and "older than counts.md" in r.stdout + r.stderr, r.stdout + r.stderr
+    c = (d / ".critic/counts.md").read_text(); (d / ".critic/counts.md").write_text(c.replace("# Curmudgeon merged findings\n", "# Curmudgeon merged findings\n\nDEGRADED: 1 verdict(s) the full tier requires never came back (F-x)\n", 1))
+    tear("DEGRADED: single context (no subagents)\n**BLOCK** · Counts: 0 Critical, 1 High, 0 Medium, 0 Low")
+    r = stamp(); assert r.returncode != 0 and "doesn't carry that reason" in r.stdout + r.stderr, r.stdout + r.stderr
+    tear("**DEGRADED:** single context; 1 verdict(s) the full tier requires never came back (F-x)\n**BLOCK** · Counts: 0 Critical, 1 High, 0 Medium, 0 Low")
+    r = stamp(); assert r.returncode == 0, r.stdout + r.stderr
+
+@test("§5.56 round 1: a scripted High that reviewers call Low is a split impact; scripted measurements stay confirmed; fresh follows moved code; Unicode quotes; outside line ranges; strict relocation")
+def _(d):
+    from critic_findings import validate, relocate_quote
+    write(d, "src/a.js", "function go(input) {\n  return eval(input);\n}\n"); run(S / "critic_ledger.py", "start", "review", "--tier", "full", cwd=d)
+    write(d, "scan.json", json.dumps({"findings": [{"id": "S001", "rule": "eval", "sev": "FAIL", "where": "src/a.js:2", "what": "eval / new Function", "evidence": "eval(input)"}]}))
+    lo = finding(category="eval", impact="Low", file="src/a.js", line=2, quote="return eval(input);", title="eval of input")
+    t = _tally3(d, [lo], [dict(lo, title="input passed to eval")], [], "--scan", "scan.json")
+    k = t["kept"]; assert len(k) == 1 and k[0]["impact"] == "High" and k[0]["impact_split"] == ["High", "Low"] and (d / ".critic/verify" / f"{k[0]['id']}.json").exists(), k
+    e = d / "m"; write(e, "index.html", "<p>x</p>\n"); run(S / "critic_ledger.py", "start", "review", "--tier", "full", cwd=e)
+    write(e, "scan.json", json.dumps({"findings": [{"id": "S002", "rule": "axe-color-contrast", "sev": "FAIL", "level": "runtime", "where": "index.html:1", "what": "low contrast", "evidence": "1.6:1"}]}))
+    _tally3(e, [], [], [], "--scan", "scan.json"); write(e, "v.json", "[]"); run(S / "critic_merge.py", "apply", "v.json", cwd=e)
+    f = [json.loads(x) for x in (e / ".critic/findings.jsonl").read_text().splitlines() if x.strip()]
+    assert [x["confidence"] for x in f] == ["confirmed"], f
+    g = d / "fresh"; write(g, "src/p.js", "function f(a) {\n  if (a > 0) {\n    db.write(a);\n  }\n}\n"); run(S / "critic_ledger.py", "start", "review", cwd=g)
+    write(g, ".critic/findings.jsonl", json.dumps(dict(finding(file="src/p.js", line=2, quote="if (a > 0) {\n    db.write(a);"), id="F-1")) + "\n")
+    assert run(S / "critic_ledger.py", "fresh", "F-1", cwd=g).returncode == 0
+    write(g, "src/p.js", "import a from 'a';\nimport b from 'b';\nfunction f(a) {\n  if (a > 0) {\n    db.write(a);\n  }\n}\n")
+    r = run(S / "critic_ledger.py", "fresh", "F-1", cwd=g); assert r.returncode == 0 and "moved to src/p.js:4" in r.stdout, r.stdout
+    assert not validate(dict(finding(file="docs/ru/README.md", line=3), quote="Установка занимает пять минут")), "a quote in another script has words in it"
+    h = d / "out"; write(h, "src/app.js", APP); run(S / "critic_ledger.py", "start", "review", cwd=h)
+    write(h, "ans.txt", "```json\n" + json.dumps([{"id": "N1", "impact": "High", "category": "xss", "file": "src/app.js", "line": "2-3", "quote": "list.innerHTML = `<li>${n.title}</li>`;", "title": "XSS", "evidence": "e", "failing_case": "c", "verified": "traced"}]) + "\n```\n")
+    run(S / "critic_outside.py", "load", "ans.txt", cwd=h)
+    assert json.loads((h / ".critic/outside/outside-review.json").read_text())[0]["line"] == 2, "a line range keeps its first line"
+    assert relocate_quote({"file": "src/app.js", "line": 9, "quote": "LIST.INNERHTML = `<LI>${N.TITLE}</LI>`;"}, h) is None and relocate_quote({"file": "src/app.js", "line": 9, "quote": "list.innerHTML = `<li>${n.title}</li>`;"}, h) == 2

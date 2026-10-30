@@ -68,8 +68,17 @@ def quote_problem(q):
     """Why a quote is too weak for the quote check to mean anything, or None (§5.56: at least 12 characters, with a name in them)."""
     t = quote_text(q)
     if len(t) < QUOTE_MIN: return f"quote too short to check ({len(t)} characters): quote at least {QUOTE_MIN} characters of the line, exactly as written"
-    if not re.search(r"[A-Za-z_][A-Za-z0-9_]", t): return "quote has no name or word in it: quote the part of the line that names what is wrong"
+    if not re.search(r"[^\W\d]\w", t): return "quote has no name or word in it: quote the part of the line that names what is wrong"
     return None
+
+def _quote_at(lines, want, i):
+    """True when the quote lines `want` (already quote_text) start on lines[i] and go on, in order, over the next
+    non-blank lines (blank lines between them are skipped)."""
+    if not (0 <= i < len(lines)) or not lines[i].strip(): return False
+    src = [quote_text(x) for x in lines[i:i + 4 * len(want) + 40] if x.strip()]
+    return len(src) >= len(want) and all(w in s_ for w, s_ in zip(want, src))
+
+def _quote_lines(q): return [quote_text(x) for x in str(q or "").split("\n") if x.strip()]
 
 def quote_check(f, root):
     """True when the quote is at file:line (§2 invariant 3, made strict by §5.56): its first line starts on the cited line
@@ -83,22 +92,28 @@ def quote_check(f, root):
     except OSError: return False
     ln = safe_int(f.get("line"))
     if ln < 1: return False
-    want = [quote_text(x) for x in q.split("\n") if x.strip()]
-    def at(i):
-        src = [quote_text(x) for x in lines[i:i + 4 * len(want) + 40] if x.strip()]  # blank lines between quoted lines are skipped
-        if not lines[i].strip() or len(src) < len(want): return False
-        return all(w in s_ for w, s_ in zip(want, src))
-    return any(at(i) for i in (ln - 1, ln - 2, ln) if 0 <= i < len(lines))
+    want = _quote_lines(q)
+    return any(_quote_at(lines, want, i) for i in (ln - 1, ln - 2, ln))
 
 def relocate_quote(f, root):
     """For an outside reviewer whose viewer numbered lines differently: the line where a long quote appears, when it
     appears on exactly one line of the file; otherwise None. A short or repeated quote is never moved."""
-    q = norm_code(f.get("quote"))
+    q = quote_text(f.get("quote"))  # case and quote marks count here too (§5.56)
     if len(q) < 20 or "\n" in str(f.get("quote") or "").strip() or not f.get("file"): return None
     try: lines = (pathlib.Path(root) / f["file"]).read_text(encoding="utf-8", errors="replace").split("\n")
     except OSError: return None
-    hits = [i + 1 for i, l in enumerate(lines) if q in norm_code(l)]
+    hits = [i + 1 for i, l in enumerate(lines) if q in quote_text(l)]
     return hits[0] if len(hits) == 1 else None
+
+def find_quote(f, root):
+    """Every line where the quote starts, compared as the quote check compares it (any length, multi-line in order):
+    for critic_ledger.py fresh, which asks whether reviewed code has moved, not whether a citation was exact."""
+    q = str(f.get("quote") or "")
+    if not q.strip() or not f.get("file"): return []
+    try: lines = (pathlib.Path(root) / f["file"]).read_text(encoding="utf-8", errors="replace").split("\n")
+    except OSError: return []
+    want = _quote_lines(q)
+    return [i + 1 for i in range(len(lines)) if want and want[0] in quote_text(lines[i]) and _quote_at(lines, want, i)]
 
 def read_jsonl(path):
     out = []

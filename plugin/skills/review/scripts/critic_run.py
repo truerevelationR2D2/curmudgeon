@@ -46,10 +46,15 @@ SCAN, OUTSIDE, NO_SCAN = D / "scan" / "report.json", D / "outside" / "outside-re
 
 def is_fresh(p, started): return p.is_file() and not p.is_symlink() and mtime(p) >= started
 
-def tally_extra(started):
-    """What both tallies get besides the reviews (§5.56): the scan's FAILs and the outside review, when this run has them."""
+def tally_extra(started, reviews=()):
+    """What a tally gets besides the reviews (§5.56): the scan's FAILs and the outside review, when this run has them,
+    and the dedup agent's groups when they were made for these reviews. A scan or an outside answer that arrives after
+    the dedup step reruns the tally; without the groups that rerun would drop every issue the dedup agent merged."""
     extra = ["--scan", str(SCAN.relative_to(ROOT))] if is_fresh(SCAN, started) else ["--no-scan"]
-    return extra + (["--outside", str(OUTSIDE.relative_to(ROOT))] if is_fresh(OUTSIDE, started) else [])
+    extra += ["--outside", str(OUTSIDE.relative_to(ROOT))] if is_fresh(OUTSIDE, started) else []
+    G = D / "groups.json"
+    if is_fresh(G, started) and reviews and mtime(G) >= max(mtime(p) for p in reviews): extra += ["--groups", str(G.relative_to(ROOT))]
+    return extra
 
 def state():
     L = ledger(); tier = L.get("tier") or "full"
@@ -196,9 +201,9 @@ def main(a):
         letters = [f".critic/reviews/review-{x}.json" for x in REVIEWERS.get(tier, REVIEWERS["full"])]
         for _ in range(4):  # run the scripted steps back to back until one needs an agent (or the teardown)
             if st == "tally":
-                sh("critic_merge.py", "tally", *letters, *tally_extra(L.get("started_at") or 0))
+                sh("critic_merge.py", "tally", *letters, *tally_extra(L.get("started_at") or 0, [ROOT / x for x in letters]))
             elif st == "tally-groups":
-                sh("critic_merge.py", "tally", *letters, "--groups", ".critic/groups.json", *tally_extra(L.get("started_at") or 0))
+                sh("critic_merge.py", "tally", *letters, *tally_extra(L.get("started_at") or 0, [ROOT / x for x in letters]))
             elif st == "apply":
                 if not items:  # nothing needed a verdict, or --apply-now with none back: apply with an empty verdict list
                     (D / "verdicts").mkdir(exist_ok=True); none = D / "verdicts" / f"none-{int(time.time())}.json"; none.write_text("[]\n"); items = [none]

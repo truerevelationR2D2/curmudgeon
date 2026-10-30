@@ -2,7 +2,7 @@
 """Triple-blind merge for Curmudgeon. The counting is done here, in code, never by a model.
 
 usage (from the project root, or set CRITIC_ROOT):
-  critic_merge.py tally REVIEW_FILE... [--scan .critic/scan/report.json] [--groups GROUPS.json] [--outside FILE]
+  critic_merge.py tally REVIEW_FILE... [--scan .critic/scan/report.json | --no-scan] [--groups GROUPS.json] [--outside FILE]
                                             blind reviews (JSON, JSONL, or markdown with ```json blocks); --scan adds
                                             the detector's FAIL rows as evidence-backed findings (they are never votes);
                                             --outside adds an outside reviewer's findings (critic_outside.py load): one
@@ -17,14 +17,18 @@ issue in the same file". So tally also writes .critic/dedup-candidates.json: eve
   critic_merge.py show                      print the current merged findings
 
 tally:
-  1. Contract check on every finding (impact, category, file, evidence, failing case, verified tag). Failures are
-     rejected with the reason, not silently dropped.
-  2. Quote check: the quoted code must be at file:line (within 5 lines). Otherwise the finding is retracted.
+  1. Contract check on every finding (impact, category, file, evidence, failing case, verified tag; a quote of at
+     least 12 characters with a name, and a line number, when there is a quote). Failures are rejected with the
+     reason, not silently dropped.
+  2. Quote check: the quote must start on the cited line or one either side, case and quote marks as written
+     (03 §5.56). Otherwise the finding is retracted.
   3. Ledger: a finding the owner marked a false positive (by its stable id) is suppressed, whatever its impact: that
      is an explicit ruling on that exact finding. Not when git tracks .critic/ledger.json: a cloned repository could
      ship rulings, so they are listed in counts.md and hide nothing. Learned memories (patterns from repeated dismissals) never suppress a
      Critical or High finding of any kind.
-  4. Cluster the same issue across reviewers; votes = how many reviewers raised it.
+  4. Cluster the same issue across reviewers; votes = how many reviewers raised it. One reviewer's two findings are
+     never one cluster. When the members disagree on the impact (the scan's rule counts), the finding is filed at
+     the highest and always verified (impact_split); the verifier may lower it.
      Kept: votes >= 2 of 3, or a single vote with an executed failing case.
      Contested: a single vote at Critical/High that was traced, not executed. It goes to verification.
      Dropped: other single votes. Listed with reasons so drops can be audited.
@@ -158,21 +162,23 @@ def scan_rows(path):
                     "verified": "executed" if r.get("level") == "runtime" else "traced", "remediation": "", "source": "scan", "scan_id": r.get("id")})
     return out
 
-def split_same_reviewer(mem):
+def split_same_reviewer(mem, outside_ri=None):
     """A cluster holding two findings from one reviewer (or two scanner rows) is two issues joined through a third
     finding (A1~B and A2~B), never one: split it, seeding a group with each of that reviewer's findings and putting
     every other member with the nearest group (same file, then closest line) that has nothing yet from its reviewer.
-    mem is a list of (raw id, reviewer index or None for the scan, finding)."""
+    Outside rows only add a vote (they can't merge or split our findings): they never seed a group, and go to the
+    nearest group whatever is in it. mem is a list of (raw id, reviewer index or None for the scan, finding)."""
     key = lambda ri: "scan" if ri is None else ri
     counts = {}
-    for _, ri, _ in mem: counts[key(ri)] = counts.get(key(ri), 0) + 1
+    for _, ri, _ in mem:
+        if ri != outside_ri or outside_ri is None: counts[key(ri)] = counts.get(key(ri), 0) + 1
     if all(v == 1 for v in counts.values()): return [mem]
     most = max(counts, key=lambda k: (counts[k], str(k)))
     groups = [[x] for x in mem if key(x[1]) == most]
     def dist(x, g):
         return min((0 if y[2]["file"] == x[2]["file"] else 1, abs(int(y[2].get("line") or 0) - int(x[2].get("line") or 0))) for y in g)
     for x in sorted((x for x in mem if key(x[1]) != most), key=lambda x: (str(x[2]["file"]), int(x[2].get("line") or 0))):
-        free = [g for g in groups if key(x[1]) not in {key(y[1]) for y in g}]
+        free = groups if outside_ri is not None and x[1] == outside_ri else [g for g in groups if key(x[1]) not in {key(y[1]) for y in g}]
         if free: min(free, key=lambda g: dist(x, g)).append(x)
         else: groups.append([x])
     return groups
@@ -308,7 +314,7 @@ def tally(paths):
     # duplicates cited at distant lines or in another file). No reviewer names or votes; ids are opaque.
     by_root = {}
     for r, ri, f in accepted: by_root.setdefault(find(r), []).append((r, ri, f))
-    parts = [p_ for mem in by_root.values() for p_ in split_same_reviewer(mem)]  # §5.56: grouping is transitive; one reviewer's two findings stay two
+    parts = [p_ for mem in by_root.values() for p_ in split_same_reviewer(mem, OUTSIDE_RI)]  # §5.56: grouping is transitive; one reviewer's two findings stay two
     by_file = {}
     for mem in parts:
         r, _, f = mem[0]
@@ -344,7 +350,7 @@ def tally(paths):
         human = [x for x in m if x.get("source") not in ("scan", "outside")] or [x for x in m if x.get("source") != "outside"] or m
         best = sorted(human, key=lambda x: (["executed", "traced", "inferred"].index(x["verified"]), IMP_RANK[x["impact"]]))[0]
         theirs = [x["impact"] for x in m if x.get("source") == "outside"]
-        rated = sorted({x["impact"] for x in human if x["impact"] in IMP_RANK and x["impact"] != NIT}, key=lambda k: IMP_RANK[k])
+        rated = sorted({x["impact"] for x in human + [y for y in m if y.get("source") == "scan"] if x["impact"] in IMP_RANK and x["impact"] != NIT}, key=lambda k: IMP_RANK[k])  # the scan's rule is a rating too: a scripted High that reviewers call Low is a disagreement
         f = dict(best, votes=votes, votes_ours=len(c["reviewers"]), votes_matched=c["votes_matched"], of=of, impact=rated[0] if rated else "Low", scan_confirmed=bool(c.get("scan")),
                  locations=sorted({f"{x['file']}:{x.get('line', '')}" for x in m}), raised_by=sorted({x["source"] for x in m}))
         if len(rated) > 1: f["impact_split"] = rated  # §5.56: reviewers disagreed on the impact; it is filed at the highest and always verified, and the verifier may lower it
@@ -485,7 +491,7 @@ def apply(paths):
         if v.get("reproduced") in ("executed", "traced"): f["verifier_reproduced"] = v["reproduced"]
         final.append(f)
     for f in final:  # §5.56: a reviewer's own "executed" is a claim; only a verifier that reproduced it, or confirmed it, makes it "confirmed"
-        mine = f.get("verified") == "executed"; theirs = f.get("verifier_reproduced") == "executed"; ok = f.get("verifier") == "confirmed"
+        mine = f.get("verified") == "executed"; theirs = f.get("verifier_reproduced") == "executed" or mine and f.get("raised_by") == ["scan"]; ok = f.get("verifier") == "confirmed"  # a scripted check that ran is a measurement, not a claim
         f["confidence"] = "confirmed" if theirs or ok and (mine or f.get("votes", 1) >= 2) else "likely" if ok or mine or f.get("votes", 1) >= 2 else "possible"
         if f.get("verifier") == "unclear" and f["confidence"] == "confirmed": f["confidence"] = "likely"  # never above what the verifier could say
     final.sort(key=lambda f: (IMP_RANK[f["impact"]], {"confirmed": 0, "likely": 1, "possible": 2}[f["confidence"]], f["file"], int(f.get("line") or 0)))

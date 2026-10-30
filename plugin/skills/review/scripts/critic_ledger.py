@@ -186,32 +186,54 @@ def mole_lines(L):
             f"Write one design finding with up to five solutions ranked best to worst (references/escalation.md) and give it to the owner." for f, c, fx, op in moles(L)]
 
 COUNTS_RE = re.compile(r"Counts for the VERDICT \(copy exactly\): Critical (\d+) · High (\d+) · Medium (\d+) · Low (\d+)")
-TEAR_COUNTS = re.compile(r"(\d+)\s*Critical\W+(\d+)\s*High\W+(\d+)\s*Medium\W+(\d+)\s*Low", re.I)
+LEVELS = ("Critical", "High", "Medium", "Low")
+
+def teardown_counts(text):
+    """The four counts on a line, written either way: "1 Critical, 2 High, ..." or counts.md's own "Critical 1 · High 2 ..."
+    (§5.56 round 1). None unless all four are there."""
+    got = []
+    for lv in LEVELS:
+        m = re.search(rf"(\d+)\s*\**\s*{lv}\b|\b{lv}\s*\**\s*:?\s*(\d+)", text, re.I)
+        if not m: return None
+        got.append(int(m.group(1) or m.group(2)))
+    return tuple(got)
 
 def teardown_problems(L):
-    """The teardown is written by the lead model; its verdict word, its counts and its DEGRADED banner are checked here
-    against counts.md, which the merge script wrote (§5.56). Only for this run's teardown and counts; [] otherwise."""
+    """The teardown is written by the lead model; its verdict words, its counts and its DEGRADED banner are checked here
+    against counts.md, which the merge script wrote (§5.56). Applies once this run has a counts.md: the teardown must
+    then exist and be written after it. [] when there is no counts.md for this run."""
     tr, cm = D / "last-review.md", D / "counts.md"
     started = L.get("started_at") or 0
-    if not tr.is_file() or not cm.is_file() or tr.is_symlink() or cm.is_symlink(): return []
-    if cm.stat().st_mtime < started or tr.stat().st_mtime < cm.stat().st_mtime: return []
+    if not cm.is_file() or cm.is_symlink() or cm.stat().st_mtime < started: return []
     ctext = cm.read_text(encoding="utf-8", errors="replace"); m = COUNTS_RE.search(ctext)
     if not m: return []
-    want = tuple(int(x) for x in m.groups()); degraded = any(x.startswith("DEGRADED:") for x in ctext.splitlines()[:6])
+    if not tr.is_file() or tr.is_symlink(): return ["there is no .critic/last-review.md: save the teardown before stamping"]
+    if tr.stat().st_mtime < cm.stat().st_mtime: return ["the teardown is older than counts.md (the counts changed after it was written)"]
+    want = tuple(int(x) for x in m.groups())
+    deg = next((x[len("DEGRADED:"):].strip() for x in ctext.splitlines()[:6] if x.startswith("DEGRADED:")), None)
+    plain = lambda x: x.replace("**", "").replace("__", "").strip()
     lines = [x.strip() for x in tr.read_text(encoding="utf-8", errors="replace").splitlines() if x.strip()]
     probs = []
-    if degraded and not (lines and lines[0].startswith("DEGRADED")): probs.append("counts.md says the run is DEGRADED, but the teardown's first line doesn't")
-    first = next((x for x in lines if not x.startswith(("DEGRADED", "BLOCKED"))), "")
-    word = re.search(r"\*\*(BLOCK|CONCERNS|CLEAN)\*\*", first); got = TEAR_COUNTS.search(first)
+    if deg is not None and not (lines and plain(lines[0]).startswith("DEGRADED") and deg in plain(lines[0])):
+        probs.append("counts.md says the run is DEGRADED (" + deg[:80] + "), but the teardown's first line doesn't carry that reason")
+    first = next((x for x in lines if not plain(x).startswith(("DEGRADED", "BLOCKED"))), "")
+    word = re.search(r"\*\*(BLOCK|CONCERNS|CLEAN)\*\*", first); got = teardown_counts(first)
     if not word or not got: probs.append("the first line after any banner must be the verdict in bold and the counts (**BLOCK** · Counts: 1 Critical, 2 High, 0 Medium, 3 Low)")
     else:
-        if tuple(int(x) for x in got.groups()) != want: probs.append(f"the first line's counts {'/'.join(got.groups())} are not counts.md's {'/'.join(map(str, want))} (Critical/High/Medium/Low)")
+        if got != want: probs.append(f"the first line's counts {'/'.join(map(str, got))} are not counts.md's {'/'.join(map(str, want))} (Critical/High/Medium/Low)")
         if word.group(1) == "CLEAN" and want[0] + want[1]: probs.append("CLEAN with an open Critical or High")
-    sec = next((i for i, x in enumerate(lines) if re.match(r"#+\s*5\.\s*VERDICT", x, re.I)), None)
+    sec = next((i for i, x in enumerate(lines) if re.match(r"#+\s*5\.\s*VERDICT", plain(x), re.I)), None)
     if sec is not None:
-        cl = next((x for x in lines[sec + 1:] if re.match(r"[-*]?\s*\**Counts:", x)), None)
-        g2 = TEAR_COUNTS.search(cl or "")
-        if g2 and tuple(int(x) for x in g2.groups()) != want: probs.append(f"the VERDICT section's Counts line {'/'.join(g2.groups())} is not counts.md's {'/'.join(map(str, want))}")
+        end = next((i for i, x in enumerate(lines[sec + 1:]) if x.startswith("#")), None)
+        body = lines[sec + 1:sec + 1 + end] if end is not None else lines[sec + 1:]
+        words = re.findall(r"\*\*(BLOCK|CONCERNS|CLEAN)\*\*", "\n".join(body))
+        if word and words and words[0] != word.group(1): probs.append(f"the VERDICT section says {words[0]} but the first line says {word.group(1)}")
+        if words and words[0] == "CLEAN" and want[0] + want[1]: probs.append("the VERDICT section says CLEAN with an open Critical or High")
+        cl = next((x for x in body if re.match(r"[-*]?\s*\**Counts:", x)), None)
+        if cl is not None:
+            g2 = teardown_counts(cl)
+            if g2 is None: probs.append("the VERDICT section's Counts line doesn't give all four counts")
+            elif g2 != want: probs.append(f"the VERDICT section's Counts line {'/'.join(map(str, g2))} is not counts.md's {'/'.join(map(str, want))}")
     return probs
 
 def main(a):
@@ -464,7 +486,8 @@ def main(a):
             if r.get("quote_redacted") or not str(r.get("quote") or "").strip():
                 print(f"fresh: {r.get('id')} can't be checked (no quote, or its quote was masked); re-read {r.get('file')}:{r.get('line')} before fixing"); continue
             if cf_.quote_check(r, ROOT): continue
-            moved = cf_.relocate_quote(r, ROOT)
+            hits = cf_.find_quote(r, ROOT)  # code that moved (an earlier fix added lines above it) is not stale (§5.56 round 1)
+            moved = hits[0] if len(hits) == 1 else None
             if moved: print(f"fresh: {r.get('id')} moved to {r.get('file')}:{moved}"); continue
             print(f"fresh: {r.get('id')} is STALE: its quoted code is no longer at {r.get('file')}:{r.get('line')} (the file changed since the review)"); stale += 1
         if stale: print(f"fresh: {stale} finding(s) stale; review those files again before fixing them"); return 1
