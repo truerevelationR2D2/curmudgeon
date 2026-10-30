@@ -1,0 +1,47 @@
+[
+ {
+  "id": "F404cfafa",
+  "app": "fixture8-clean",
+  "finding": "shop/migrations/0006_safe.py (line 10) has the same problem. It depends on (\"shop\", \"0005_initial\"), and main has no shop migrations at all."
+ },
+ {
+  "id": "F63bdebd0",
+  "app": "fixture7-clean",
+  "finding": ".cursor/mcp.json:3 The docs server is a third-party npx package pinned by version only, receives DOCS_API_KEY, and has no integrity pin. npx -y auto-installs without confirmation and runs the package's install scripts. If the package is compromised or a maintainer republishes it, the code runs with the user's DOCS_API_KEY in its environment. The same pattern is repeated for tracker and lint."
+ },
+ {
+  "id": "F8549978b",
+  "app": "fixture12-clean",
+  "finding": "site/about.html:16 Link text 'index.html' names a file, but the link opens a docs site root. The href has no filename. The text reads like a download name, just after 'brochure.pdf' in the same sentence. A reader expects a file called index.html and instead lands on the docs home page."
+ },
+ {
+  "id": "Fa9be999c",
+  "app": "fixture11-clean",
+  "finding": "app.js looks like a clean-twin fixture, meaning the safe version of a risky module. It uses textContent, wraps JSON.parse in a try block, and its catch blocks call report(e). report and save are not defined in the file. For a fixture that is intentional and not a defect."
+ },
+ {
+  "id": "Fad68fa38",
+  "app": "fixture5-clean",
+  "finding": "tests/test_helpers_ok.py:82 test_inline_skip_with_reason calls pytest.skip() unconditionally at the top, so the assert below it is dead code and the test can never pass or fail. The test always reports as skipped. The cart_total([1]) == 1 assertion never executes, so it can never catch a regression. The skip should be a decorator or sit behind a real condition, such as a missing payment provider."
+ },
+ {
+  "id": "Fd43cab99",
+  "app": "fixture12-clean",
+  "finding": "Likely non-working _headers.\nThe rule is keyed on an absolute URL, https://shop.example.com/*.\nFrom memory, Netlify's _headers format matches on paths only, and Cloudflare Pages documents absolute-URL rules. I did not check either vendor's docs.\nThe host that serves this site decides whether the file applies at all. If it doesn't, none of the headers (CSP, X-Frame-Options) take effect."
+ },
+ {
+  "id": "Fd660122c",
+  "app": "fixture12-clean",
+  "finding": "site/about.html:21 The newsletter form posts email to /subscribe with no CSRF token, no autocomplete hint and no consent text. Any other site can submit a hidden cross-site POST that subscribes an arbitrary address. There is also no consent statement for collecting the email address, which can be a compliance problem."
+ },
+ {
+  "id": "Fde5bf5d4",
+  "app": "fixture8-clean",
+  "finding": "db/migrations/0002_orders.sql:2 Both SQL migrations have no down step and are not marked one-way. db/migrations/0001_safe.sql and 0002_orders.sql contain only forward statements (add column, index, constraints). No down section, no paired down file, and no comment saying the migration is one-way. The alembic and Django migrations in the same change do ship reverse steps. 0002 is deployed and the FK validation or the new index causes trouble in production. To roll back, an operator has to hand-write DROP CONSTRAINT orders_customer_fk, DROP INDEX CONCURRENTLY orders_customer_idx and DROP COLUMN tracking_code under pressure. If 0002 failed part-way, nothing in the repo says which statements already committed, since CONCURRENTLY statements cannot sit in a rollback-able transaction."
+ },
+ {
+  "id": "Ff21e9189",
+  "app": "fixture12-clean",
+  "finding": "site/about.html:16 Link text 'index.html' points at another site's root. The text looks like a file name on the page's own site. The target is https://docs.example.net/, a separate host with no file path. The adjacent link 'brochure.pdf' does match its target. A user expecting a local index.html page is taken off-site to docs.example.net. The link text names a file that does not exist at the target."
+ }
+]

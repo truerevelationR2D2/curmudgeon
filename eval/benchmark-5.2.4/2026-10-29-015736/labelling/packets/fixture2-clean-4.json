@@ -1,0 +1,137 @@
+[
+ {
+  "id": "Fd1bf3c3c",
+  "app": "fixture2-clean",
+  "finding": "app.js:129 The refund response body is never inspected: partial failure shows as full success, and an empty 2xx shows as failure. api.js:34-38 returns whatever request() parses, and app.js:128 discards it. api.js:17 calls res.json() on every 2xx, including the refund. README.md:13 says success is reported 'only after the server confirms it', but the only confirmation checked is res.ok. Traced. The server contract is not in the payload. (a) Server answers 200 {\"refunded\":[4],\"failed\":[7]}: the toast says 'Refunded 2 orders.' although #7 was not refunded, and the reload may hide that. (b) Server answers 204 No Content, a common reply to a POST: res.json() throws, the user sees 'not valid JSON' and 'The refund was not confirmed' for a refund that went through, and likely retries (compounding the idempotency finding)."
+ },
+ {
+  "id": "Fb817aee8",
+  "app": "fixture2-clean",
+  "finding": "app.js:144 A status change does not cancel a pending search debounce timer, so load() runs a second time. The user types in the search box and then changes the status within 250 ms. load() runs immediately, then searchTimer fires and calls load() again, which aborts the first request and sends a duplicate. The selection and page are reset twice, and anything the user selected in between is lost."
+ },
+ {
+  "id": "F21112ed0",
+  "app": "fixture2-clean",
+  "finding": "api.js:29 request() requires every successful response to be valid JSON, so an empty-bodied refund success (204 or 200 with no body) is reported as a failure. POST /refunds succeeds and returns 204. res.json() throws, so refund() throws an ApiError. refundSelected shows 'The refund was not confirmed' and skips load(). The money was sent, the list is stale, and the user is encouraged to retry, which makes a double refund likely (see the idempotency-key finding)."
+ },
+ {
+  "id": "Fab1c71b0",
+  "app": "fixture2-clean",
+  "finding": "domain.js:15 An unrecognised order status becomes 'unknown', but no CSS class and no filter option exist for it. Total strings like '' or null are treated as numeric zero. A record with total: null or total: '' becomes Number(null) = 0 and passes Number.isFinite. It is shown as a $0.00 order instead of being skipped as the 'no numeric total' comment says. The skipped-records note and the revenue figures are then wrong."
+ },
+ {
+  "id": "F5c9afa29",
+  "app": "fixture2-clean",
+  "finding": "styles.css:23 The page title sits 24 px left of the content column on wide screens. The h1 box is 1100 px wide and centred with no inner padding (styles.css:23). main is also 1100 px wide but with 24 px padding (styles.css:24), box-sizing border-box, so its content starts 24 px further in. At 1360 px the h1 starts at x=130 and the stats tiles at x=154. Open at 1360 px: the 'Orders' heading and the first tile edge do not line up."
+ },
+ {
+  "id": "F143a702a",
+  "app": "fixture2-clean",
+  "finding": "domain.js:33 orderRevenueCents applies a 10% gold discount and 8.25% sales tax to raw.total. Revenue is therefore not the order total shown in the table. An API order with total 100.00 and tier 'gold' is shown as $100.00 in the table. The revenue stat adds 90 \u00d7 1.0825 = $97.43 for it, and a standard order adds $108.25. If the API total is already net of discount or inclusive of tax, revenue is double-adjusted. The Revenue stat will not reconcile with the visible Total column, and no source documents the rule."
+ },
+ {
+  "id": "F42135759",
+  "app": "fixture2-clean",
+  "finding": "Refund flow: the confirm dialog shows the count and amount. Success is reported only after the server answers OK. A failure message tells the user to check order statuses before retrying."
+ },
+ {
+  "id": "Fe39fd777",
+  "app": "fixture2-clean",
+  "finding": "app.js:122 The refund amount shown in the confirmation is computed in the click handler with float addition and ignores the domain's pricing rules. domain.js:25-30 defines what an order is worth (gold discount, then sales tax, in whole cents). app.js:122 instead adds raw dollar floats inline, so the amount the user approves is a second, different rule for the same money and is not unit-tested. Rubric 1, Domain leaks: arithmetic on money inside a UI file. Select a paid gold order with total 100.00. Revenue stat treats it as 100*0.9*1.0825 = $97.43 (domain.js:28-29); the confirmation dialog says 'totalling $100.00'. The two figures for the same order disagree and nothing says which is what the customer gets back. Summing many dollar floats also drifts from the cent-exact approach that domain.js:2 sets out."
+ },
+ {
+  "id": "Fbd451838",
+  "app": "fixture2-clean",
+  "finding": "api.js:5 There is no request timeout or 401/403 handling. The session expires and the proxy returns 401 or a redirected login HTML. The user sees 'The server answered 401' or 'not valid JSON' with no prompt to sign in again. A hung refund request keeps the UI on 'Refunding\u2026' with the button disabled indefinitely."
+ },
+ {
+  "id": "Ffa7d23a2",
+  "app": "fixture2-clean",
+  "finding": "Refund retries: newIdempotencyKey() makes a new key on every click. A user who retries after a failed or timed-out refund gets a fresh key, so the server's Idempotency-Key protection can't catch that repeat. The on-screen message tells the user to reload and check order statuses first, so I left it.\n\nThe README's pricing arithmetic is right: 12 \u00d7 $15 \u00d7 12 = $2,160, and 20% off is $1,728. I could not check the README's axe-core result or the 10,000-order timing, since they depend on runs I can't see here."
+ },
+ {
+  "id": "F50e2728a",
+  "app": "fixture2-clean",
+  "finding": "app.js:145 Paging drops keyboard focus onto a disabled button, and the page change is not announced. renderTable (app.js:62-73) sets prev.disabled / next.disabled after the click. On the last page the focused Next button becomes disabled (same for Previous on page 1), and a disabled button cannot keep keyboard focus. #page (index.html:34) is a plain span, not a live region, and tbody is replaced wholesale (app.js:67). Traced; the page was not run, because Bash was denied. A keyboard user tabs to Next on page 2 of 3 and presses Enter. Page 3 renders and Next becomes disabled. Focus is lost, the next Tab starts from the top of the document, and a screen-reader user hears nothing about 'Page 3 of 3' or the new rows (WCAG 2.4.3, 4.1.3)."
+ },
+ {
+  "id": "Fa56cf628",
+  "app": "fixture2-clean",
+  "finding": "app.js:112 Each click of Refund calls newIdempotencyKey(), so the key identifies a click and not the refund attempt. The user confirms a refund and the request times out after the server has already processed it. The UI says the refund was not confirmed. The selection is still set, so the user clicks Refund again. A new UUID is sent, the server treats it as a new refund, and the customers are refunded twice. The key needs to be kept for the same selection until the server confirms or the user changes the selection."
+ },
+ {
+  "id": "Fffcf8cc4",
+  "app": "fixture2-clean",
+  "finding": "api.js:17 A successful refund whose response has no JSON body is reported as 'not confirmed', and the response content is never inspected. request() is shared by reads and writes. For any res.ok response it requires a JSON body (api.js:16-20) and throws ApiError otherwise. refund() (api.js:33-39) returns that value and app.js:128-129 never looks at it. A POST that answers 201 or 204 with an empty body is a normal REST shape, and the README specifies no response contract. A 200 body that lists per-order failures would also be shown as 'Refunded N orders.' Traced. The proxy answers POST /api/v1/refunds with 204 No Content after refunding. res.json() rejects, so the user sees 'The refund was not confirmed. The server sent a response that is not valid JSON. Reload and check...'. The table is not reloaded (app.js:130 is skipped) and still shows the orders as paid with the boxes ticked. A retry sends a new Idempotency-Key and refunds again."
+ },
+ {
+  "id": "F9976d319",
+  "app": "fixture2-clean",
+  "finding": "Script load order: index.html loads domain.js, then api.js, then app.js. api.js calls normaliseOrder from domain.js, and app.js calls summarise, clampPage and pageCount, so every reference resolves."
+ },
+ {
+  "id": "Fdbfae25d",
+  "app": "fixture2-clean",
+  "finding": "domain.js:46 summarise's average divides by all orders, including refunded, pending and unknown ones, which contribute 0 revenue. 10 orders, 5 paid at $100 and 5 pending. 'Average per order' shows about half the true paid-order average. The statistic is misleading when the status filter is 'All'."
+ },
+ {
+  "id": "F06973feb",
+  "app": "fixture2-clean",
+  "finding": "app.js:71 Paging with the keyboard disables the focused button and does not announce the new page. Pressing Enter on Previous/Next at the second or second-to-last page re-renders with that same button disabled (app.js:71-72); focus sits on a disabled control. #page (index.html:34) is a plain span with no live region, so a screen-reader user hears nothing when the page changes. README.md:5 says every control is reachable and status is announced elsewhere but not-tested with a screen reader. Traced, not driven. Keyboard user on page 2 of 3 presses Enter on Next: page 3 renders, Next becomes disabled while focused, the key no longer works and focus order is lost; a screen reader announces nothing about 'Page 3 of 3'."
+ },
+ {
+  "id": "Fd152632b",
+  "app": "fixture2-clean",
+  "finding": "domain.js:33 orderRevenueCents rounds with Math.round, which rounds negative half-cents toward zero. It also applies the discount and tax to totals that may already include them. A credit with a negative total, such as -0.005 or a gold-tier -1.05 order, rounds differently from the 'half up per order' rule in the comment. The revenue figure then disagrees with what the billing system computes. The 'Average per order' also divides revenue by every order in the list, including refunded and pending ones, which understates the average per paid order."
+ },
+ {
+  "id": "F063369cb",
+  "app": "fixture2-clean",
+  "finding": "Refund retries: Each refund attempt gets a new idempotency key, so the server can't tell a retry from a new request. The error message does tell the user to check order statuses before retrying.\n\nThe summary agent also noted that the README states server requirements and performance and accessibility claims the diff doesn't back up. Those are reviewer notes, not code defects, and I did not flag them.\n\nI posted nothing and changed no files."
+ },
+ {
+  "id": "F2382fd56",
+  "app": "fixture2-clean",
+  "finding": "domain.js:11 normaliseOrder turns a missing or non-numeric total into 0 instead of dropping the record. The header comment on line 7 promises null for 'no numeric total'. Number(null) is 0, Number('') is 0, Number([]) is 0, Number(false) is 0 and Number(true) is 1, all finite, so the guard on line 12 passes. Number(' ') is 0 too. Negative totals also pass. Traced against the ECMAScript conversion rules; not executed. The API returns {id: 7, total: null, customer: {name: 'Ann'}, status: 'paid'}. The row is shown as $0.00 'paid', the 'skipped' warning (app.js:103) never fires, revenue silently omits it, and the user can tick it and refund it; the confirm dialog says 'totalling $0.00' for a real order."
+ },
+ {
+  "id": "Ffba074c1",
+  "app": "fixture2-clean",
+  "finding": "domain.js:11 normaliseOrder turns a missing total (null, \"\", [], true) into a valid order worth $0.00 or $1.00. Number(null) is 0, Number(\"\") is 0, Number([]) is 0, Number(true) is 1, and all pass Number.isFinite on domain.js:12. The comment at domain.js:7 and the 'incomplete data' message at app.js:103 say such records are dropped. Negative totals also pass (domain.js:12). Traced from JS coercion rules; node was not approved to run the probe. The API returns {\"id\": 7, \"total\": null, \"status\": \"paid\"}. The row renders as $0.00, counts in 'Orders' and drags down 'Average per order', and no 'could not be shown' note appears. A negative total such as -50 on a paid order reduces Revenue. The user can also select the $0.00 row and send it to the refund endpoint."
+ },
+ {
+  "id": "Fbd32a32c",
+  "app": "fixture2-clean",
+  "finding": "Refund flow: it asks for confirmation, blocks double clicks with state.refunding, and reports success only after refund() resolves. Errors from the follow-up load() are caught inside load() itself."
+ },
+ {
+  "id": "F4807a506",
+  "app": "fixture2-clean",
+  "finding": "app.js:128 A new idempotency key is minted for every click, so a retry after an unconfirmed refund is not deduplicated. app.js:119-137 generates the key inside refundSelected on each click and does not keep it. On error the catch at app.js:131-133 leaves state.selected intact and the finally at app.js:135-136 re-enables the button. README.md:9 makes the server's only protection against a double refund the Idempotency-Key header; api.js:32 says the key covers 'the same attempt'. Traced; the server was not available to run. The user selects 3 orders and clicks Refund, then confirms. The server processes the refund but the response is lost (504 from a proxy, a dropped connection, or a 200 with an empty body, which request() turns into 'not valid JSON'). The UI shows 'The refund was not confirmed.', keeps the 3 rows ticked and re-enables the Refund button. The user clicks Refund again. refundSelected calls newIdempotencyKey() again, so the server sees a different key and refunds the same 3 orders a second time. The only guard is a sentence telling the user to check first."
+ },
+ {
+  "id": "F3e33facc",
+  "app": "fixture2-clean",
+  "finding": "Search races: load() aborts the previous request. The latestRequest !== controller guards stop a stale response from overwriting newer state. The finally block resets loading only for the current request."
+ },
+ {
+  "id": "F6c0a3c36",
+  "app": "fixture2-clean",
+  "finding": "domain.js:29 Revenue adds 8.25% tax (and a gold discount) on top of the order total the table shows, so the stat does not reconcile with the rows. orderRevenueCents multiplies the server's order.total by 1.0825 (and by 0.9 for gold). The table (app.js:51) and the refund confirm (app.js:122) show and use the raw total. An order total from an API normally already includes tax and discount, and revenue normally excludes tax. Nothing in the repo states which it is. Traced. One paid standard order with total 100.00. The row says $100.00 and the Revenue card says $108.25. For a gold order the row says $100.00 and Revenue says $97.43. The user cannot reconcile the two, and the refund prompt for the same order says $100.00."
+ },
+ {
+  "id": "Fbb0127d1",
+  "app": "fixture2-clean",
+  "finding": "app.js:72 Paging to the last (or first) page disables the focused button and drops keyboard focus to the body. Driven with the keyboard: focus on Next, Enter twice. On 'Page 3 of 3' Next became disabled and document.activeElement was BODY. The same happens for Previous on page 1. Nothing announces the page change either: #page is not in a live region. A keyboard or screen-reader user tabs to Next and presses Enter until the last page. Focus is lost, so the next Tab restarts from the top of the document and the user has to tab through the search box, filter, Refund button and Previous again to continue."
+ },
+ {
+  "id": "Feb37b70e",
+  "app": "fixture2-clean",
+  "finding": "app.js:70 Paging is silent for screen-reader users and the pager button that was just used can become disabled under the keyboard focus. index.html:34 puts the page label in a plain span with no live region. app.js:71-72 set prev/next disabled in the same render that replaces all rows, and nothing moves or restores focus. README.md:5 says the interface was not tested with a screen reader. A keyboard user on page 2 of 3 presses Next. Rows change, the label reads 'Page 3 of 3' with no announcement, and the Next button becomes disabled while focused, so focus is dropped in browsers that blur disabled controls and the user has to Tab back from the top."
+ },
+ {
+  "id": "F7016d33e",
+  "app": "fixture2-clean",
+  "finding": "app.js:120 Refund is allowed for any selected order regardless of status, and the confirm amount sums raw order.total for all of them. The user ticks an already-refunded or pending order and clicks Refund. The confirm dialog quotes that order's total as money going back to the customer. The request is sent anyway, so the server either double-refunds or rejects the whole batch. The UI never filters to status === 'paid'."
+ }
+]

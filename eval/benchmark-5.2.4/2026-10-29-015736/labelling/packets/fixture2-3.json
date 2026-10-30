@@ -1,0 +1,202 @@
+[
+ {
+  "id": "F99761a24",
+  "app": "fixture2",
+  "finding": "Code review: main...HEAD (commit 802f56f)\n\nI read the diff directly. It adds a new 5-file app and the repo has no CLAUDE.md, so there was nothing to check for compliance. The diff is small, so I did not launch the agent fan-out. These are the problems I'm confident are real."
+ },
+ {
+  "id": "F8ca6bf47",
+  "app": "fixture2",
+  "finding": "The accessibility claims are false.\n\"Meets WCAG 2.1 AA, including 44 px touch targets\": the Prev and Next buttons are 12px text with 2px padding.\nstyles.css removes the focus outline (button:focus, input:focus, select:focus { outline: none; }).\nThe .lbl text (#aaa on white) and the .eyebrow text (#c7c2f0 on the purple gradient) are too low in contrast.\nThe .dot status indicator uses colour alone.\nCriterion 2.5.5 is also AAA, not AA."
+ },
+ {
+  "id": "Fed39078d",
+  "app": "fixture2",
+  "finding": "app.js:34 Page count rounds down, and Prev/Next and new searches are not bounded. app.js:34 uses floor, app.js:47-48 decrement and increment with no limits, and load() never resets page. Driven: Prev twice shows 'Page -1 of 2'; Next five times shows 'Page 4 of 2' with 0 rows; 0 orders shows 'Page 1 of 0'. With 25 orders the label reads 'of 2' though there are 3 pages. Go to page 2, search for something with 3 results: the table is empty because page is still 2."
+ },
+ {
+  "id": "Fef23f5c0",
+  "app": "fixture2",
+  "finding": "Pagination skips the first page (app.js, renderTable).\npage starts at 1 but start = page * PAGE_SIZE, so the first 10 orders are never shown.\nPage ${page} of ${Math.floor(orders.length / PAGE_SIZE)} should round up (Math.ceil). With 25 orders it says \"of 2\", but there are 3 pages.\nPrev and Next have no bounds. Prev can reach page 0 or below, and Next can go past the last page into an empty table.\npage is not reset when the search or status filter changes."
+ },
+ {
+  "id": "Fee1ab07d",
+  "app": "fixture2",
+  "finding": "Page count is wrong. app.js:34 uses Math.floor, so 25 orders shows \"of 2\" instead of 3. With fewer than 10 orders it shows \"of 0\"."
+ },
+ {
+  "id": "Faf066ccd",
+  "app": "fixture2",
+  "finding": "app.js:34 Page count rounds down, and Prev/Next/filter changes are not clamped. Math.floor drops the last partial page (25 orders: 'of 2', 3 pages exist; 5 orders: 'of 0'). app.js:47-48 decrement/increment without bounds; load() (app.js:38-43) does not reset page after a new search or filter. Traced. On page 3 type a search that returns 4 results: the table is empty and the label says 'Page 3 of 0'. Click Prev repeatedly: page goes negative and the slice returns an empty or wrong range."
+ },
+ {
+  "id": "Fd7e00eb1",
+  "app": "fixture2",
+  "finding": "README.md:7 Performance claim has no measurement and the code does not support it. load() fetches the whole list on every keystroke (app.js:41, no debounce at app.js:45), renderStats walks every order each time (app.js:11) and the page has no benchmark. Only 10 rows are drawn per page, so 'renders 10,000' is not what the code does either. With 10,000 orders the user downloads and parses the full JSON on each keystroke. The README promises 'instantly' with no number or test behind it."
+ },
+ {
+  "id": "Fdf52570a",
+  "app": "fixture2",
+  "finding": "app.js:40 Pagination is off by one. page starts at 1, but start = page*PAGE_SIZE skips the first 10 orders. The page count uses floor, so the last partial page is dropped. The first 10 orders are never shown on initial load. With 25 orders the label says 'Page 1 of 2' and shows orders 10-19, and orders 20-24 are unreachable in the label count. Prev can drive page to 0 or below, giving a negative slice start and wrong or empty rows. Next has no upper bound."
+ },
+ {
+  "id": "Ff85f7cf4",
+  "app": "fixture2",
+  "finding": "styles.css:122 Focus outlines are removed, the controls are tiny, and text contrast is low (#aaa on white, #c7c2f0 on purple). Together these contradict the README's 'WCAG 2.1 AA' and 44px touch target claims. Keyboard users cannot see focus. Buttons are about 12px with 2px padding, far below 44px. The toast animates infinitely with no reduced-motion handling. An accessibility audit fails the README claims."
+ },
+ {
+  "id": "F6b3382dd",
+  "app": "fixture2",
+  "finding": "The pricing example is wrong. README.md: 12 seats \u00d7 $15 \u00d7 12 months = $2,160, and 20% off gives $1,728, not $1,440. The README doesn't say whether $15 is monthly or annual. If it is annual, 12 seats at 20% off is $144. Neither reading gives $1,440."
+ },
+ {
+  "id": "F4a42606d",
+  "app": "fixture2",
+  "finding": "app.js:40 Pagination is off by one. page starts at 1 but start = page * PAGE_SIZE, so the first 10 orders are skipped. On first load the table shows orders 10-19. Prev goes to page 0, which shows the first 10, and then to negative pages, where slice(-10, 0) is empty. Nothing clamps page at either end."
+ },
+ {
+  "id": "F9affae38",
+  "app": "fixture2",
+  "finding": "Stored XSS and query-string bugs.\nrenderTable writes o.customer.name into innerHTML unescaped.\ngetOrders puts query and status into the URL without encodeURIComponent. A search containing & or # corrupts the request."
+ },
+ {
+  "id": "Fabf6e10e",
+  "app": "fixture2",
+  "finding": "index.html:94 The Refund control is a <span> with an onclick. It is not keyboard-focusable or a button, and the refund fires immediately with no confirmation. Keyboard and screen-reader users cannot trigger it. Clicking it with an empty selection sends an empty refund. The README claim that 'Refunds are confirmed before they are sent' is false because no confirm step exists in the code."
+ },
+ {
+  "id": "Fa7a480cb",
+  "app": "fixture2",
+  "finding": "tb.innerHTML += inside a loop reparses the table on every row. It is harmless at 10 rows, but it undercuts the \"fast\" claim."
+ },
+ {
+  "id": "F5069915f",
+  "app": "fixture2",
+  "finding": "\"Renders 10,000 orders instantly\" is unsupported. renderTable does tb.innerHTML += in a loop, which is quadratic, and no benchmark backs the claim. It only renders 10 rows at a time, so the claim doesn't describe what the code does."
+ },
+ {
+  "id": "F7cb09b51",
+  "app": "fixture2",
+  "finding": "app.js:34 Page count rounds down and Prev/Next are unbounded, so the pager shows 'Page 3 of 2', 'Page -1 of 2' and blank tables; page is not reset when a search changes the results. app.js:34 uses floor, not ceil; app.js:47-48 decrement and increment with no limits; load() (app.js:38-43) never resets page. Driven with 25 orders: Next x3 -> 'Page 4 of 2' with 0 rows; Prev x5 -> 'Page -1 of 2'. 0 orders -> 'Page 1 of 0'. 25 orders: label reads 'Page 1 of 2' though 3 pages exist; clicking Next twice shows 'Page 3 of 2' and an empty table. Go to page 2, type a search with 5 results: the table is empty because page is still 2."
+ },
+ {
+  "id": "F00d0f295",
+  "app": "fixture2",
+  "finding": "Search text isn't URL-encoded (api.js:6). query goes into the URL raw, so &, # and + in a search such as \"Smith & Sons\" send the wrong request. The validator narrowed this to query only: status comes from a fixed <select>."
+ },
+ {
+  "id": "F89c4161b",
+  "app": "fixture2",
+  "finding": "Bugs"
+ },
+ {
+  "id": "F6327ab57",
+  "app": "fixture2",
+  "finding": "Query is not URL-encoded (api.js getOrders). q=${query} breaks on &, # and similar characters, and lets a user inject extra parameters such as &status=."
+ },
+ {
+  "id": "Fa678fdcf",
+  "app": "fixture2",
+  "finding": "The selection list is never cleaned up. The onchange handler in app.js only pushes ids. Unchecking a box does not remove it, and re-rendering or paging leaves stale and duplicate ids. \"Refund selected\" can therefore refund orders the user unticked."
+ },
+ {
+  "id": "F118064d2",
+  "app": "fixture2",
+  "finding": "app.js:34 Page total uses floor, and Prev and Next are not bounded. Driven with 25 orders: label 'Page 1 of 2' (needs 3), Next twice reached 'Page 3 of 2' with 0 rows, Prev three times reached 'Page 0'. With 0 orders it reads 'Page 1 of 0'. page also is not reset when the search changes (app.js:45). Go to page 3, type a search that returns 5 results: an empty table with no message."
+ },
+ {
+  "id": "Fef8fbcd0",
+  "app": "fixture2",
+  "finding": "app.js:51 Refund with nothing selected still posts and toasts 'Refunded 0 orders!'. Driven: with selected = [] a click on the refund control produced the toast 'Refunded 0 orders!' and a POST with {\"ids\":[]}. The control has no disabled state (styles.css:12). Also 'order(s)' pluralises wrongly for 1 ('Refunded 1 orders!'), and the exclamation mark states success for something unverified. User clicks Refund selected before choosing anything: success toast for zero refunds, and an empty request is sent."
+ },
+ {
+  "id": "F9d9e70b0",
+  "app": "fixture2",
+  "finding": "Code review: git diff main...HEAD (1 commit, 5 new files)\n\nI read the diff directly because it is small. There are no CLAUDE.md files in the repo, so there was nothing to check for compliance. I did not run the subagent validation pass. I confirmed each issue below by reading the code."
+ },
+ {
+  "id": "Fb3abc5f3",
+  "app": "fixture2",
+  "finding": "app.js:34 Page count uses floor, so the last partial page is omitted from 'Page X of Y'. Driven: 25 orders gave 'Page 1 of 2' with 3 pages of data; 10,000 orders gave 'Page 1 of 1000' (correct only for exact multiples). Fewer than 10 orders gives 'of 0'. 25 orders: the label says 2 pages, the third page of 5 orders exists. 9 orders: 'Page 1 of 0'."
+ },
+ {
+  "id": "F3fc12cf8",
+  "app": "fixture2",
+  "finding": "app.js:45 Every keystroke fires a request with no debounce, and late responses overwrite newer ones. load() awaits getOrders and then assigns the shared orders (app.js:41). There is no request id, abort or stale check, and getOrders fetches the whole list each time. Type 'ann' quickly: the response for 'a' arrives after the response for 'ann'. The table and stats show results for 'a' while the box reads 'ann'."
+ },
+ {
+  "id": "F33a030a0",
+  "app": "fixture2",
+  "finding": "Code review: git diff main...HEAD (commit 7becb4a, 5 new files)\n\nThere is no CLAUDE.md in the repo, so I checked for bugs and for README claims the code contradicts. I read the diff directly and did not launch subagents, because the change is small. I did not run the app. Each finding below is visible in the diff text.\n\nBugs"
+ },
+ {
+  "id": "F1048e838",
+  "app": "fixture2",
+  "finding": "Selection state is wrong. app.js: the onchange handler only pushes ids and never removes them on uncheck. Re-checking adds duplicates, and ticked boxes aren't restored after paging or reloading. So a refund can include orders the user unticked, or the same order twice."
+ },
+ {
+  "id": "F224bce34",
+  "app": "fixture2",
+  "finding": "The page total is wrong (app.js:34). Math.floor should be Math.ceil: 25 orders show \"of 2\" and 5 orders show \"of 0\"."
+ },
+ {
+  "id": "F9aea8753",
+  "app": "fixture2",
+  "finding": "app.js:49 No in-flight guard on refund: double click sends the refund twice. Handler awaits refund and does not disable the control or carry an idempotency key; selected is not cleared. Traced. Double-click Refund selected with 3 orders selected: two POST /refunds with the same ids are sent; a backend without idempotency refunds twice."
+ },
+ {
+  "id": "Fe9d7242c",
+  "app": "fixture2",
+  "finding": "api.js:20 refund() does not await the fetch and always returns {ok:true}, and it ignores the response status and any rejection. The network is down or the API returns 4xx/5xx. The UI still shows 'Refunded N orders!' although nothing was refunded, and the rejected promise goes unhandled. README line 9 says refunds are confirmed before they are sent, but no confirmation step exists."
+ },
+ {
+  "id": "Fdea4c4f6",
+  "app": "fixture2",
+  "finding": "renderStats applies the 8.25% tax and the gold discount to refunded orders as well. If o.total is already the charged amount, revenue is mis-stated. I can't confirm the intended semantics from the diff."
+ },
+ {
+  "id": "Fae3da28d",
+  "app": "fixture2",
+  "finding": "app.js:40 Dividing by orders.length gives NaN when the list is empty. Revenue is also computed over unrelated rows and with questionable math. A search with no results sets avg to 0/0 = NaN and shows '$NaN'. Pending orders are ignored. Tax of 8.25% is applied to revenue, and the gold discount is applied to totals that are probably already discounted. The 'AVG ORDER' divides net revenue by all orders, including refunded and pending ones."
+ },
+ {
+  "id": "F5a873b49",
+  "app": "fixture2",
+  "finding": "Other defects"
+ },
+ {
+  "id": "F92eedbf6",
+  "app": "fixture2",
+  "finding": "index.html:23 Toast is not a live region, so the refund result is never announced. No role=\"status\" or aria-live. app.js:51 sets textContent and display:block only. WCAG 4.1.3 (AA). A screen reader user clicks Refund and hears nothing, whether it worked or not."
+ },
+ {
+  "id": "Fe7f4913f",
+  "app": "fixture2",
+  "finding": "A secret key is hardcoded in client-side JS. api.js defines API_KEY and sends it as a Bearer token from the browser. It is a placeholder here, but the pattern still exposes any real key to every visitor. This contradicts the README claim \"the API key never leaves the server.\""
+ },
+ {
+  "id": "F3dc6e528",
+  "app": "fixture2",
+  "finding": "README.md:7 '10,000 orders instantly' is unsupported and contradicted by the code. app.js:32 does innerHTML += per row, and renderTable renders only 10 rows; renderStats loops all orders per keystroke with a fetch per keystroke (app.js:45). No benchmark in the repo. No measurement exists; with 10,000 orders every keystroke refetches and reprocesses all 10,000 and nothing paginates server-side."
+ },
+ {
+  "id": "F09c66090",
+  "app": "fixture2",
+  "finding": "app.js:51 Success toast with an exclamation mark and wrong grammar for one order, claimed before any confirmation. app.js:51. Singular case yields 'Refunded 1 orders!'. Refunding one order reads 'Refunded 1 orders!'."
+ },
+ {
+  "id": "F6232bd27",
+  "app": "fixture2",
+  "finding": "Code review: \"Add the app\"\n\nThe reviewers found 12 issues in the diff main...HEAD. An independent validator confirmed each one, so all 12 remain. No CLAUDE.md files exist in the repo, so there were no CLAUDE.md violations. Nothing was posted and no files were changed."
+ },
+ {
+  "id": "F053f5e8c",
+  "app": "fixture2",
+  "finding": "app.js:49 Refund runs on a single click with no confirmation, although README.md:9 says refunds are confirmed. No confirm, dialog or undo anywhere in app.js or index.html. Driven: one click sent the POST. A stray click on a destructive, money-moving action sends the refund immediately."
+ },
+ {
+  "id": "F46d2b01c",
+  "app": "fixture2",
+  "finding": "refund() always reports success. api.js: the fetch isn't awaited and its result is never checked, so it returns { ok: true } whatever the server says. app.js then shows \"Refunded N orders!\" even if the request failed or hasn't finished. This is a money-moving action. It also sends a refund with no confirmation, which contradicts the README line \"Refunds are confirmed before they are sent.\""
+ }
+]

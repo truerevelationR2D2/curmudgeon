@@ -1,0 +1,5693 @@
+{
+ "agreement": {
+  "agreed": 865,
+  "agreement": 0.915,
+  "controls_a": {
+   "correct": 24,
+   "n": 24,
+   "real_right": "12 of 12",
+   "wrong_right": "12 of 12"
+  },
+  "controls_b": {
+   "correct": 24,
+   "n": 24,
+   "real_right": "12 of 12",
+   "wrong_right": "12 of 12"
+  },
+  "findings": 945,
+  "kappa_verdict": 0.861
+ },
+ "labels": {
+  "cc-code-review/suite1-clean~1/0": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "cc-code-review/suite1-clean~1/1": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "high",
+   "verdict": "real"
+  },
+  "cc-code-review/suite1-clean~1/2": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "cc-code-review/suite1-clean~1/3": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "trivial"
+  },
+  "cc-code-review/suite1-clean~1/4": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "trivial"
+  },
+  "cc-code-review/suite1-clean~1/5": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "trivial"
+  },
+  "cc-code-review/suite1-clean~1/6": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "cc-code-review/suite1-clean~1/7": {
+   "actionable": true,
+   "decided_by": "tiebreaker",
+   "severity": null,
+   "verdict": "trivial"
+  },
+  "cc-code-review/suite1-clean~1/8": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "trivial"
+  },
+  "cc-code-review/suite1-clean~4/0": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "high",
+   "verdict": "real"
+  },
+  "cc-code-review/suite1-clean~4/1": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "cc-code-review/suite1-clean~4/2": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "trivial"
+  },
+  "cc-code-review/suite1-clean~4/3": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "cc-code-review/suite1-clean~4/4": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "cc-code-review/suite1-clean~4/5": {
+   "actionable": false,
+   "decided_by": "tiebreaker",
+   "severity": null,
+   "verdict": "wrong"
+  },
+  "cc-code-review/suite1-clean~4/6": {
+   "actionable": true,
+   "decided_by": "tiebreaker",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "cc-code-review/suite1-clean~4/7": {
+   "actionable": false,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "wrong"
+  },
+  "cc-code-review/suite1-clean~5/0": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "cc-code-review/suite1-clean~5/1": {
+   "actionable": true,
+   "decided_by": "tiebreaker",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "cc-code-review/suite1-clean~5/2": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "cc-code-review/suite1-clean~5/3": {
+   "actionable": true,
+   "decided_by": "tiebreaker",
+   "severity": null,
+   "verdict": "trivial"
+  },
+  "cc-code-review/suite1-clean~5/4": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "cc-code-review/suite1-clean~5/5": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "cc-code-review/suite1-clean~5/6": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "cc-code-review/suite1-clean~5/7": {
+   "actionable": true,
+   "decided_by": "tiebreaker",
+   "severity": null,
+   "verdict": "trivial"
+  },
+  "cc-code-review/suite1-clean~5/8": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "trivial"
+  },
+  "cc-code-review/suite1-clean~5/9": {
+   "actionable": false,
+   "decided_by": "tiebreaker",
+   "severity": null,
+   "verdict": "wrong"
+  },
+  "cc-code-review/suite1~1/1": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "high",
+   "verdict": "real"
+  },
+  "cc-code-review/suite1~1/2": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "cc-code-review/suite1~1/3": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "cc-code-review/suite1~1/5": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "trivial"
+  },
+  "cc-code-review/suite1~1/6": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "trivial"
+  },
+  "cc-code-review/suite1~1/9": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "cc-code-review/suite1~2/7": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "cc-code-review/suite1~3/1": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "high",
+   "verdict": "real"
+  },
+  "cc-code-review/suite1~3/5": {
+   "actionable": true,
+   "decided_by": "tiebreaker",
+   "severity": null,
+   "verdict": "trivial"
+  },
+  "cc-code-review/suite1~4/1": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "high",
+   "verdict": "real"
+  },
+  "cc-code-review/suite1~4/4": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "cc-code-review/suite1~4/5": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "cc-code-review/suite1~4/7": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "trivial"
+  },
+  "cc-code-review/suite1~4/8": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "cc-code-review/suite1~5/1": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "high",
+   "verdict": "real"
+  },
+  "cc-code-review/suite1~5/3": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "cc-code-review/suite1~5/5": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "cc-code-review/suite1~5/6": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "cc-code-review/suite1~5/7": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "trivial"
+  },
+  "cc-code-review/suite1~5/8": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "cc-code-review/suite1~5/9": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "cc-code-review/suite2-clean~1/0": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "high",
+   "verdict": "real"
+  },
+  "cc-code-review/suite2-clean~1/1": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "cc-code-review/suite2-clean~1/2": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "cc-code-review/suite2-clean~1/3": {
+   "actionable": true,
+   "decided_by": "tiebreaker",
+   "severity": null,
+   "verdict": "trivial"
+  },
+  "cc-code-review/suite2-clean~1/4": {
+   "actionable": false,
+   "decided_by": "tiebreaker",
+   "severity": null,
+   "verdict": "wrong"
+  },
+  "cc-code-review/suite2-clean~1/5": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "trivial"
+  },
+  "cc-code-review/suite2-clean~1/6": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "cc-code-review/suite2-clean~1/7": {
+   "actionable": true,
+   "decided_by": "tiebreaker",
+   "severity": null,
+   "verdict": "trivial"
+  },
+  "cc-code-review/suite2-clean~1/8": {
+   "actionable": true,
+   "decided_by": "tiebreaker",
+   "severity": null,
+   "verdict": "trivial"
+  },
+  "cc-code-review/suite2-clean~1/9": {
+   "actionable": false,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "wrong"
+  },
+  "cc-code-review/suite2-clean~2/0": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "cc-code-review/suite2-clean~2/1": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "high",
+   "verdict": "real"
+  },
+  "cc-code-review/suite2-clean~2/2": {
+   "actionable": true,
+   "decided_by": "tiebreaker",
+   "severity": null,
+   "verdict": "trivial"
+  },
+  "cc-code-review/suite2-clean~2/3": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "cc-code-review/suite2-clean~2/4": {
+   "actionable": false,
+   "decided_by": "tiebreaker",
+   "severity": null,
+   "verdict": "wrong"
+  },
+  "cc-code-review/suite2-clean~2/5": {
+   "actionable": true,
+   "decided_by": "tiebreaker",
+   "severity": null,
+   "verdict": "trivial"
+  },
+  "cc-code-review/suite2-clean~2/6": {
+   "actionable": true,
+   "decided_by": "tiebreaker",
+   "severity": null,
+   "verdict": "trivial"
+  },
+  "cc-code-review/suite2-clean~2/7": {
+   "actionable": false,
+   "decided_by": "tiebreaker",
+   "severity": null,
+   "verdict": "trivial"
+  },
+  "cc-code-review/suite2-clean~2/8": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "trivial"
+  },
+  "cc-code-review/suite2-clean~2/9": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "cc-code-review/suite2-clean~3/0": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "high",
+   "verdict": "real"
+  },
+  "cc-code-review/suite2-clean~3/1": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "cc-code-review/suite2-clean~3/2": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "cc-code-review/suite2-clean~3/3": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "cc-code-review/suite2-clean~3/4": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "cc-code-review/suite2-clean~3/5": {
+   "actionable": true,
+   "decided_by": "tiebreaker",
+   "severity": null,
+   "verdict": "trivial"
+  },
+  "cc-code-review/suite2-clean~3/6": {
+   "actionable": false,
+   "decided_by": "tiebreaker",
+   "severity": null,
+   "verdict": "wrong"
+  },
+  "cc-code-review/suite2-clean~3/7": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "cc-code-review/suite2-clean~3/8": {
+   "actionable": true,
+   "decided_by": "tiebreaker",
+   "severity": null,
+   "verdict": "trivial"
+  },
+  "cc-code-review/suite2-clean~4/0": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "cc-code-review/suite2-clean~4/1": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "cc-code-review/suite2-clean~4/2": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "cc-code-review/suite2-clean~4/3": {
+   "actionable": true,
+   "decided_by": "tiebreaker",
+   "severity": null,
+   "verdict": "trivial"
+  },
+  "cc-code-review/suite2-clean~4/4": {
+   "actionable": true,
+   "decided_by": "tiebreaker",
+   "severity": null,
+   "verdict": "trivial"
+  },
+  "cc-code-review/suite2-clean~4/5": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "cc-code-review/suite2-clean~4/6": {
+   "actionable": false,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "trivial"
+  },
+  "cc-code-review/suite2-clean~4/7": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "cc-code-review/suite2-clean~4/8": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "trivial"
+  },
+  "cc-code-review/suite2-clean~4/9": {
+   "actionable": true,
+   "decided_by": "tiebreaker",
+   "severity": null,
+   "verdict": "trivial"
+  },
+  "cc-code-review/suite2-clean~5/0": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "cc-code-review/suite2-clean~5/1": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "cc-code-review/suite2-clean~5/2": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "cc-code-review/suite2-clean~5/3": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "cc-code-review/suite2-clean~5/4": {
+   "actionable": true,
+   "decided_by": "tiebreaker",
+   "severity": null,
+   "verdict": "trivial"
+  },
+  "cc-code-review/suite2-clean~5/5": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "cc-code-review/suite2-clean~5/6": {
+   "actionable": false,
+   "decided_by": "tiebreaker",
+   "severity": null,
+   "verdict": "wrong"
+  },
+  "cc-code-review/suite2-clean~5/7": {
+   "actionable": false,
+   "decided_by": "tiebreaker",
+   "severity": null,
+   "verdict": "trivial"
+  },
+  "cc-code-review/suite2-clean~5/8": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "trivial"
+  },
+  "cc-code-review/suite2-clean~5/9": {
+   "actionable": false,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "trivial"
+  },
+  "cc-code-review/suite2~1/3": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "cc-code-review/suite2~2/2": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "high",
+   "verdict": "real"
+  },
+  "cc-code-review/suite2~2/4": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "high",
+   "verdict": "real"
+  },
+  "cc-code-review/suite2~2/5": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "high",
+   "verdict": "real"
+  },
+  "cc-code-review/suite2~2/6": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "cc-code-review/suite2~2/8": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "cc-code-review/suite2~3/1": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "high",
+   "verdict": "real"
+  },
+  "cc-code-review/suite2~3/3": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "cc-code-review/suite2~3/4": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "high",
+   "verdict": "real"
+  },
+  "cc-code-review/suite2~3/5": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "high",
+   "verdict": "real"
+  },
+  "cc-code-review/suite2~3/6": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "cc-code-review/suite2~3/7": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "cc-code-review/suite2~3/8": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "high",
+   "verdict": "real"
+  },
+  "cc-code-review/suite2~4/3": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "critical",
+   "verdict": "real"
+  },
+  "cc-code-review/suite2~4/4": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "cc-code-review/suite2~4/5": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "cc-code-review/suite2~4/7": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "high",
+   "verdict": "real"
+  },
+  "cc-code-review/suite2~4/8": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "cc-code-review/suite2~5/2": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "high",
+   "verdict": "real"
+  },
+  "cc-code-review/suite2~5/5": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "high",
+   "verdict": "real"
+  },
+  "cc-code-review/suite2~5/6": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "cc-code-review/suite2~5/7": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "cc-code-review/suite2~5/8": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "cc-code-review/suite3~1/0": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "cc-code-review/suite3~1/1": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "cc-code-review/suite3~1/2": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "trivial"
+  },
+  "cc-code-review/suite3~1/4": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "cc-code-review/suite3~1/5": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "cc-code-review/suite3~1/6": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "trivial"
+  },
+  "cc-code-review/suite3~1/7": {
+   "actionable": true,
+   "decided_by": "tiebreaker",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "cc-code-review/suite3~2/0": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "cc-code-review/suite3~2/1": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "cc-code-review/suite3~2/3": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "cc-code-review/suite3~2/4": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "trivial"
+  },
+  "cc-code-review/suite3~2/5": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "trivial"
+  },
+  "cc-code-review/suite3~2/6": {
+   "actionable": false,
+   "decided_by": "tiebreaker",
+   "severity": null,
+   "verdict": "wrong"
+  },
+  "cc-code-review/suite3~2/7": {
+   "actionable": false,
+   "decided_by": "tiebreaker",
+   "severity": null,
+   "verdict": "trivial"
+  },
+  "cc-code-review/suite3~2/8": {
+   "actionable": true,
+   "decided_by": "tiebreaker",
+   "severity": null,
+   "verdict": "trivial"
+  },
+  "cc-code-review/suite3~3/0": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "cc-code-review/suite3~3/1": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "cc-code-review/suite3~3/3": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "cc-code-review/suite3~3/4": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "trivial"
+  },
+  "cc-code-review/suite3~3/5": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "trivial"
+  },
+  "cc-code-review/suite3~3/6": {
+   "actionable": false,
+   "decided_by": "tiebreaker",
+   "severity": null,
+   "verdict": "wrong"
+  },
+  "cc-code-review/suite3~3/7": {
+   "actionable": true,
+   "decided_by": "tiebreaker",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "cc-code-review/suite3~4/0": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "cc-code-review/suite3~4/1": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "cc-code-review/suite3~4/2": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "cc-code-review/suite3~4/3": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "cc-code-review/suite3~4/4": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "cc-code-review/suite3~4/5": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "trivial"
+  },
+  "cc-code-review/suite3~4/6": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "trivial"
+  },
+  "cc-code-review/suite3~4/7": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "cc-code-review/suite3~4/8": {
+   "actionable": false,
+   "decided_by": "tiebreaker",
+   "severity": null,
+   "verdict": "trivial"
+  },
+  "cc-code-review/suite3~4/9": {
+   "actionable": false,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "trivial"
+  },
+  "cc-code-review/suite3~5/0": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "cc-code-review/suite3~5/1": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "cc-code-review/suite3~5/3": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "cc-code-review/suite3~5/4": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "trivial"
+  },
+  "cc-code-review/suite3~5/5": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "trivial"
+  },
+  "cc-code-review/suite3~5/6": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "trivial"
+  },
+  "cc-code-review/suite3~5/7": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "cc-code-review/suite4-clean~1/0": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "cc-code-review/suite4-clean~1/1": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "cc-code-review/suite4-clean~1/2": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "cc-code-review/suite4-clean~1/3": {
+   "actionable": false,
+   "decided_by": "tiebreaker",
+   "severity": null,
+   "verdict": "wrong"
+  },
+  "cc-code-review/suite4-clean~1/4": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "cc-code-review/suite4-clean~1/5": {
+   "actionable": false,
+   "decided_by": "tiebreaker",
+   "severity": null,
+   "verdict": "wrong"
+  },
+  "cc-code-review/suite4-clean~1/6": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "cc-code-review/suite4-clean~1/7": {
+   "actionable": false,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "trivial"
+  },
+  "cc-code-review/suite4-clean~1/8": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "trivial"
+  },
+  "cc-code-review/suite4-clean~2/0": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "cc-code-review/suite4-clean~2/1": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "cc-code-review/suite4-clean~2/2": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "cc-code-review/suite4-clean~2/3": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "cc-code-review/suite4-clean~2/4": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "cc-code-review/suite4-clean~2/5": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "cc-code-review/suite4-clean~2/6": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "cc-code-review/suite4-clean~2/7": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "cc-code-review/suite4-clean~3/0": {
+   "actionable": false,
+   "decided_by": "tiebreaker",
+   "severity": null,
+   "verdict": "wrong"
+  },
+  "cc-code-review/suite4-clean~3/1": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "cc-code-review/suite4-clean~3/2": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "cc-code-review/suite4-clean~3/3": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "cc-code-review/suite4-clean~3/4": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "cc-code-review/suite4-clean~3/5": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "cc-code-review/suite4-clean~3/6": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "cc-code-review/suite4-clean~3/7": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "cc-code-review/suite4-clean~3/8": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "cc-code-review/suite4-clean~3/9": {
+   "actionable": true,
+   "decided_by": "tiebreaker",
+   "severity": null,
+   "verdict": "trivial"
+  },
+  "cc-code-review/suite4-clean~4/0": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "cc-code-review/suite4-clean~4/1": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "cc-code-review/suite4-clean~4/2": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "cc-code-review/suite4-clean~4/3": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "cc-code-review/suite4-clean~4/4": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "cc-code-review/suite4-clean~4/5": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "cc-code-review/suite4-clean~4/6": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "cc-code-review/suite4-clean~4/7": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "cc-code-review/suite4-clean~5/0": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "cc-code-review/suite4-clean~5/1": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "cc-code-review/suite4-clean~5/2": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "cc-code-review/suite4-clean~5/3": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "cc-code-review/suite4-clean~5/4": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "cc-code-review/suite4-clean~5/5": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "cc-code-review/suite4-clean~5/6": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "cc-code-review/suite4-clean~5/7": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "cc-code-review/suite4-clean~5/8": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "cc-code-review/suite4~1/1": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "cc-code-review/suite4~1/4": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "cc-code-review/suite4~1/5": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "cc-code-review/suite4~1/6": {
+   "actionable": true,
+   "decided_by": "tiebreaker",
+   "severity": null,
+   "verdict": "wrong"
+  },
+  "cc-code-review/suite4~1/7": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "cc-code-review/suite4~1/8": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "cc-code-review/suite4~2/2": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "cc-code-review/suite4~2/5": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "cc-code-review/suite4~2/6": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "high",
+   "verdict": "real"
+  },
+  "cc-code-review/suite4~2/7": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "cc-code-review/suite4~2/8": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "trivial"
+  },
+  "cc-code-review/suite4~2/9": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "trivial"
+  },
+  "cc-code-review/suite4~3/0": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "high",
+   "verdict": "real"
+  },
+  "cc-code-review/suite4~3/1": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "cc-code-review/suite4~3/2": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "cc-code-review/suite4~3/4": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "cc-code-review/suite4~3/5": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "cc-code-review/suite4~3/6": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "cc-code-review/suite4~3/7": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "cc-code-review/suite4~3/8": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "cc-code-review/suite4~3/9": {
+   "actionable": true,
+   "decided_by": "tiebreaker",
+   "severity": null,
+   "verdict": "wrong"
+  },
+  "cc-code-review/suite4~4/3": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "cc-code-review/suite4~4/4": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "cc-code-review/suite4~4/5": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "cc-code-review/suite4~4/7": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "trivial"
+  },
+  "cc-code-review/suite4~4/8": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "cc-code-review/suite4~5/3": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "cc-code-review/suite4~5/4": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "high",
+   "verdict": "real"
+  },
+  "cc-code-review/suite4~5/6": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "cc-code-review/suite4~5/7": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "cc-code-review/suite4~5/8": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "cc-code-review/suite4~5/9": {
+   "actionable": true,
+   "decided_by": "tiebreaker",
+   "severity": null,
+   "verdict": "trivial"
+  },
+  "code-review-best/suite1-clean~1/0": {
+   "actionable": false,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "none"
+  },
+  "code-review-best/suite1-clean~1/1": {
+   "actionable": false,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "none"
+  },
+  "code-review-best/suite1-clean~2/0": {
+   "actionable": false,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "none"
+  },
+  "code-review-best/suite1-clean~2/1": {
+   "actionable": false,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "none"
+  },
+  "code-review-best/suite1-clean~2/2": {
+   "actionable": false,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "none"
+  },
+  "code-review-best/suite1-clean~3/0": {
+   "actionable": false,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "none"
+  },
+  "code-review-best/suite1-clean~3/1": {
+   "actionable": false,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "none"
+  },
+  "code-review-best/suite1-clean~3/2": {
+   "actionable": false,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "none"
+  },
+  "code-review-best/suite1-clean~3/3": {
+   "actionable": false,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "none"
+  },
+  "code-review-best/suite1-clean~3/4": {
+   "actionable": false,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "none"
+  },
+  "code-review-best/suite1-clean~4/0": {
+   "actionable": false,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "none"
+  },
+  "code-review-best/suite1-clean~4/1": {
+   "actionable": false,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "none"
+  },
+  "code-review-best/suite1-clean~5/0": {
+   "actionable": false,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "none"
+  },
+  "code-review-best/suite1-clean~5/1": {
+   "actionable": false,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "none"
+  },
+  "code-review-best/suite1-clean~5/2": {
+   "actionable": false,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "none"
+  },
+  "code-review-best/suite1-clean~5/3": {
+   "actionable": false,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "none"
+  },
+  "code-review-best/suite1-clean~5/4": {
+   "actionable": false,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "none"
+  },
+  "code-review-best/suite1~1/0": {
+   "actionable": false,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "none"
+  },
+  "code-review-best/suite1~1/2": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "code-review-best/suite1~1/6": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "code-review-best/suite1~2/0": {
+   "actionable": false,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "none"
+  },
+  "code-review-best/suite1~2/2": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "high",
+   "verdict": "real"
+  },
+  "code-review-best/suite1~3/0": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "code-review-best/suite1~3/1": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "code-review-best/suite1~4/0": {
+   "actionable": false,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "none"
+  },
+  "code-review-best/suite1~4/2": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "code-review-best/suite1~4/3": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "code-review-best/suite1~5/0": {
+   "actionable": false,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "none"
+  },
+  "code-review-best/suite1~5/2": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "code-review-best/suite1~5/3": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "code-review-best/suite1~5/5": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "code-review-best/suite2-clean~1/0": {
+   "actionable": false,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "none"
+  },
+  "code-review-best/suite2-clean~1/1": {
+   "actionable": false,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "none"
+  },
+  "code-review-best/suite2-clean~1/2": {
+   "actionable": false,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "none"
+  },
+  "code-review-best/suite2-clean~1/3": {
+   "actionable": false,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "none"
+  },
+  "code-review-best/suite2-clean~2/0": {
+   "actionable": false,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "none"
+  },
+  "code-review-best/suite2-clean~2/1": {
+   "actionable": false,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "none"
+  },
+  "code-review-best/suite2-clean~2/2": {
+   "actionable": false,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "none"
+  },
+  "code-review-best/suite2-clean~2/3": {
+   "actionable": true,
+   "decided_by": "tiebreaker",
+   "severity": null,
+   "verdict": "trivial"
+  },
+  "code-review-best/suite2-clean~3/0": {
+   "actionable": false,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "none"
+  },
+  "code-review-best/suite2-clean~3/1": {
+   "actionable": false,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "none"
+  },
+  "code-review-best/suite2-clean~3/2": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "code-review-best/suite2-clean~3/3": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "code-review-best/suite2-clean~4/0": {
+   "actionable": false,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "none"
+  },
+  "code-review-best/suite2-clean~5/0": {
+   "actionable": false,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "none"
+  },
+  "code-review-best/suite2-clean~5/1": {
+   "actionable": false,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "none"
+  },
+  "code-review-best/suite2-clean~5/2": {
+   "actionable": false,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "none"
+  },
+  "code-review-best/suite2-clean~5/3": {
+   "actionable": true,
+   "decided_by": "tiebreaker",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "code-review-best/suite2~1/0": {
+   "actionable": false,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "none"
+  },
+  "code-review-best/suite2~1/10": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "code-review-best/suite2~1/4": {
+   "actionable": false,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "none"
+  },
+  "code-review-best/suite2~1/7": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "code-review-best/suite2~2/0": {
+   "actionable": false,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "none"
+  },
+  "code-review-best/suite2~2/1": {
+   "actionable": false,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "none"
+  },
+  "code-review-best/suite2~2/6": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "code-review-best/suite2~3/0": {
+   "actionable": false,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "none"
+  },
+  "code-review-best/suite2~3/1": {
+   "actionable": false,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "none"
+  },
+  "code-review-best/suite2~3/12": {
+   "actionable": false,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "none"
+  },
+  "code-review-best/suite2~3/4": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "code-review-best/suite2~3/6": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "code-review-best/suite2~4/0": {
+   "actionable": false,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "none"
+  },
+  "code-review-best/suite2~4/4": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "code-review-best/suite3~1/0": {
+   "actionable": false,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "none"
+  },
+  "code-review-best/suite3~1/1": {
+   "actionable": false,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "none"
+  },
+  "code-review-best/suite3~1/3": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "code-review-best/suite3~1/4": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "trivial"
+  },
+  "code-review-best/suite3~2/0": {
+   "actionable": false,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "none"
+  },
+  "code-review-best/suite3~2/1": {
+   "actionable": false,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "none"
+  },
+  "code-review-best/suite3~2/2": {
+   "actionable": false,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "none"
+  },
+  "code-review-best/suite3~2/3": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "code-review-best/suite3~2/4": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "code-review-best/suite3~2/5": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "trivial"
+  },
+  "code-review-best/suite3~3/0": {
+   "actionable": false,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "none"
+  },
+  "code-review-best/suite3~3/1": {
+   "actionable": false,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "none"
+  },
+  "code-review-best/suite3~3/2": {
+   "actionable": true,
+   "decided_by": "tiebreaker",
+   "severity": null,
+   "verdict": "trivial"
+  },
+  "code-review-best/suite3~3/3": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "trivial"
+  },
+  "code-review-best/suite3~3/4": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "trivial"
+  },
+  "code-review-best/suite3~4/0": {
+   "actionable": false,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "none"
+  },
+  "code-review-best/suite3~4/1": {
+   "actionable": false,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "none"
+  },
+  "code-review-best/suite3~4/2": {
+   "actionable": false,
+   "decided_by": "tiebreaker",
+   "severity": null,
+   "verdict": "none"
+  },
+  "code-review-best/suite3~4/3": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "code-review-best/suite3~5/0": {
+   "actionable": false,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "none"
+  },
+  "code-review-best/suite3~5/1": {
+   "actionable": false,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "none"
+  },
+  "code-review-best/suite3~5/2": {
+   "actionable": false,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "none"
+  },
+  "code-review-best/suite3~5/3": {
+   "actionable": true,
+   "decided_by": "tiebreaker",
+   "severity": null,
+   "verdict": "trivial"
+  },
+  "code-review-best/suite3~5/4": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "trivial"
+  },
+  "code-review-best/suite4-clean~1/0": {
+   "actionable": false,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "none"
+  },
+  "code-review-best/suite4-clean~1/1": {
+   "actionable": false,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "none"
+  },
+  "code-review-best/suite4-clean~1/2": {
+   "actionable": false,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "none"
+  },
+  "code-review-best/suite4-clean~1/3": {
+   "actionable": false,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "none"
+  },
+  "code-review-best/suite4-clean~2/0": {
+   "actionable": false,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "none"
+  },
+  "code-review-best/suite4-clean~2/1": {
+   "actionable": false,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "none"
+  },
+  "code-review-best/suite4-clean~3/0": {
+   "actionable": false,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "none"
+  },
+  "code-review-best/suite4-clean~3/1": {
+   "actionable": false,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "none"
+  },
+  "code-review-best/suite4-clean~3/2": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "code-review-best/suite4-clean~4/0": {
+   "actionable": false,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "none"
+  },
+  "code-review-best/suite4-clean~4/1": {
+   "actionable": false,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "none"
+  },
+  "code-review-best/suite4-clean~4/2": {
+   "actionable": false,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "none"
+  },
+  "code-review-best/suite4-clean~4/3": {
+   "actionable": false,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "none"
+  },
+  "code-review-best/suite4-clean~5/0": {
+   "actionable": false,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "none"
+  },
+  "code-review-best/suite4-clean~5/1": {
+   "actionable": false,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "none"
+  },
+  "code-review-best/suite4-clean~5/2": {
+   "actionable": false,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "none"
+  },
+  "code-review-best/suite4~1/0": {
+   "actionable": false,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "none"
+  },
+  "code-review-best/suite4~1/1": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "high",
+   "verdict": "real"
+  },
+  "code-review-best/suite4~2/0": {
+   "actionable": false,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "none"
+  },
+  "code-review-best/suite4~4/0": {
+   "actionable": false,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "none"
+  },
+  "code-review-best/suite4~4/2": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "code-review-best/suite4~5/0": {
+   "actionable": false,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "none"
+  },
+  "code-review-best/suite4~5/1": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "high",
+   "verdict": "real"
+  },
+  "code-review-best/suite4~5/2": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "code-review/suite1-clean~1/0": {
+   "actionable": false,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "none"
+  },
+  "code-review/suite1-clean~1/1": {
+   "actionable": false,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "none"
+  },
+  "code-review/suite1-clean~2/0": {
+   "actionable": false,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "none"
+  },
+  "code-review/suite1-clean~2/1": {
+   "actionable": false,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "none"
+  },
+  "code-review/suite1-clean~2/2": {
+   "actionable": false,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "none"
+  },
+  "code-review/suite1-clean~3/0": {
+   "actionable": false,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "none"
+  },
+  "code-review/suite1-clean~3/1": {
+   "actionable": false,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "none"
+  },
+  "code-review/suite1-clean~4/0": {
+   "actionable": false,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "none"
+  },
+  "code-review/suite1-clean~4/1": {
+   "actionable": false,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "none"
+  },
+  "code-review/suite1-clean~5/0": {
+   "actionable": false,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "none"
+  },
+  "code-review/suite1-clean~5/1": {
+   "actionable": false,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "none"
+  },
+  "code-review/suite1~1/0": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "high",
+   "verdict": "real"
+  },
+  "code-review/suite1~1/1": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "high",
+   "verdict": "real"
+  },
+  "code-review/suite1~1/2": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "high",
+   "verdict": "real"
+  },
+  "code-review/suite1~1/4": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "code-review/suite1~1/5": {
+   "actionable": false,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "trivial"
+  },
+  "code-review/suite1~1/6": {
+   "actionable": false,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "none"
+  },
+  "code-review/suite1~2/1": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "code-review/suite1~2/2": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "high",
+   "verdict": "real"
+  },
+  "code-review/suite1~2/3": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "code-review/suite1~3/1": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "code-review/suite1~3/2": {
+   "actionable": true,
+   "decided_by": "tiebreaker",
+   "severity": "high",
+   "verdict": "real"
+  },
+  "code-review/suite1~3/3": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "code-review/suite1~3/4": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "code-review/suite1~3/6": {
+   "actionable": false,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "none"
+  },
+  "code-review/suite1~4/0": {
+   "actionable": false,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "none"
+  },
+  "code-review/suite1~4/1": {
+   "actionable": false,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "none"
+  },
+  "code-review/suite1~5/1": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "code-review/suite1~5/2": {
+   "actionable": false,
+   "decided_by": "agreed",
+   "severity": "high",
+   "verdict": "real"
+  },
+  "code-review/suite1~5/3": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "high",
+   "verdict": "real"
+  },
+  "code-review/suite1~5/4": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "code-review/suite1~5/5": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "high",
+   "verdict": "real"
+  },
+  "code-review/suite1~5/6": {
+   "actionable": false,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "none"
+  },
+  "code-review/suite2-clean~1/0": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "code-review/suite2-clean~1/1": {
+   "actionable": true,
+   "decided_by": "tiebreaker",
+   "severity": null,
+   "verdict": "trivial"
+  },
+  "code-review/suite2-clean~2/0": {
+   "actionable": false,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "none"
+  },
+  "code-review/suite2-clean~2/1": {
+   "actionable": false,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "none"
+  },
+  "code-review/suite2-clean~4/0": {
+   "actionable": false,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "none"
+  },
+  "code-review/suite2-clean~4/1": {
+   "actionable": false,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "none"
+  },
+  "code-review/suite2-clean~4/2": {
+   "actionable": false,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "none"
+  },
+  "code-review/suite2-clean~5/0": {
+   "actionable": false,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "none"
+  },
+  "code-review/suite2-clean~5/1": {
+   "actionable": false,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "none"
+  },
+  "code-review/suite2-clean~5/2": {
+   "actionable": false,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "none"
+  },
+  "code-review/suite2-clean~5/3": {
+   "actionable": false,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "none"
+  },
+  "code-review/suite2-clean~5/4": {
+   "actionable": false,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "none"
+  },
+  "code-review/suite2~1/0": {
+   "actionable": false,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "none"
+  },
+  "code-review/suite2~1/10": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "code-review/suite2~1/5": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "code-review/suite2~2/0": {
+   "actionable": false,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "none"
+  },
+  "code-review/suite2~2/3": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "high",
+   "verdict": "real"
+  },
+  "code-review/suite2~2/5": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "code-review/suite2~2/8": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "code-review/suite2~3/0": {
+   "actionable": false,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "none"
+  },
+  "code-review/suite2~3/1": {
+   "actionable": false,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "none"
+  },
+  "code-review/suite2~3/10": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "code-review/suite2~3/11": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "code-review/suite2~3/12": {
+   "actionable": false,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "none"
+  },
+  "code-review/suite2~3/2": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "high",
+   "verdict": "real"
+  },
+  "code-review/suite2~3/3": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "high",
+   "verdict": "real"
+  },
+  "code-review/suite2~3/4": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "high",
+   "verdict": "real"
+  },
+  "code-review/suite2~3/5": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "code-review/suite2~3/6": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "high",
+   "verdict": "real"
+  },
+  "code-review/suite2~3/7": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "high",
+   "verdict": "real"
+  },
+  "code-review/suite2~3/8": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "code-review/suite2~3/9": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "code-review/suite2~4/0": {
+   "actionable": false,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "none"
+  },
+  "code-review/suite2~4/1": {
+   "actionable": false,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "none"
+  },
+  "code-review/suite2~4/10": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "code-review/suite2~4/11": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "code-review/suite2~4/12": {
+   "actionable": false,
+   "decided_by": "tiebreaker",
+   "severity": null,
+   "verdict": "wrong"
+  },
+  "code-review/suite2~4/13": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "trivial"
+  },
+  "code-review/suite2~4/2": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "high",
+   "verdict": "real"
+  },
+  "code-review/suite2~4/3": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "high",
+   "verdict": "real"
+  },
+  "code-review/suite2~4/4": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "high",
+   "verdict": "real"
+  },
+  "code-review/suite2~4/5": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "code-review/suite2~4/6": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "critical",
+   "verdict": "real"
+  },
+  "code-review/suite2~4/7": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "code-review/suite2~4/8": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "code-review/suite2~4/9": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "high",
+   "verdict": "real"
+  },
+  "code-review/suite2~5/0": {
+   "actionable": false,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "none"
+  },
+  "code-review/suite2~5/1": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "high",
+   "verdict": "real"
+  },
+  "code-review/suite2~5/2": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "high",
+   "verdict": "real"
+  },
+  "code-review/suite2~5/3": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "high",
+   "verdict": "real"
+  },
+  "code-review/suite2~5/4": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "code-review/suite2~5/5": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "critical",
+   "verdict": "real"
+  },
+  "code-review/suite2~5/6": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "code-review/suite2~5/7": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "high",
+   "verdict": "real"
+  },
+  "code-review/suite2~5/8": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "code-review/suite2~5/9": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "code-review/suite3~1/0": {
+   "actionable": false,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "wrong"
+  },
+  "code-review/suite3~1/1": {
+   "actionable": false,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "none"
+  },
+  "code-review/suite3~1/2": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "trivial"
+  },
+  "code-review/suite3~1/3": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "code-review/suite3~2/0": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "trivial"
+  },
+  "code-review/suite3~2/1": {
+   "actionable": false,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "none"
+  },
+  "code-review/suite3~3/0": {
+   "actionable": false,
+   "decided_by": "tiebreaker",
+   "severity": null,
+   "verdict": "none"
+  },
+  "code-review/suite3~3/1": {
+   "actionable": false,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "wrong"
+  },
+  "code-review/suite3~3/2": {
+   "actionable": false,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "none"
+  },
+  "code-review/suite3~4/0": {
+   "actionable": false,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "wrong"
+  },
+  "code-review/suite3~4/1": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "trivial"
+  },
+  "code-review/suite3~5/0": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "code-review/suite3~5/1": {
+   "actionable": true,
+   "decided_by": "tiebreaker",
+   "severity": null,
+   "verdict": "trivial"
+  },
+  "code-review/suite4-clean~1/0": {
+   "actionable": false,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "none"
+  },
+  "code-review/suite4-clean~1/1": {
+   "actionable": false,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "none"
+  },
+  "code-review/suite4-clean~1/2": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "code-review/suite4-clean~2/0": {
+   "actionable": false,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "none"
+  },
+  "code-review/suite4-clean~2/1": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "code-review/suite4-clean~2/2": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "code-review/suite4-clean~2/3": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "code-review/suite4-clean~3/0": {
+   "actionable": false,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "none"
+  },
+  "code-review/suite4-clean~3/1": {
+   "actionable": false,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "none"
+  },
+  "code-review/suite4-clean~3/2": {
+   "actionable": false,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "none"
+  },
+  "code-review/suite4-clean~3/3": {
+   "actionable": false,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "none"
+  },
+  "code-review/suite4-clean~3/4": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "code-review/suite4-clean~4/0": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "code-review/suite4-clean~5/0": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "code-review/suite4~1/0": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "high",
+   "verdict": "real"
+  },
+  "code-review/suite4~1/1": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "high",
+   "verdict": "real"
+  },
+  "code-review/suite4~1/2": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "high",
+   "verdict": "real"
+  },
+  "code-review/suite4~1/3": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "high",
+   "verdict": "real"
+  },
+  "code-review/suite4~1/4": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "high",
+   "verdict": "real"
+  },
+  "code-review/suite4~1/5": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "code-review/suite4~1/6": {
+   "actionable": true,
+   "decided_by": "tiebreaker",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "code-review/suite4~1/8": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "code-review/suite4~1/9": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "code-review/suite4~2/0": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "high",
+   "verdict": "real"
+  },
+  "code-review/suite4~2/1": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "high",
+   "verdict": "real"
+  },
+  "code-review/suite4~2/2": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "high",
+   "verdict": "real"
+  },
+  "code-review/suite4~2/3": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "code-review/suite4~2/4": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "code-review/suite4~2/6": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "code-review/suite4~2/7": {
+   "actionable": true,
+   "decided_by": "tiebreaker",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "code-review/suite4~2/8": {
+   "actionable": false,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "none"
+  },
+  "code-review/suite4~3/0": {
+   "actionable": false,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "none"
+  },
+  "code-review/suite4~4/0": {
+   "actionable": true,
+   "decided_by": "tiebreaker",
+   "severity": "high",
+   "verdict": "real"
+  },
+  "code-review/suite4~4/1": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "high",
+   "verdict": "real"
+  },
+  "code-review/suite4~4/10": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "code-review/suite4~4/2": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "high",
+   "verdict": "real"
+  },
+  "code-review/suite4~4/3": {
+   "actionable": false,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "none"
+  },
+  "code-review/suite4~4/4": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "code-review/suite4~4/5": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "code-review/suite4~4/6": {
+   "actionable": true,
+   "decided_by": "tiebreaker",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "code-review/suite4~4/8": {
+   "actionable": false,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "trivial"
+  },
+  "code-review/suite4~4/9": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "code-review/suite4~5/0": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "high",
+   "verdict": "real"
+  },
+  "code-review/suite4~5/1": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "high",
+   "verdict": "real"
+  },
+  "code-review/suite4~5/10": {
+   "actionable": false,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "trivial"
+  },
+  "code-review/suite4~5/2": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "high",
+   "verdict": "real"
+  },
+  "code-review/suite4~5/3": {
+   "actionable": false,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "none"
+  },
+  "code-review/suite4~5/4": {
+   "actionable": true,
+   "decided_by": "tiebreaker",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "code-review/suite4~5/5": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "high",
+   "verdict": "real"
+  },
+  "code-review/suite4~5/6": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "high",
+   "verdict": "real"
+  },
+  "code-review/suite4~5/7": {
+   "actionable": true,
+   "decided_by": "tiebreaker",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "code-review/suite4~5/8": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "code-review/suite4~5/9": {
+   "actionable": false,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "none"
+  },
+  "curmudgeon-lite/suite1-clean~1/0": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/suite1-clean~1/1": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/suite1-clean~1/2": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/suite1-clean~1/3": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/suite1-clean~1/4": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/suite1-clean~1/5": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/suite1-clean~1/6": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/suite1-clean~2/0": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "high",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/suite1-clean~2/1": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/suite1-clean~2/2": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/suite1-clean~3/0": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/suite1-clean~3/1": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "high",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/suite1-clean~3/2": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/suite1-clean~3/3": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "high",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/suite1-clean~3/4": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/suite1-clean~4/0": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/suite1-clean~4/1": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/suite1-clean~4/2": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "high",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/suite1-clean~4/3": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/suite1-clean~5/0": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "high",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/suite1-clean~5/1": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/suite1-clean~5/2": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/suite1-clean~5/3": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/suite1~1/14": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/suite1~1/15": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/suite1~1/2": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/suite1~2/15": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/suite1~2/17": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/suite1~2/19": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/suite1~2/5": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/suite1~2/7": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/suite1~3/11": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/suite1~3/16": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/suite1~3/2": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/suite1~3/3": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/suite1~4/10": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/suite1~4/15": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/suite1~4/18": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/suite1~4/2": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/suite1~4/8": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "high",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/suite1~5/16": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/suite1~5/2": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/suite1~5/9": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/suite2-clean~1/0": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/suite2-clean~1/1": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/suite2-clean~1/2": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/suite2-clean~1/3": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "high",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/suite2-clean~1/4": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/suite2-clean~1/5": {
+   "actionable": true,
+   "decided_by": "tiebreaker",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/suite2-clean~2/0": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "high",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/suite2-clean~2/1": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/suite2-clean~2/2": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/suite2-clean~2/3": {
+   "actionable": true,
+   "decided_by": "tiebreaker",
+   "severity": null,
+   "verdict": "trivial"
+  },
+  "curmudgeon-lite/suite2-clean~2/4": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/suite2-clean~2/5": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/suite2-clean~2/6": {
+   "actionable": true,
+   "decided_by": "tiebreaker",
+   "severity": null,
+   "verdict": "trivial"
+  },
+  "curmudgeon-lite/suite2-clean~2/7": {
+   "actionable": true,
+   "decided_by": "tiebreaker",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/suite2-clean~3/0": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/suite2-clean~3/1": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/suite2-clean~3/2": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/suite2-clean~3/3": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "trivial"
+  },
+  "curmudgeon-lite/suite2-clean~4/0": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/suite2-clean~4/1": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/suite2-clean~4/2": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "trivial"
+  },
+  "curmudgeon-lite/suite2-clean~4/3": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/suite2-clean~4/4": {
+   "actionable": true,
+   "decided_by": "tiebreaker",
+   "severity": null,
+   "verdict": "trivial"
+  },
+  "curmudgeon-lite/suite2-clean~4/5": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/suite2-clean~5/0": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "high",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/suite2-clean~5/1": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/suite2-clean~5/2": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/suite2-clean~5/3": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/suite2-clean~5/4": {
+   "actionable": true,
+   "decided_by": "tiebreaker",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/suite2~1/11": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/suite2~1/19": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/suite2~2/16": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/suite2~3/17": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/suite2~3/23": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/suite2~3/25": {
+   "actionable": true,
+   "decided_by": "tiebreaker",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/suite2~4/19": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/suite2~4/25": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "trivial"
+  },
+  "curmudgeon-lite/suite2~4/8": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/suite2~5/18": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/suite2~5/21": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/suite2~5/26": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/suite3~1/0": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/suite3~1/3": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/suite3~1/4": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/suite3~2/1": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/suite3~2/3": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/suite3~2/4": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/suite3~3/1": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/suite3~3/3": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/suite3~3/4": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/suite3~3/5": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/suite3~4/1": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/suite3~4/2": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/suite3~4/4": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/suite3~4/5": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/suite3~5/1": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/suite3~5/3": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/suite3~5/4": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/suite3~5/5": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/suite4-clean~1/0": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/suite4-clean~1/1": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/suite4-clean~1/10": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/suite4-clean~1/11": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/suite4-clean~1/2": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/suite4-clean~1/3": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/suite4-clean~1/4": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/suite4-clean~1/5": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/suite4-clean~1/6": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/suite4-clean~1/7": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/suite4-clean~1/8": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/suite4-clean~1/9": {
+   "actionable": false,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "trivial"
+  },
+  "curmudgeon-lite/suite4-clean~2/0": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/suite4-clean~2/1": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/suite4-clean~2/10": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/suite4-clean~2/11": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/suite4-clean~2/12": {
+   "actionable": false,
+   "decided_by": "tiebreaker",
+   "severity": null,
+   "verdict": "wrong"
+  },
+  "curmudgeon-lite/suite4-clean~2/13": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/suite4-clean~2/14": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/suite4-clean~2/15": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/suite4-clean~2/2": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/suite4-clean~2/3": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/suite4-clean~2/4": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/suite4-clean~2/5": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/suite4-clean~2/6": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/suite4-clean~2/7": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/suite4-clean~2/8": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/suite4-clean~2/9": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/suite4-clean~3/0": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/suite4-clean~3/1": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/suite4-clean~3/10": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/suite4-clean~3/2": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/suite4-clean~3/3": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/suite4-clean~3/4": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/suite4-clean~3/5": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/suite4-clean~3/6": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/suite4-clean~3/7": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/suite4-clean~3/8": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/suite4-clean~3/9": {
+   "actionable": false,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "trivial"
+  },
+  "curmudgeon-lite/suite4-clean~4/0": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/suite4-clean~4/1": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/suite4-clean~4/2": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/suite4-clean~4/3": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/suite4-clean~4/4": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/suite4-clean~4/5": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/suite4-clean~4/6": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/suite4-clean~4/7": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/suite4-clean~5/0": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/suite4-clean~5/1": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/suite4-clean~5/10": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/suite4-clean~5/11": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/suite4-clean~5/2": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/suite4-clean~5/3": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/suite4-clean~5/4": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/suite4-clean~5/5": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/suite4-clean~5/6": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/suite4-clean~5/7": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/suite4-clean~5/8": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/suite4-clean~5/9": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/suite4~1/1": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/suite4~1/4": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/suite4~1/5": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/suite4~1/6": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/suite4~1/8": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/suite4~2/10": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/suite4~2/11": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/suite4~2/12": {
+   "actionable": true,
+   "decided_by": "tiebreaker",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/suite4~2/3": {
+   "actionable": true,
+   "decided_by": "tiebreaker",
+   "severity": null,
+   "verdict": "wrong"
+  },
+  "curmudgeon-lite/suite4~2/4": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/suite4~2/5": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/suite4~2/6": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/suite4~2/7": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/suite4~2/8": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "high",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/suite4~3/4": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/suite4~3/5": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/suite4~3/6": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "high",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/suite4~3/7": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/suite4~3/8": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/suite4~4/1": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/suite4~4/5": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/suite4~4/6": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/suite4~4/7": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "high",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/suite4~4/8": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/suite4~4/9": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/suite4~5/10": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/suite4~5/3": {
+   "actionable": true,
+   "decided_by": "tiebreaker",
+   "severity": null,
+   "verdict": "wrong"
+  },
+  "curmudgeon-lite/suite4~5/4": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/suite4~5/5": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/suite4~5/6": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/suite4~5/7": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/suite4~5/8": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/suite4~5/9": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon/suite1-clean~1/0": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon/suite1-clean~1/1": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "high",
+   "verdict": "real"
+  },
+  "curmudgeon/suite1-clean~1/2": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon/suite1-clean~1/3": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon/suite1-clean~1/4": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "curmudgeon/suite1-clean~1/5": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "curmudgeon/suite1-clean~1/6": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon/suite1-clean~2/0": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "high",
+   "verdict": "real"
+  },
+  "curmudgeon/suite1-clean~2/1": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon/suite1-clean~2/2": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon/suite1-clean~2/3": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "curmudgeon/suite1-clean~2/4": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon/suite1-clean~2/5": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon/suite1-clean~3/0": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "high",
+   "verdict": "real"
+  },
+  "curmudgeon/suite1-clean~3/1": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "high",
+   "verdict": "real"
+  },
+  "curmudgeon/suite1-clean~3/2": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon/suite1-clean~3/3": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon/suite1-clean~3/4": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "curmudgeon/suite1-clean~3/5": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "curmudgeon/suite1-clean~4/0": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon/suite1-clean~4/1": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "high",
+   "verdict": "real"
+  },
+  "curmudgeon/suite1-clean~4/2": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon/suite1-clean~4/3": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon/suite1-clean~4/4": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "curmudgeon/suite1-clean~4/5": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "curmudgeon/suite1-clean~5/0": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "high",
+   "verdict": "real"
+  },
+  "curmudgeon/suite1-clean~5/1": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon/suite1-clean~5/2": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon/suite1-clean~5/3": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon/suite1~1/11": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon/suite1~1/13": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon/suite1~1/14": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon/suite1~1/15": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "high",
+   "verdict": "real"
+  },
+  "curmudgeon/suite1~1/18": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon/suite1~1/20": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon/suite1~1/3": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon/suite1~2/11": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon/suite1~2/16": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon/suite1~2/17": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon/suite1~2/18": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "curmudgeon/suite1~2/19": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "curmudgeon/suite1~2/20": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon/suite1~2/21": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon/suite1~2/23": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "curmudgeon/suite1~2/9": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon/suite1~3/0": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "high",
+   "verdict": "real"
+  },
+  "curmudgeon/suite1~3/11": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon/suite1~3/14": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon/suite1~3/16": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon/suite1~3/8": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon/suite1~4/13": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "high",
+   "verdict": "real"
+  },
+  "curmudgeon/suite1~4/14": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "high",
+   "verdict": "real"
+  },
+  "curmudgeon/suite1~4/18": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon/suite1~4/2": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon/suite1~4/21": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "curmudgeon/suite1~4/9": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon/suite1~5/10": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon/suite1~5/13": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon/suite1~5/14": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon/suite1~5/15": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon/suite1~5/18": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon/suite1~5/19": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon/suite1~5/20": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon/suite1~5/22": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon/suite1~5/24": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "curmudgeon/suite2-clean~1/0": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "high",
+   "verdict": "real"
+  },
+  "curmudgeon/suite2-clean~1/1": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon/suite2-clean~1/2": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "curmudgeon/suite2-clean~1/3": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "curmudgeon/suite2-clean~1/4": {
+   "actionable": true,
+   "decided_by": "tiebreaker",
+   "severity": null,
+   "verdict": "trivial"
+  },
+  "curmudgeon/suite2-clean~1/5": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "high",
+   "verdict": "real"
+  },
+  "curmudgeon/suite2-clean~2/0": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon/suite2-clean~2/1": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon/suite2-clean~2/2": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "curmudgeon/suite2-clean~2/3": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon/suite2-clean~2/4": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "curmudgeon/suite2-clean~2/5": {
+   "actionable": true,
+   "decided_by": "tiebreaker",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "curmudgeon/suite2-clean~3/0": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "high",
+   "verdict": "real"
+  },
+  "curmudgeon/suite2-clean~3/1": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "curmudgeon/suite2-clean~3/2": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon/suite2-clean~3/3": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon/suite2-clean~3/4": {
+   "actionable": false,
+   "decided_by": "tiebreaker",
+   "severity": null,
+   "verdict": "wrong"
+  },
+  "curmudgeon/suite2-clean~3/5": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon/suite2-clean~3/6": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "curmudgeon/suite2-clean~3/7": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon/suite2-clean~3/8": {
+   "actionable": true,
+   "decided_by": "tiebreaker",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "curmudgeon/suite2-clean~4/0": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "high",
+   "verdict": "real"
+  },
+  "curmudgeon/suite2-clean~4/1": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon/suite2-clean~4/2": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon/suite2-clean~4/3": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon/suite2-clean~4/4": {
+   "actionable": true,
+   "decided_by": "tiebreaker",
+   "severity": null,
+   "verdict": "trivial"
+  },
+  "curmudgeon/suite2-clean~4/5": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "curmudgeon/suite2-clean~4/6": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "curmudgeon/suite2-clean~5/0": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon/suite2-clean~5/1": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon/suite2-clean~5/2": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon/suite2-clean~5/3": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "curmudgeon/suite2-clean~5/4": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon/suite2-clean~5/5": {
+   "actionable": false,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "trivial"
+  },
+  "curmudgeon/suite2-clean~5/6": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon/suite2-clean~5/7": {
+   "actionable": true,
+   "decided_by": "tiebreaker",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "curmudgeon/suite2~1/17": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon/suite2~1/18": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon/suite2~1/23": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon/suite2~1/28": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "curmudgeon/suite2~2/18": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon/suite2~2/19": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "high",
+   "verdict": "real"
+  },
+  "curmudgeon/suite2~2/20": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "curmudgeon/suite2~2/25": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon/suite2~2/26": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "curmudgeon/suite2~3/1": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "high",
+   "verdict": "real"
+  },
+  "curmudgeon/suite2~3/14": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon/suite2~3/19": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon/suite2~3/20": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon/suite2~3/22": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon/suite2~3/23": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon/suite2~3/24": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "curmudgeon/suite2~4/11": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon/suite2~4/13": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon/suite2~4/19": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon/suite2~4/22": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon/suite2~4/27": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "curmudgeon/suite2~5/13": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "high",
+   "verdict": "real"
+  },
+  "curmudgeon/suite2~5/18": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon/suite2~5/21": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon/suite2~5/23": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "curmudgeon/suite3~1/0": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon/suite3~1/3": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "curmudgeon/suite3~1/4": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "curmudgeon/suite3~1/5": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon/suite3~1/6": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "curmudgeon/suite3~2/0": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon/suite3~2/3": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon/suite3~2/4": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon/suite3~3/0": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon/suite3~3/2": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon/suite3~3/4": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "curmudgeon/suite3~3/5": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon/suite3~4/0": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon/suite3~4/2": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon/suite3~4/4": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "curmudgeon/suite3~4/5": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon/suite3~4/6": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon/suite3~4/7": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "curmudgeon/suite3~5/0": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "curmudgeon/suite3~5/3": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon/suite3~5/4": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "curmudgeon/suite3~5/5": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon/suite4-clean~1/0": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon/suite4-clean~1/1": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon/suite4-clean~1/10": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "curmudgeon/suite4-clean~1/11": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "curmudgeon/suite4-clean~1/12": {
+   "actionable": false,
+   "decided_by": "tiebreaker",
+   "severity": null,
+   "verdict": "wrong"
+  },
+  "curmudgeon/suite4-clean~1/13": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "curmudgeon/suite4-clean~1/14": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "curmudgeon/suite4-clean~1/2": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon/suite4-clean~1/3": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon/suite4-clean~1/4": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "curmudgeon/suite4-clean~1/5": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon/suite4-clean~1/6": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "curmudgeon/suite4-clean~1/7": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon/suite4-clean~1/8": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon/suite4-clean~1/9": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "curmudgeon/suite4-clean~2/0": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon/suite4-clean~2/1": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon/suite4-clean~2/10": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "curmudgeon/suite4-clean~2/11": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "curmudgeon/suite4-clean~2/12": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "curmudgeon/suite4-clean~2/2": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon/suite4-clean~2/3": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "curmudgeon/suite4-clean~2/4": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "curmudgeon/suite4-clean~2/5": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon/suite4-clean~2/6": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon/suite4-clean~2/7": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon/suite4-clean~2/8": {
+   "actionable": false,
+   "decided_by": "tiebreaker",
+   "severity": null,
+   "verdict": "wrong"
+  },
+  "curmudgeon/suite4-clean~2/9": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "curmudgeon/suite4-clean~3/0": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon/suite4-clean~3/1": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon/suite4-clean~3/10": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon/suite4-clean~3/11": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "curmudgeon/suite4-clean~3/12": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "curmudgeon/suite4-clean~3/13": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "curmudgeon/suite4-clean~3/2": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon/suite4-clean~3/3": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "curmudgeon/suite4-clean~3/4": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon/suite4-clean~3/5": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "curmudgeon/suite4-clean~3/6": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "curmudgeon/suite4-clean~3/7": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "curmudgeon/suite4-clean~3/8": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon/suite4-clean~3/9": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon/suite4-clean~4/0": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "curmudgeon/suite4-clean~4/1": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon/suite4-clean~4/10": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "curmudgeon/suite4-clean~4/11": {
+   "actionable": false,
+   "decided_by": "tiebreaker",
+   "severity": null,
+   "verdict": "wrong"
+  },
+  "curmudgeon/suite4-clean~4/12": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "curmudgeon/suite4-clean~4/13": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "curmudgeon/suite4-clean~4/2": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon/suite4-clean~4/3": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "curmudgeon/suite4-clean~4/4": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon/suite4-clean~4/5": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "curmudgeon/suite4-clean~4/6": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "curmudgeon/suite4-clean~4/7": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon/suite4-clean~4/8": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "curmudgeon/suite4-clean~4/9": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon/suite4-clean~5/0": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon/suite4-clean~5/1": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon/suite4-clean~5/10": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "curmudgeon/suite4-clean~5/11": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "curmudgeon/suite4-clean~5/2": {
+   "actionable": true,
+   "decided_by": "tiebreaker",
+   "severity": null,
+   "verdict": "trivial"
+  },
+  "curmudgeon/suite4-clean~5/3": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon/suite4-clean~5/4": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "curmudgeon/suite4-clean~5/5": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon/suite4-clean~5/6": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "curmudgeon/suite4-clean~5/7": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon/suite4-clean~5/8": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "curmudgeon/suite4-clean~5/9": {
+   "actionable": false,
+   "decided_by": "tiebreaker",
+   "severity": null,
+   "verdict": "wrong"
+  },
+  "curmudgeon/suite4~1/1": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon/suite4~1/10": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "curmudgeon/suite4~1/5": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon/suite4~1/6": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "curmudgeon/suite4~1/7": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon/suite4~1/8": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "high",
+   "verdict": "real"
+  },
+  "curmudgeon/suite4~1/9": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "curmudgeon/suite4~2/1": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon/suite4~2/10": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "curmudgeon/suite4~2/4": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "curmudgeon/suite4~2/5": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "curmudgeon/suite4~2/6": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon/suite4~2/8": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "curmudgeon/suite4~2/9": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "trivial"
+  },
+  "curmudgeon/suite4~3/0": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon/suite4~3/4": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "curmudgeon/suite4~3/5": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon/suite4~3/6": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon/suite4~3/7": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon/suite4~3/9": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "curmudgeon/suite4~4/0": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon/suite4~4/10": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "curmudgeon/suite4~4/5": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon/suite4~4/6": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon/suite4~4/7": {
+   "actionable": true,
+   "decided_by": "tiebreaker",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "curmudgeon/suite4~4/8": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "curmudgeon/suite4~4/9": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon/suite4~5/1": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon/suite4~5/10": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "curmudgeon/suite4~5/11": {
+   "actionable": true,
+   "decided_by": "tiebreaker",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "curmudgeon/suite4~5/4": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon/suite4~5/5": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "curmudgeon/suite4~5/6": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "curmudgeon/suite4~5/7": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "curmudgeon/suite4~5/8": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  }
+ },
+ "tiebroken": 80
+}

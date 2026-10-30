@@ -2,6 +2,47 @@
 
 Every release of Curmudgeon, newest first. The repository's history starts at 4.2.1; earlier versions are summarised from the project's own build and review records. Numbers are the ones measured at the time; the README's Benchmarks section has the current ones and how they were measured.
 
+## 5.2.5 (30 October 2026)
+
+Fixes from an independent combined review (two outside reviews and two blind reviews, every claim reproduced or read), each with a test that fails on the code before it, and each batch put through three blind review rounds. [plugin/RULINGS.md](plugin/RULINGS.md) indexes the rulings the code cites.
+
+**Evidence rules**
+- The scan's FAILs reach the tally and the counts.
+- The quote check is strict: the cited line or one either side, case kept, at least 12 characters.
+- When reviewers disagree on a finding's impact, it is filed at the highest and always verified.
+- One reviewer's findings are never merged into each other.
+- A reviewer's own "executed" no longer makes a finding confirmed without a verifier.
+- Each tier verifies exactly what its rule says, and a missing required verdict marks the run DEGRADED.
+- Verifier verdicts are saved by a hook, unchanged.
+- The teardown is checked against the counts.
+
+**Trust boundaries**
+- A `.critic/rules.md` or `scope.json` that may have come with the code is used only after you approve that exact file (`critic_ledger.py approve`, which shows the whole file). A file counts as yours only when your git work tree tracks no copy of it and you didn't get it in a zip.
+- Approvals, and consent for live sites and writes (recorded per run), are kept outside the project in `~/.curmudgeon`.
+- A reviewer's copy holds one anonymous commit of your last commit, without `.critic/`, older versions or a reflog.
+- Reviewers and verifiers can't:
+  - write into your project from their copy;
+  - read your project's `.git`;
+  - write the record of your approvals and consent;
+  - use the network or install commands the guard recognises.
+  This is a tripwire, not a sandbox (PRIVACY.md).
+- Verifiers read packets only by path, one batch at most.
+- A false-positive ruling hides only its exact finding.
+- A review needs a stop-hook record showing it was written in a private copy, or the run is DEGRADED.
+
+**Hooks, platforms and the eval kit**
+- The always-on hooks are merged into one PreToolUse and one PostToolUse process: about 25 and 30 ms per call, down from about 85 and 47 ms.
+- On a Mac or Windows machine with no one at the screen (CI, SSH), the security database's folder picker no longer waits ten minutes for a window.
+- A browser start refuses missing consent before looking for Playwright.
+- The skill says Curmudgeon never installs Playwright.
+- CI pins actions v7 by commit and adds Python 3.14. A macOS job (all 244 script tests pass) and the full script tests on Windows (168 of 244 pass) run but are not yet required.
+- The eval kit:
+  - fills the planted key into each copy of the fixture, so no arm sees the placeholder's name;
+  - widens one answer-key entry (E02) to the wording reviewers actually use;
+  - computes its confidence intervals by app as well as by run;
+  - archives three plain-Claude arms.
+  The 5.2.4 benchmark write-up has the rescored figures; the README's Benchmarks section is updated in the next documentation pass.
+
 ## 5.2.4 (29 October 2026)
 
 - The plugin, marketplace and review-skill descriptions, and the README's opening, now say what Curmudgeon does at every size: one to three blind reviewers sized to the risk, and findings re-checked blind (all of them in a full review, the Critical and High ones in a lite review, the contested ones in the smallest). They used to say three reviewers and every finding, which is true only of a full review.

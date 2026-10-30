@@ -1,0 +1,162 @@
+[
+ {
+  "id": "Feeecb94b",
+  "app": "fixture8-clean",
+  "finding": "shop/migrations/0006_safe.py:12 The RunSQL sets slug = '' for NULL rows and has only a no-op reverse, so the data change is irreversible. It also sits next to a RunPython whose forward function does nothing. Rolling back with migrate shop 0005 leaves every previously NULL slug as '' with no way to restore the original NULLs. A later unique constraint on slug would then collide on the empty strings. The same irreversibility applies to the active backfill in 0007 line 15."
+ },
+ {
+  "id": "F68ffaef9",
+  "app": "fixture8-clean",
+  "finding": "alembic/versions/3b1f_add_refunds.py:18 The downgrade runs DROP INDEX CONCURRENTLY in the same transaction, which PostgreSQL rejects. The statement order also leaves a half-done downgrade. alembic downgrade 2a0e fails on the DROP INDEX CONCURRENTLY line with the same transaction-block error, so the rollback cannot complete. The reason column drop runs first. If the migration were not transactional, this would leave a partly rolled-back schema. Wrap the drop in autocommit_block, or use a plain DROP INDEX."
+ },
+ {
+  "id": "Fde5bf5d4",
+  "app": "fixture8-clean",
+  "finding": "db/migrations/0002_orders.sql:2 Both SQL migrations have no down step and are not marked one-way. db/migrations/0001_safe.sql and 0002_orders.sql contain only forward statements (add column, index, constraints). No down section, no paired down file, and no comment saying the migration is one-way. The alembic and Django migrations in the same change do ship reverse steps. 0002 is deployed and the FK validation or the new index causes trouble in production. To roll back, an operator has to hand-write DROP CONSTRAINT orders_customer_fk, DROP INDEX CONCURRENTLY orders_customer_idx and DROP COLUMN tracking_code under pressure. If 0002 failed part-way, nothing in the repo says which statements already committed, since CONCURRENTLY statements cannot sit in a rollback-able transaction."
+ },
+ {
+  "id": "Fbad1eda1",
+  "app": "fixture8-clean",
+  "finding": "alembic/versions/3b1f_add_refunds.py:12 CREATE/DROP INDEX CONCURRENTLY runs inside Alembic's default migration transaction and fails. 3b1f_add_refunds.py:12 (upgrade) and :18 (downgrade, DROP INDEX CONCURRENTLY) call op.execute directly. There is no op.get_context().autocommit_block() and no env.py in the tree that sets transaction_per_migration off or autocommit. On PostgreSQL Alembic wraps each migration in a transaction by default, and PostgreSQL rejects CONCURRENTLY there. Traced, not run: Alembic and PostgreSQL are not available in the sandbox. alembic upgrade head on PostgreSQL. 2a0e creates refunds, then 3b1f runs CREATE INDEX CONCURRENTLY inside the transaction and PostgreSQL raises CREATE INDEX CONCURRENTLY cannot run inside a transaction block. The upgrade aborts. The rollback path has the same problem: alembic downgrade 2a0e fails on DROP INDEX CONCURRENTLY, so the pair of scripts cannot be applied or reverted."
+ },
+ {
+  "id": "F85fa3972",
+  "app": "fixture8-clean",
+  "finding": "db/migrations/0001_safe.sql:9 CREATE INDEX CONCURRENTLY sits in a multi-statement file, which most SQL migration runners execute as one transaction (psql -1, Flyway, golang-migrate multi-statement), and PostgreSQL rejects it there. The runner wraps the file in a transaction, or sends it as one multi-statement simple query. The index statement errors, and either the whole migration rolls back or the index is never built. It needs its own non-transactional migration file or runner directive. The same applies to 0002_orders.sql line 4."
+ },
+ {
+  "id": "F404cfafa",
+  "app": "fixture8-clean",
+  "finding": "shop/migrations/0006_safe.py (line 10) has the same problem. It depends on (\"shop\", \"0005_initial\"), and main has no shop migrations at all."
+ },
+ {
+  "id": "F9a386ae3",
+  "app": "fixture8-clean",
+  "finding": "shop/migrations/0007_backfill.py:7 The backfill loads every product and calls save() one at a time (N+1 writes), and it ignores the unique and NULL cases. On a large shop_product table, this is one UPDATE per row inside a single migration transaction, which is slow and holds locks the whole time. A single Product.objects.filter(slug='').update(slug=Cast('pk', CharField())) would do the same job. Because save() is called without update_fields, it can also overwrite concurrent changes to other columns."
+ },
+ {
+  "id": "F964fcdc5",
+  "app": "fixture8-clean",
+  "finding": "shop/migrations/0007_backfill.py:6 Backfill saves one row at a time and runs with an unbatched UPDATE, all in a single transaction. fill_slugs loads every matching Product and calls p.save() per row (lines 6-8): one SELECT then N UPDATEs, each saving every field. The RunSQL at line 15 is an unbounded UPDATE shop_product SET active = true WHERE active IS NULL. The migration is atomic by default on PostgreSQL, so row locks from the Python loop and the SQL update are held until the end of the whole migration. Production shop_product has 5 million rows with empty slug. The migration issues 5 million single-row UPDATEs inside one transaction, locks each row until commit, and any checkout write to those products blocks or deadlocks for the duration. A failure near the end rolls everything back and wastes the run."
+ },
+ {
+  "id": "Fed624839",
+  "app": "fixture8-clean",
+  "finding": "dependencies = [(\"shop\", \"0006_product_slug\")] points at a migration that doesn't exist. The branch only adds 0006_safe.py."
+ },
+ {
+  "id": "F5aee1cf1",
+  "app": "fixture8-clean",
+  "finding": "shop/migrations/0006_safe.py:9: depends on a missing 0005_initial.\nIt declares dependencies = [(\"shop\", \"0005_initial\")], but there is no 0005 migration on main or in the PR.\nDjango raises NodeNotFoundError once the shop app is set up properly. Fixing issue 1 alone won't help: the chain stays broken until 0005_initial exists or the dependency is corrected."
+ },
+ {
+  "id": "F34c899aa",
+  "app": "fixture8-clean",
+  "finding": "Caveat: the branch has no env.py, so I assumed Alembic's default transactional DDL. If transaction_per_migration is turned off or the migration is otherwise run outside a transaction, this wouldn't fail."
+ },
+ {
+  "id": "F76e07e1e",
+  "app": "fixture8-clean",
+  "finding": "alembic/versions/3b1f_add_refunds.py:12 CREATE INDEX CONCURRENTLY runs inside Alembic's migration transaction, which PostgreSQL rejects (the downgrade has the same fault). upgrade() calls op.execute directly (line 12) and downgrade() does the same for DROP INDEX CONCURRENTLY (line 18). Neither is wrapped in with op.get_context().autocommit_block():. Alembic runs PostgreSQL migrations with transactional DDL by default. No env.py or alembic.ini in the workspace sets autocommit or transaction_per_migration. I could not run Alembic or PostgreSQL here, so this is traced from Alembic's documented behaviour, not executed. alembic upgrade head on PostgreSQL reaches 3b1f and fails with ActiveSqlTransaction: CREATE INDEX CONCURRENTLY cannot run inside a transaction block. The release stops at this step. alembic downgrade 2a0e fails the same way at line 18, after the column drop on line 17 has been rolled back with the failed transaction, so the rollback path is broken too."
+ },
+ {
+  "id": "Ff999aee8",
+  "app": "fixture8-clean",
+  "finding": "alembic/versions/3b1f_add_refunds.py:12 and :18: CONCURRENTLY inside a transaction.\nupgrade() runs CREATE INDEX CONCURRENTLY and downgrade() runs DROP INDEX CONCURRENTLY, both through plain op.execute.\nOn PostgreSQL, Alembic's default is to run each migration in a transaction, which fails with \"cannot run inside a transaction block\". The bigserial column in 2a0e_safe.py shows the target is PostgreSQL.\n- Caveat: the PR has no env.py, so this rests on Alembic's default behaviour. It would not apply if an env.py outside this PR sets autocommit.\n\nNot flagged:"
+ },
+ {
+  "id": "Ff95fd746",
+  "app": "fixture8-clean",
+  "finding": "db/migrations/0002_orders.sql:7 The foreign key is added NOT VALID and validated in the same script. Run as one transaction, it keeps a SHARE ROW EXCLUSIVE lock on both orders and customers during validation. Writes to orders and customers block while validation scans orders. If any order has an orphaned customer_id, the validation fails and rolls back the whole migration, including the tracking_code column and the index. Split it into two migrations."
+ },
+ {
+  "id": "Fd247f9b7",
+  "app": "fixture8-clean",
+  "finding": "shop/migrations/0007_backfill.py:8 Backfill saves every column of each product row, so it can overwrite concurrent updates, and runs row by row in one transaction. fill_slugs lines 6-8 loads every Product with slug=\"\" through the historical model, then calls p.save() with no update_fields. Django's save() writes all fields from the in-memory copy. Django migrations on PostgreSQL are atomic by default, so the loop is one long transaction and it takes row locks as it goes. The app keeps serving during the deploy (the point of an expand/backfill step). Product 42 has slug=\"\". The migration loads it, then an admin changes its price or stock. The migration reaches p.save() and writes the old price and stock back with the slug. The admin's edit is lost with no error. On a large catalogue, N separate UPDATEs make this window long and hold row locks until the final commit, so concurrent writers to those rows block."
+ },
+ {
+  "id": "F8cef0957",
+  "app": "fixture8-clean",
+  "finding": "shop/migrations/0007_backfill.py:12: dependency points to a migration that doesn't exist.\nIt declares dependencies = [(\"shop\", \"0006_product_slug\")], but the only 0006 migration is 0006_safe.\nDjango raises NodeNotFoundError when it builds the migration graph, so migrate fails.\nLikely"
+ },
+ {
+  "id": "Fcd6b9307",
+  "app": "fixture8-clean",
+  "finding": "Issues found\n\n1. Broken migration dependency in shop/migrations/0007_backfill.py (line 12), so Django cannot load the graph."
+ },
+ {
+  "id": "F75cdabc0",
+  "app": "fixture8-clean",
+  "finding": "CREATE INDEX CONCURRENTLY in the two db/migrations/*.sql files: whether it fails depends on how the runner executes them, which the diff doesn't show."
+ },
+ {
+  "id": "F3c3fdd23",
+  "app": "fixture8-clean",
+  "finding": "db/migrations/0002_orders.sql:4 SQL migrations have no down script, and the statements are not rerunnable after a failed CONCURRENTLY build. db/migrations holds 0001_safe.sql and 0002_orders.sql only; there is no down or undo file and no -- one-way marker. 0002 line 2 uses ADD COLUMN with no IF NOT EXISTS, and line 4 uses CREATE INDEX CONCURRENTLY with no IF NOT EXISTS. A failed CONCURRENTLY build leaves an INVALID index of that name behind. 0001 has the same shape (lines 2-13). Deploy 0002. ADD COLUMN tracking_code succeeds. The index build is cancelled by a statement timeout and leaves an INVALID orders_customer_idx. The next run fails at line 2 with column tracking_code already exists. Skipping line 2 then fails at line 4 with relation orders_customer_idx already exists. There is no down script and the file is not idempotent, so a person has to clean it by hand while the release is stuck."
+ },
+ {
+  "id": "Fab325f16",
+  "app": "fixture8-clean",
+  "finding": "Alembic runs each migration inside a transaction on Postgres by default, and Postgres rejects these statements there with CREATE INDEX CONCURRENTLY cannot run inside a transaction block. The upgrade and the downgrade would both fail."
+ },
+ {
+  "id": "Fde8e6457",
+  "app": "fixture8-clean",
+  "finding": "alembic/versions/3b1f_add_refunds.py:13 CREATE INDEX CONCURRENTLY is run with op.execute inside Alembic's default transactional DDL, and PostgreSQL rejects it inside a transaction block. alembic upgrade head on PostgreSQL fails with 'CREATE INDEX CONCURRENTLY cannot run inside a transaction block'. The migration aborts and the revision is not applied. It needs with op.get_context().autocommit_block():, or the CONCURRENTLY keyword removed."
+ },
+ {
+  "id": "F97f586a0",
+  "app": "fixture8-clean",
+  "finding": "shop/migrations/0007_backfill.py:13 The dependency names '0006_product_slug', but the previous migration file is 0006_safe.py, so the migration graph is broken. manage.py migrate raises NodeNotFoundError ('dependencies reference nonexistent parent node (shop, 0006_product_slug)'). No migrations in the app can run. The dependency should be ('shop', '0006_safe')."
+ },
+ {
+  "id": "F5fdd373c",
+  "app": "fixture8-clean",
+  "finding": "Code review: git diff main...HEAD (1 commit, 6 new migration files)\n\nI checked the diff for bugs and for CLAUDE.md compliance. The repo has no CLAUDE.md. I read the diff myself and did not launch the agent pipeline, because the change is six small files. I did not run any of the migrations."
+ },
+ {
+  "id": "Ffbbbdab3",
+  "app": "fixture8-clean",
+  "finding": "upgrade() runs op.execute(\"CREATE INDEX CONCURRENTLY ...\") and downgrade() runs DROP INDEX CONCURRENTLY. Neither is wrapped in with op.get_context().autocommit_block():."
+ },
+ {
+  "id": "F7b88ab43",
+  "app": "fixture8-clean",
+  "finding": "The PR description says it adds application code, but it only adds migration files. This is not a code defect."
+ },
+ {
+  "id": "F49a6c655",
+  "app": "fixture8-clean",
+  "finding": "alembic/versions/2a0e_safe.py:15 The refunds table is created with no foreign key to orders, and its only index is on the primary key column id, which is already indexed. refunds_created_idx ON refunds (id) duplicates the primary key index, so it costs write overhead for nothing. The name suggests a created_at column that does not exist. Orphaned order_id rows are also allowed, since no FK constraint ties them to orders."
+ },
+ {
+  "id": "Fb70047c7",
+  "app": "fixture8-clean",
+  "finding": "db/migrations/0001_safe.sql:14 The migration alters, indexes and comments on the orders table and its note column, but nothing in this tree creates orders or orders.note. On a fresh database, 0001 creates only invoices. The following CREATE INDEX ... ON orders and ALTER TABLE orders then fail with 'relation orders does not exist'. The COMMENT ON COLUMN orders.note also fails if that column does not exist. The migrations only work if another system created the table first."
+ },
+ {
+  "id": "F959f2a2f",
+  "app": "fixture8-clean",
+  "finding": "2. CREATE INDEX CONCURRENTLY inside an Alembic migration in alembic/versions/3b1f_add_refunds.py (lines 13 and 18)."
+ },
+ {
+  "id": "F9c8098dc",
+  "app": "fixture8-clean",
+  "finding": "shop/migrations/0007_backfill.py:12 0007 depends on a migration named 0006_product_slug that does not exist; the file in the tree is 0006_safe. shop/migrations holds only 0006_safe.py and 0007_backfill.py (glob of the whole workspace). Django names a migration after its file, so the node is (shop, 0006_safe). Grep for 0006_product_slug finds only this line. 0006_safe.py line 9 also depends on (shop, 0005_initial), which is not in the tree either. Run python manage.py migrate (or makemigrations, showmigrations) on a checkout of this commit. Django builds the graph and raises NodeNotFoundError: Migration shop.0007_backfill dependencies reference nonexistent parent node ('shop', '0006_product_slug'). No migration in the app runs, so the deploy stops. If 0006_product_slug is the intended parent, the 0006_safe file is orphaned and the slug/NULL cleanup in it never precedes the 0007 backfill."
+ },
+ {
+  "id": "F752bd566",
+  "app": "fixture8-clean",
+  "finding": "db/migrations/0001_safe.sql:12 ADD CONSTRAINT ... NOT VALID is followed by VALIDATE CONSTRAINT in the same file. Run as one transaction, the ACCESS EXCLUSIVE lock from the ADD is held through the validation scan. On a large orders table, the migration holds an ACCESS EXCLUSIVE lock for the whole validation scan. That blocks all reads and writes, which is the outage NOT VALID is meant to avoid. VALIDATE should go in a separate migration or transaction. The validation will also fail outright if any existing row has total <= 0."
+ },
+ {
+  "id": "F018fb537",
+  "app": "fixture8-clean",
+  "finding": "shop/migrations/0007_backfill.py:12 0007 depends on a migration named 0006_product_slug; the only 0006 in the change is 0006_safe. shop/migrations/ holds 0006_safe.py and 0007_backfill.py only (Glob). Django resolves a dependency by migration file name. 0006_safe.py:9 declares its own parent as 0005_initial and is named 0006_safe. No file 0006_product_slug.py exists anywhere in the tree (grep: the only hit is this line). Run manage.py migrate (or makemigrations --check, or the test runner that builds the test DB). The loader raises NodeNotFoundError: Migration shop.0007_backfill dependencies reference nonexistent parent node ('shop', '0006_product_slug'). Nothing in the shop app migrates, so the deploy stops at this step."
+ },
+ {
+  "id": "F9c0eb8cf",
+  "app": "fixture8-clean",
+  "finding": "db/migrations/0002_orders.sql:6 NOT VALID and VALIDATE sit in the same file as CREATE INDEX CONCURRENTLY, so no runner can honour both. 0002 mixes CREATE INDEX CONCURRENTLY (line 4), which must run outside a transaction, with ADD CONSTRAINT ... NOT VALID (line 6) and VALIDATE CONSTRAINT (line 7), which only avoid a long lock if they commit separately. 0001 lines 9, 12 and 13 do the same. No runner or config is in the repo to show the file is split per statement. If the runner sends the file as one batch or one transaction, CONCURRENTLY fails. If the runner wraps it in a transaction while skipping the CONCURRENTLY check, ADD CONSTRAINT keeps its lock (SHARE ROW EXCLUSIVE on orders and customers) through the full-table scan in VALIDATE, which undoes the point of NOT VALID. A runner that applies a .sql file as a single multi-statement query (a psycopg2 execute of the whole text, or a Flyway or sqitch transactional mode) turns the file into an implicit transaction: line 4 raises CREATE INDEX CONCURRENTLY cannot run inside a transaction block and nothing after it applies. A runner in autocommit mode applies it, but the runner has to be one that nothing in this change names."
+ }
+]

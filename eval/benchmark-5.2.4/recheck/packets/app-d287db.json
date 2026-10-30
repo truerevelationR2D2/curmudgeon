@@ -1,0 +1,227 @@
+[
+ {
+  "id": "F2ba69416",
+  "app": "app-d287db",
+  "finding": "app.js:10 Money total is computed with floats inside render, from unrounded prices, so the total can disagree with the lines shown. Prices are accepted with any number of decimals (app.js:18-19), displayed per line with toFixed(2) (app.js:8), summed unrounded here, and the same unrounded lines are POSTed (app.js:26). The pricing rule lives in the view function with no separate pure function or test. Traced from the JS toFixed spec (ties pick the larger n). Add two lines, each client 'a', qty 1, price 0.125. Each line renders as 1 \u00d7 0.13 (toFixed(2) of 0.125 is '0.13'), but the total is (0.125+0.125).toFixed(2) = '0.25', not 0.26. The invoice shows lines that add to 0.26 and a total of 0.25. The server receives price 0.125."
+ },
+ {
+  "id": "Ff4642cd1",
+  "app": "app-d287db",
+  "finding": "3. escapeHtml doesn't escape quotes, so a client name can inject attributes (guards.js:4-6, used at app.js:9)"
+ },
+ {
+  "id": "Fbc4d8b92",
+  "app": "app-d287db",
+  "finding": "app.js:19 Add line silently does nothing when quantity or price is invalid. app.js:19 returns with no message, no focus move, no aria-invalid and no text. index.html has no error element and styles.css has no invalid state. Traced. Type quantity 2.5 (or 0, or 2 +letters) and a price, press Add line: nothing is added and nothing is said. The same happens with an empty price. The user cannot tell which field is wrong or that anything failed."
+ },
+ {
+  "id": "F8b7c46b2",
+  "app": "app-d287db",
+  "finding": "app.js:32 Void button does nothing, with no message, for users who are not admins; network failure on void is also silent. The button is always enabled (index.html:24). The user object in app.js:2 has roles viewer and billing, so every click returns here with no output. fetch at app.js:33 has no catch and no success message. Traced. As user 'sam' (viewer, billing) click Void invoice: nothing changes, no text, no disabled state. A second case: as an admin, go offline and click Void: unhandled rejection, no message."
+ },
+ {
+  "id": "F0e9d8f27",
+  "app": "app-d287db",
+  "finding": "app.js:19 Price validation accepts Infinity (for example '1e999' or 'Infinity'). A whitespace-only client name is accepted after trim(). The user enters price '1e999'. Number returns Infinity, which passes price > 0, so the total shows 'Infinity' and the invoice is sent with an invalid value. Entering ' ' as the client passes the required attribute but becomes an empty string after trim(), so a line with a blank client is added."
+ },
+ {
+  "id": "Fed4c21a9",
+  "app": "app-d287db",
+  "finding": "app.js:33 Void is destructive, unconfirmed, and names no invoice. The request has no body or id, so it is unclear which invoice is voided; there is no confirm step or undo, no success feedback (the ok path does nothing), and the button sits directly beside Send with identical styling (index.html:23-24, styles.css:4). An admin mis-clicks Void next to Send: the POST fires at once with no confirmation, and nothing tells them it worked or what was voided."
+ },
+ {
+  "id": "F8cd3d554",
+  "app": "app-d287db",
+  "finding": "app.js:16 A whitespace-only client passes the required attribute, is trimmed to empty and is added as a line with an empty link. required (index.html:14) accepts ' '. After trim() the value is empty and is never rechecked before lines.push (app.js:20). Driven: the row rendered as <a href=\"#\" title=\"\"></a>: 1 x 5.00, an invisible, focusable, nameless link. Type spaces in Client, quantity 1, price 5, press Add line: a priced line with no client name is added and goes into the invoice."
+ },
+ {
+  "id": "F2fcdaf17",
+  "app": "app-d287db",
+  "finding": "app.js:28 Send has no in-flight guard, no success feedback and does not clear the lines, so one invoice is easily sent twice. app.js:25-28 relies on tooSoon() (guards.js:21), a 1-second timer, not on request state. The button is never disabled. On success the only effect is sentCount += 1, which nothing reads. lines is never cleared and nothing is shown. Driven with Playwright against a local server that delays the first POST by 2 s: clicks at 0 s and 1.5 s produced two POSTs to /api/invoices. Click Send invoice on a slow connection (response takes over 1 s), see nothing happen, click again at 1.1 s: the same invoice is posted twice. After a fast success, nothing says it was sent and the lines stay, so a user who clicks again 1 s later posts a duplicate."
+ },
+ {
+  "id": "F457e06a3",
+  "app": "app-d287db",
+  "finding": "guards.js:46 canVoid only returns true for the 'admin' role, but the only user (app.js:2) has roles [viewer, billing], so the Void button can never do anything. The user object is hardcoded on the client. Sam clicks 'Void invoice'. canVoid returns false and the handler returns silently, with no request and no message. The feature is dead for every user the page can currently represent. If the user object is changed in devtools to include 'admin', the check passes, so the role check is only a UI gate. The server must enforce it, and nothing here shows that it does."
+ },
+ {
+  "id": "Fbda6b686",
+  "app": "app-d287db",
+  "finding": "CLAUDE.md: There are no CLAUDE.md files at the root or in the directories of the changed files. Both compliance agents reported nothing."
+ },
+ {
+  "id": "F90792f32",
+  "app": "app-d287db",
+  "finding": "The fetch calls in the send and void handlers have no catch for network failures."
+ },
+ {
+  "id": "F74dab468",
+  "app": "app-d287db",
+  "finding": "Unused state and empty invoices (app.js): sentCount is never read, and lines is not cleared after a send. An empty invoice can also be sent."
+ },
+ {
+  "id": "Feddac816",
+  "app": "app-d287db",
+  "finding": "guards.js:24 tooSoon never trips: lastSend is never updated, so double-send protection does nothing. lastSend is declared at guards.js:22 and read here. Grep of both scripts shows no assignment. app.js:28 increments sentCount instead, which nothing reads. Date.now() - 0 is always more than 1000, so tooSoon() is always false. Nothing disables #send while the POST is in flight (app.js:24-29). Double-click \"Send invoice\" (or press Enter twice on the focused button): both clicks pass tooSoon(), two POST /api/invoices requests carry the same lines, and the client is billed twice. A retry after a slow response does the same."
+ },
+ {
+  "id": "F7a5c5934",
+  "app": "app-d287db",
+  "finding": "Bug scan of the diff (Opus): nothing flagged."
+ },
+ {
+  "id": "F7d21fa5d",
+  "app": "app-d287db",
+  "finding": "app.js:19 Price check accepts Infinity and 1e400, so the total shows Infinity and the payload carries null. Driven in Chromium: price \"Infinity\" passes price > 0. The list shows 2 \u00d7 Infinity, #total shows Infinity, and the POST body to /api/invoices contains \"price\":null (JSON.stringify turns Infinity into null). 1e400 parses to Infinity the same way. validQuantity also accepts any digit string, so 99999999999999999999 is kept as an imprecise float. Type price 1e400 (or Infinity), quantity 2, Add line, then Send invoice. The screen shows a total of Infinity and the server receives price null for that line."
+ },
+ {
+  "id": "F9a285ed7",
+  "app": "app-d287db",
+  "finding": "index.html:24 Destructive Void action has no confirmation, no undo and the same styling as the primary Send action. index.html:23-24 place two identical, adjacent buttons; styles.css:4 gives all buttons the same style. app.js:31-35 posts straight away with no confirmation and no invoice id in the request. An admin who mis-clicks the adjacent 'Void invoice' instead of 'Send invoice' voids with no prompt. The request names no invoice, so the user also cannot tell which invoice was voided."
+ },
+ {
+  "id": "F4e3c02ea",
+  "app": "app-d287db",
+  "finding": "app.js:28 A sent invoice gives no confirmation and the lines are not cleared, so a duplicate send is easy. Traced: on res.ok the only effect is sentCount += 1, a variable never read or rendered anywhere (grep of all four files). lines is not cleared and render() is not called. The only duplicate guard is tooSoon(), a 1-second window (guards.js:21-26), and the button is never disabled during the await. Click Send; nothing visible changes. The user clicks again after 1.2 s (or while a slow request is still pending past 1 s) and the same lines are POSTed a second time, creating a duplicate invoice."
+ },
+ {
+  "id": "F9235eb36",
+  "app": "app-d287db",
+  "finding": "app.js:8 Each line renders as <a href=\"#\"> with a redundant title, which is not a real link target. Keyboard and screen-reader users hear a link that goes nowhere. Activating it navigates to '#' and jumps the page to the top, and the line is announced as a link instead of text. It should be plain text."
+ },
+ {
+  "id": "F9d6a38fd",
+  "app": "app-d287db",
+  "finding": "escapeHtml doesn't escape quotes (guards.js:4-5, used in app.js:8, bug and security).\nIt escapes only &, < and >, but its output goes inside title=\"...\" and is assigned through innerHTML.\nAny \" in the client name ends the attribute early. A name like Acme \"West\" Ltd breaks the markup, and x\" onmouseover=\"alert(1) injects an event handler.\nIn this PR the name comes only from the user's own form, so today this is self-XSS. It becomes stored XSS if lines is ever filled from shared data.\nThe validator for issue 1 couldn't run git diff and read guards.js directly. It judged the bug introduced by this PR because the PR adds the file.\n\nThe agents saw other problems and left them out because they depend on input or on the server, which isn't in this PR:"
+ },
+ {
+  "id": "Fdac1a4b7",
+  "app": "app-d287db",
+  "finding": "index.html:21 The whole list is re-written on each add, so a screen reader re-announces every line. app.js:7 replaces the full innerHTML on each render, so every li is a new node in a live region. Validation errors, send results and void results are not in any live region. With 10 lines present, adding the 11th makes the screen reader read all 11 rows again. The messages that matter (errors, 'sent') are never announced."
+ },
+ {
+  "id": "F113c16fd",
+  "app": "app-d287db",
+  "finding": "app.js:24 Send invoice posts an empty invoice when no lines were added. The handler (app.js:24-29) never checks lines.length; the button is always enabled (index.html:23). Load the page and click Send invoice. POST /api/invoices is sent with body '[]'."
+ },
+ {
+  "id": "F677172a3",
+  "app": "app-d287db",
+  "finding": "app.js:26 Send and Void do not handle a failed network call; the user gets no message. Driven with Playwright: with the request aborted, clicking Send raised an uncaught 'Failed to fetch' page error and no alert appeared. The only failure path is !res.ok; fetch rejects on offline/DNS/abort and nothing catches it. The same holds for the void call at app.js:33. User goes offline (or the server drops the connection), clicks Send invoice. The promise rejects, no alert, no text change. The user cannot tell whether the invoice went out and may re-send or assume success."
+ },
+ {
+  "id": "Fe23b7ac1",
+  "app": "app-d287db",
+  "finding": "Scope: The change adds four new files: index.html, app.js, guards.js and styles.css, 95 lines in total."
+ },
+ {
+  "id": "Fec017c1e",
+  "app": "app-d287db",
+  "finding": "app.js:33 Void is destructive, has no confirmation, names no invoice, and reports nothing on success or network failure. app.js:31-35. No confirm step, no body or id identifying the invoice, no catch around fetch, no success message; only a non-ok status alerts. The button sits directly beside Send with the same style (index.html:23-24, styles.css:4). Traced. An admin who mis-clicks Void next to Send voids immediately with no undo. Offline, the click throws an unhandled rejection and nothing is shown. After a successful void, nothing on the page changes."
+ },
+ {
+  "id": "Fbdd25b00",
+  "app": "app-d287db",
+  "finding": "guards.js:11 Void permission is enforced only in the browser, against a hard-coded user object. canVoid reads user, a constant defined in app.js:2. The void request (app.js:33) carries no identity or invoice id. The server is not in the payload, so whether it re-checks the role is unknown. Inferred requirement: 'Only admins may void an invoice' (guards.js:9). A signed-in viewer opens the console and runs fetch('/api/invoices/void', {method:'POST'}), or edits user.roles to include 'admin'. The client check is bypassed. If the server does not enforce the role itself, a non-admin voids an invoice."
+ },
+ {
+  "id": "F01835ea4",
+  "app": "app-d287db",
+  "finding": "app.js:26 A network failure on Send is never caught, so the user gets no message. app.js:24-29. Only a non-ok response is handled (line 27). fetch() rejects on offline, DNS failure, or a dropped connection. The async click handler has no try/catch, so the rejection is an unhandled promise rejection and the alert on line 27 never runs. Go offline, add a line, click Send invoice. fetch rejects with TypeError. Nothing is shown; the console logs an unhandled rejection. The user cannot tell whether the invoice went out. A second click within 1 s is also silently swallowed by tooSoon()."
+ },
+ {
+  "id": "Fda5f05cb",
+  "app": "app-d287db",
+  "finding": "Element IDs: every ID that app.js looks up exists in index.html."
+ },
+ {
+  "id": "Fb7d87de8",
+  "app": "app-d287db",
+  "finding": "Bugs: Both Opus agents read all four files and found nothing that fails to parse or gives wrong results whatever the input.\nThe scripts load in the right order, and every element ID and helper function that app.js uses exists.\nThe HTML escaping, quantity check, price check and one-second send limit all behave as written."
+ },
+ {
+  "id": "Fcb2ae338",
+  "app": "app-d287db",
+  "finding": "index.html:21 The whole list is a live region that is rebuilt on every add, so screen readers re-read old lines. app.js:7 sets innerHTML for the whole list on each render, replacing every <li> inside an aria-live region. Many screen readers announce all of the replaced nodes. Traced from code; no screen reader was run. With 8 lines already listed, adding a 9th causes the reader to announce all 9 rows again instead of just the new one."
+ },
+ {
+  "id": "Ff111ea25",
+  "app": "app-d287db",
+  "finding": "app.js:8 escapeHtml does not escape quotes but its output is put inside a double-quoted attribute. guards.js:5 replaces only &, < and >. app.js:8 places the result in title=\"...\" and assigns the string with innerHTML. Traced: a client of x\" onmouseover=\"alert(1)\" autofocus tabindex=\"0 gives title=\"x\" onmouseover=\"alert(1)\" autofocus tabindex=\"0\", which is a live event-handler attribute. Type x\" onmouseover=\"alert(document.domain)\" x=\" in Client, set quantity 1 and price 1, press Add line. The new <a> carries an onmouseover handler and runs script when hovered. Where the client name comes from a shared source (imported client list, another user), this is stored XSS on an invoice/billing page."
+ },
+ {
+  "id": "Fbbc471fb",
+  "app": "app-d287db",
+  "finding": "app.js:16 A whitespace-only client passes required and is added as an empty, invisible line. Driven: client ' ', qty 3, price 0.333 added <li><a href=\"#\" title=\"\"></a>: 3 \u00d7 0.33</li>. required accepts spaces; the trimmed value is never rechecked before lines.push. Typing spaces in Client and pressing Add line puts a line with no client name (and an empty focusable link) into the invoice that is then sent."
+ },
+ {
+  "id": "F3d54ec63",
+  "app": "app-d287db",
+  "finding": "app.js:26 Send does not check that any lines exist. Clicking 'Send invoice' on a fresh page posts '[]', which creates an empty invoice with a total of 0.00. It also counts as a successful send."
+ },
+ {
+  "id": "F1e864ec8",
+  "app": "app-d287db",
+  "finding": "app.js:16 The client name is trimmed but never checked for emptiness. The 'required' attribute accepts whitespace-only input in the browser, and the handler pushes the line without checking. Typing ' ' in Client with qty 1 and price 5 passes required and validQuantity. A line with client '' is added and later sent, and it renders as an empty link."
+ },
+ {
+  "id": "F57f8db03",
+  "app": "app-d287db",
+  "finding": "app.js:10 Money is summed as unrounded floats, so the displayed total and the sent amounts can disagree; Infinity is accepted as a price. Price is accepted with any number of decimals and any magnitude (app.js:18-19: Number(text) > 0). Each row is shown rounded with toFixed(2) (app.js:8) but the total sums the raw values and the raw floats are posted (app.js:26). Number('1e999') is Infinity, which passes price > 0, and the total then renders 'Infinity'. The money rule also lives inside render() (domain leak). Reasoned by hand; node could not be run in this review. Add three lines with quantity 1 and price 0.004. Each row displays '1 \u00d7 0.00', yet the total displays 0.01 (0.012 rounded) and 0.004 is what is posted for each. Add a line with price 1e999: the total shows 'Infinity' and JSON.stringify posts null for the price."
+ },
+ {
+  "id": "Fe65c3b18",
+  "app": "app-d287db",
+  "finding": "CLAUDE.md compliance (agents 1 and 2): The repo has no CLAUDE.md files, so there were no rules to violate. Both agents reported none."
+ },
+ {
+  "id": "Fb17cdc70",
+  "app": "app-d287db",
+  "finding": "send handler (app.js): a network failure makes fetch throw, so there is no alert. The \"not sent\" alert only covers non-OK responses."
+ },
+ {
+  "id": "F3b5ba083",
+  "app": "app-d287db",
+  "finding": "guards.js:55 Guards are loaded as globals through script tags, with module-level mutable state in lastSend. escapeHtml, canVoid, validQuantity and tooSoon are implicit globals shared by script load order. Reordering the script tags in index.html makes app.js call undefined functions at click time. The guards are also hard to unit-test because lastSend is not resettable."
+ },
+ {
+  "id": "Fec037c87",
+  "app": "app-d287db",
+  "finding": "app.js:24 The send handler is only guarded by a 1-second timer, so a slow request can be sent twice, and a failed send is also blocked for 1 second. The user clicks Send and /api/invoices takes 3 seconds. A second click after 1 second passes tooSoon() and posts the same lines again, creating a duplicate invoice. In the other direction, after a failed send the alert appears and an immediate retry within 1 second is silently ignored because lastSend was already updated. The button is never disabled while the request is in flight."
+ },
+ {
+  "id": "F40663e78",
+  "app": "app-d287db",
+  "finding": "Bug review: Both Opus bug agents reviewed the diff and flagged nothing. They found no parse errors or unresolved references, and no code that gives wrong results for every input. Because they flagged nothing, no validation agents were needed in step 5."
+ },
+ {
+  "id": "F4a62bce1",
+  "app": "app-d287db",
+  "finding": "app.js:18 Price accepts Infinity, 1e400, hex and exponent forms, and becomes null in the posted invoice. Number('Infinity') is Infinity and passes !(price > 0) at app.js:19. render() then shows 'Infinity' and the total 'Infinity'. JSON.stringify([{price:Infinity}]) writes \"price\":null at app.js:26. Number('0x10') is 16 and Number('1e3') is 1000, both accepted. Type Infinity (or 1e400) as price, quantity 1, Add line, then Send invoice. The page shows Total: Infinity and the server receives a line whose price is null."
+ },
+ {
+  "id": "Fdc5bb4bb",
+  "app": "app-d287db",
+  "finding": "app.js:32 Void invoice is a dead button for the signed-in user: a silent return, with no disabled state and no reason. app.js:2 sets the user's roles to viewer and billing; guards.js:10-12 requires 'admin'. The button at index.html:24 is always rendered enabled (traced). Sam clicks Void invoice. canVoid returns false, the handler returns, and nothing happens. There is no 'You need the admin role', and no disabled or hidden button."
+ },
+ {
+  "id": "F78817592",
+  "app": "app-d287db",
+  "finding": "Bug agents (agents 3 and 4): Both Opus agents read all four files in full and flagged nothing."
+ },
+ {
+  "id": "F628bef7a",
+  "app": "app-d287db",
+  "finding": "app.js:25 The send guard is time-based, and lastSend is set before the request outcome is known. fetch rejections are not handled. (a) A send that fails with a 500 and is retried within 1 second is silently dropped by tooSoon, with no feedback. (b) A request that takes longer than 1 second can be sent again, so the same invoice is posted twice. (c) If the network is down, fetch rejects, which gives an unhandled promise rejection and no alert, because only !res.ok is handled. (d) sentCount is incremented but never read."
+ },
+ {
+  "id": "F760147d3",
+  "app": "app-d287db",
+  "finding": "app.js:8 Each rendered line is an anchor with href='#', but nothing handles clicks on it, and there is no way to remove a line. Clicking a client name navigates to '#' and jumps the page to the top. A mistyped line cannot be removed or edited before sending."
+ },
+ {
+  "id": "Fa0a6e39e",
+  "app": "app-d287db",
+  "finding": "canVoid (guards.js): the hard-coded user in app.js has no admin role, so the Void button does nothing for them. That is consistent with the \"only admins may void\" comment."
+ }
+]

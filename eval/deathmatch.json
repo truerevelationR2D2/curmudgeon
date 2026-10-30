@@ -1,5 +1,5 @@
 {
- "note": "The death match is a development benchmark (rulings \u00a75.8, \u00a75.20, \u00a75.22). Every arm runs the same tasks on the same model and is scored by deathmatch.py.",
+ "note": "The death match is a development benchmark (rulings §5.8, §5.20, §5.22). Every arm runs the same tasks on the same model and is scored by deathmatch.py.",
  "arms": [
   {
    "id": "curmudgeon",
@@ -21,6 +21,26 @@
    ]
   },
   {
+   "id": "curmudgeon-lite",
+   "plugin": true,
+   "prompt": "/curmudgeon:review . (review only; change no files; use the lite tier: critic_run.py begin --tier lite)",
+   "tools": [
+    "Read",
+    "Grep",
+    "Glob",
+    "Agent",
+    "Task",
+    "Write",
+    "Edit",
+    "LSP",
+    "Bash(python3:*)",
+    "Bash(cd:*)",
+    "Bash(git -C:*)",
+    "Bash(git:*)"
+   ],
+   "note": "Curmudgeon's lite tier: one blind reviewer, with Critical and High findings verified (ruling §5.53)."
+  },
+  {
    "id": "plain-claude",
    "prompt": "Review the code in this folder for bugs. For each bug give the file:line, what is wrong, and a concrete input or sequence that makes it fail. Change no files.",
    "tools": [
@@ -28,6 +48,30 @@
     "Grep",
     "Glob"
    ]
+  },
+  {
+   "id": "plain-claude-rubric",
+   "prompt": "Review the code in this folder for bugs. For each bug give the file:line, what is wrong, and a concrete input or sequence that makes it fail. Change no files. Before you start, read rubrics.md and sandbox.md in {plugin}/skills/review/references and use them as your checklist.",
+   "tools": [
+    "Read",
+    "Grep",
+    "Glob"
+   ],
+   "add_dirs": [
+    "{plugin}/skills/review/references"
+   ],
+   "note": "Plain Claude given Curmudgeon's rubric and sandbox scenarios, nothing else: separates the checklist's effect from the blind panel, voting and verification (ruling §5.56 item 20)."
+  },
+  {
+   "id": "plain-claude-quote",
+   "prompt": "Review the code in this folder for bugs. Change no files. Reply with only a JSON list, one object per bug: {\"file\": path, \"line\": number, \"quote\": the code at that line copied exactly, \"title\": what is wrong, \"failing_case\": a concrete input or sequence that makes it fail}.",
+   "tools": [
+    "Read",
+    "Grep",
+    "Glob"
+   ],
+   "quote_check": true,
+   "note": "Plain Claude whose findings must pass Curmudgeon's quote check before they are scored (ruling §5.56 item 20)."
   },
   {
    "id": "code-review",
@@ -45,6 +89,23 @@
    ],
    "pr": true,
    "note": "Anthropic's official code-review plugin (code-review-anthropics in the Anthropic directory). It reviews GitHub pull requests; here the task is committed as a branch over an empty base, and the prompt says to read the local diff and print the comment."
+  },
+  {
+   "id": "code-review-best",
+   "prompt": "/code-review:code-review Treat this local change as the pull request to review. There is no GitHub pull request, so wherever your steps say to use gh, use git instead: the pull request's diff is `git diff main...HEAD` in this folder. For step 1: the pull request is open, is not a draft, needs review, and has no earlier Claude comment, so continue. Its title is \"Add the app\" and its description is \"Adds this application's code.\" Then follow steps 2 to 7 exactly as written, launching every agent each step names, and print the step 7 summary here. Post nothing. Change no files.",
+   "tools": [
+    "Read",
+    "Grep",
+    "Glob",
+    "Agent",
+    "Task",
+    "Bash(git:*)"
+   ],
+   "plugin_enable": [
+    "code-review-anthropics@anthropic-plugin-directory"
+   ],
+   "pr": true,
+   "note": "The code-review plugin's best effort (ruling §5.53): the same tools, with the pull-request facts its step 1 checks given in the prompt and an explicit instruction to run every step and launch every agent. Each run's agents_launched shows whether it did."
   },
   {
    "id": "cc-code-review",
@@ -155,6 +216,54 @@
    "id": "suite4-clean",
    "fixture": "fixture4-clean",
    "clean": true
+  },
+  {
+   "id": "lens5-clean",
+   "fixture": "fixture5-clean",
+   "clean": true,
+   "note": "a scripted lens's clean twin: nothing planted (ruling §5.53, a larger false-alarm sample)"
+  },
+  {
+   "id": "lens6-clean",
+   "fixture": "fixture6-clean",
+   "clean": true,
+   "note": "a scripted lens's clean twin: nothing planted (ruling §5.53, a larger false-alarm sample)"
+  },
+  {
+   "id": "lens7-clean",
+   "fixture": "fixture7-clean",
+   "clean": true,
+   "note": "a scripted lens's clean twin: nothing planted (ruling §5.53, a larger false-alarm sample)"
+  },
+  {
+   "id": "lens8-clean",
+   "fixture": "fixture8-clean",
+   "clean": true,
+   "note": "a scripted lens's clean twin: nothing planted (ruling §5.53, a larger false-alarm sample)"
+  },
+  {
+   "id": "lens9-clean",
+   "fixture": "fixture9-clean",
+   "clean": true,
+   "note": "a scripted lens's clean twin: nothing planted (ruling §5.53, a larger false-alarm sample)"
+  },
+  {
+   "id": "lens10-clean",
+   "fixture": "fixture10-clean",
+   "clean": true,
+   "note": "a scripted lens's clean twin: nothing planted (ruling §5.53, a larger false-alarm sample)"
+  },
+  {
+   "id": "lens11-clean",
+   "fixture": "fixture11-clean",
+   "clean": true,
+   "note": "a scripted lens's clean twin: nothing planted (ruling §5.53, a larger false-alarm sample)"
+  },
+  {
+   "id": "lens12-clean",
+   "fixture": "fixture12-clean",
+   "clean": true,
+   "note": "a scripted lens's clean twin: nothing planted (ruling §5.53, a larger false-alarm sample)"
   }
  ]
 }

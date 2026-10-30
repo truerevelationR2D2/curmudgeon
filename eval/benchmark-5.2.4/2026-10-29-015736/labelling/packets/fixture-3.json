@@ -1,0 +1,187 @@
+[
+ {
+  "id": "F339e5bb9",
+  "app": "fixture",
+  "finding": "app.js:41-47: each input event calls renderList(q) synchronously, then appends the fetched results to #list when the response arrives."
+ },
+ {
+  "id": "Fa821367f",
+  "app": "fixture",
+  "finding": "app.js:8 The sorted copy of notes is rebuilt inside the per-note loop, which gives O(n\u00b2 log n) work. The rank is also computed against all notes, not the filtered ones. With 1000 notes, each search keystroke sorts 1000 arrays of 1000 items. The rank shown on a filtered list also does not match the visible positions."
+ },
+ {
+  "id": "F7e3fa3aa",
+  "app": "fixture",
+  "finding": "store.js:25 Each tab writes its whole in-memory array, so a second tab overwrites the first's notes. notes is read once at load (store.js:2) and persist() always writes the entire array. There is no 'storage' event listener and no re-read before writing. Open the app in tabs A and B. In B create and fill a note. In A, edit any existing note. A's save writes its stale array and the note created in B disappears from storage, permanently."
+ },
+ {
+  "id": "F4dd2128d",
+  "app": "fixture",
+  "finding": "styles.css:12 The delete control is invisible unless the pointer hovers its row. styles.css:12 hides it with opacity 0 and reveals it only on :hover. There is no :focus-within rule, and the target is a non-focusable div. Touch screens have no hover. On a phone the user cannot see that notes can be deleted, but taps in the empty area on the row's right edge still delete the note (see the delete finding)."
+ },
+ {
+  "id": "Fd5b5344a",
+  "app": "fixture",
+  "finding": "Both issues are in the new code and neither depends on unusual input."
+ },
+ {
+  "id": "Fec2f7616",
+  "app": "fixture",
+  "finding": "2. scheduleSave throws and loses edits when no note is selected (store.js:14-20, wired at app.js:37-38)"
+ },
+ {
+  "id": "F2a37c4e5",
+  "app": "fixture",
+  "finding": "index.html:17 First run shows a blank list and an editable editor that cannot save. Driven: with empty storage no note is selected, the list is empty with no text, and #title and #body are live. Typing there throws 500 ms later (see store.js:16) and nothing is stored, while the hint says 'Changes save automatically'. A new user opens the page, sees nothing telling them to press New note, and starts typing. Everything typed is lost."
+ },
+ {
+  "id": "F29447df8",
+  "app": "fixture",
+  "finding": "I did not flag the following as defects: the O(n\u00b2 log n) re-sort inside the forEach in renderList, the possible out-of-order /api/shared responses, and the CSS and accessibility choices (maximum-scale=1, outline: none, fixed 1200px width)."
+ },
+ {
+  "id": "F9391cf74",
+  "app": "fixture",
+  "finding": "app.js:47 Shared-search failures are only logged, and a non-OK status is never checked. app.js:44-47 never checks res.ok, and any failure is written to the console only. A 500 with an HTML body ends in a JSON parse error that is logged. A 200 with a JSON object that is not an array breaks shared.map and is also logged. The server returns 502 while the user searches. The list shows only local results with no hint that shared notes are unavailable. The user concludes that nothing shared matches."
+ },
+ {
+  "id": "F2bb74f60",
+  "app": "fixture",
+  "finding": "index.html:17 No empty, no-results, loading or error states; saves are not announced. On first run the list is an empty <ul> and the editor is live but non-functional (see the save finding). Search with no match shows nothing. The hint at index.html:21 is static, has no aria-live, and never reports a failed save. A first-time user sees a hero, an empty box and an editor that discards their typing, with no instruction on what to do."
+ },
+ {
+  "id": "F818307cb",
+  "app": "fixture",
+  "finding": "styles.css:2 Fixed 1200 px layout scrolls sideways on phones and at 200% zoom. The container is a fixed 1200 px and the grid is 300px 1fr with no media query anywhere in styles.css. At 390 px the page is about 3x wider than the viewport. At 200% zoom on a 1360 px desktop the 1200 px container is wider than the 680 px CSS viewport. The viewport is also locked against zoom. Traced from the CSS. Open the app at 390 px wide: the user has to pan horizontally to reach the editor, and the list and editor are never visible together. WCAG 1.4.10 Reflow (AA)."
+ },
+ {
+  "id": "F452508cc",
+  "app": "fixture",
+  "finding": "app.js:10 Notes can be opened only with a mouse: list rows are not focusable or operable by keyboard. Opening a note is a click listener on the ul (app.js:30-33). The li has no tabindex, no role, no button or link inside, and no key handler. index.html has no other route to a note. Keyboard or screen reader user presses Tab from the search box: focus goes to New note, then straight into the title input. The note list is never reached, so no existing note can be opened (WCAG 2.1.1, level A)."
+ },
+ {
+  "id": "F50621384",
+  "app": "fixture",
+  "finding": "Code review: \"Add the app\"\n\nI reviewed git diff main...HEAD (app.js, index.html, store.js, styles.css) and posted nothing. The repo has no CLAUDE.md files, so both compliance agents returned none. Five bug issues were each confirmed by a separate validator, and the second bug agent's four findings matched ones already on the list."
+ },
+ {
+  "id": "F85d3c126",
+  "app": "fixture",
+  "finding": "styles.css:2 Fixed 1200 px container and 300 px sidebar column: the page scrolls sideways on a phone and at 200% zoom. Driven at 390 px wide: document scrollWidth 1222. The grid at styles.css:7 is fixed 300px 1fr with no media query anywhere in the file. On a 390 px phone the list and editor are cut off; the user must scroll horizontally to see the editor. Same at 200% zoom on a 1360 px laptop (reflow, WCAG 1.4.10)."
+ },
+ {
+  "id": "F10737850",
+  "app": "fixture",
+  "finding": "app.js:36 The list is never re-rendered after a save, so titles and the '#rank' badge go stale. Driven: renamed the open note 'A' to 'Renamed', waited 800 ms: list rows still read ['A','B']. scheduleSave (store.js:13-21) persists but does not call renderList, and the rank badge depends on 'updated'. User renames a note and the sidebar keeps the old name. Searching for the new name finds nothing until another action re-renders. The rank shown for a note that was just edited is wrong."
+ },
+ {
+  "id": "F389c0350",
+  "app": "fixture",
+  "finding": "app.js:10 Setting list.innerHTML += inside the loop re-parses and rebuilds the whole list on every iteration. It also uses inline onclick handlers. This is O(n\u00b2) DOM work. Re-serialising the list each time drops the shared items and any other state. The inline handler requires a global removeNote."
+ },
+ {
+  "id": "F6d65a9c0",
+  "app": "fixture",
+  "finding": "On a fresh install with no notes, typing in #title or #body fires scheduleSave. 500 ms later the timeout runs currentNote.title = ... and throws TypeError: Cannot set properties of null."
+ },
+ {
+  "id": "Fedab268b",
+  "app": "fixture",
+  "finding": "index.html:88 The viewport has maximum-scale=1, which blocks pinch zoom. The layout is fixed at width: 1200px and 300px 1fr, so it is not responsive and overflows on phones. The inputs also have no labels, and outline: none removes the focus indicators. On a 375px phone the 1200px container forces horizontal scrolling, and users with low vision cannot zoom in. Keyboard users cannot see which control has focus. Screen readers announce the unlabeled title and body fields as unnamed edit boxes."
+ },
+ {
+  "id": "Fdfe0e06d",
+  "app": "fixture",
+  "finding": "styles.css:2 Fixed 1200 px layout with a 300 px + 1fr grid: sideways scroll on phones and at 200% zoom. styles.css:2 fixes the container width; styles.css:7 fixes a 300px sidebar column; no media query or max-width exists in styles.css. At 390 px the page is about 3 times wider than the viewport; the editor sits mostly off-screen to the right and the user must pan sideways to use it. Same at 200% zoom on a 1360 px window."
+ },
+ {
+  "id": "F19ce3af8",
+  "app": "fixture",
+  "finding": "styles.css:2 Fixed 1200px layout with a 300px + 1fr grid: sideways scroll at 390px and at 200% zoom. Traced. .container has a fixed width, and .layout (line 7) has a fixed 300px column with no media query anywhere in the file. At 390px the page is about 1200px wide. Combined with the zoom block in index.html:5, mobile users have no way to read it. Open at 390px wide: the page scrolls horizontally, the editor sits off-screen to the right. At 200% zoom on a 1360px desktop the container exceeds the viewport."
+ },
+ {
+  "id": "Fc61fa49a",
+  "app": "fixture",
+  "finding": "app.js:32 Clicking a shared search result throws. Driven: shared <li class=\"shared\"> has no data-id, so Number(undefined) is NaN, notes.find returns undefined and openNote throws 'Cannot read properties of undefined (reading title)'. Shared items look clickable (the list shows a pointer cursor via #list li). Search, click a shared result: console error, nothing happens, no feedback."
+ },
+ {
+  "id": "F9f90c196",
+  "app": "fixture",
+  "finding": "renderList interpolates ${n.title} into a template string and assigns it with list.innerHTML +=."
+ },
+ {
+  "id": "F908a146c",
+  "app": "fixture",
+  "finding": "store.js:18 The list is never re-rendered after a save, so titles and #rank go stale. The save timer updates the title and the updated time and calls persist(), but never renderList. renderList runs only on open, delete and search. Click New note, type 'Groceries' as the title. The list keeps showing 'Untitled' until the user searches, switches notes or deletes something. The '#rank' badges also do not change after the edit that changes the order."
+ },
+ {
+  "id": "F6458d2f8",
+  "app": "fixture",
+  "finding": "store.js:67 The debounced save dereferences currentNote without a null check, and it saves into whatever note is current when the timer fires. Edit the title, then delete the current note within 500 ms. removeNote sets currentNote to null and the timer throws a TypeError. Alternatively, switch notes within 500 ms and the typed text is written into the newly opened note, overwriting its content. openNote never flushes or cancels the pending timer."
+ },
+ {
+  "id": "F169c4d71",
+  "app": "fixture",
+  "finding": "Code review: git diff main...HEAD (commit 39a536d, adds a note-taking app)\n\nI found 3 high-signal issues. No CLAUDE.md exists in the repo, so I checked bugs only. I read the diff directly instead of launching subagents, because it is only 4 new files and 126 lines.\n\n1. Stored XSS: note titles and server-returned titles go into innerHTML unescaped"
+ },
+ {
+  "id": "F4cb071ad",
+  "app": "fixture",
+  "finding": "Typing after currentNote is null throws and loses the edit (bug) \u2014 app.js:23-28, app.js:36-37, store.js:13-21\nremoveNote sets currentNote = null but leaves the title and body inputs filled and enabled.\ncurrentNote also starts as null on a first visit, and the inputs are enabled there too.\nThe next keystroke starts the debounced save. After 500 ms, currentNote.title = \u2026 throws a TypeError and the text is never saved."
+ },
+ {
+  "id": "Fec7321da",
+  "app": "fixture",
+  "finding": "Issues found"
+ },
+ {
+  "id": "F8842bc19",
+  "app": "fixture",
+  "finding": "styles.css:117 Focus outlines are removed with no replacement, and the viewport meta blocks zoom. Keyboard users cannot see which control has focus. maximum-scale=1 disables pinch zoom for low-vision users. The fixed width: 1200px container also makes the page scroll horizontally on phones."
+ },
+ {
+  "id": "F386894b7",
+  "app": "fixture",
+  "finding": "Deleting a note during a search resets the list but not the search box. removeNote calls renderList() with no argument (app.js:27), so the full list returns while the search box still shows the query. openNote passes the search value, so the two are inconsistent. This one is low severity. The delete itself works and the stored data is correct.\n\nOne process note: the step 2 haiku agent was denied Bash permission, so I ran git diff main...HEAD --name-only and a CLAUDE.md search myself."
+ },
+ {
+  "id": "F07dbffc1",
+  "app": "fixture",
+  "finding": "index.html:5 Viewport meta forbids pinch zoom. maximum-scale=1 on index.html:5 stops mobile browsers from zooming the page. WCAG 1.4.4 (AA). A low-vision user on a phone can't enlarge the 12 px hint or the note text."
+ },
+ {
+  "id": "Fe70efb57",
+  "app": "fixture",
+  "finding": "store.js:67 The debounced save writes to currentNote without checking it, and it saves whichever note is current when the timer fires. The user edits note A and, within 500ms, clicks note B or deletes A. The timer fires and copies the editor contents (now B's, or none) into the new currentNote, which overwrites B with A's edits. If A was deleted, currentNote is null and the timer throws a TypeError, and the edit is lost."
+ },
+ {
+  "id": "Fee229b8e",
+  "app": "fixture",
+  "finding": "app.js:46 Titles from the /api/shared response are inserted as raw HTML. A shared note whose title contains markup or a script payload executes in the page when the user types in the search box."
+ },
+ {
+  "id": "Ff649b2cd",
+  "app": "fixture",
+  "finding": "app.js:36 The list is never re-rendered after a save: titles and ranks go stale. scheduleSave only calls persist(); renderList is called only from search, openNote, removeNote and load (app.js:20, 27, 42, 50). The active row therefore keeps showing the old title and rank. Click New note, rename it to 'Groceries': the list still reads 'Untitled' (and the '#rank' badge is not updated) until the user opens another note or searches."
+ },
+ {
+  "id": "Fad1f9380",
+  "app": "fixture",
+  "finding": "styles.css:2 Fixed 1200px container and 300px list column; the page scrolls sideways on phones and at 200% zoom. styles.css:2 sets a fixed width and styles.css:7 sets grid-template-columns: 300px 1fr. There is no media query. The textarea is fixed at 400px high (styles.css:14). Traced; the browser could not be driven. At a 390px viewport the content is 1200px wide, so the user must pan sideways to reach the editor. At 200% zoom on a 1360px window the effective viewport is 680 CSS px, also too narrow. This fails WCAG 1.4.10 (reflow, AA)."
+ },
+ {
+  "id": "F4dd8406a",
+  "app": "fixture",
+  "finding": "app.js:8 renderList copies and sorts every note once per visible note, and appends with innerHTML +=. The sort is inside shown.forEach (app.js:7-9), then indexOf is a linear scan. list.innerHTML += re-serialises and re-parses the whole list for each item (app.js:10). Cost per render is about n sorts of n log n, plus n DOM re-parses. It runs on every search keystroke (app.js:42). Traced from the code; not timed. With 500 notes, each keystroke in the search box does 500 sorts of 500 items and 500 full re-parses of the list. Typing visibly lags, and 5,000 notes freezes the tab."
+ },
+ {
+  "id": "F8955ab15",
+  "app": "fixture",
+  "finding": "renderList puts n.title into list.innerHTML unescaped."
+ },
+ {
+  "id": "F1e715ed7",
+  "app": "fixture",
+  "finding": "Edited titles and rank badges don't refresh in the list. scheduleSave (store.js:15-20) updates the note and saves it but never calls renderList. The sidebar keeps the old title and rank until something else re-renders it."
+ }
+]

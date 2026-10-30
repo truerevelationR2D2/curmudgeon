@@ -1,0 +1,202 @@
+[
+ {
+  "id": "F1e17cc09",
+  "app": "fixture4-clean",
+  "finding": "app.js:25 The send guard is time-based, and lastSend is set before the request outcome is known. fetch rejections are not handled. (a) A send that fails with a 500 and is retried within 1 second is silently dropped by tooSoon, with no feedback. (b) A request that takes longer than 1 second can be sent again, so the same invoice is posted twice. (c) If the network is down, fetch rejects, which gives an unhandled promise rejection and no alert, because only !res.ok is handled. (d) sentCount is incremented but never read."
+ },
+ {
+  "id": "F209348ed",
+  "app": "fixture4-clean",
+  "finding": "guards.js:11 Void permission is checked only in the browser, on a global the user can edit. canVoid reads the page-global user (app.js:2, a const at script top level, readable from the console as user; the roles array is mutable). The request at app.js:33 carries no identity or invoice id, so the server cannot tell the client's claim from fact. The server is not in the payload; enforcement there is inferred as absent from what the client sends. In the console run user.roles.push('admin'), click Void invoice: the guard passes and the POST goes out. If the server relies on the client check, any viewer can void invoices."
+ },
+ {
+  "id": "F6401e935",
+  "app": "fixture4-clean",
+  "finding": "guards.js:51 validQuantity has no upper bound. Very long digit strings pass and convert to imprecise or Infinity numbers. A quantity of '9'\u00d7400 becomes Infinity. Then qty * price is Infinity, and the total and invoice are corrupted. A quantity above 2^53 silently loses precision."
+ },
+ {
+  "id": "F26b7cb50",
+  "app": "fixture4-clean",
+  "finding": "app.js:26 Send and Void do not handle a failed network call; the user gets no message. Driven with Playwright: with the request aborted, clicking Send raised an uncaught 'Failed to fetch' page error and no alert appeared. The only failure path is !res.ok; fetch rejects on offline/DNS/abort and nothing catches it. The same holds for the void call at app.js:33. User goes offline (or the server drops the connection), clicks Send invoice. The promise rejects, no alert, no text change. The user cannot tell whether the invoice went out and may re-send or assume success."
+ },
+ {
+  "id": "Ff14f2e53",
+  "app": "fixture4-clean",
+  "finding": "app.js:26 Send and Void do not handle a rejected fetch; a network failure is silent. app.js:26 and app.js:33 await fetch with no try/catch. Only a non-2xx response (res.ok) is handled at app.js:27 and :34. A rejected promise (offline, DNS, CORS, abort) skips both alerts and becomes an unhandled rejection in the console. User goes offline (or the server is down at the TCP level) and clicks 'Send invoice'. fetch rejects with TypeError. No alert, no message, no state change. The user cannot tell whether the invoice went out and may re-send or assume it was sent. The same applies to 'Void invoice'."
+ },
+ {
+  "id": "F928a5fd4",
+  "app": "fixture4-clean",
+  "finding": "app.js:25 Send invoice with no lines posts an empty invoice. No check that lines is non-empty before the POST. Driven on a fresh page: a POST to /api/invoices with body '[]' went out. Open the page and click Send invoice: an empty invoice is posted and, with a 200, nothing is shown."
+ },
+ {
+  "id": "F635f57dc",
+  "app": "fixture4-clean",
+  "finding": "app.js:16 Whitespace-only client passes the required attribute and is saved as an empty name. index.html:14 uses required, which accepts ' '. app.js:16 trims to '' and nothing re-checks it before app.js:20. The row then renders an empty link (app.js:8). Type three spaces in Client, quantity 1, price 5, press Add line. A line with an empty client is added; its link has no text and no accessible name."
+ },
+ {
+  "id": "Fc91fbf0d",
+  "app": "fixture4-clean",
+  "finding": "app.js:31 The void request sends no invoice id or body and has no confirmation step. The send request has no Content-Type header. POST /api/invoices/void carries nothing that says which invoice to void, so the server either voids 'the current invoice' by implicit state or rejects the call. An accidental click on an irreversible action goes straight through. The send call posts a JSON string without 'Content-Type: application/json', so many servers will not parse it."
+ },
+ {
+  "id": "F7c8221cb",
+  "app": "fixture4-clean",
+  "finding": "app.js:19 Price parsing accepts Infinity, exponent forms and sub-cent values that the page and the request then mishandle. Line 18 uses Number(); line 19 only tests price > 0. Number(\"Infinity\") and Number(\"1e999\") are Infinity, which passes. JSON.stringify(Infinity) is null, so the request body carries \"price\":null. Number(\"0.001\") passes too; line 8/11 show it as 0.00. Traced. Enter price 1e999: the line is added, the list shows 'Infinity' and the total 'Infinity'; Send posts price null. Enter price 0.004: the list and total show 0.00 but the invoice sends 0.004."
+ },
+ {
+  "id": "F4f8f9eda",
+  "app": "fixture4-clean",
+  "finding": "app.js:25 Double-send guard is a 1-second timer, not an in-flight lock: a slow request can be sent twice. guards.js:21-26 only compares Date.now() with the last click. app.js:26 awaits the fetch with no flag, no disabled button and no idempotency key. The request succeeds silently (app.js:28), so the user has no sign the first one worked. Click Send invoice; the server takes 3 seconds. The user, seeing no change, clicks again at 1.5 s. tooSoon() returns false, a second POST of the same lines goes out, and the client is billed twice."
+ },
+ {
+  "id": "Ffe484e94",
+  "app": "fixture4-clean",
+  "finding": "app.js:33 Void sends no invoice id, asks no confirmation, and reports no success. app.js:31-35: no confirm step, no body or id in the request, only the failure path alerts. Nothing on the page says which invoice is current. Traced. An admin clicks Void invoice by mistake (it sits directly beside Send invoice). The POST goes out at once with no way to say which invoice it targets, and no undo. If it succeeds the page shows nothing, so the admin cannot tell whether the invoice was voided."
+ },
+ {
+  "id": "Fdfcc070a",
+  "app": "fixture4-clean",
+  "finding": "app.js:26 Send has no try/catch and no success feedback: offline gives silence, success gives silence. app.js:24-29. fetch rejects on network failure; there is no catch, so the handler dies with an unhandled rejection and the user sees nothing. On success only sentCount is incremented (line 28) and sentCount is never read or displayed; lines are not cleared. Traced. Go offline, add a line, click Send: no alert, no message; the user cannot tell whether the invoice went out. Online, click Send: also no visible change, so the user clicks again (see the double-send finding) or assumes it failed. Body is also a JSON string sent with no Content-Type header, so it goes as text/plain."
+ },
+ {
+  "id": "F3d6684e1",
+  "app": "fixture4-clean",
+  "finding": "app.js:8 Each line's client name is a dead link (href=\"#\") that adds a tab stop and jumps the page to the top. The anchor has no handler anywhere in app.js and no real target. The title attribute repeats the link text. Traced. Tab through the page after adding three lines: three focusable 'links' that, when activated, change the URL to # and scroll to the top, doing nothing else. Screen readers announce them as links."
+ },
+ {
+  "id": "F90fdc98e",
+  "app": "fixture4-clean",
+  "finding": "app.js:1 The invoice being built lives only in memory and lines cannot be edited or removed. app.js:1, 20. Lines are only ever pushed. There is no remove or edit control (index.html:21 is a plain list), no localStorage, and no beforeunload warning. Enter 12 lines, then notice line 4 has the wrong price. There is no way to fix it; the only option is to reload, which discards all 12 lines. An accidental refresh or tab close also loses everything."
+ },
+ {
+  "id": "F6d717c62",
+  "app": "fixture4-clean",
+  "finding": "app.js:28 After a successful send, lines is not cleared or re-rendered and there is no confirmation. sentCount is write-only. The invoice is sent and the UI looks unchanged. The user clicks Send again, 1 second later, and the same lines are posted as a second invoice."
+ },
+ {
+  "id": "Ffcaec7e6",
+  "app": "fixture4-clean",
+  "finding": "app.js:8 Each client name is a link to #, which does nothing and adds a tab stop per line. Traced and driven: the rendered anchor has href=\"#\", so activating it scrolls to the top and adds # to the URL. The title duplicates the link text. XSS is escaped correctly here: the hostile client string rendered inert. A keyboard user tabs through every client name, presses Enter, and the page jumps to the top with no result."
+ },
+ {
+  "id": "Ff1daa8d4",
+  "app": "fixture4-clean",
+  "finding": "app.js:26 Send has no try/catch and no success feedback: an offline failure is silent, and a success looks the same. fetch rejects on network failure; there is no catch, so the handler ends in an unhandled rejection and the user sees nothing. On success only sentCount += 1 runs (app.js:28); sentCount is never read or displayed, and the lines stay in the list. Traced. Go offline (or the server drops the connection), add a line, click Send. fetch throws, the console shows an unhandled rejection, the page shows nothing. A user cannot tell this from a successful send, and on a real success the page is also unchanged, so they click again and, after 1 s, send a duplicate."
+ },
+ {
+  "id": "Fae8e0775",
+  "app": "fixture4-clean",
+  "finding": "app.js:32 Void button does nothing, with no message, for users who are not admins; network failure on void is also silent. The button is always enabled (index.html:24). The user object in app.js:2 has roles viewer and billing, so every click returns here with no output. fetch at app.js:33 has no catch and no success message. Traced. As user 'sam' (viewer, billing) click Void invoice: nothing changes, no text, no disabled state. A second case: as an admin, go offline and click Void: unhandled rejection, no message."
+ },
+ {
+  "id": "Fe29a749d",
+  "app": "fixture4-clean",
+  "finding": "app.js:32 Void authorization is enforced only on the client, using a hard-coded user object. The user object is a constant { roles: ['viewer','billing'] }, and canVoid is checked only in the browser. Anyone can POST to /api/invoices/void from the console, or edit user.roles, and bypass the 'only admins' rule unless the server checks it too. The void request also carries no invoice id, so which invoice it voids is ambiguous. This is acceptable only if the server enforces the rule, and nothing in this tree shows that it does."
+ },
+ {
+  "id": "F4197d56c",
+  "app": "fixture4-clean",
+  "finding": "app.js:19 Price validation accepts Infinity (for example '1e999' or 'Infinity'). A whitespace-only client name is accepted after trim(). The user enters price '1e999'. Number returns Infinity, which passes price > 0, so the total shows 'Infinity' and the invoice is sent with an invalid value. Entering ' ' as the client passes the required attribute but becomes an empty string after trim(), so a line with a blank client is added."
+ },
+ {
+  "id": "F1b58bf6e",
+  "app": "fixture4-clean",
+  "finding": "app.js:28 A sent invoice gives no confirmation and the lines are not cleared, so a duplicate send is easy. Traced: on res.ok the only effect is sentCount += 1, a variable never read or rendered anywhere (grep of all four files). lines is not cleared and render() is not called. The only duplicate guard is tooSoon(), a 1-second window (guards.js:21-26), and the button is never disabled during the await. Click Send; nothing visible changes. The user clicks again after 1.2 s (or while a slow request is still pending past 1 s) and the same lines are POSTed a second time, creating a duplicate invoice."
+ },
+ {
+  "id": "Fe9c14964",
+  "app": "fixture4-clean",
+  "finding": "app.js:1 Draft lines live only in memory; a refresh or accidental close discards them. No localStorage, no beforeunload warning, no server save before Send. app.js:1 is the only store. Add 15 lines, press F5 or swipe back on a phone: the list and total are empty again."
+ },
+ {
+  "id": "F3aadefa9",
+  "app": "fixture4-clean",
+  "finding": "The fetch calls in the send and void handlers have no catch for network failures."
+ },
+ {
+  "id": "Fab0b497e",
+  "app": "fixture4-clean",
+  "finding": "app.js:16 Whitespace-only client passes required, is trimmed to empty, and is added as a line with no client. The browser's required (index.html:14) only rejects an empty string, so ' ' is accepted. The value is trimmed here and never rechecked before lines.push (app.js:20). Traced. Type three spaces in Client, qty 1, price 5, press Add line. A line with client '' is added, rendered as an empty link with no accessible name, and sent to the server in the invoice."
+ },
+ {
+  "id": "Fbf8e77f3",
+  "app": "fixture4-clean",
+  "finding": "app.js:10 Invoice total is computed in float arithmetic inside render, and rounded only for display. app.js:10-11: floating-point sum of qty*price, formatted with toFixed(2) only at the end, while each row is rounded separately (line 8). The pricing rule lives in the view function. Traced arithmetic. Three lines of price 1.005 qty 1 are shown as 1.00, 1.00, 1.00 but the total is shown as 3.01 (float sum 3.0149999...), so the visible rows do not add up to the total. The totals the user sees and any total the server computes can differ by a cent."
+ },
+ {
+  "id": "F68c6e412",
+  "app": "fixture4-clean",
+  "finding": "app.js:19 Invalid quantity or price is dropped silently; Add line appears dead. Traced app.js:14-22. The submit handler returns with no message, no focus move and no aria-live text. index.html:16 and :18 have no required attribute, so the browser shows no native message either. User types Client 'Acme Ltd', Quantity '1.5' (or '2 pcs'), Price '9,50' and presses Add line. Nothing is added and nothing is said. The user cannot tell whether the click registered or which field is wrong (WCAG 3.3.1)."
+ },
+ {
+  "id": "Fe1042a63",
+  "app": "fixture4-clean",
+  "finding": "Bugs: Both Opus agents found nothing that fails to parse or gives wrong results for every input. Script load order and element IDs are correct, and the HTML escaping works."
+ },
+ {
+  "id": "F218f5c0b",
+  "app": "fixture4-clean",
+  "finding": "guards.js:56 tooSoon() sets lastSend before the send succeeds, and the one-second window is not a real duplicate-send guard. A send that fails (!res.ok) still starts the 1s lockout, so a quick retry after the alert is silently ignored. A slow request longer than 1s lets a second click through while the first is still in flight, which sends a duplicate invoice. There is no in-flight flag or button disable."
+ },
+ {
+  "id": "F3e83cb05",
+  "app": "fixture4-clean",
+  "finding": "app.js:8 Each rendered line is a link with href=\"#\" and a title that repeats the link text. The page offers no way to remove or edit a line. Activating the link jumps the page to the top and adds a '#' history entry. Screen readers announce a link that goes nowhere. A mistyped line cannot be removed, so the user has to reload and lose all lines."
+ },
+ {
+  "id": "F4cdefac8",
+  "app": "fixture4-clean",
+  "finding": "app.js:32 Void does nothing and says nothing for the signed-in user. The hard-coded user has roles [\"viewer\",\"billing\"] (app.js:2); canVoid requires \"admin\" (guards.js:11). Driven: clicking Void made no request, no alert, no change. The button is rendered enabled with no explanation (index.html:24). Signed-in user without the admin role clicks Void invoice: the click is silently swallowed, so the user believes it was voided or that the app is broken."
+ },
+ {
+  "id": "F688ed8a3",
+  "app": "fixture4-clean",
+  "finding": "index.html:21 The whole list is re-written on each add, so a screen reader re-announces every line. app.js:7 replaces the full innerHTML on each render, so every li is a new node in a live region. Validation errors, send results and void results are not in any live region. With 10 lines present, adding the 11th makes the screen reader read all 11 rows again. The messages that matter (errors, 'sent') are never announced."
+ },
+ {
+  "id": "Fc19665be",
+  "app": "fixture4-clean",
+  "finding": "app.js:31 The Void button is client-side gated only, and the void request carries no invoice id. canVoid() only checks the in-page user constant, and the POST to /api/invoices/void has no invoice id or body. A viewer can call the endpoint directly, or edit user.roles in devtools. Unless the server enforces the admin check, any signed-in user can void. If the server does enforce it, it has no way to know which invoice to void."
+ },
+ {
+  "id": "Fcf223fb5",
+  "app": "fixture4-clean",
+  "finding": "app.js:19 Invalid quantity or price is dropped silently: no message, no focus, no marker on the field. Driven: quantity 0 and quantity abc each returned with no list change, no text and no error. The fields keep their values. The quantity and price inputs have no required or error markup (index.html:16, 18). Type quantity 2.5 and click Add line. Nothing happens. The user does not learn that only whole numbers are accepted."
+ },
+ {
+  "id": "Fa759ec79",
+  "app": "fixture4-clean",
+  "finding": "app.js:10 Money is summed as floats from unrounded prices: listed lines and the total can disagree, and Infinity is accepted. The price check at app.js:19 is only !(price > 0), so any precision and Infinity pass. Each line is displayed with price.toFixed(2) (app.js:8) but the total sums the raw qty*price (app.js:10). The raw floats are what is posted (app.js:26). Price 1.005, quantity 100: the line renders '100 \u00d7 1.00' (1.005 is stored as 1.00499...), the total renders 100.50 (100.49999999999999.toFixed(2)). The screen shows 100 \u00d7 1.00 = 100.50. Price '1e999' becomes Infinity: the line shows 'Infinity' and the total shows 'Infinity'. Price 0.004 gives lines displayed as 0.00 while the total grows."
+ },
+ {
+  "id": "F255a41b8",
+  "app": "fixture4-clean",
+  "finding": "app.js:16 Whitespace-only client passes the form's required check and adds a line with an empty client. index.html:14 uses the required attribute, which accepts ' '. The value is then trimmed to '' here, and app.js:19 never checks client. The line is pushed at app.js:20 and rendered as an empty link at app.js:8, and later sent in the invoice. Type three spaces in Client, quantity 1, price 5, press Add line. A blank line item is added, counted in the total, and sent to the server with client ''."
+ },
+ {
+  "id": "Ffa4de7e9",
+  "app": "fixture4-clean",
+  "finding": "app.js:8 Every client name is a link to '#' that does nothing, and the whole list is rebuilt inside an aria-live region on each add. The anchors have no destination: they are keyboard stops that jump to the top of the page and have no handler. The title repeats the visible text. render() replaces ul#lines.innerHTML (app.js:7), and the ul has aria-live=polite (index.html:21), so a screen reader re-announces every line each time one is added. There is no way to remove a line. Tab through the page after adding 5 lines: 5 links that do nothing take focus. With a screen reader, adding line 6 announces all 6."
+ },
+ {
+  "id": "F75a5e41f",
+  "app": "fixture4-clean",
+  "finding": "app.js:16 A whitespace-only client passes required, is trimmed to empty, and is added as a line with no client. Driven: client \" \" satisfied the native required check. The row rendered as <a href=\"#\" title=\"\"></a>: 1000 \u00d7 1.00 and the payload sent \"client\":\"\". Nothing re-checks the value after the trim. Type three spaces as the client, a valid quantity and price, then Add line. An invoice line with no client name is added and later sent."
+ },
+ {
+  "id": "F68b9cd2b",
+  "app": "fixture4-clean",
+  "finding": "guards.js:23 Double-send guard is a one-second timer, not an in-flight lock, so a slow request can be sent twice. Traced: tooSoon() only compares timestamps. The Send button is never disabled while the fetch is pending (app.js:24-29). Driven: two clicks 1.1 s apart produced two POSTs of the same lines. The guard also stays consumed after a failed send, so a retry within 1 s is silently ignored with no message (app.js:25). On a connection where /api/invoices takes more than 1 s, click Send, wait 1.1 s, click again. Two identical invoices are created."
+ },
+ {
+  "id": "Fee89727a",
+  "app": "fixture4-clean",
+  "finding": "app.js:16 A client name of only spaces passes the required check and produces a blank line. index.html:14 uses required, which accepts ' '. app.js:16 trims to '' and nothing re-checks it before line 20 pushes. The rendered anchor (line 8) then has empty text. Traced. Enter spaces for Client, quantity 1, price 5, click Add line: the list shows an empty link followed by ': 1 \u00d7 5.00'. The invoice sent to the server holds client ''."
+ },
+ {
+  "id": "Ff5b795be",
+  "app": "fixture4-clean",
+  "finding": "CLAUDE.md: There is no CLAUDE.md in the repo or in the parents of the four changed files (app.js, guards.js, index.html, styles.css), so there was no rule to violate. Both compliance agents reported nothing."
+ }
+]

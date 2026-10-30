@@ -1,0 +1,98 @@
+{
+ "F543d1771": {
+  "truth": "real",
+  "app": "fixture"
+ },
+ "F7a28a9c6": {
+  "truth": "wrong",
+  "app": "fixture-clean"
+ },
+ "Fe84ef74b": {
+  "truth": "real",
+  "app": "fixture"
+ },
+ "Fbf6e9319": {
+  "truth": "wrong",
+  "app": "fixture-clean"
+ },
+ "Fc1cefd26": {
+  "truth": "real",
+  "app": "fixture"
+ },
+ "Fa51cbb9e": {
+  "truth": "wrong",
+  "app": "fixture-clean"
+ },
+ "F8d74f4af": {
+  "truth": "real",
+  "app": "fixture"
+ },
+ "Fa909e306": {
+  "truth": "wrong",
+  "app": "fixture-clean"
+ },
+ "F20771239": {
+  "truth": "real",
+  "app": "fixture2"
+ },
+ "Fb50b37ba": {
+  "truth": "wrong",
+  "app": "fixture2-clean"
+ },
+ "Fc9923a88": {
+  "truth": "real",
+  "app": "fixture2"
+ },
+ "Ff25d22d6": {
+  "truth": "wrong",
+  "app": "fixture2-clean"
+ },
+ "F1790c352": {
+  "truth": "real",
+  "app": "fixture2"
+ },
+ "F22983e65": {
+  "truth": "wrong",
+  "app": "fixture2-clean"
+ },
+ "F2bf9f092": {
+  "truth": "real",
+  "app": "fixture2"
+ },
+ "F241f8cc9": {
+  "truth": "wrong",
+  "app": "fixture2-clean"
+ },
+ "Fd7dfdbd5": {
+  "truth": "real",
+  "app": "fixture4"
+ },
+ "F93467a22": {
+  "truth": "wrong",
+  "app": "fixture4-clean"
+ },
+ "Fd795c6ac": {
+  "truth": "real",
+  "app": "fixture4"
+ },
+ "Fa6a4f1c7": {
+  "truth": "wrong",
+  "app": "fixture4-clean"
+ },
+ "F65c6459a": {
+  "truth": "real",
+  "app": "fixture4"
+ },
+ "F016abc7a": {
+  "truth": "wrong",
+  "app": "fixture4-clean"
+ },
+ "Fbd990b9d": {
+  "truth": "real",
+  "app": "fixture4"
+ },
+ "F48ed6e0c": {
+  "truth": "wrong",
+  "app": "fixture4-clean"
+ }
+}

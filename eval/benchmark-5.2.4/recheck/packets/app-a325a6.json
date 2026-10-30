@@ -1,0 +1,102 @@
+[
+ {
+  "id": "F16432cbf",
+  "app": "app-a325a6",
+  "finding": "app.js:12 Delete is a clickable div, hidden until mouse hover: not reachable by keyboard, touch or screen reader (WCAG 2.1.1, 4.1.2). Traced. The control is a div with no tabindex, role or accessible name, and its glyph is the only content. styles.css:12 sets .del { opacity: 0; } shown only on li:hover. The list items themselves are li elements with a click handler, also not focusable, so notes cannot be opened by keyboard either. Keyboard-only user: Tab goes search, New note, title, body and never reaches a note or its delete control, so no existing note can be opened or deleted. Touch user: there is no hover, so the invisible delete is a hidden tap target. Screen reader: the control is not announced."
+ },
+ {
+  "id": "F993ef4c0",
+  "app": "app-a325a6",
+  "finding": "index.html:19 Title and body fields have no label or name; search uses a placeholder as its only label. index.html:13, 19, 20: no <label>, aria-label or placeholder on #title and #body; #search has only a placeholder. A screen reader announces 'edit text' and 'edit text multiline' with no purpose, so the user can not tell which field is the title (WCAG 1.3.1, 3.3.2, 4.1.2)."
+ },
+ {
+  "id": "F7cba892b",
+  "app": "app-a325a6",
+  "finding": "app.js:32 Clicking a shared search result crashes openNote and nulls the current note. Shared rows (app.js:46) are <li> elements inside #list with no data-id. closest('li') matches them, Number(undefined) is NaN, notes.find returns undefined, so app.js:17 sets currentNote = undefined and app.js:18 throws on .title. Search for a term that returns a shared note, click it: Uncaught TypeError at app.js:18. currentNote is now undefined, the editor still shows the previous note, and any further typing hits the null-target crash in the save timer, losing that text."
+ },
+ {
+  "id": "Fc6afcc83",
+  "app": "app-a325a6",
+  "finding": "app.js:32 Clicking a shared search result throws. Driven: shared <li class=\"shared\"> has no data-id, so Number(undefined) is NaN, notes.find returns undefined and openNote throws 'Cannot read properties of undefined (reading title)'. Shared items look clickable (the list shows a pointer cursor via #list li). Search, click a shared result: console error, nothing happens, no feedback."
+ },
+ {
+  "id": "F9731662b",
+  "app": "app-a325a6",
+  "finding": "renderList interpolates ${n.title} straight into a template string and appends it with list.innerHTML +=."
+ },
+ {
+  "id": "F89323f4a",
+  "app": "app-a325a6",
+  "finding": "Code review\n\nBranch main...HEAD, commit b1cc2d5, four new files. There is no CLAUDE.md in the repo, so I checked for bugs only. The change is small, so I read the diff myself and did not launch the subagent pipeline.\n\n1. Stored XSS: note titles are written into innerHTML unescaped (app.js:10, also app.js:46)"
+ },
+ {
+  "id": "F7e8d9755",
+  "app": "app-a325a6",
+  "finding": "app.js:12 Delete is a non-focusable div with no name, and deletes without confirm or undo. Driven: no li or .del has tabindex or role. Notes open only by mouse click on a li. The control is invisible (opacity 0) until mouse hover (styles.css:12). Clicking it removes the note and its text at once. A keyboard or screen-reader user can neither open a note from the list nor delete one (WCAG 2.1.1, 4.1.2). A mouse user who mis-clicks the bin loses the note permanently."
+ },
+ {
+  "id": "Fdd13f1c4",
+  "app": "app-a325a6",
+  "finding": "Code review: \"Add the app\" (git diff main...HEAD)\n\nI found 6 issues. Two Opus bug agents proposed them and a separate Opus validator confirmed each one. Nothing was posted and no files were changed.\n\nThe repo has no CLAUDE.md files, so the two compliance agents found nothing to check against."
+ },
+ {
+  "id": "Faf4614dc",
+  "app": "app-a325a6",
+  "finding": "app.js:27 Deleting a note re-renders without the active search filter. Driven: with notes A and B, typed 'B' in search (1 row), deleted that row: the list showed 1 row (A) while the search box still read 'B'. User filters, deletes a match, and sees unrelated notes listed under a filter that should exclude them."
+ },
+ {
+  "id": "Fde30ca67",
+  "app": "app-a325a6",
+  "finding": "Clicking a shared search result crashes (app.js:30-33 and 46, then 18). Shared <li> items have no data-id. The click handler calls openNote(Number(undefined)), which is openNote(NaN). notes.find returns undefined, so currentNote.title throws a TypeError. After that, edits are no longer saved either."
+ },
+ {
+  "id": "F83d7c58d",
+  "app": "app-a325a6",
+  "finding": "Code review: \"Add the app\" (git diff main...HEAD)\n\nIssues found (4):"
+ },
+ {
+  "id": "F04d115ce",
+  "app": "app-a325a6",
+  "finding": "store.js:67 The debounced save writes to currentNote without checking it, and it saves whichever note is current when the timer fires. The user edits note A and, within 500ms, clicks note B or deletes A. The timer fires and copies the editor contents (now B's, or none) into the new currentNote, which overwrites B with A's edits. If A was deleted, currentNote is null and the timer throws a TypeError, and the edit is lost."
+ },
+ {
+  "id": "F9aee9f45",
+  "app": "app-a325a6",
+  "finding": "app.js:10 List is not re-rendered after a save, so titles and ranks go stale. The save timer in store.js updates the note but never calls renderList. Driven: renamed a note to 'Renamed'; the list still read 'Untitled' with rank #1. Rename the open note: the sidebar keeps the old title and the '#rank' badge (which depends on the updated time) is wrong until some other action re-renders."
+ },
+ {
+  "id": "Fb31ed04d",
+  "app": "app-a325a6",
+  "finding": "On a fresh install with no notes, typing in #title or #body fires scheduleSave. 500 ms later the timeout runs currentNote.title = ... and throws TypeError: Cannot set properties of null."
+ },
+ {
+  "id": "F32bc5562",
+  "app": "app-a325a6",
+  "finding": "Edited titles and rank badges don't refresh in the list. scheduleSave (store.js:15-20) updates the note and saves it but never calls renderList. The sidebar keeps the old title and rank until something else re-renders it."
+ },
+ {
+  "id": "F6b8068dc",
+  "app": "app-a325a6",
+  "finding": "app.js:32 Clicking a shared-note row throws: the row has no data-id. Shared rows are <li class=\"shared\"> with no dataset (app.js:46), and the list click handler matches any li. Number(undefined) is NaN, notes.find returns undefined, and openNote then reads currentNote.title (app.js:18). Search for anything that returns a shared note and click it: Uncaught TypeError, and currentNote becomes undefined. The editor keeps the previous note's text, and the next edit throws in the save timer (store.js:16)."
+ },
+ {
+  "id": "Fe041b325",
+  "app": "app-a325a6",
+  "finding": "Typing with no note open throws an error and loses the text (store.js:16)."
+ },
+ {
+  "id": "F02c247e1",
+  "app": "app-a325a6",
+  "finding": "store.js:25 Each tab writes its whole in-memory array, so a second tab overwrites the first's notes. notes is read once at load (store.js:2) and persist() always writes the entire array. There is no 'storage' event listener and no re-read before writing. Open the app in tabs A and B. In B create and fill a note. In A, edit any existing note. A's save writes its stale array and the note created in B disappears from storage, permanently."
+ },
+ {
+  "id": "F9e3fab8c",
+  "app": "app-a325a6",
+  "finding": "store.js:18 Saving never re-renders the list, so renamed titles and the '#rank' badge stay stale. Traced. scheduleSave updates title and updated and persists, but never calls renderList. The list is only rebuilt on open, delete, search or New. Rename the open note 'Untitled' to 'Groceries'. The sidebar still says 'Untitled' and the rank badge still shows the old rank until the user searches or switches notes. Search by the new title also uses stale rendering until the next render."
+ },
+ {
+  "id": "Fef2a83fd",
+  "app": "app-a325a6",
+  "finding": "The 500 ms timer callback dereferences currentNote.title without a null check."
+ }
+]

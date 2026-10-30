@@ -1,0 +1,202 @@
+[
+ {
+  "id": "Fca8b9f37",
+  "app": "fixture3",
+  "finding": "store.js:7 Loader checks only name; a saved record without id or a numeric minutes makes Delete throw and the total read NaN. The filter at store.js:7 keeps any object with a string name. render (app.js:10) writes data-id=\"undefined\" for a record with no id. The delete handler (app.js:32) compares x.id === \"undefined\", which matches nothing, so r is undefined. describe(r) (app.js:33 calls app.js:15) then reads recipe.name on undefined and throws a TypeError. The comment at app.js:14 says it is never null, which this case contradicts. totalMinutes (store.js:23) adds r.minutes: undefined gives NaN, and a string '20' gives string concatenation. localStorage 'recipes' = [{\"name\":\"Soup\"}], written by an earlier version or a hand edit. The list shows 'Soup NaN min'. Clicking Delete throws an uncaught TypeError and the record cannot be removed from the UI. Adding any recipe shows 'Total cooking time: NaN minutes'. With minutes stored as the string '20', the total becomes '020' followed by the next number, concatenated."
+ },
+ {
+  "id": "F6a8b3a82",
+  "app": "fixture3",
+  "finding": "app.js:37 After a keyboard delete, focus drops to the page body. render() replaces list.innerHTML, so the focused Delete button is destroyed. Driven: focus the first Delete, press Enter, accept the confirm; document.activeElement was BODY. The status line is announced, but the keyboard position is lost. A keyboard user deletes the first of ten recipes. Focus resets to the top of the document, so they must tab through the form and the list again to reach the next Delete (WCAG 2.4.3 Focus Order)."
+ },
+ {
+  "id": "F150a202c",
+  "app": "fixture3",
+  "finding": "store.js:89 Corrupt or unreadable storage silently becomes an empty list, and the comment's claim that app.js tells the user is false. The next save overwrites the original data. If the JSON under 'recipes' is corrupt, loadRecipes returns []. app.js never reports it. The user adds one recipe, saveRecipes writes over the old value, and whatever was recoverable is lost without any warning."
+ },
+ {
+  "id": "F5c199ae3",
+  "app": "fixture3",
+  "finding": "app.js:25 On save failure the message promises 'Your recipe is kept until you close this tab', but the recipe is only in memory and the delete handler's failed save is not reported the same way. Storage is blocked and the user adds recipes. A later successful save, or a page refresh, loses them. Because the message appears only on add, the user gets no signal when a delete fails to persist."
+ },
+ {
+  "id": "F58f44210",
+  "app": "fixture3",
+  "finding": "importRecipes: this function in app.js is never called, so its blank-line handling has no effect."
+ },
+ {
+  "id": "F4dd71e89",
+  "app": "fixture3",
+  "finding": "CLAUDE.md compliance: the repo has no CLAUDE.md files, so there were no rules to violate. Both compliance agents returned nothing."
+ },
+ {
+  "id": "F6d8636ed",
+  "app": "fixture3",
+  "finding": "CLAUDE.md: The repo has no CLAUDE.md files, and both compliance agents confirmed there were no rules to check against."
+ },
+ {
+  "id": "F6f916797",
+  "app": "fixture3",
+  "finding": "app.js:21 parseInt silently truncates input such as '1.5' or '12abc' to 1 or 12 instead of rejecting it. The user enters 1.5 minutes. The form's step defaults to 1, so browser validation normally catches it, but any bypass such as a pasted value is saved as 1 minute with no warning. Number() plus Number.isInteger would reject it."
+ },
+ {
+  "id": "Ffbdc923c",
+  "app": "fixture3",
+  "finding": "app.js:43 importRecipes is dead code (nothing calls it) and is also buggy if it is wired up later. It does not trim, does not skip blank lines, and does not validate. A trailing newline yields {name:\"\", minutes:0}. A line with no comma yields minutes NaN. A name with a comma is truncated. The imported records bypass the add form's validation and feed NaN into totalMinutes."
+ },
+ {
+  "id": "F5979ebe3",
+  "app": "fixture3",
+  "finding": "app.js:32 The delete handler assumes find always returns a recipe, and the comment in describe() asserts that without any check. If the id lookup misses (the missing-id case above, or a stale node), r is undefined. describe(r) throws before the confirm dialog opens, and the click silently does nothing. The comment at line 14 states an invariant that nothing enforces."
+ },
+ {
+  "id": "F384bc802",
+  "app": "fixture3",
+  "finding": "Delete and save paths: r is always found before describe(r) runs, and storage errors are handled in loadRecipes and saveRecipes.\n\nI held back a few things because they depend on unusual state or are quality notes, not defects in the new code:"
+ },
+ {
+  "id": "F8267e9c5",
+  "app": "fixture3",
+  "finding": "app.js:33 Delete throws on a stored record without a string id, so the row can never be removed. loadRecipes (store.js:7) keeps any record with a string name and checks nothing else. render escapes r.id into data-id (app.js:10), so a missing id becomes the string 'undefined' and a numeric id 123 becomes '123'. The handler matches with x.id === id (app.js:32). Strict equality fails, so r is undefined. describe(r) (app.js:15) reads recipe.name and throws TypeError. The comment at app.js:14 says recipe is never null. Traced. localStorage 'recipes' = [{\"name\":\"Soup\",\"minutes\":20}] (an older shape with no id) or [{\"id\":1,\"name\":\"Soup\",\"minutes\":20}]. The list renders. Clicking Delete throws in the click handler and nothing happens. The user cannot remove the item."
+ },
+ {
+  "id": "F7a740250",
+  "app": "fixture3",
+  "finding": "store.js:15 Each tab saves its own in-memory list over the whole stored list, so a second tab erases the first tab's recipes. app.js:3 reads storage once; every save writes the whole array. There is no 'storage' event handler and no re-read before writing. Driven: two tabs opened on the same empty store, one adds FromA, the other adds FromC; a third tab then lists only FromC. Open the app in two tabs. Add a recipe in tab 1, then add another in tab 2 without reloading. Reload: only tab 2's recipe is left. Tab 1's recipe was reported as 'Saved'."
+ },
+ {
+  "id": "Fb46e1969",
+  "app": "fixture3",
+  "finding": "app.js:69 The result of saveRecipes is ignored on delete, yet the status says 'Deleted'. If storage is full or blocked, the delete succeeds only in memory. The UI shows 'Deleted \u201cX\u201d.', and the recipe comes back on reload with no warning. The add path does report a failed save, so the two paths are inconsistent."
+ },
+ {
+  "id": "Ff58e49fb",
+  "app": "fixture3",
+  "finding": "store.js:9 Comment says app.js tells the user about corrupt or blocked storage, but nothing does; the next save then overwrites the corrupt data. loadRecipes returns [] for every failure (store.js:9). app.js:3 uses the result with no signal, and no other code mentions a load failure. The first successful saveRecipes replaces the stored value. The stored value is truncated JSON from an interrupted write. The user sees \"No recipes yet\" with no explanation, adds one recipe, and the original string is overwritten. It can no longer be recovered or inspected."
+ },
+ {
+  "id": "F632d6f9f",
+  "app": "fixture3",
+  "finding": "app.js:23 Each tab saves its in-memory list over the shared key, so a second tab silently erases the first tab's recipes. recipes is read once at app.js:3 and never reread; saveRecipes writes the whole list. Driven (T8): two pages in one browser context, add 'A' in one, then 'B' in the other. Stored value was only [B]. Recipe Box open in two tabs. The user adds Soup in tab 1, then Pie in tab 2. Soup is gone from storage, and tab 1 still shows it until reload."
+ },
+ {
+  "id": "Ff1ffebc0",
+  "app": "fixture3",
+  "finding": "app.js:21 Exponent input in the number field is saved as the wrong minutes. Driven: typing 1e2 in the Minutes field (valid for type=number, min=1 max=600) saved 'Soup 1 min' with status 'Total cooking time: 1 minutes.' parseInt stops at the 'e'. User enters 1e2 (100) and is shown a saved recipe of 1 minute. No error is shown."
+ },
+ {
+  "id": "Fcfe6bea0",
+  "app": "fixture3",
+  "finding": "importRecipes (app.js:61) and getJson (util.js:12) are never called. getJson is also the only network call, which sits oddly beside the README's \"nothing is sent anywhere\"."
+ },
+ {
+  "id": "F0c12dc28",
+  "app": "fixture3",
+  "finding": "Storage failures: the storage code handles blocked or corrupt localStorage, and the status messages match what the code does."
+ },
+ {
+  "id": "F3a67ebb0",
+  "app": "fixture3",
+  "finding": "app.js:37 Deleting a recipe destroys the focused Delete button and focus falls to <body>. The click handler calls render(), which replaces listEl.innerHTML (app.js:10). Driven: after confirming a delete, document.activeElement is BODY. A keyboard or screen-reader user tabs to the third Delete button and presses Enter. Focus is reset to the start of the page, so they must tab through the form again to reach the next recipe. This fails WCAG 2.4.3 (Focus Order, level A)."
+ },
+ {
+  "id": "F97f7b936",
+  "app": "fixture3",
+  "finding": "Problem scan of the new code (Opus): none. User text is escaped before it reaches innerHTML, and the delete flow matches ids correctly.\n\nBecause neither bug agent reported anything, step 5 had nothing to validate and step 6 had nothing to filter.\n\nThe agents noticed a few things but didn't flag them because they depend on future use or state, or are dead code:"
+ },
+ {
+  "id": "F09807c8a",
+  "app": "fixture3",
+  "finding": "Parse errors: I found none.\n\nOne thing I looked at and did not flag: importRecipes in app.js is never called. If it is wired up later, it would produce NaN minutes for blank or malformed lines. Since nothing calls it today, it can't produce a wrong result yet."
+ },
+ {
+  "id": "Ffecfe4de",
+  "app": "fixture3",
+  "finding": "store.js:7 Load validates only name, so records missing id or minutes give NaN totals, \"undefined\" ids and a crash on Delete. store.js:7 keeps any object with a string name. totalMinutes (store.js:23) sums r.minutes, so a record without a numeric minutes gives NaN. render (app.js:10) writes data-id=\"undefined\" via escapeHtml(undefined). The delete handler (app.js:32) then runs recipes.find(x => x.id === \"undefined\"), which finds nothing, and describe(r) at app.js:33 reads r.name from undefined. The comment at app.js:14 says describe's argument is never null, which this case contradicts. localStorage 'recipes' = [{\"name\":\"Soup\"}] (a shape from an older version or a hand edit). Page shows \"Soup NaN min\". Clicking Delete throws TypeError: Cannot read properties of undefined (reading 'name'). The row can't be removed. Adding any recipe shows \"Total cooking time: NaN minutes\"."
+ },
+ {
+  "id": "F9adab6b4",
+  "app": "fixture3",
+  "finding": "store.js:53 loadRecipes only checks that name is a string. It does not validate id or minutes, so malformed stored data flows into render and totalMinutes. Stored data is [{\"name\":\"a\",\"minutes\":\"20\"},{\"name\":\"b\",\"minutes\":15}]. totalMinutes does 0+\"20\"+15 and returns the string \"02015\", so the status line announces \"Total cooking time: 02015 minutes\". A missing minutes value gives NaN. A missing id breaks delete (see app.js:33)."
+ },
+ {
+  "id": "F22dfdc4a",
+  "app": "fixture3",
+  "finding": "app.js:21 parseInt reads '1e2' as 1 although the number input accepts it as 100. input type=number (index.html:17) accepts exponent notation and passes validation. input.value stays '1e2'. parseInt('1e2', 10) returns 1. The user types 1e2 into Minutes and saves. The recipe is stored as 1 minute and the status shows a total that is off by 99."
+ },
+ {
+  "id": "Fafc72e85",
+  "app": "fixture3",
+  "finding": "store.js:7 Loaded records are only checked for a name; a record without id or minutes shows NaN, poisons the total and crashes Delete. Driven with stored [{name:'Old'},{id:7,name:'Num',minutes:10}]. The list shows 'Old NaN min'. Clicking Delete on it throws 'Cannot read properties of undefined (reading 'name')' at app.js:33/36, because the data-id 'undefined' matches no record and r is undefined (the comment at app.js:14 says that cannot happen). With [{id:'1',...},{id:'2',name:'NoMin'}], adding a recipe set the status to 'Total cooking time: NaN minutes.' A numeric id (7) never matches the string dataset.id either, so that record cannot be deleted. Any record saved by an earlier version with no id or minutes, or with a numeric id. The list renders NaN min, every later save message reports a NaN total, and Delete on that row throws and does nothing, so the record can't be removed."
+ },
+ {
+  "id": "F1ef43471",
+  "app": "fixture3",
+  "finding": "importRecipes (app.js) and getJson (util.js) are never called."
+ },
+ {
+  "id": "Fc0aba609",
+  "app": "fixture3",
+  "finding": "styles.css:7 Delete buttons inherit the form button's margin-top, so each row sits 12px low. .del (styles.css:10) overrides only margin-left, so margin-top:12px and min-height:44px from line 7 apply inside each <li>. The text sits at the top of the line and the 44px button is pushed below the baseline, which makes the rows taller than the text. Traced from the CSS; not driven because Bash was unavailable. Open the list with any recipe: the name and minutes sit higher than the Delete button, and the row is about 56px tall."
+ },
+ {
+  "id": "Fdf2ca0d6",
+  "app": "fixture3",
+  "finding": "store.js:7 Loaded records are only checked for a name, so a missing id makes Delete throw and a non-number minutes breaks the total. app.js:10 renders data-id=\"undefined\" for a record with no id; app.js:32 find() then returns undefined and describe(r) at line 33 throws (the comment at app.js:14 says it is never null). totalMinutes (store.js:23) adds r.minutes without a type check. Driven with stored [{name:'Soup',minutes:'30'},{name:'Pie',minutes:20}]: after adding Tea (5) the status read 'Total cooking time: 030205 minutes.' and clicking Delete on Soup threw 'Cannot read properties of undefined (reading name)' and nothing was removed. Storage holds a record saved without an id or with minutes as a string (any earlier shape, or a hand edit). The total shows string-joined digits or NaN, and that recipe can never be deleted."
+ },
+ {
+  "id": "F75d02f60",
+  "app": "fixture3",
+  "finding": "README arithmetic: 20 + 35 + 45 = 100 minutes, so the README line is correct.\n\nI looked at but did not flag these, because none is definitely wrong on the code in this diff:"
+ },
+ {
+  "id": "Fc7ea51d6",
+  "app": "fixture3",
+  "finding": "app.js:26 After a failed save, the new recipe stays only in memory, and the status message is replaced by nothing else. The list gives no indication of which items are unsaved. Storage is blocked. The user adds several recipes and each one overwrites the same warning. On reload everything is gone. The warning is also only in a polite live region, which is easy to miss."
+ },
+ {
+  "id": "F0e989b0b",
+  "app": "fixture3",
+  "finding": "app.js:33 r can be undefined if the id is not found, for example duplicate or missing ids from storage or a stale DOM. describe(r) and r.name then throw. The describe comment claims it is never null. A stored record has no id, or the list was re-rendered between the click and the lookup. recipes.find returns undefined and confirm(Delete ${describe(r)}?) throws a TypeError. The delete silently fails with no feedback."
+ },
+ {
+  "id": "Fcc0173c8",
+  "app": "fixture3",
+  "finding": "util.js:12 getJson is unused dead code. It is a network helper in an app whose README says nothing is sent anywhere. A reader or a plugin-review reviewer sees a fetch helper and has to check that it is never called. It contradicts the README statement \"nothing is sent anywhere\" and adds maintenance surface for no caller."
+ },
+ {
+  "id": "Ffb56a0e2",
+  "app": "fixture3",
+  "finding": "The delete handler ignores the result of saveRecipes, so a storage failure on delete is silent, unlike the add path."
+ },
+ {
+  "id": "F047135b2",
+  "app": "fixture3",
+  "finding": "app.js:59 On a failed save the form is reset and the status message tells the user the recipe 'is kept until you close this tab', which may not hold. Storage is blocked. The recipe lives only in the recipes array and is lost on reload, and the status message does not clearly warn that the data will not persist. The next successful action can also overwrite the status text."
+ },
+ {
+  "id": "F89bdd452",
+  "app": "fixture3",
+  "finding": "store.js:53 loadRecipes only checks that name is a string. id and minutes from storage are not validated, so malformed records pass through. Storage holds [{\"name\":\"Soup\"}] or minutes saved as a string. totalMinutes then returns NaN or a concatenated string such as \"020\", and render shows \"NaN min\". A record with no id renders data-id=\"undefined\". Delete then finds no recipe, r is undefined, and describe(undefined) throws a TypeError inside the click handler. The button silently does nothing and the record can never be removed."
+ },
+ {
+  "id": "Fb31ea261",
+  "app": "fixture3",
+  "finding": "util.js:12 getJson is unused dead code, and fetch contradicts the README's 'nothing is sent anywhere' and 'offline' claims. A reviewer or user reading the privacy claim finds a network helper in the shipped bundle. It is unreferenced, so it adds weight and implies capability the README denies."
+ },
+ {
+  "id": "F88768e33",
+  "app": "fixture3",
+  "finding": "store.js:7 Load only checks name; records with no id or a non-numeric minutes pass through and break Delete and the total. Driven with stored [{name:'Old',minutes:'20'},{name:'B',minutes:'x'}]: list shows 'B NaN min'; clicking Delete throws 'Cannot read properties of undefined (reading 'name')' (recipes.find at app.js:32 finds no id, r is undefined at app.js:33; the comment at app.js:14 says that cannot happen) and the item stays; after adding a recipe the status read 'Total cooking time: 020x5 minutes.' (string concatenation in store.js:23). Saved data from an older shape (no id, minutes as a string) or edited by hand. The record can never be deleted (the click handler throws before the confirm), and the total shown after the next add is garbage."
+ },
+ {
+  "id": "F8620ccd7",
+  "app": "fixture3",
+  "finding": "app.js:21 parseInt on a number input silently truncates exponent input: typing 1e2 saves 1 minute. index.html:17 is type=number min=1 max=600, which accepts \"1e2\" as a valid value (100). Its .value string is \"1e2\". parseInt(\"1e2\", 10) returns 1, which passes the minutes > 0 check at app.js:22 and is stored and added to the total. Type 1e2 in Minutes and submit. The browser accepts it. The recipe is saved as 1 minute and the status reports a total that is 99 minutes short."
+ },
+ {
+  "id": "F2cba997c",
+  "app": "fixture3",
+  "finding": "app.js:24 The status message sums minutes across all saved recipes but is worded as the total for the recipe just saved, and it is built from a possibly mixed-type sum. The user saves \"Soup 20\" and the status reads 'Saved \u201cSoup\u201d. Total cooking time: 100 minutes.' This reads as the total for that recipe, not for the whole box. Combined with the unvalidated stored data, it can show NaN or a concatenated string."
+ }
+]

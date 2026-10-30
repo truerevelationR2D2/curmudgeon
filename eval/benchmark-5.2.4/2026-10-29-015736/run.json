@@ -1,0 +1,33 @@
+{
+ "model": "claude-sonnet-5-5",
+ "repeat": 5,
+ "plugin": "plugin/ frozen at commit 6bf464c (version 5.2.4)",
+ "arms": [
+  "curmudgeon",
+  "curmudgeon-lite",
+  "code-review",
+  "code-review-best",
+  "cc-code-review"
+ ],
+ "tasks": [
+  "suite1",
+  "suite1-clean",
+  "suite2",
+  "suite2-clean",
+  "suite3",
+  "suite4",
+  "suite4-clean"
+ ],
+ "plugins_off": [
+  "brightdata-plugin@synced",
+  "code-review-anthropics@anthropic-plugin-directory",
+  "curmudgeon@synced",
+  "design@synced",
+  "engineering@synced",
+  "fastly-agent-toolkit@synced",
+  "figma@synced",
+  "miro@synced",
+  "zentrik@synced"
+ ],
+ "started": "2026-10-29 01:57:36"
+}

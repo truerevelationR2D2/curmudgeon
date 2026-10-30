@@ -1,0 +1,107 @@
+[
+ {
+  "id": "F8b519418",
+  "app": "fixture5-clean",
+  "finding": "tests/test_cart.py:26 The only test of the upper discount bound is skipped, and no running test pins 100/101. The skipped test_discount_bounds is the only test that calls apply_discount(100, 101). The running tests reject only -1 (tests/test_helpers_ok.py:19), 200 (tests/test_helpers_ok.py:34) and 500 (tests/test_helpers_ok.py:68). The workspace holds no integration suite (only src/ and tests/). I copied src/cart.py into my notes and mutated it, then ran each running test's assertion against the copy (notes/mut.py). Changing percent > 100 to percent > 101 passes every running assertion. Changing it to percent >= 100 also passes every one. Under the first mutant apply_discount(100, 101) returns -1.0. Someone changes the guard in src/cart.py:9 to percent > 101. All running tests pass. apply_discount(100, 101) then returns -1.0, a negative total, instead of raising ValueError. The >= 100 mutant, which wrongly rejects a 100% discount, also passes."
+ },
+ {
+  "id": "F5fb323ec",
+  "app": "fixture5-clean",
+  "finding": "tests/test_helpers_ok.py:86-89: the decorator-factory helper def test(name) will be collected as a test and error.\npytest's default python_functions = test is a prefix match, so a module-level function named exactly test is collected.\nThe repo has no pytest config that would change this.\npytest then treats name as a fixture request, finds no such fixture, and reports fixture 'name' not found as an error at setup.\nThe file's docstring says it holds correct tests that only look suspicious, so a fixture error is a real defect in it. Any pytest run over tests/ will report it.\nThe fix is to rename the helper so it doesn't start with test, for example deco_factory. Alternatively, set test = False on it or move it out of the collected path.\n\nNoted but not flagged"
+ },
+ {
+  "id": "F4d7d9bb1",
+  "app": "fixture5-clean",
+  "finding": "Code review\n\nI reviewed git diff main...HEAD (one commit, 3 new files). I did not run the tests, and I changed no files. No CLAUDE.md exists in the repo, so I checked nothing for compliance. This is a read-through only: I did not launch the parallel sub-agent and validation steps, and I did not verify this issue by running pytest.\n\n1 issue found"
+ },
+ {
+  "id": "F6394001d",
+  "app": "fixture5-clean",
+  "finding": "src/cart.py:14 notify formats the raw total into the message without rounding or currency formatting, and the tests only cover the integer case. apply_discount can return a float such as 66.67, or a total such as 0.1+0.2 can give 0.30000000000000004. The customer message then reads \"Your total is 0.30000000000000004\". The test with 10 does not exercise this."
+ },
+ {
+  "id": "Fbedd6f89",
+  "app": "fixture5-clean",
+  "finding": "tests/test_helpers_ok.py:86 Helper named test is collected by pytest as a test and errors on a missing fixture name. pytest's default python_functions is the prefix 'test', and 'test' starts with 'test', so a module-level function test(name) is collected. Its parameter name is not a fixture, so setup reports 'fixture name not found' as an ERROR. The file's header says none of its content should be flagged, yet this one entry makes the file's run red. Traced: pytest is not installed in the workspace and I did not install it. Run pytest tests/test_helpers_ok.py. Collection includes tests/test_helpers_ok.py::test, which errors with fixture 'name' not found. The run exits non-zero even when every real test passes."
+ },
+ {
+  "id": "F4aaf0dd3",
+  "app": "fixture5-clean",
+  "finding": "tests/test_helpers_ok.py:32 test_bad_input_then_good has no else: pytest.fail (or pytest.raises) after the try, so it passes whether or not apply_discount(100, 200) raises. If the upper bound check percent > 100 is deleted from apply_discount, apply_discount(100, 200) returns -100.0 without raising. The except is skipped, the final assert still passes, and the test stays green. The test claims to cover the bound but cannot detect its removal."
+ },
+ {
+  "id": "F9a914563",
+  "app": "fixture5-clean",
+  "finding": "Code review\n\nReviewed git diff main...HEAD (\"Add the app\"). I posted nothing and changed no files.\n\n1 issue found (bug), validated:"
+ },
+ {
+  "id": "F8fc7f09c",
+  "app": "fixture5-clean",
+  "finding": "src/cart.py:5 cart_total sums floats with no rounding, so totals shown to the customer carry float noise. Executed in the workspace: cart_total([0.1, 0.2]) returns 0.30000000000000004; cart_total([19.99, 5.01, 0.1]) returns 25.099999999999998; notify(sender, that total) sends 'Your total is 0.30000000000000004'. apply_discount rounds to 2 places (line 11) but cart_total does not, so the two money functions disagree. Every test uses ints only (tests/test_cart.py:7-23, tests/test_helpers_ok.py:10-29), so nothing covers decimal prices. A cart with prices [19.99, 5.01, 0.1] gives 25.099999999999998. notify() puts that string in the customer message. Comparing it to an expected 25.10 total also fails."
+ },
+ {
+  "id": "Fad68fa38",
+  "app": "fixture5-clean",
+  "finding": "tests/test_helpers_ok.py:82 test_inline_skip_with_reason calls pytest.skip() unconditionally at the top, so the assert below it is dead code and the test can never pass or fail. The test always reports as skipped. The cart_total([1]) == 1 assertion never executes, so it can never catch a regression. The skip should be a decorator or sit behind a real condition, such as a missing payment provider."
+ },
+ {
+  "id": "F9f98febd",
+  "app": "fixture5-clean",
+  "finding": "The weak assertions in tests/test_cart.py are the planted defects the fixture exists to hold. They are intended, so I did not report them as bugs."
+ },
+ {
+  "id": "F835f0b0b",
+  "app": "fixture5-clean",
+  "finding": "tests/test_cart.py:36 test_total_type asserts isinstance(cart_total([1]), int), which pins an implementation detail and passes for the wrong reason. cart_total is sum(prices), so it returns a float for float prices. That would break any caller using prices like 19.99. The test only checks the int case and breaks if the function legitimately switches to Decimal or float. It guards no behavior a user cares about."
+ },
+ {
+  "id": "F64ac07fc",
+  "app": "fixture5-clean",
+  "finding": "tests/test_helpers_ok.py:86 The module-level helper test(name) matches pytest's test* collection pattern, so pytest collects it as a test function. Running pytest collects test(name) and errors with \"fixture 'name' not found\". The suite shows a failure or error that has nothing to do with the cart. It also shadows the name test in the module. Rename it, for example to make_decorator."
+ },
+ {
+  "id": "F0ec2d6f6",
+  "app": "fixture5-clean",
+  "finding": "tests/test_helpers_ok.py:86 Helper named test matches pytest's default collection prefix and errors with a missing fixture. pytest's default python_functions is test, a prefix match, so a module-level function named exactly test is collected. Its parameter name is not a fixture and nothing in the repo defines one (no conftest.py, no config file). pytest was not installed in the sandbox and I may not install it, so I traced this and did not run it. Run pytest tests/test_helpers_ok.py. It collects test and reports fixture 'name' not found, an ERROR. A file meant to hold only correct tests fails every run, and the error hides real regressions in the summary."
+ },
+ {
+  "id": "Fdf0c5567",
+  "app": "fixture5-clean",
+  "finding": "tests/test_cart.py:26 The only test of the upper discount bound is skipped, so an off-by-one at 100/101 passes every test. Mutation traced against src/cart.py:9. Changing percent > 100 to percent > 101 (or >= 100) leaves all active tests green: the only test that passes 101 is the skipped test_discount_bounds. Other raising tests use -1, 200 and 500 (tests/test_helpers_ok.py:19, 34, 68), which still raise under the mutation. No test calls apply_discount(100, 100). The skip names an integration suite that is not in this change and gives no date or ticket. Mutate cart.py:9 to percent > 101. apply_discount(100, 101) then returns -1.0, a negative price. All active tests still pass."
+ },
+ {
+  "id": "F317ca9e9",
+  "app": "fixture5-clean",
+  "finding": "tests/test_helpers_ok.py:55 test_unexpected_error_fails_loudly wraps a call in try/except only to call pytest.fail, which is what an uncaught exception already does. It adds noise and loses the original traceback context in the report. The call has no assertion on the result, so a wrong return value is never caught. It is effectively a no-assert test."
+ },
+ {
+  "id": "F87bad33c",
+  "app": "fixture5-clean",
+  "finding": "tests/test_cart.py:3 The tests import from src.cart ..., but there is no src/init.py, no tests/init.py, no conftest.py, and no pytest config, so the import depends on how pytest is invoked. With no tests/init.py, pytest's default rootdir/sys.path insertion adds tests/, not the repo root. A plain pytest run then fails at collection with ModuleNotFoundError: No module named 'src'. It only works with python -m pytest from the repo root or with a pythonpath setting."
+ },
+ {
+  "id": "Faab40e2f",
+  "app": "fixture5-clean",
+  "finding": "tests/test_helpers_ok.py:85: the decorator factory def test(name): errors on every pytest run.\nIt sits at module level, and pytest's default python_functions = test prefix matches a function named exactly test.\npytest then collects it and treats name as a fixture. No fixture called name exists, so every run reports fixture 'name' not found.\nThe repo has no pytest.ini, pyproject.toml, setup.cfg, tox.ini, conftest.py or test = False that would stop this.\nThe file is named test_*.py, so a plain pytest run picks it up. Its docstring says nothing in it should be flagged, but this error makes the run fail.\n- Both bug agents found this independently. The validation agent confirmed it by reading the code and pytest's default rules. Nobody ran pytest, because Bash was denied to those agents.\n\nCLAUDE.md compliance: no violations. The repo has no CLAUDE.md files, and both compliance agents returned empty lists.\n\nNot flagged: the unreachable assert after pytest.skip in test_inline_skip_with_reason and the skipped test_discount_bounds in tests/test_cart.py. Both are test-quality smells, not definite defects.\n\nPR description: \"Adds this application's code\" doesn't match the content. The diff adds a small src/cart.py and two test files, which look like planted-defect fixtures for a test-quality lens. That is outside the high-signal bug filter, so I didn't count it as an issue."
+ },
+ {
+  "id": "Fd72add3b",
+  "app": "fixture5-clean",
+  "finding": "tests/test_cart.py:26 test_discount_bounds, the only pytest test of the upper bound (percent > 100), is skipped for a reason that points to another suite. The skip reason says the bounds are checked in an integration suite, but this repo has none. Mutating percent > 100 to percent > 1000 or removing it fails nothing in test_cart.py. The only remaining catch is test_raises_context in the unittest class of the other file. Skipped coverage is silently lost."
+ },
+ {
+  "id": "Fc14163ca",
+  "app": "fixture5-clean",
+  "finding": "src/cart.py:11 apply_discount and cart_total do no type or sign validation, and the discount uses float math then round. A negative total, a non-numeric percent, or NaN gives a surprising result. apply_discount(100, float('nan')) passes both comparisons (both are False) and returns nan. Float rounding (round(x, 2) banker's rounding) can be off by a cent for monetary values. Decimal would be safer."
+ },
+ {
+  "id": "Ffec4c37c",
+  "app": "fixture5-clean",
+  "finding": "tests/test_cart.py:33 test_total_positive asserts only cart_total([1]) > 0, which a wrong implementation also satisfies. A mutation such as return sum(prices) * 2 or return len(prices) still passes. Only the == 1 tests catch it, so this test adds nothing to mutation resistance."
+ },
+ {
+  "id": "F3cb7581b",
+  "app": "fixture5-clean",
+  "finding": "The tests import src.cart and there are no init.py files or pytest config. Plain pytest may fail to import src, while python -m pytest from the root should work. I didn't flag it because it depends on how the tests are invoked."
+ }
+]
