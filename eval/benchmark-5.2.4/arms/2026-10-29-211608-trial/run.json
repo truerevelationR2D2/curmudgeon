@@ -1,0 +1,27 @@
+{
+ "model": null,
+ "repeat": 1,
+ "plugin": "/tmp/claude-0/-home-claude/33763394-76bc-545d-8aed-0d4f846860b5/scratchpad/frozen-r2/plugin",
+ "arms": [
+  "plain-claude-rubric",
+  "plain-claude-quote"
+ ],
+ "tasks": [
+  "suite1"
+ ],
+ "plugins_off": [
+  "brightdata-plugin@synced",
+  "code-review-anthropics@anthropic-plugin-directory",
+  "context7@synced",
+  "curmudgeon@synced",
+  "design@synced",
+  "engineering@synced",
+  "fastly-agent-toolkit@synced",
+  "figma@synced",
+  "miro@synced",
+  "playwright@synced",
+  "superpowers@synced",
+  "zentrik@synced"
+ ],
+ "started": "2026-10-29 21:16:08"
+}

@@ -1,0 +1,18 @@
+{
+ "findings": 945,
+ "agreed": 865,
+ "agreement": 0.915,
+ "kappa_verdict": 0.861,
+ "controls_a": {
+  "n": 24,
+  "correct": 24,
+  "real_right": "12 of 12",
+  "wrong_right": "12 of 12"
+ },
+ "controls_b": {
+  "n": 24,
+  "correct": 24,
+  "real_right": "12 of 12",
+  "wrong_right": "12 of 12"
+ }
+}

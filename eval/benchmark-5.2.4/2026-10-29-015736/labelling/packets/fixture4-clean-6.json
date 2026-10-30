@@ -1,0 +1,27 @@
+[
+ {
+  "id": "Fd8a15d50",
+  "app": "fixture4-clean",
+  "finding": "app.js:25 The double-send guard stamps lastSend before the request and only blocks for 1 second. There is no in-flight guard. A slow POST takes more than 1s and the user clicks Send again. tooSoon() returns false and a duplicate invoice is created. In the opposite case the first POST fails with a 500 and the alert says 'Try again'. A retry within 1s is silently swallowed, because lastSend was already set and is never reset on failure."
+ },
+ {
+  "id": "Fb2370c10",
+  "app": "fixture4-clean",
+  "finding": "Scope: git diff main...HEAD adds four files (index.html, app.js, guards.js, styles.css), about 95 lines in all. Together they make a small invoice-entry page."
+ },
+ {
+  "id": "Fead2f7e3",
+  "app": "fixture4-clean",
+  "finding": "app.js:28 Successful send shows nothing; sentCount is written and never read. grep of the payload: sentCount appears only at app.js:3 and app.js:28. After success the lines list and total stay as they were; index.html has no status element. Press Send invoice with 2 lines and a fast server. The page is identical before and after. The user presses Send again after a second and sends a duplicate invoice, or leaves unsure it went."
+ },
+ {
+  "id": "Fa315e561",
+  "app": "fixture4-clean",
+  "finding": "app.js:26 fetch is not wrapped in try/catch, so a network failure is an unhandled rejection with no user feedback. The JSON body is sent without a Content-Type header. The user is offline or the server is unreachable, so fetch rejects. The click handler throws an unhandled promise rejection and no alert is shown. A JSON.stringify body without 'Content-Type: application/json' goes out as text/plain, which servers that parse JSON by content type will reject or ignore."
+ },
+ {
+  "id": "F6edc4e7a",
+  "app": "fixture4-clean",
+  "finding": "app.js:19 Price accepts Infinity and huge values; JSON.stringify then sends null as the price. Number(\"Infinity\") and Number(\"1e999\") are Infinity, and Infinity > 0 is true, so the line is accepted. validQuantity (guards.js:16) also accepts a 400-digit string, because Number(qty) is Infinity and Infinity >= 1. The total then shows \"Infinity\", and JSON.stringify(lines) at line 26 writes Infinity as null. Enter client A, quantity 1, price 1e999, click Add line, then Send invoice. The page shows Total: Infinity. The POST body is [{\"client\":\"A\",\"qty\":1,\"price\":null}]. The server receives a billing line with no price."
+ }
+]

@@ -1,0 +1,102 @@
+```json
+[
+ {
+  "file": "app.js",
+  "line": 27,
+  "quote": "  const start = page * PAGE_SIZE;",
+  "title": "Page index is 1-based in the label but 0-based in the slice, so the first page is skipped",
+  "failing_case": "On load page=1, so start=10 and the first 10 orders are never shown. Prev goes to page 0, which is the only way to see them. Prev again gives page -1, so start=-10 and slice(-10, 0) is empty."
+ },
+ {
+  "file": "app.js",
+  "line": 34,
+  "quote": "  document.getElementById(\"page\").textContent = `Page ${page} of ${Math.floor(orders.length / PAGE_SIZE)}`;",
+  "title": "Total page count uses floor instead of ceil",
+  "failing_case": "With 25 orders it shows 'of 2' but there are 3 pages. With 5 orders it shows 'of 0'."
+ },
+ {
+  "file": "app.js",
+  "line": 47,
+  "quote": "document.getElementById(\"prev\").onclick = () => { page--; renderTable(); };",
+  "title": "No bounds check on paging",
+  "failing_case": "Click Prev on the first page, or Next past the last page. The page number goes out of range, the table is empty, and the label reads 'Page 0' or 'Page -1'."
+ },
+ {
+  "file": "app.js",
+  "line": 42,
+  "quote": "  renderStats(); renderTable();",
+  "title": "Page is not reset when the search or filter changes",
+  "failing_case": "Go to page 3, then type a search that returns 5 orders. Page stays at 3, so the slice is empty and the table shows nothing."
+ },
+ {
+  "file": "app.js",
+  "line": 18,
+  "quote": "  const avg = revenue / orders.length;",
+  "title": "Division by zero when there are no orders",
+  "failing_case": "A search with no matches gives orders=[], so avg is 0/0 = NaN and the card shows '$NaN'."
+ },
+ {
+  "file": "app.js",
+  "line": 18,
+  "quote": "  const avg = revenue / orders.length;",
+  "title": "Average order is revenue divided by all orders, including refunded and pending ones",
+  "failing_case": "Orders: 1 paid at $100 and 1 pending at $100. Revenue is 108.25 and avg is 54.13, though the only paid order was worth about $108."
+ },
+ {
+  "file": "app.js",
+  "line": 32,
+  "quote": "    tb.innerHTML += `<tr><td><input type=\"checkbox\" data-id=\"${o.id}\"></td><td>${o.customer.name}</td><td>$${o.total}</td><td><span class=\"dot ${o.status}\"></span></td></tr>`;",
+  "title": "Customer name is inserted into innerHTML unescaped (XSS), and += on innerHTML is rebuilt on every row",
+  "failing_case": "A customer named '<img src=x onerror=alert(1)>' runs script when the table renders. Using += also re-parses the whole body on each row, which drops any state set on earlier rows."
+ },
+ {
+  "file": "app.js",
+  "line": 35,
+  "quote": "  tb.querySelectorAll(\"input\").forEach((c) => c.onchange = () => { if (c.checked) selected.push(c.dataset.id); });",
+  "title": "Unchecking never removes the id, ids are duplicated, and the selection is not cleared on re-render",
+  "failing_case": "Check order 5, uncheck it, then click Refund: id 5 is still in selected and is refunded. Check, uncheck and check again and the id is pushed twice. After a page change or reload the checkboxes render unchecked but selected still holds the old ids."
+ },
+ {
+  "file": "app.js",
+  "line": 51,
+  "quote": "  if (r.ok) { const t = document.getElementById(\"toast\"); t.textContent = \"Refunded \" + selected.length + \" orders!\"; t.style.display = \"block\"; }",
+  "title": "Success toast shown even if nothing is selected or the refund failed; selection and list are not refreshed afterwards",
+  "failing_case": "Click Refund with nothing selected: the toast says 'Refunded 0 orders!' and a POST with empty ids is sent. The list is not reloaded after a refund, so refunded orders still show as paid and revenue is unchanged."
+ },
+ {
+  "file": "api.js",
+  "line": 11,
+  "quote": "  fetch(`${API_BASE}/refunds`, { method: \"POST\", headers: { Authorization: \"Bearer \" + API_KEY, \"Content-Type\": \"application/json\" }, body: JSON.stringify({ ids }) });",
+  "title": "The fetch is neither awaited nor checked, and refund() always returns ok:true",
+  "failing_case": "The server returns 500 or the network is down: refund() still resolves {ok:true}, and the UI reports success. A rejected fetch becomes an unhandled promise rejection."
+ },
+ {
+  "file": "api.js",
+  "line": 6,
+  "quote": "  const res = await fetch(`${API_BASE}/orders?q=${query}&status=${status}`, { headers: { Authorization: \"Bearer \" + API_KEY } });",
+  "title": "Query parameters are not URL-encoded, and res.ok is not checked",
+  "failing_case": "Searching 'a&status=refunded' or 'Smith & Sons' breaks the query string and injects parameters. A 401 or 500 response whose body is not an array is assigned to orders, and the later orders.slice or for..of throws."
+ },
+ {
+  "file": "api.js",
+  "line": 3,
+  "quote": "const API_KEY = \"__PLANTED_STRIPE_KEY__\";",
+  "title": "API secret key hard-coded in client-side code",
+  "failing_case": "Anyone who opens the page source or devtools can read the key and call the refund API directly."
+ },
+ {
+  "file": "app.js",
+  "line": 45,
+  "quote": "document.getElementById(\"q\").oninput = load;",
+  "title": "No debounce and no handling of out-of-order responses",
+  "failing_case": "Typing 'abc' fires three requests. If the response for 'a' arrives after the one for 'abc', orders is overwritten with stale results."
+ },
+ {
+  "file": "app.js",
+  "line": 13,
+  "quote": "    if (o.customer.tier === \"gold\") t = t * 0.9;",
+  "title": "The gold discount and tax are applied again to totals that are probably already final, and the stats don't match the table",
+  "failing_case": "A gold order with total 100 is shown as $100 in the table but counted as 97.43 in revenue. A null customer throws a TypeError here and in the table render, and stops all rendering."
+ }
+]
+```

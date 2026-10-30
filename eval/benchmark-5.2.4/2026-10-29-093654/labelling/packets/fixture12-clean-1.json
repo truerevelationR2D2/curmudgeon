@@ -1,0 +1,202 @@
+[
+ {
+  "id": "F3b1c11ba",
+  "app": "fixture12-clean",
+  "finding": "site/about.html:13 A dev-only script from http://localhost:8080/reload.js is left in the production page. On shop.example.com, the page requests a script from http://localhost:8080. The request is blocked as mixed content and by the CSP, so the console shows errors. If a visitor has a local server on port 8080, the page would run that server's script. Remove the tag."
+ },
+ {
+  "id": "F5ebc0668",
+  "app": "fixture12-clean",
+  "finding": "site/login.html:57 The page invites users to pay a card bill at a third-party bank URL, shown as visible link text on the sign-in page. A sign-in page that tells people to enter payment or bank details at another domain looks like a phishing lure. It sits beside a password form, so a reviewer or a mail filter may flag the page. The copy is also unrelated to signing in."
+ },
+ {
+  "id": "F982f1ff7",
+  "app": "fixture12-clean",
+  "finding": "site/checkout.html:13 Checkout shows no order or total, collects only a card number, and the button just says Pay. The page has one field and one button. There is no amount, line items, expiry, security code or name field. The card input has no type or inputmode, so mobile keyboards are not numeric. There is no error or confirmation state markup. A user is asked to 'Pay' with no stated amount, so they cannot know what they are agreeing to. Most card processors also need an expiry and a code, so the submission cannot complete the purchase."
+ },
+ {
+  "id": "Fd65dec1f",
+  "app": "fixture12-clean",
+  "finding": "site/login.html:4 No viewport meta tag on any of the three pages. login.html, about.html and checkout.html have only charset, title, canonical and script tags in the head. None has <meta name=\"viewport\">. On a 390 px phone the browser lays the page out at about 980 px and scales it down, so the sign-in and card fields render tiny and the user must pinch-zoom to type a card number. This fails reflow at 390 px."
+ },
+ {
+  "id": "Fe737f734",
+  "app": "fixture12-clean",
+  "finding": "Login page copy in site/login.html (line 12). The sentence \"Pay your card bill at https://bank.example.com/account\" is on a shop sign-in page, linking to an unrelated bank domain. That is odd content for this page.\n\nItems 1\u20133 are certain. They follow from the CSP rules and need no outside context. Items 4 and 6 are certain but are content problems. Item 5 depends on the host."
+ },
+ {
+  "id": "F3e6f64d3",
+  "app": "fixture12-clean",
+  "finding": "Scripts blocked by the page's own CSP in site/login.html.\nLine 7 sets script-src 'self'.\nLine 8 loads https://cdn.example.org/widget.js, which is not same-origin.\nBrowsers will refuse to run it, so the widget never loads.\nThe integrity attribute doesn't help: SRI doesn't override CSP."
+ },
+ {
+  "id": "F61d3d382",
+  "app": "fixture12-clean",
+  "finding": "site/about.html:19 The map iframe is blocked by the page's own CSP and shows an empty box. No frame-src or child-src is set, so framing falls back to default-src 'self'. Driven in Chromium: 'Refused to frame https://www.example.org/ because it violates ... default-src self'. The iframe also has no sandbox attribute. A visitor opens About us and sees a blank frame where the map should be, with no explanation."
+ },
+ {
+  "id": "Faa5729ce",
+  "app": "fixture12-clean",
+  "finding": "site/about.html:18 Link text says shop.example.com but the href points to www.example.com. The UK link text is example.co.uk but points to www.example.co.uk. The visible text does not match the destination, which is a misleading link. Users and crawlers are sent to a host different from the shop host that the canonical URL declares. If www.example.com is not the shop, visitors land on the wrong site."
+ },
+ {
+  "id": "F0d1ad9ac",
+  "app": "fixture12-clean",
+  "finding": "Code review: git diff main...HEAD (commit e0a3c0a \"task\")\n\nI reviewed this directly, without launching the review subagents. The diff is four new files and 66 lines. There is no CLAUDE.md in the repo, so there was no compliance check. The commit message is only \"task\", so I couldn't check the change against a stated intent. Nothing was changed.\n\nThe files look like a fixture site with planted defects. If so, these findings are the expected ones, and you should treat them as intended. I only list defects that follow from the code itself."
+ },
+ {
+  "id": "Fd43cab99",
+  "app": "fixture12-clean",
+  "finding": "Likely non-working _headers.\nThe rule is keyed on an absolute URL, https://shop.example.com/*.\nFrom memory, Netlify's _headers format matches on paths only, and Cloudflare Pages documents absolute-URL rules. I did not check either vendor's docs.\nThe host that serves this site decides whether the file applies at all. If it doesn't, none of the headers (CSP, X-Frame-Options) take effect."
+ },
+ {
+  "id": "F8629d9e3",
+  "app": "fixture12-clean",
+  "finding": "site/login.html:4 No viewport meta on login, about or checkout pages. Driven: document.querySelector('meta[name=viewport]') is null on all three pages. None has any stylesheet or width rule either. The same <head> pattern appears at about.html:4 and checkout.html:4. On a 390 px phone the browser lays the page out at about 980 px and scales it down, so the sign-in and card fields render tiny and the user must pinch-zoom to type a password or a card number."
+ },
+ {
+  "id": "F78d92399",
+  "app": "fixture12-clean",
+  "finding": "site/checkout.html has the same blocked-script problem, and no CSP of its own.\nhttps://stats.example.org/t.js (line 8) is cross-origin.\nThe only policy that could apply is _headers, which says script-src 'self'. That would block this script too.\nThe page also holds a card-number form, so the policy matters more here."
+ },
+ {
+  "id": "F32d1a624",
+  "app": "fixture12-clean",
+  "finding": "site/about.html:8 lib.js from cdn.example.org is blocked by script-src 'self' 'nonce-...' (host not allowed, tag has no nonce). Driven in Chromium: Refused to load the script 'https://cdn.example.org/lib.js' ... script-src 'self' 'nonce-r4nd0m'. Only an allowed host, a matching nonce or a hash source would let it load; integrity= alone does not. Visitor opens /about: lib.js never runs, so any page code that depends on it fails."
+ },
+ {
+  "id": "F8799a454",
+  "app": "fixture12-clean",
+  "finding": "site/about.html:10 Dev live-reload script over http://localhost left in a shipped page, no integrity hash. Driven in Chromium with the CSP from _headers applied: 'Refused to load the script http://localhost:8080/reload.js' (script-src 'self'). The tag is still sent to every visitor. It is plain http, from another origin, with no integrity attribute. Every visitor's browser tries to load localhost:8080/reload.js and logs a CSP error. If the CSP is loosened later (for example to make the CDN script on line 8 work by adding a host or 'unsafe-inline'), whatever listens on a visitor's own port 8080 runs as script on the shop's origin."
+ },
+ {
+  "id": "Fd660122c",
+  "app": "fixture12-clean",
+  "finding": "site/about.html:21 The newsletter form posts email to /subscribe with no CSRF token, no autocomplete hint and no consent text. Any other site can submit a hidden cross-site POST that subscribes an arbitrary address. There is also no consent statement for collecting the email address, which can be a compliance problem."
+ },
+ {
+  "id": "Fd72ad7d9",
+  "app": "fixture12-clean",
+  "finding": "site/checkout.html:14 The Pay button can be submitted twice and nothing in the page guards a second charge. The form (checkout.html:12) is a plain POST to /pay. There is no disabled-on-submit, no idempotency key in a hidden field, no script on the page (the one script tag is blocked by the CSP). A user on a slow connection double-clicks or presses Enter twice on Pay. Two POSTs reach /pay. The browser aborts the first navigation, but the server may already have processed it, so the card can be charged twice unless the server dedupes. The server code is not in this payload, so that guard is unverified."
+ },
+ {
+  "id": "F33163313",
+  "app": "fixture12-clean",
+  "finding": "site/login.html:8 The integrity digest is placeholder text, not a hash, on all three third-party scripts. I base64-decoded the value: it is b'foobarbazfoobarbazfoobarbazfoobarbazfoobarbazqux', 48 bytes of ASCII filler, not a SHA-384 digest of any file. The identical value is on login.html:8, about.html:8 and checkout.html:7. Once the CSP lets the host through, the browser hashes the real file, finds it differs from 'foobarbaz...', and refuses to run it. The script stays dead, and the attribute gives a false impression that the script is pinned. On checkout.html a third-party stats script also sits on the page with the card field, so the digest matters most there."
+ },
+ {
+  "id": "Fc735194a",
+  "app": "fixture12-clean",
+  "finding": "Same blocked-script problem in site/about.html, plus a dev-only script.\nThe CSP on line 7 allows only 'self' and the nonce 'nonce-r4nd0m'.\nhttps://cdn.example.org/lib.js (line 8) and http://localhost:8080/reload.js (line 10) carry no nonce and aren't same-origin, so both are blocked.\nNeither tag carries a nonce attribute, so the nonce in the policy matches nothing.\nThe nonce is also a fixed literal, which defeats its purpose.\nThe localhost reload script is a dev-server hook. It shouldn't be committed to a production page, and it's a mixed-content reference (http on an https site)."
+ },
+ {
+  "id": "F8549978b",
+  "app": "fixture12-clean",
+  "finding": "site/about.html:16 Link text 'index.html' names a file, but the link opens a docs site root. The href has no filename. The text reads like a download name, just after 'brochure.pdf' in the same sentence. A reader expects a file called index.html and instead lands on the docs home page."
+ },
+ {
+  "id": "Ff528be6e",
+  "app": "fixture12-clean",
+  "finding": "site/login.html:61 The password field has no autocomplete attribute, and the email field has none either. The sign-in form has no autocomplete=username or current-password. Password managers may fail to fill the form or may suggest the wrong saved entry. Users are pushed toward weaker, hand-typed passwords."
+ },
+ {
+  "id": "F6521db96",
+  "app": "fixture12-clean",
+  "finding": "_headers:2 The header CSP sets script-src 'self' and default-src 'self', so every cross-origin script is blocked. It also omits frame-ancestors, form-action and base-uri. The cross-origin scripts on cdn.example.org (about.html and login.html) and stats.example.org (checkout.html) do not load. The login widget and the checkout stats script break silently. A header CSP of this shape also does nothing to stop form hijacking via a injected base tag or form action."
+ },
+ {
+  "id": "Feabd7093",
+  "app": "fixture12-clean",
+  "finding": "site/about.html:9 /js/site.js does not exist in the site, so every About load makes a 404. The project holds only site/about.html, checkout.html, login.html and _headers. No js/ directory exists. Driven against a server rooted at site/: GET /js/site.js returned 404. Every visit to About us requests /js/site.js and gets 404. Whatever the script was meant to do does not happen."
+ },
+ {
+  "id": "F9c3fcbb8",
+  "app": "fixture12-clean",
+  "finding": "site/checkout.html:38 The card number field has no inputmode, maxlength or pattern. It is a plain text input. Payment form accepts any text with no client-side format hint, and mobile users get a full keyboard rather than a numeric one. Card data is entered directly into the merchant's own page rather than a hosted payment field, which widens PCI scope."
+ },
+ {
+  "id": "F36899e89",
+  "app": "fixture12-clean",
+  "finding": "site/about.html:7 CSP nonce is a fixed string in a static page, and no script uses it. The nonce 'r4nd0m' is a literal in a static HTML file, so every visitor and every attacker gets the same value. None of the three <script> tags on lines 8, 9 and 10 carries a nonce= attribute. A nonce only protects when the server issues a fresh value on each response. Anyone who can inject markup into this page adds <script nonce=\"r4nd0m\">...</script>. The CSP allows it, because the value is public and never changes. The nonce adds an injection bypass and protects nothing."
+ },
+ {
+  "id": "Fb4767edf",
+  "app": "fixture12-clean",
+  "finding": "site/about.html:15 Link text says shop.example.com but the link goes to www.example.com. site/about.html:15 shows the host shop.example.com as the link text. The href is www.example.com. The page's own canonical (about.html:6) is shop.example.com, so the text names the real shop and the target is a different host. The UK link on the same line (example.co.uk to www.example.co.uk) matches, so the mismatch is not a pattern of the whole line. A visitor reads 'Our shop lives at shop.example.com', clicks it, and lands on www.example.com, a host they were not told about. If that host is not the shop, they can enter card or login details on a site the page vouched for under another name."
+ },
+ {
+  "id": "F56e488ff",
+  "app": "fixture12-clean",
+  "finding": "site/checkout.html:14 Pay button on a checkout page with no total, no items and no busy state. checkout.html holds one card field and a 'Pay' button. No amount, order summary, currency or consent text appears, and nothing disables the button on submit. The user cannot see what they are charged. A double-click sends two POSTs to /pay, because the button is never disabled; with no idempotency key the card can be charged twice."
+ },
+ {
+  "id": "F9855991a",
+  "app": "fixture12-clean",
+  "finding": "site/about.html:7 CSP nonce is a hardcoded constant and no script carries it. The nonce 'r4nd0m' is a literal in a static HTML file, so it is the same for every response and is visible in the source. None of the three script tags on the page (about.html:8-10) has a nonce attribute. An attacker who can inject markup into this page adds <script nonce=\"r4nd0m\">...</script> and the CSP allows it, because the nonce is public and never changes. A nonce protects only if it is fresh per response. The legitimate scripts get no benefit from it, since none has the attribute."
+ },
+ {
+  "id": "Fa9de9f3e",
+  "app": "fixture12-clean",
+  "finding": "site/login.html:16 Sign-in fields have no autocomplete tokens (WCAG 1.3.5, AA). login.html:16 and :17 collect the user's own email and current password with no autocomplete attribute. Criterion 1.3.5 Identify Input Purpose (AA) requires the purpose of fields that collect user data to be programmatically determinable. The checkout card field on checkout.html:13 does set autocomplete=\"cc-number\", so the omission is inconsistent. A user who relies on browser or assistive autofill to fill sign-in fields finds that the email and password are not filled reliably, and has to type both on every visit."
+ },
+ {
+  "id": "F420339e5",
+  "app": "fixture12-clean",
+  "finding": "site/login.html:8 The same placeholder SRI hash is used on three different scripts. The value after sha384- is base64 for the text 'foobarbaz' repeated five times followed by 'qux', not a digest of any file. The identical string appears on cdn.example.org/widget.js (login.html:8), cdn.example.org/lib.js (about.html:8) and stats.example.org/t.js (checkout.html:7). Three different files cannot share one hash. The browser downloads each file, computes its SHA-384, finds it differs from the declared value and refuses to run the script. The widget, the library and the stats script all fail, and the integrity attribute gives only the look of protection."
+ },
+ {
+  "id": "F749bcf0c",
+  "app": "fixture12-clean",
+  "finding": "site/login.html:8 The page's own CSP (script-src 'self') blocks the third-party widget script it loads. Served site/ locally and loaded login.html in Chromium (driven, third-party hosts stubbed). Console: Refused to load the script 'https://cdn.example.org/widget.js' because it violates ... \"script-src 'self'\". _headers (line 2) sets the same policy for https://shop.example.com/*, so the header blocks it too. Any visitor opening /login: the browser refuses cdn.example.org/widget.js, so whatever the widget does never runs, and the console shows a CSP error. The integrity and crossorigin attributes are wasted."
+ },
+ {
+  "id": "F8e020f9f",
+  "app": "fixture12-clean",
+  "finding": "site/about.html:15 Link text shows shop.example.com but goes to www.example.com. The visible text names host shop.example.com, the page's own canonical host (about.html:6). The href goes to https://www.example.com/, a different host. A user reads 'Our shop lives at shop.example.com', clicks, and lands on www.example.com. If www is not the shop, the user is sent to a host the text does not name. This is the same pattern a phishing link uses, and anyone who controls that host gets traffic labelled as the shop."
+ },
+ {
+  "id": "F40122156",
+  "app": "fixture12-clean",
+  "finding": "site/checkout.html:7 Analytics script on the checkout page is blocked by the CSP header from _headers. checkout.html has no meta CSP; the header in _headers line 2 (script-src 'self') applies to https://shop.example.com/*. Driven by serving that header locally: Refused to load the script 'https://stats.example.org/t.js'. A shopper completes checkout; the tracking script never loads, so the funnel drops its checkout events while the markup suggests it works."
+ },
+ {
+  "id": "F87ba5f16",
+  "app": "fixture12-clean",
+  "finding": "site/login.html:7 The page's own CSP blocks the third-party script it loads (login, about, checkout). login.html:7 allows only 'self' scripts, yet login.html:8 loads cdn.example.org/widget.js. The same holds for about.html:8 (CSP adds only a nonce, and the tag has none) and checkout.html:7 (stats.example.org/t.js, covered by _headers:2). Driven in Chromium: 'Refused to load the script https://cdn.example.org/widget.js ... script-src self' on login; the same for lib.js on about and t.js on checkout. The request fails with 'csp'. Open any of the three pages. The widget, library and stats script never run. Whatever they provide (sign-in widget, site library, analytics) is silently missing, and the console shows the CSP error."
+ },
+ {
+  "id": "F5ee587f4",
+  "app": "fixture12-clean",
+  "finding": "site/about.html:22 The iframe embeds https://www.example.org/map without a sandbox attribute or a loading hint. The embedded third-party page can run scripts, navigate the top window and show popups with no restriction. With the CSP default-src 'self', the frame is also blocked from loading at all, so the map area is empty."
+ },
+ {
+  "id": "Fa4e32525",
+  "app": "fixture12-clean",
+  "finding": "Misleading link text in site/about.html (lines 15 and 16).\nThe text shop.example.com links to https://www.example.com/.\nThe text index.html links to https://docs.example.net/.\nThe first looks like a spoof or a copy-paste error. Neither link goes where its label says."
+ },
+ {
+  "id": "Ff21e9189",
+  "app": "fixture12-clean",
+  "finding": "site/about.html:16 Link text 'index.html' points at another site's root. The text looks like a file name on the page's own site. The target is https://docs.example.net/, a separate host with no file path. The adjacent link 'brochure.pdf' does match its target. A user expecting a local index.html page is taken off-site to docs.example.net. The link text names a file that does not exist at the target."
+ },
+ {
+  "id": "Fc3abfdf2",
+  "app": "fixture12-clean",
+  "finding": "site/about.html:10 The meta CSP in about.html does not match the header CSP in _headers. Both policies apply to the page, so the stricter one wins. The _headers CSP allows only script-src 'self'. The meta CSP adds 'nonce-r4nd0m', which is a static value and no script tag carries it. The browser enforces both policies, so https://cdn.example.org/lib.js is blocked. Its integrity attribute makes no difference. The nonce is also guessable and gives no protection."
+ },
+ {
+  "id": "F631fa7a5",
+  "app": "fixture12-clean",
+  "finding": "site/about.html:19 The link text 'brochure.pdf' and 'index.html' do not describe their targets. 'index.html' points to https://docs.example.net/, not an index.html file. The label 'index.html' names a file the link does not open, and a user who sees the link text expects a different thing. The PDF link also gives no file-type or size warning."
+ },
+ {
+  "id": "F100fe047",
+  "app": "fixture12-clean",
+  "finding": "site/login.html:17 Sign-in fields have no autocomplete tokens. login.html:16-17 and about.html:18 collect the user's email and password with no autocomplete attribute. WCAG 2.1 SC 1.3.5 (AA) asks for the purpose of fields about the user to be programmatically determinable. A password manager or browser autofill cannot reliably tell the email field is a username or the other is the current password, so users with motor or memory difficulties must retype credentials. This fails 1.3.5."
+ },
+ {
+  "id": "F424c81a7",
+  "app": "fixture12-clean",
+  "finding": "site/about.html:10 A dev live-reload script over plain http from localhost is left in the shipped page. No integrity, no crossorigin, scheme is http on an https site (mixed content). Chromium currently refuses it only because the meta CSP lacks that host (driven, console error). A visitor who happens to run any local service on port 8080 (a dev server, a proxy, a malicious app) gets that service's JavaScript executed in the about page's origin as soon as the CSP is loosened or removed, for example when someone adds localhost to fix the console error. Today it also logs a CSP violation on every load."
+ }
+]

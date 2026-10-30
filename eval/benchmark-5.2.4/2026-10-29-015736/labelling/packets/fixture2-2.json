@@ -1,0 +1,202 @@
+[
+ {
+  "id": "F0b8482d6",
+  "app": "fixture2",
+  "finding": "api.js:6 Query is put into the URL without encoding, so the user can inject parameters. Driven: typing a b\"&q=1# requested /orders?q=a%20b%22&q=1 (the browser dropped the # part). The injected second q reached the server. A search for 'Smith & Sons' or 'a&status=refunded' is sent as a different query and returns wrong rows."
+ },
+ {
+  "id": "F31f78753",
+  "app": "fixture2",
+  "finding": "Code review\n\nScope: git diff main...HEAD (\"Add the app\"), 5 new files, 124 lines. No CLAUDE.md exists in the repo, so both compliance agents found nothing to check. Two Opus agents scanned for bugs (diff only, and introduced code). Each of the ten issues below was then checked by its own Opus validator, and every one was confirmed. I didn't run the app, and I posted nothing and changed no files."
+ },
+ {
+  "id": "F604fb5da",
+  "app": "fixture2",
+  "finding": "Bugs"
+ },
+ {
+  "id": "F7859b7ba",
+  "app": "fixture2",
+  "finding": "Code review: \"Add the app\"\n\nChecked for bugs and CLAUDE.md compliance. The repo has no CLAUDE.md, so both compliance agents found nothing to check against. Findings below are validated issues from the two Opus bug agents, confirmed by separate Opus validators. Line numbers come from the agents' reads.\n\nSecurity"
+ },
+ {
+  "id": "Fff7078fb",
+  "app": "fixture2",
+  "finding": "app.js:31 avg divides by orders.length with no guard, and revenue is divided by all orders rather than paid orders. Status 'pending' orders are ignored in revenue but counted in the denominator. An empty search result gives 0/0 = NaN, so the card shows '$NaN'. With pending orders, the AVG ORDER figure is understated."
+ },
+ {
+  "id": "Fd8ef190b",
+  "app": "fixture2",
+  "finding": "Code review\n\nI read git diff main...HEAD directly (one commit, 5 new files). The repo has no CLAUDE.md, so there was no compliance check. I did not run the code. Each finding below is visible in the diff itself.\n\nBugs"
+ },
+ {
+  "id": "Ffd866a7b",
+  "app": "fixture2",
+  "finding": "A hardcoded API key is shipped to the browser (api.js).\nAPI_KEY is in a client-side script and sent as a bearer token. That contradicts the README (\"the API key never leaves the server\"). Anyone can read it from the page source.\nThe value here is a placeholder, but the pattern is the problem. The key must be held by a server-side proxy."
+ },
+ {
+  "id": "Fc8b77999",
+  "app": "fixture2",
+  "finding": "Average order is NaN when there are no orders. renderStats computes revenue / orders.length. A search or status filter with no matches shows $NaN."
+ },
+ {
+  "id": "F1795ffd8",
+  "app": "fixture2",
+  "finding": "app.js:31 avg = revenue / orders.length gives NaN when the list is empty. Revenue also applies tax to refunds and subtracts the gold discount inconsistently. A search with no matches makes $NaN show in the AVG ORDER card. The average divides net revenue (paid minus refunded) by all orders, including pending ones, so it is not an average order value."
+ },
+ {
+  "id": "Fa9d6e493",
+  "app": "fixture2",
+  "finding": "api.js:6 Search text is put into the URL without encoding. Driven: typing a&status=paid#x sent GET /orders?q=a&status=paid; the typed '&status=paid' became a parameter and '#x' was dropped as a fragment. Search for a customer named 'Smith & Sons': the server receives q=Smith and an empty parameter ' Sons', so results are wrong; a typed '&status=refunded' overrides the dropdown filter."
+ },
+ {
+  "id": "F25587420",
+  "app": "fixture2",
+  "finding": "app.js:45 customer.name and other API data are inserted into innerHTML unescaped (XSS). The loop also uses O(n^2) innerHTML += so each row re-parses the DOM. A customer named '<img src=x onerror=...>' executes script in the dashboard, and the script can read the hardcoded key. Repeated += also resets the state of checkboxes already rendered."
+ },
+ {
+  "id": "F9dea8c42",
+  "app": "fixture2",
+  "finding": "index.html:85 The 'Refund selected' control is a non-focusable <span> with a click handler, and there is no confirmation step before refunding. The README claims refunds are confirmed. Keyboard and screen-reader users cannot reach or activate it. One click immediately sends refunds for the selected ids with no confirm dialog. The selected array is also not cleared after a refund, so a second click re-sends the same ids."
+ },
+ {
+  "id": "Fcfa4cf74",
+  "app": "fixture2",
+  "finding": "app.js:50 Refund fires immediately with no confirmation, though the README says refunds are confirmed. app.js:49-52 is the handler; no confirm dialog or second step exists in index.html or app.js. README.md:9 claims confirmation. Refunds move money and cannot be undone from the UI. A misclick on 'Refund selected' sends the refunds for the whole selection at once. With nothing selected it still posts { ids: [] } and shows 'Refunded 0 orders!'."
+ },
+ {
+  "id": "F51a60bc8",
+  "app": "fixture2",
+  "finding": "Bugs"
+ },
+ {
+  "id": "F3e677a3f",
+  "app": "fixture2",
+  "finding": "app.js:50 Refund is sent on first click with no confirmation, though the README says refunds are confirmed. app.js:49-51 goes straight from click to refund(); no confirm(), dialog or summary exists in app.js or index.html. README.md:9 states 'Refunds are confirmed before they are sent.' One misclick on 'Refund selected' sends a money-moving POST with whatever ids are in selected. There is no undo."
+ },
+ {
+  "id": "F1b1245c6",
+  "app": "fixture2",
+  "finding": "Code review: \"Add the app\"\n\nNo GitHub comments were posted and no files were changed. The CLAUDE.md agents found nothing, because the repo has no CLAUDE.md. The review of the diff turned up 10 validated issues, listed below. I dropped one finding after validation. A few validators couldn't run git diff main...HEAD and read the working tree instead. They matched the diff on every line I compared."
+ },
+ {
+  "id": "F0d7420d4",
+  "app": "fixture2",
+  "finding": "Wrong behaviour"
+ },
+ {
+  "id": "F41c8a5c4",
+  "app": "fixture2",
+  "finding": "app.js:34 Page count rounds down: the last partial page is not counted, and 0 orders shows 'of 0'. Math.floor(25 / 10) is 2 but 25 orders need 3 pages. Driven: label read 'Page 1 of 2' with 25 orders. With 25 orders the label says there are 2 pages and the last 5 orders are not counted. With 9 orders it says 'of 0'."
+ },
+ {
+  "id": "Faeb44f84",
+  "app": "fixture2",
+  "finding": "README.md:7 Performance claim has no measurement and the code does not support it. load() downloads every order on every keystroke (app.js:45) with no debounce; renderStats walks all orders (app.js:11); the table renders only a page of 10, but rows are built with innerHTML += (app.js:32). No benchmark or test in the payload. 'Instantly' is not a figure. With 10,000 orders each keystroke fetches and parses the full list and recomputes stats; on a slow link the box lags and responses interleave."
+ },
+ {
+  "id": "F47d4f389",
+  "app": "fixture2",
+  "finding": "The pricing example in the README is wrong.\n$15 \u00d7 12 seats \u00d7 12 months is $2,160. With 20% off that is $1,728 a year, not $1,440."
+ },
+ {
+  "id": "F0520d718",
+  "app": "fixture2",
+  "finding": "The accessibility claims are false. The README says \"meets WCAG 2.1 AA, including 44 px touch targets\", but the code breaks this in several places:\nFocus outlines removed. styles.css has button:focus, input:focus, select:focus { outline: none; }, which fails 2.4.7.\nRefund control isn't a control. It is a <span id=\"refundBtn\"> with no role, tabindex or key handling, so keyboard users can't reach it.\nTargets are tiny. Buttons are 12px text with 2px 4px padding, and checkboxes are default size.\nContrast is too low. #aaa on white or #F4F1EA, and #c7c2f0 on the purple gradient, fall below 4.5:1.\nStatus relies on colour alone. The status dots carry no text.\nToast has no live region. It lacks aria-live.\nAnimation can't be stopped. The infinite toast animation ignores prefers-reduced-motion.\n\n \"Renders 10,000 orders instantly\" is also unsupported. tb.innerHTML += inside the loop re-parses the table on every row, and load() re-renders on every keystroke with no debounce and no handling of out-of-order responses.\n\nNot flagged: layout and style nits, such as the fixed width: 1000px table that overflows narrow screens."
+ },
+ {
+  "id": "F11d6880d",
+  "app": "fixture2",
+  "finding": "\"Meets WCAG 2.1 AA, including 44 px touch targets (2.5.5)\" is incorrect on two counts.\n2.5.5 Target Size (Enhanced) is level AAA. The AA criterion is 2.5.8, at 24 px, and that is in WCAG 2.2, not 2.1.\nThe code also fails the claim:\n\"Refund selected\" is a <span> with a click handler, so it can't be reached by keyboard and has no role.\nbutton:focus, input:focus, select:focus { outline: none } removes the focus indicator (2.4.7).\nPrev and Next are about 12 px text with 2\u20134 px padding, well under any target-size minimum.\nStatus is shown only by dot colour with no text (1.4.1).\n#aaa on white is about 2.3:1, below the 4.5:1 contrast needed (1.4.3).\nThe checkboxes have no labels.\nThe table is a fixed width: 1000px, which overflows at phone width."
+ },
+ {
+  "id": "F442a2761",
+  "app": "fixture2",
+  "finding": "Revenue math is wrong (app.js:9-15). The gold discount (0.9) and the 8.25% tax are applied to the stored total, and the comment says \"paid minus refunds\". The table shows the raw $${o.total} while the card shows the adjusted figure, so the two disagree. Adding tax to total (probably already the charged amount) overstates revenue."
+ },
+ {
+  "id": "Ff9aed1d7",
+  "app": "fixture2",
+  "finding": "app.js:54 customer.name and other API fields are interpolated into innerHTML without escaping, which allows XSS. innerHTML += inside the loop is also quadratic. A customer named '<img src=x onerror=...>' runs script in the dashboard, and the script can read the key from api.js. Rebuilding the whole tbody on every row also slows rendering badly for large lists, contradicting the 'renders 10,000 orders instantly' claim."
+ },
+ {
+  "id": "Fb6cd9dd1",
+  "app": "fixture2",
+  "finding": "app.js:56 The page count uses Math.floor, so the last partial page is dropped. It also gives 'of 0' for fewer than 10 orders. With 25 orders the label reads 'Page 1 of 2' when 3 pages are needed. With 5 orders it reads 'Page 1 of 0'."
+ },
+ {
+  "id": "F838f46e9",
+  "app": "fixture2",
+  "finding": "app.js:45 Customer name and other API fields are interpolated into innerHTML unescaped, which is an XSS hole. The table is also rebuilt with innerHTML += inside the loop, which is quadratic. A customer named <img src=x onerror=...> runs script in the dashboard, which also holds the API key. Rebuilding the table once per row re-parses all earlier rows every time."
+ },
+ {
+  "id": "Fcd451f1e",
+  "app": "fixture2",
+  "finding": "The refund control is not keyboard accessible. In index.html, #refundBtn is a <span> with no role, tabindex or key handler."
+ },
+ {
+  "id": "Fbdbee59d",
+  "app": "fixture2",
+  "finding": "renderStats gives NaN for an empty list. revenue / orders.length divides by zero when a search returns nothing, so \"AVG ORDER\" shows $NaN."
+ },
+ {
+  "id": "F3f8e25b5",
+  "app": "fixture2",
+  "finding": "Pagination skips the first page. app.js renderTable: page starts at 1, but start = page * PAGE_SIZE makes page 1 begin at index 10. Orders 0\u20139 can never be shown. The label Page ${page} of ${Math.floor(orders.length / PAGE_SIZE)} is also wrong, because it should round up. Next/Prev have no bounds, so they can go past the last page or below 1."
+ },
+ {
+  "id": "F534bb5cc",
+  "app": "fixture2",
+  "finding": "README.md:7 '10,000 orders instantly' is unmeasured and the code is built for 10 rows a page. app.js:41-42 recomputes stats over every order (and fires on each keystroke, app.js:45); app.js:32 uses innerHTML += per row; no benchmark exists in the repo. Not measured. No 10,000-row run is recorded, so the claim cannot be checked; each keystroke refetches the full list and rebuilds all stats."
+ },
+ {
+  "id": "F43b647c5",
+  "app": "fixture2",
+  "finding": "app.js:51 Refund has no confirmation, no empty guard, no double-click guard, and the toast never clears. The click handler (line 49) calls refund immediately, though README.md:9 says refunds are confirmed first. Nothing disables the control while the request is pending; selected is not cleared, so a second click sends the same ids again. With nothing selected the handler still reports 'Refunded 0 orders!'. The toast has no timeout. Traced. Select one order, click Refund twice quickly: two POST /refunds with the same ids go out, and the toast says 'Refunded 1 orders!'. Click with no selection: 'Refunded 0 orders!'."
+ },
+ {
+  "id": "F2d3883bf",
+  "app": "fixture2",
+  "finding": "app.js:49 Refund fires on one click with no confirmation, and the README says it is confirmed. app.js:49-52 goes straight to refund(selected). No confirm or dialog exists in app.js or index.html. README.md:9 states 'Refunds are confirmed before they are sent'. An empty selection also sends a refund POST with ids: [] and shows 'Refunded 0 orders!'. Click Refund selected once by accident: the POST goes out immediately. Click it with nothing selected: a POST with an empty list is sent and the toast says 'Refunded 0 orders!'."
+ },
+ {
+  "id": "F2bf9f092",
+  "app": "fixture2",
+  "finding": "app.js:18 Empty result divides by zero and displays $NaN. Driven: search that returns [] showed '$NaN AVG ORDER'. Also load() at app.js:41 crashes on a non-array error body (orders.slice / for-of). Type a query that matches no customer: the stats card shows $NaN."
+ },
+ {
+  "id": "Fd979e21a",
+  "app": "fixture2",
+  "finding": "styles.css:18 Prev and Next are tiny, borderless, grey text buttons. Driven: Prev measured 32.7 x 18 px; checkboxes are 13 x 13 px. WCAG 2.5.8 is 24 px in 2.2 and 2.5.5 (44 px) is AAA. The buttons also have no border or hover state, so they do not read as controls. On a phone the paging controls are hard to hit and look like captions."
+ },
+ {
+  "id": "F821ded58",
+  "app": "fixture2",
+  "finding": "\"Renders 10,000 orders instantly\" (README.md:8). tb.innerHTML += in a loop re-parses the table on every row. Only 10 rows are rendered per page, but all orders are processed in renderStats. There is no benchmark behind the claim."
+ },
+ {
+  "id": "F88e69499",
+  "app": "fixture2",
+  "finding": "api.js:6 Search text is put into the URL without encoding. api.js:6 interpolates the raw input. Driven: typing 'a&status=refunded#x' requested '/orders?q=a&status=refunded' - the typed text added its own status parameter and the # dropped the real status filter. A user searches for 'Smith & Sons' or 'R#5': the query is cut at & or #, so results are wrong. A crafted string overrides the status filter."
+ },
+ {
+  "id": "Fdfe83442",
+  "app": "fixture2",
+  "finding": "Code review: git diff main...HEAD (commit f335fe5, new OrderDesk dashboard)\n\nI found 9 high-signal issues. There are no CLAUDE.md files, so there is no compliance check. I read the diff myself and did not launch subagents, because the change is small and every issue can be confirmed from the diff text alone.\n\nBugs"
+ },
+ {
+  "id": "F1d4084c7",
+  "app": "fixture2",
+  "finding": "Bugs"
+ },
+ {
+  "id": "F8731a049",
+  "app": "fixture2",
+  "finding": "The pricing arithmetic is wrong. 12 seats \u00d7 $15 \u00d7 12 months = $2,160. At 20% off that is $1,728, not $1,440."
+ },
+ {
+  "id": "Fb24a123f",
+  "app": "fixture2",
+  "finding": "app.js:57 The selection tracking only pushes ids on check and never removes them on uncheck. Selections are also not cleared when the page is re-rendered, and duplicates are possible. The user checks order A, unchecks it, and clicks Refund. A is still in selected and gets refunded. Paging back and re-checking pushes the id twice."
+ }
+]

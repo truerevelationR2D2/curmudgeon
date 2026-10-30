@@ -1,0 +1,8 @@
+{
+ "total_cost_usd": 1.3231787,
+ "tokens": 536210,
+ "is_error": false,
+ "num_turns": 10,
+ "agents_launched": 6,
+ "wall_s": 274.3
+}

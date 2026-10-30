@@ -1,0 +1,12 @@
+[
+ {
+  "id": "F5379c330",
+  "app": "fixture2",
+  "finding": "index.html:94 The refund control is a non-focusable span with no role or keyboard handler, the checkboxes and inputs have no labels, and styles.css removes the focus outline. Keyboard and screen-reader users cannot trigger the refund action, since a span cannot be reached by Tab or activated with Enter. The inputs have no accessible name. outline:none on focus (styles.css line 122) removes the focus indicator. These contradict the README's 'Fully accessible, WCAG 2.1 AA' claim. Other failures include the contrast of #aaa on white, #c7c2f0 on purple, and 10px dots, and the status shown by colour only. Targets are about 20px, not 44px."
+ },
+ {
+  "id": "F5f162b35",
+  "app": "fixture2",
+  "finding": "API key is in the client. api.js hard-codes API_KEY (a Stripe-key placeholder) in a script served to the browser and sends it as a bearer token. The README claims \"the API key never leaves the server\", and the code does the opposite. A real key here would be exposed to every visitor.\n\nREADME claims the code contradicts"
+ }
+]

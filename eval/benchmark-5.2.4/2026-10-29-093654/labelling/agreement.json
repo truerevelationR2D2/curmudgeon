@@ -1,0 +1,8 @@
+{
+ "findings": 205,
+ "agreed": 196,
+ "agreement": 0.956,
+ "kappa_verdict": 0.886,
+ "controls_a": null,
+ "controls_b": null
+}

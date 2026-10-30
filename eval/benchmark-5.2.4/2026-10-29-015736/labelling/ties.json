@@ -1,0 +1,402 @@
+[
+ {
+  "id": "F0056a350",
+  "app": "fixture2-clean",
+  "finding": "domain.js:28 Revenue applies a gold discount and sales tax on top of order.total, while refunds use order.total as is; the two disagree for the same order. orderRevenueCents (domain.js:25-30) turns total into total x 0.9 (gold) x 1.0825. refundSelected sums raw o.total (app.js:122) for the confirm. Nothing in the payload says the API's total is a pre-discount, pre-tax subtotal. A gold customer's paid order has total 100.00. The Revenue card counts it as $97.43 (100 x 0.9 x 1.0825) and a standard-tier one as $108.25. The refund confirm for the same orders says $100.00. One of the two figures is wrong for any order; if total is already what the customer paid, revenue is overstated by 8.25% for standard and understated by 2.6% for gold."
+ },
+ {
+  "id": "F047135b2",
+  "app": "fixture3",
+  "finding": "app.js:59 On a failed save the form is reset and the status message tells the user the recipe 'is kept until you close this tab', which may not hold. Storage is blocked. The recipe lives only in the recipes array and is lost on reload, and the status message does not clearly warn that the data will not persist. The next successful action can also overwrite the status text."
+ },
+ {
+  "id": "F063369cb",
+  "app": "fixture2-clean",
+  "finding": "Refund retries: Each refund attempt gets a new idempotency key, so the server can't tell a retry from a new request. The error message does tell the user to check order statuses before retrying.\n\nThe summary agent also noted that the README states server requirements and performance and accessibility claims the diff doesn't back up. Those are reviewer notes, not code defects, and I did not flag them.\n\nI posted nothing and changed no files."
+ },
+ {
+  "id": "F072e0a54",
+  "app": "fixture4",
+  "finding": "This check is the only thing guarding the void button.\n\n2. tooSoon() never starts the throttle (guards.js, lastSend/tooSoon; used in app.js)"
+ },
+ {
+  "id": "F0c1e9464",
+  "app": "fixture3",
+  "finding": "Delete handler: the recipe lookup always finds a recipe, so describe(r) and r.name cannot hit null."
+ },
+ {
+  "id": "F0e328fe2",
+  "app": "fixture2-clean",
+  "finding": "styles.css:23 The page title is 24 px left of the content column on wide screens. main is max-width 1100 with box-sizing border-box and 24 px padding, so its content starts at (viewport-1100)/2 + 24. The h1 sits in the header's content box (header padding 24) and is itself 1100 wide, centred, so it starts at (viewport-1100)/2. Traced from the CSS, not rendered, since the shell was denied. At 1360 px the h1 left edge is at 130 px, while the stat cards, toolbar and table start at 154 px."
+ },
+ {
+  "id": "F100f9d66",
+  "app": "fixture4",
+  "finding": "index.html:21 Live region is replaced wholesale on every add, so a screen reader re-reads the whole list. render() sets list.innerHTML for every line each time (app.js:7), which replaces all child nodes inside an aria-live region. The total is in a separate <output> that is not tied to it. With 30 lines, adding the 31st can make a screen reader announce all 31 items again. No message says that a line was added or what the new total is."
+ },
+ {
+  "id": "F1184df0f",
+  "app": "fixture2-clean",
+  "finding": "domain.js:35 'Average per order' divides paid revenue by every order, including refunded and pending. orderRevenueCents returns 0 for non-paid orders (domain.js:26), but the divisor is orders.length (domain.js:35). The same number feeds the 'Orders' card. One paid order of $100 and nine pending ones: the card shows Average per order $10.83 (approx; 108.25 / 10), although the only completed order is worth $108.25. Filtering by status=pending shows Revenue $0.00 and Average $0.00 instead of a dash."
+ },
+ {
+  "id": "F11b0fc32",
+  "app": "fixture4",
+  "finding": "Negative and fractional values like \"-3\" or \"1.5\" also pass. The input is meant to be numeric (inputmode=\"numeric\")."
+ },
+ {
+  "id": "F143a702a",
+  "app": "fixture2-clean",
+  "finding": "domain.js:33 orderRevenueCents applies a 10% gold discount and 8.25% sales tax to raw.total. Revenue is therefore not the order total shown in the table. An API order with total 100.00 and tier 'gold' is shown as $100.00 in the table. The revenue stat adds 90 \u00d7 1.0825 = $97.43 for it, and a standard order adds $108.25. If the API total is already net of discount or inclusive of tax, revenue is double-adjusted. The Revenue stat will not reconcile with the visible Total column, and no source documents the rule."
+ },
+ {
+  "id": "F178a535a",
+  "app": "fixture4",
+  "finding": "guards.js:3 Guards are implicit globals with a load-order dependency, and nothing checks that they exist. app.js calls escapeHtml, validQuantity, tooSoon and canVoid, which are defined only as globals in guards.js and depend on script order in index.html. Reordering the script tags, or a failed load of guards.js, throws a ReferenceError at the first call. The throw happens inside the render and click handlers, so the page silently stops working."
+ },
+ {
+  "id": "F1da5d373",
+  "app": "fixture2-clean",
+  "finding": "styles.css:23 The page title sits 24 px left of the content below it on wide screens. Driven at 1360 px: h1 left edge was 130 px and the first stat card's left edge 154 px. main is 1100 px wide with 24 px padding inside the box-sizing border-box width, while the h1 is 1100 px wide with no padding. Open the page at any width above 1148 px. 'Orders' starts 24 px to the left of the stat cards, search box and table."
+ },
+ {
+  "id": "F1ef43471",
+  "app": "fixture3",
+  "finding": "importRecipes (app.js) and getJson (util.js) are never called."
+ },
+ {
+  "id": "F1f782635",
+  "app": "fixture4-clean",
+  "finding": "app.js:2 Void permission is checked only in the browser, against a hard-coded user object. The only authorisation for voiding is canVoid(user) (app.js:32), a client function over a client-side object. The request at app.js:33 carries no identity or body. No server code is in the payload, so whether /api/invoices/void checks the role is unknown. The user is hard-coded, not read from a session. Any signed-in user opens the console and runs fetch('/api/invoices/void', {method:'POST'}), or runs user.roles.push('admin') and clicks the button. If the server does not itself require admin, a viewer voids an invoice."
+ },
+ {
+  "id": "F209348ed",
+  "app": "fixture4-clean",
+  "finding": "guards.js:11 Void permission is checked only in the browser, on a global the user can edit. canVoid reads the page-global user (app.js:2, a const at script top level, readable from the console as user; the roles array is mutable). The request at app.js:33 carries no identity or invoice id, so the server cannot tell the client's claim from fact. The server is not in the payload; enforcement there is inferred as absent from what the client sends. In the console run user.roles.push('admin'), click Void invoice: the guard passes and the POST goes out. If the server relies on the client check, any viewer can void invoices."
+ },
+ {
+  "id": "F223c6149",
+  "app": "fixture2-clean",
+  "finding": "app.js:122 Refund amount shown in the confirm dialog is computed in the view and disagrees with the revenue rule in domain.js. domain.js:25-30 treats the money an order represents as total, less 10% for gold, plus 8.25% tax. app.js:122 sums the raw o.total in a handler with floating-point addition and no tier or tax. The two places encode different ideas of what the customer paid. Arithmetic on money in a handler is the domain-leak row of the code rubric. A gold customer's paid order has total 100.00. The Revenue tile counts $97.43 for it (9000 cents plus 8.25%), while the dialog says 'Refund 1 order totalling $100.00'. One of the two figures is wrong, and the user is asked to approve a money movement on the unlabelled one."
+ },
+ {
+  "id": "F24ca9135",
+  "app": "fixture2-clean",
+  "finding": "app.js:108 A failed search leaves the previous results, stats and selection on screen as if they matched. The catch block (app.js:105-108) sets only the message. state.orders, state.selected and the table are not cleared, and the finally block (app.js:110) re-enables the Refund button for the old selection. The user ticks two rows, then types 'smith' and the request returns 500. A red line appears above a table that still shows the old rows with 'smith' typed in the box, and 'Refund 2 orders' is still enabled. The user can refund rows that are not the search results."
+ },
+ {
+  "id": "F2509da74",
+  "app": "fixture4",
+  "finding": "index.html:21 The live region is rebuilt wholesale with innerHTML on every add. render() replaces all children of #lines each time (app.js:7). Screen readers may re-announce the whole list on each add instead of only the new line. Traced, not tested with a screen reader. With 10 lines present, add an 11th: some screen readers read all 11 again."
+ },
+ {
+  "id": "F2655a807",
+  "app": "fixture2-clean",
+  "finding": "app.js:98 Every load, including the post-refund reload and any search, silently clears the user's selection. The user ticks several orders, then types a search character or filters. The search reloads and clears all selections without notice. The refund button resets to 'Refund selected'. The user can believe a refund covers rows they ticked earlier."
+ },
+ {
+  "id": "F2661cb1e",
+  "app": "fixture2-clean",
+  "finding": "README.md:11 README states measurements and an axe-core result that have no script or artifact in the repo. The repo holds six files: no mock API, benchmark, axe config or test. README.md:5 'axe-core reports no WCAG 2.1 A or AA violations' and README.md:11 cannot be reproduced. README.md:12 gives a Team plan price that nothing in an order dashboard uses. A reader who wants to confirm the 100 ms or the axe result has nothing to run; the 'Pricing' paragraph also describes a product that is not in this code."
+ },
+ {
+  "id": "F2a315a0a",
+  "app": "fixture2-clean",
+  "finding": "domain.js:29 Revenue re-applies the gold discount and 8.25% sales tax in the browser on top of the server's order total. orderRevenueCents (domain.js:25-30) treats order.total as a pre-discount, pre-tax subtotal. It then applies a hardcoded tier discount and tax rate. The server owns the order total, which is the same figure the refund dialog sums (app.js:122). The Average stat also divides by all orders, including refunded and pending ones that count as 0 (domain.js:35). No document states the intended definitions. A standard-tier paid order with total 100.00 (already the charged amount) shows revenue $108.25. A gold order with total 90.00 shows $97.42. The Revenue card then disagrees with the sum of the Total column and with what the refund dialog shows for the same orders. Tax-rate or tier changes on the server drift silently."
+ },
+ {
+  "id": "F2ad9061e",
+  "app": "fixture4-clean",
+  "finding": "app.js:2 The void permission is decided only in the browser, from a role list that is a client-side constant. guards.js:10-12 canVoid checks user.roles for \"admin\". The user object is a hardcoded, mutable global in app.js. The void request at app.js:33 carries no credential or role. No server-side check is in this payload. In the dev console run user.roles.push('admin'), then click Void invoice. The client check passes and POST /api/invoices/void is sent. Whether it is refused depends entirely on server code outside this change."
+ },
+ {
+  "id": "F2cba997c",
+  "app": "fixture3",
+  "finding": "app.js:24 The status message sums minutes across all saved recipes but is worded as the total for the recipe just saved, and it is built from a possibly mixed-type sum. The user saves \"Soup 20\" and the status reads 'Saved \u201cSoup\u201d. Total cooking time: 100 minutes.' This reads as the total for that recipe, not for the whole box. Combined with the unvalidated stored data, it can show NaN or a concatenated string."
+ },
+ {
+  "id": "F2d170427",
+  "app": "fixture4-clean",
+  "finding": "app.js:2 Void permission is enforced only in the browser, on a mutable page global. The only authorization check in the payload is canVoid(user) at app.js:32, reading a top-level const that the console can mutate. The void request at app.js:33 carries no user or invoice identity in the body. Server code is not in the payload, so server enforcement is unknown (q: does /api/invoices/void check the session role?). In the dev console type user.roles.push(\"admin\") and click Void invoice. canVoid now returns true and POST /api/invoices/void is sent. If the server trusts the client check, a viewer voids an invoice."
+ },
+ {
+  "id": "F389c0350",
+  "app": "fixture",
+  "finding": "app.js:10 Setting list.innerHTML += inside the loop re-parses and rebuilds the whole list on every iteration. It also uses inline onclick handlers. This is O(n\u00b2) DOM work. Re-serialising the list each time drops the shared items and any other state. The inline handler requires a global removeNote."
+ },
+ {
+  "id": "F3df54201",
+  "app": "fixture4",
+  "finding": "app.js:2 The user and roles are hardcoded on the client, so the client-side canVoid guard is only cosmetic. Anyone can edit the user object in the console, or call POST /api/invoices/void directly. Authorization has to be enforced on the server. The comment says the guard is for admins only, but nothing in this diff enforces that anywhere that matters."
+ },
+ {
+  "id": "F41ece70b",
+  "app": "fixture4",
+  "finding": "lastSend = Date.now() needs to be set when a send starts.\n\n3. validQuantity accepts an empty quantity (guards.js:17-20)"
+ },
+ {
+  "id": "F43f9f0ee",
+  "app": "fixture4",
+  "finding": "Code review: git diff main...HEAD (1 commit, 4 new files)\n\nI found 4 bugs. There were no CLAUDE.md files in the repo, so I checked bugs only. The diff is small, so I read it myself and didn't launch review subagents. Each finding below can be confirmed from the code shown.\n\n1. The void permission check is inverted (guards.js:9-14)."
+ },
+ {
+  "id": "F44a25f7a",
+  "app": "fixture4",
+  "finding": "app.js:2 Roles are a client-side literal, so the browser alone decides who may void. The signed-in user and their roles are hardcoded in client code. canVoid is the only permission check in these four files. The void request carries no credentials or role data of its own. Anyone can run user.roles.push(\"admin\") in the console or call the endpoint directly. Whether the server checks is not visible in the payload, so this cannot be confirmed or ruled out. Traced. In the console, run fetch(\"/api/invoices/void\", {method:\"POST\"}) as a viewer. If the server relies on the UI check, the invoice is voided."
+ },
+ {
+  "id": "F538e36e2",
+  "app": "fixture2-clean",
+  "finding": "app.js:98 load() clears the selection and resets the page on every reload, including when the refund itself fails. While the user is paging, or has ticked orders across pages, a late search timer or status change fires load(). This silently drops the selection and returns to page 1, and the confirm dialog count no longer matches what the user ticked. Selections also persist invisibly across pages, so a refund can include orders that are not on screen."
+ },
+ {
+  "id": "F55604d94",
+  "app": "fixture2-clean",
+  "finding": "styles.css:23 On wide screens the page heading sits 24px left of the content column. Driven at 1360 px: h1 left edge 130 px, .stats left edge 154 px. main has max-width 1100px with box-sizing border-box and 24px padding, so its content is 1052px wide. The h1 is allowed 1100px of content width inside the header's own padding. At 1360 px wide the 'Orders' heading and the stats cards start at different x positions."
+ },
+ {
+  "id": "F576fcb92",
+  "app": "fixture-clean",
+  "finding": "app.js:173 selectNote() calls flushSave(), which already runs renderList(), and then calls renderList() again. createNote also commits before selectNote's flush. Every note switch rebuilds the list DOM twice, and a new note triggers two localStorage writes. This is wasted work, and the list flickers when it is large."
+ },
+ {
+  "id": "F58d22cb2",
+  "app": "fixture-clean",
+  "finding": "app.js:223 The shared-notes fetch has no timeout, and the shared status is not cleared or reset when the query becomes empty. The server hangs. The user sees 'Searching shared notes\u2026' forever, because only a newer query aborts the request. After the box is hidden and shown again for a new query, the old status text can briefly reappear."
+ },
+ {
+  "id": "F58f44210",
+  "app": "fixture3",
+  "finding": "importRecipes: this function in app.js is never called, so its blank-line handling has no effect."
+ },
+ {
+  "id": "F5c199ae3",
+  "app": "fixture3",
+  "finding": "app.js:25 On save failure the message promises 'Your recipe is kept until you close this tab', but the recipe is only in memory and the delete handler's failed save is not reported the same way. Storage is blocked and the user adds recipes. A later successful save, or a page refresh, loses them. Because the message appears only on add, the user gets no signal when a delete fails to persist."
+ },
+ {
+  "id": "F5ec53690",
+  "app": "fixture2-clean",
+  "finding": "styles.css:23 The page heading is 24px left of the content column at wide widths. main is max-width 1100px with 24px padding (styles.css:24), so its content starts 24px inside the 1100 box. The h1 has the same 1100px max width and no padding. At 1360px wide: h1 starts at x=130, main content at x=154. At 390px both start at 24px, so only wide screens misalign. Open at 1360px: 'Orders' starts 24px to the left of the stat tiles and the table below it."
+ },
+ {
+  "id": "F61880d33",
+  "app": "fixture-clean",
+  "finding": "app.js:61 A migrated or normalized notes list is never persisted at load, so storage stays in the old format until the user edits something. A user with version-0 data opens the app and only reads. Storage keeps the bare array with numeric ids, and the in-memory ids are generated fresh. A second tab or the next load can regenerate different ids for the same records."
+ },
+ {
+  "id": "F674f229c",
+  "app": "fixture2-clean",
+  "finding": "README.md:3 The README states axe-core results and a '<100 ms with 10,000 orders' measurement that nothing in the repo supports. The 'checkboxes are 24 px' note also does not match the 44 px claim for fields and buttons. The repo has no test, script or benchmark that produces the axe or timing numbers, so a reviewer cannot recompute them. The renderTable() code only renders 10 rows, so a 10,000-order timing says nothing about the claim. The claims read as verified facts but cannot be checked."
+ },
+ {
+  "id": "F697ab38d",
+  "app": "fixture2-clean",
+  "finding": "domain.js:87 The average divides paid-only revenue by the count of all orders, including refunded, pending and unknown ones. There are 1 paid order of $100 and 3 pending orders. The revenue is $108.25 but the average per order shows $27.06, understating the real figure. The 'Orders' stat also counts non-revenue orders. The labels do not say which denominator is used."
+ },
+ {
+  "id": "F6a7492dd",
+  "app": "fixture2-clean",
+  "finding": "styles.css:23 The page heading is 24 px left of the content below it at wide widths. At 1360 px: .top has 24 px side padding, so h1 (max-width 1100, margin auto) starts at 24 + (1312-1100)/2 = 130 px. main is box-sizing border-box with max-width 1100, so its box starts at 130 px and its content (24 px padding) at 154 px (styles.css:24). Computed from the CSS; not rendered. On a 1360 px window, 'Orders' sits at x=130 while the stat cards, search field and table start at x=154."
+ },
+ {
+  "id": "F6c0a3c36",
+  "app": "fixture2-clean",
+  "finding": "domain.js:29 Revenue adds 8.25% tax (and a gold discount) on top of the order total the table shows, so the stat does not reconcile with the rows. orderRevenueCents multiplies the server's order.total by 1.0825 (and by 0.9 for gold). The table (app.js:51) and the refund confirm (app.js:122) show and use the raw total. An order total from an API normally already includes tax and discount, and revenue normally excludes tax. Nothing in the repo states which it is. Traced. One paid standard order with total 100.00. The row says $100.00 and the Revenue card says $108.25. For a gold order the row says $100.00 and Revenue says $97.43. The user cannot reconcile the two, and the refund prompt for the same order says $100.00."
+ },
+ {
+  "id": "F6ce6613e",
+  "app": "fixture2-clean",
+  "finding": "app.js:144 The status change handler calls load() without clearing the pending search debounce timer. The user types a query and changes the status within 250 ms. load() runs immediately, and the stale searchTimer fires again, causing a redundant second request and a second selection clear. The user's ticked checkboxes are wiped a moment after the first load settles."
+ },
+ {
+  "id": "F70a66328",
+  "app": "fixture-clean",
+  "finding": "store.js:50 Data with a version newer than SCHEMA_VERSION is read as v1 and written back as v1, and the stored version is never checked. A newer build, or another tab on a newer version, saves {version:2, notes:[{..., tags:[...]}]}. This build normalizes each note to only id, title, body and updated. The next edit saves it back as version 1, with no backup and no warning, so the extra fields and version are permanently lost."
+ },
+ {
+  "id": "F7352bf1c",
+  "app": "fixture2-clean",
+  "finding": "app.js:193 The refund-confirm total is a float sum of dollars, and the confirm dialog is the only guard against stale or off-page selections. Selections persist across pages, so orders on other pages are included in the count and total without being visible. Summing 0.1+0.2-style floats can produce a drifting amount, while the rest of the code uses integer cents. The dialog shows 'totalling' a number that may differ from what the server refunds."
+ },
+ {
+  "id": "F7940a414",
+  "app": "fixture",
+  "finding": "The /api/shared results are interpolated the same way, as ${s.title} into insertAdjacentHTML."
+ },
+ {
+  "id": "F7ae7a066",
+  "app": "fixture2-clean",
+  "finding": "domain.js:33 Math.round(order.total * 100) suffers float error, which contradicts the 'whole cents, no drift' comment. A total of 1.005 gives 100.49999999999999 and rounds to 100 cents instead of 101. Applying the tax and discount in basis points afterwards cannot recover the lost cent, so the summary can be off by a cent per order. Totals should be handled as integer cents from the API, or rounded via a decimal string."
+ },
+ {
+  "id": "F83df2fa7",
+  "app": "fixture4",
+  "finding": "app.js:2 Role is a hard-coded client object and the only void check is in the browser. The roles come from a literal in client code, and canVoid (guards.js:9) is the only gate visible in the payload. Anyone can call fetch(\"/api/invoices/void\", {method:\"POST\"}) from the console. The server is not in the payload, so server-side enforcement is unconfirmed. In devtools: user.roles.push(\"admin\") or a direct fetch POST to /api/invoices/void. If the server trusts the request, any viewer voids invoices."
+ },
+ {
+  "id": "F8ac014bd",
+  "app": "fixture-clean",
+  "finding": "app.js:126 flushSave sets updated = Date.now() and re-sorts the list even when the title and body are unchanged. It also calls selectNote and deleteNote without checking that anything changed. The user types a character and deletes it again within 500 ms. The note is marked as newly updated and jumps to the top of the list with no real change. The 'Saved' status then misleads about activity."
+ },
+ {
+  "id": "F96e076dd",
+  "app": "fixture4",
+  "finding": "The fix is to set lastSend = Date.now() when a send starts.\n\n3. validQuantity accepts empty and invalid quantities (guards.js, validQuantity; used in app.js)"
+ },
+ {
+  "id": "F97f7b936",
+  "app": "fixture3",
+  "finding": "Problem scan of the new code (Opus): none. User text is escaped before it reaches innerHTML, and the delete flow matches ids correctly.\n\nBecause neither bug agent reported anything, step 5 had nothing to validate and step 6 had nothing to filter.\n\nThe agents noticed a few things but didn't flag them because they depend on future use or state, or are dead code:"
+ },
+ {
+  "id": "F995c3797",
+  "app": "fixture4-clean",
+  "finding": "guards.js:51 validQuantity accepts numbers beyond safe-integer range, with no upper bound. The quantity '9007199254740993' passes the regex and Number() >= 1 but loses precision, so the stored qty differs from what the user typed."
+ },
+ {
+  "id": "F9abafa96",
+  "app": "fixture-clean",
+  "finding": "app.js:129 flushSave always reports 'Saved' and re-renders. When commit fails, the in-memory edit stays and pending is cleared, so nothing retries. The quota is full. The user types, flushSave runs and shows the error. They keep typing, and each later flush re-attempts the full save. If they navigate away or close the tab after a failed save, the edits are lost with only a transient error shown. The error status is also overwritten by 'Saving\u2026' on the next keystroke, so the failure is easy to miss."
+ },
+ {
+  "id": "F9b16c6d9",
+  "app": "fixture2-clean",
+  "finding": "domain.js:40 Summary 'Revenue' includes sales tax and 'Average per order' divides by all orders, including refunded and pending ones that contribute 0. A $100 paid standard-tier order shows revenue of $108.25, because the 8.25% tax is added to the order total. Add a refunded order and a pending order and the average becomes $36.08 instead of $108.25. The 'Average per order' label does not say which of the two it is."
+ },
+ {
+  "id": "Fa34fc3e7",
+  "app": "fixture2-clean",
+  "finding": "README.md:3 Quantitative and compliance claims (axe-core clean, under 100 ms with 10,000 orders) have no test, script or fixture in the repo, and the 'rotate the leaked key' instruction refers to history that is not here. A reviewer cannot recompute the 'axe-core reports no WCAG 2.1 A or AA violations' or '<100 ms' claims. The commit adds no test files, so the stated behaviour (late-response cancel, rounding, clampPage) is unverified. The 'status in words, not colour alone' claim also has no style for the 'unknown' status, which renders a muted dot with the word 'unknown'."
+ },
+ {
+  "id": "Fa715edcb",
+  "app": "fixture-clean",
+  "finding": "app.js:187 createNote() and deleteNote() ignore the commit result and carry on, and selectNote/renderList can leave a stale status. Storage is blocked or full. createNote pushes the note, commit() shows the error, and the UI behaves as if the note exists. The same happens for delete. After a reload the note is gone or comes back, and the status text may have been replaced by an unrelated message."
+ },
+ {
+  "id": "Fab0c5f2e",
+  "app": "fixture4",
+  "finding": "Negative and fractional values such as -3 or 1.5 also pass, though the input is meant to be numeric (inputmode=\"numeric\")."
+ },
+ {
+  "id": "Fb1637d0f",
+  "app": "fixture3",
+  "finding": "app.js:21 The minutes check uses parseInt, so decimal input is silently truncated and trailing junk is accepted. The 1\u2013600 limit is not enforced in JS. Entering \"1.5\" stores 1 minute. Programmatic or paste input such as \"20abc\" stores 20. A value like 99999 passes the JS check if the HTML constraint is bypassed, because only > 0 is tested."
+ },
+ {
+  "id": "Fb1949438",
+  "app": "fixture3",
+  "finding": "app.js:21 parseInt silently truncates decimals, and the JS never enforces the HTML max of 600. Entering 1.5 stores 1 minute. Entering 0.5 parses to 0 and shows 'Give the recipe a name...' even though the field has a value. The max=600 limit is enforced only by the browser form check, so it is bypassed whenever submit validation is skipped."
+ },
+ {
+  "id": "Fb817aee8",
+  "app": "fixture2-clean",
+  "finding": "app.js:144 A status change does not cancel a pending search debounce timer, so load() runs a second time. The user types in the search box and then changes the status within 250 ms. load() runs immediately, then searchTimer fires and calls load() again, which aborts the first request and sends a duplicate. The selection and page are reset twice, and anything the user selected in between is lost."
+ },
+ {
+  "id": "Fbb7c963b",
+  "app": "fixture3",
+  "finding": "README.md:6 The README line about \"3 recipes of 20, 35 and 45 minutes total 100 minutes\" is a hard-coded example that no code or test backs. The arithmetic is correct (20+35+45=100). The README presents it as a fact about the app, but it is not tied to the code or a fixture, so it goes stale unnoticed if totalMinutes changes."
+ },
+ {
+  "id": "Fbef32bc9",
+  "app": "fixture4-clean",
+  "finding": "app.js:1 Entered invoice lines live only in memory: refresh or close loses them. app.js:1 is the only store. There is no localStorage, no beforeunload warning, no pagehide flush. Traced. Enter 20 lines, accidentally refresh or press Back: the list and total are empty again with no warning."
+ },
+ {
+  "id": "Fc19665be",
+  "app": "fixture4-clean",
+  "finding": "app.js:31 The Void button is client-side gated only, and the void request carries no invoice id. canVoid() only checks the in-page user constant, and the POST to /api/invoices/void has no invoice id or body. A viewer can call the endpoint directly, or edit user.roles in devtools. Unless the server enforces the admin check, any signed-in user can void. If the server does enforce it, it has no way to know which invoice to void."
+ },
+ {
+  "id": "Fc1ffaae4",
+  "app": "fixture2-clean",
+  "finding": "app.js:228 After a successful refund, the load() call can be aborted or superseded, and a refund failure message is later overwritten by load()'s setMessage. A debounced search timer fires during or after the refund. load() clears the selection and state.page, and its setMessage('') replaces the refund error or the 'Loading' state. The user loses the 'check the order statuses' warning. The refund also ends up flagged as done while the visible list is mid-reload."
+ },
+ {
+  "id": "Fc7ea51d6",
+  "app": "fixture3",
+  "finding": "app.js:26 After a failed save, the new recipe stays only in memory, and the status message is replaced by nothing else. The list gives no indication of which items are unsaved. Storage is blocked. The user adds several recipes and each one overwrites the same warning. On reload everything is gone. The warning is also only in a polite live region, which is easy to miss."
+ },
+ {
+  "id": "Fce786629",
+  "app": "fixture2-clean",
+  "finding": "app.js:129 The refund response body is ignored, so partial failures are reported as full success. The server returns 200 with per-id results, or refunds only some ids. The toast still says 'Refunded N orders.' The README claims success is reported 'only after the server confirms it'. The code confirms only that the HTTP status was 2xx."
+ },
+ {
+  "id": "Fcfe6bea0",
+  "app": "fixture3",
+  "finding": "importRecipes (app.js:61) and getJson (util.js:12) are never called. getJson is also the only network call, which sits oddly beside the README's \"nothing is sent anywhere\"."
+ },
+ {
+  "id": "Fd152632b",
+  "app": "fixture2-clean",
+  "finding": "domain.js:33 orderRevenueCents rounds with Math.round, which rounds negative half-cents toward zero. It also applies the discount and tax to totals that may already include them. A credit with a negative total, such as -0.005 or a gold-tier -1.05 order, rounds differently from the 'half up per order' rule in the comment. The revenue figure then disagrees with what the billing system computes. The 'Average per order' also divides revenue by every order in the list, including refunded and pending ones, which understates the average per paid order."
+ },
+ {
+  "id": "Fd20366af",
+  "app": "fixture2-clean",
+  "finding": "app.js:123 The refund confirmation amount uses order.total, but the dashboard's revenue uses a gold discount plus tax, so the two figures disagree for the same order. A gold-tier paid order with total 100.00 contributes 98.18 to revenue. The refund dialog and the table show 100.00. The user cannot reconcile the figures. Which amount the customer actually receives is unspecified."
+ },
+ {
+  "id": "Fd2b052c7",
+  "app": "fixture2",
+  "finding": "README.md:7 Performance claim has no measurement behind it. Every keystroke fetches the whole order list (app.js:45) and renderStats walks all orders (app.js:11); the table builds 10 rows with innerHTML += (app.js:32). No benchmark or test exists in the payload. 'Instantly' is not a figure. A reader expects 10,000 orders to render and update in real time with no debounce; unmeasured."
+ },
+ {
+  "id": "Fdbfae25d",
+  "app": "fixture2-clean",
+  "finding": "domain.js:46 summarise's average divides by all orders, including refunded, pending and unknown ones, which contribute 0 revenue. 10 orders, 5 paid at $100 and 5 pending. 'Average per order' shows about half the true paid-order average. The statistic is misleading when the status filter is 'All'."
+ },
+ {
+  "id": "Fddf991fa",
+  "app": "fixture4",
+  "finding": "app.js:1 Invoice lines live only in memory and are lost on refresh or close. lines is a module-level array, never written to storage and never restored; no pagehide/beforeunload handler exists in app.js. Add ten lines, accidentally refresh or close the tab: all lines are gone with no warning."
+ },
+ {
+  "id": "Fde34edcd",
+  "app": "fixture2-clean",
+  "finding": "domain.js:42 The average divides revenue by orders.length, which counts refunded, pending and unknown orders. These contribute 0 to revenue. Two orders: one paid at $100 and one refunded at $100. Revenue is $108.25 and the average is $54.12, not $108.25 per paid order. The 'Average per order' stat is diluted by every unpaid order and gives a misleading figure."
+ },
+ {
+  "id": "Fde70521b",
+  "app": "fixture4-clean",
+  "finding": "app.js:8 Line totals use floating-point arithmetic, and each line's total is not shown. The total is the sum of qty*price as floats, formatted with toFixed(2). Values such as 3 \u00d7 0.1 or sums of many prices can drift from the currency-correct amount by a cent. The same float total is what gets sent, because the server receives qty and price and recomputes. The client and server totals can therefore differ."
+ },
+ {
+  "id": "Fdea4c4f6",
+  "app": "fixture2",
+  "finding": "renderStats applies the 8.25% tax and the gold discount to refunded orders as well. If o.total is already the charged amount, revenue is mis-stated. I can't confirm the intended semantics from the diff."
+ },
+ {
+  "id": "Fe29a749d",
+  "app": "fixture4-clean",
+  "finding": "app.js:32 Void authorization is enforced only on the client, using a hard-coded user object. The user object is a constant { roles: ['viewer','billing'] }, and canVoid is checked only in the browser. Anyone can POST to /api/invoices/void from the console, or edit user.roles, and bypass the 'only admins' rule unless the server checks it too. The void request also carries no invoice id, so which invoice it voids is ambiguous. This is acceptable only if the server enforces the rule, and nothing in this tree shows that it does."
+ },
+ {
+  "id": "Ff2008c1a",
+  "app": "fixture4-clean",
+  "finding": "app.js:32 Only the browser enforces the admin-only void rule, and the user object is a client-side literal. guards.js:10-12 canVoid reads user.roles; app.js:2 defines user as a top-level const in a classic script, so it is a global the page visitor can change. app.js:33 posts to /api/invoices/void with no credential, role or invoice id in the request body. No server code is in the payload, so server-side enforcement is not shown anywhere. A viewer opens the console and runs user.roles.push('admin'), then clicks Void invoice. Or they run fetch('/api/invoices/void',{method:'POST'}) directly. The only gate is the browser check, so unless the server independently rejects the call, a non-admin voids an invoice."
+ },
+ {
+  "id": "Ff29bbb5c",
+  "app": "fixture4",
+  "finding": "app.js:2 The client-side role check is the only guard for the void action. The user object is hard-coded in the browser, so the permission check is cosmetic and can be bypassed. The user and roles are literals in app.js. Anyone can edit them in devtools, or call fetch('/api/invoices/void') directly. Unless the server also enforces the admin role, any signed-in user can void. The fix is to enforce the role on the server and make the client check a UI hint only."
+ },
+ {
+  "id": "Ff6d44a30",
+  "app": "fixture2-clean",
+  "finding": "app.js:142 The search input is not blocked while a refund is in flight, and the search input handler never cancels the pending debounce on Enter or blur. The user types a query, then changes the status select immediately. Both load() calls run, the debounce timer fires a second load(), and the second one aborts the first. The result is redundant requests, and loading and selection flicker."
+ },
+ {
+  "id": "Ff9d1cc77",
+  "app": "fixture2-clean",
+  "finding": "Empty refund reply: if the server answers a refund with 204 No Content, the JSON read fails and the page says the refund was not confirmed even though it went through. This only matters if the server really sends 204.\n\nThe summary agent also noted that the PR has no tests, and nothing in it verifies the README's axe-core and performance claims. I did not flag that, because test coverage is excluded under the review rules.\n\nNothing was posted and no files were changed."
+ },
+ {
+  "id": "Ffa7d23a2",
+  "app": "fixture2-clean",
+  "finding": "Refund retries: newIdempotencyKey() makes a new key on every click. A user who retries after a failed or timed-out refund gets a fresh key, so the server's Idempotency-Key protection can't catch that repeat. The on-screen message tells the user to reload and check order statuses first, so I left it.\n\nThe README's pricing arithmetic is right: 12 \u00d7 $15 \u00d7 12 = $2,160, and 20% off is $1,728. I could not check the README's axe-core result or the 10,000-order timing, since they depend on runs I can't see here."
+ }
+]

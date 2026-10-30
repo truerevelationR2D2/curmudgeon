@@ -1,0 +1,177 @@
+[
+ {
+  "id": "F408461c5",
+  "app": "app-d6c8a1",
+  "finding": "app.js:142 Local search filters on the title only, not the body, even though the box is labelled 'Search notes'. A note titled 'Untitled' has the body 'dentist 3pm'. Searching 'dentist' shows 'No notes match', and the same query is sent to the server's shared search."
+ },
+ {
+  "id": "F22f85646",
+  "app": "app-d6c8a1",
+  "finding": "CLAUDE.md compliance (2 sonnet agents): the repo has no CLAUDE.md, so there were no rules to violate. One of the two agents couldn't run the diff command and didn't read the changed files."
+ },
+ {
+  "id": "F18d89620",
+  "app": "app-d6c8a1",
+  "finding": "app.js:173 selectNote() calls flushSave(), which already runs renderList(), and then calls renderList() again. createNote also commits before selectNote's flush. Every note switch rebuilds the list DOM twice, and a new note triggers two localStorage writes. This is wasted work, and the list flickers when it is large."
+ },
+ {
+  "id": "F3dedd634",
+  "app": "app-d6c8a1",
+  "finding": "app.js:62 The 'Search notes' field matches only titles, so a word that is in a note's body returns 'No notes match'. Filter at app.js:62 tests n.title only. The label in index.html:14 says 'Search notes' and the empty text (app.js:87) says 'No notes match'. The same query is also sent to the shared-notes endpoint. Note titled 'Untitled' with body 'dentist appointment 14:00'. Type 'dentist' into Search notes. The list shows 'No notes match \"dentist\"'. The user concludes the note is gone. Every new note starts as 'Untitled', so body-only searches are the normal case."
+ },
+ {
+  "id": "F58af8d62",
+  "app": "app-d6c8a1",
+  "finding": "store.js:75 Every save overwrites the whole store from one tab's in-memory copy; a second tab silently deletes the first tab's notes. saveNotes serialises the module-level notes array of the calling tab (app.js:18, 33) and replaces the single key. No storage event listener exists in app.js, and notes are read from storage only once, at load (app.js:17). Traced; the browser was not driven because shell access was denied. Open the app in tab A and tab B (both load note X). In tab A press New note: storage now holds X and Y. In tab B edit X's title and wait 500 ms: flushSave calls saveNotes([X']) and storage holds only X'. Note Y is gone. Tab A still shows Y until it is reloaded, and then it is not there. Tab B reports 'Saved'."
+ },
+ {
+  "id": "F93677fa3",
+  "app": "app-d6c8a1",
+  "finding": "store.js:29 backupRaw swallows a failed backup write, yet the caller still tells the user the data 'was kept under notes-backup'. Each new bad load also overwrites any earlier backup. Storage is nearly full and saved notes are corrupt. setItem(BACKUP_KEY) throws and the error is ignored. The message claims a backup exists, and the user's next save overwrites the only copy of the unreadable data. A second corrupt load later replaces a good earlier backup the same way."
+ },
+ {
+  "id": "F3a4180fd",
+  "app": "app-d6c8a1",
+  "finding": "store.js:30 Backup failure is swallowed while the load message tells the user the data was kept; the next save then destroys the original. backupRaw returns nothing, and the callers at store.js:47, 52 and 66 ignore the result. The messages at store.js:48, 53 and 67 state 'was kept under notes-backup' unconditionally. The comment claims the load message reports the failure, but those messages say the opposite. A backup is a second copy of a value that is already in storage, so it is the write most likely to hit the quota. Each backup also overwrites the previous one. Storage holds a corrupt or partly unreadable 3 MB 'notes' value in a ~5 MB quota. On load, setItem(BACKUP_KEY) throws QuotaExceededError and is swallowed. The page shows 'The unreadable data was kept under notes-backup'. The user presses New note: saveNotes replaces the 'notes' value, and the original data exists nowhere, though they were told it was kept. A second corruption event later also overwrites the first backup with no warning."
+ },
+ {
+  "id": "F3f22ca78",
+  "app": "app-d6c8a1",
+  "finding": "store.js:75 Every save rewrites the whole notes list from one tab's memory, so a second tab erases the first tab's notes. app.js:18 reads the list once at load into notes. store.js:75 writes the complete list back on each save. No storage event listener exists in app.js, and nothing re-reads storage before a write. Traced; the browser could not be driven because Bash was denied. Open the app in tab A and tab B (both load the same list). In tab A press New note and type a body. In tab B, which has not been reloaded, edit any note and wait 500 ms. Tab B writes its stale list and the note created in tab A is gone from storage. No error is shown: status says 'Saved'. Refresh tab A and the note is missing."
+ },
+ {
+  "id": "F8cdadc4c",
+  "app": "app-d6c8a1",
+  "finding": "app.js:62 'Search notes' matches titles only, so text in a note's body is never found. renderList filters on n.title alone; n.body is not consulted anywhere in app.js. The control is labelled 'Search notes' (index.html:14) with no hint that it is a title filter. New notes start as 'Untitled' (store.js:14), so most notes are findable only by that word until renamed. Create a note, leave the title 'Untitled', type 'dentist at 3pm' in the body. Type 'dentist' in Search notes. The list shows 'No notes match \"dentist\".' although the note exists, and the user concludes it was lost."
+ },
+ {
+  "id": "Ffa7b3a99",
+  "app": "app-d6c8a1",
+  "finding": "styles.css:19 At phone width the editor sits below an unbounded note list, and choosing a note shows nothing. Below 720 px (styles.css:20) the layout is a single column: toolbar, then #list (no max-height or scroll), then the editor. app.js selectNote (app.js:92-101) fills the editor but does not scroll or focus it. At 390 px with 40 notes (about 36 px each plus gaps, over 1,400 px of list), tap a note near the top. The row gets a highlight, and the title and body fill in far below the fold. The user sees no result and may tap again. The same happens after New note, where focus() does scroll, but not when opening an existing note."
+ },
+ {
+  "id": "Fc49b24ad",
+  "app": "app-d6c8a1",
+  "finding": "app.js:142 The search filter matches n.title directly, but the list displays 'Untitled' for an empty title, so the visible name and the searchable text differ. The user clears a note's title, so the list shows 'Untitled'. Searching 'untitled' no longer finds that note. The empty-state message then says 'No notes match' even though a note with that name is on screen when the search box is empty."
+ },
+ {
+  "id": "F82712cb5",
+  "app": "app-d6c8a1",
+  "finding": "app.js:34 The load-time warning about unreadable or skipped notes is replaced by 'Saved' at the first action. app.js:179 shows loaded.problem in the same status element that commit() writes. The first New note, edit or delete calls commit, which sets the text to 'Saved' and removes the error class. The message is the only place that names the notes-backup key. Stored data is corrupt. On load the user sees 'Saved notes could not be read. The unreadable data was kept under \"notes-backup\".' They press New note; the status becomes 'Saved' and the instruction on where the old data is can no longer be found."
+ },
+ {
+  "id": "Ff6185578",
+  "app": "app-d6c8a1",
+  "finding": "store.js:50 loadNotes never checks data.version, so data written by a newer schema is read as version 1 and then overwritten in the old shape. A newer build saves {version: 2, notes: [...]} with extra fields or a different note shape. This build loads it, normalizeNote drops the unknown fields, and the next edit saves it back as version 1. The newer data is lost and no backup is made, because the backup only happens on parse failure or skipped notes."
+ },
+ {
+  "id": "F1df652f4",
+  "app": "app-d6c8a1",
+  "finding": "Code review\n\nBranch main...HEAD, commit b1cc2d5, four new files. There is no CLAUDE.md in the repo, so I checked for bugs only. The change is small, so I read the diff myself and did not launch the subagent pipeline.\n\n1. Stored XSS: note titles are written into innerHTML unescaped (app.js:10, also app.js:46)"
+ },
+ {
+  "id": "F33734f83",
+  "app": "app-d6c8a1",
+  "finding": "app.js:126 flushSave sets updated = Date.now() and re-sorts the list even when the title and body are unchanged. It also calls selectNote and deleteNote without checking that anything changed. The user types a character and deletes it again within 500 ms. The note is marked as newly updated and jumps to the top of the list with no real change. The 'Saved' status then misleads about activity."
+ },
+ {
+  "id": "F15e4e48d",
+  "app": "app-d6c8a1",
+  "finding": "app.js:84 Every list render destroys the focused button, so keyboard and screen-reader focus is lost on opening or deleting a note. renderList rebuilds every <li> and button on each call. selectNote (app.js:100) and deleteNote (app.js:121) call it after a button was activated. Nothing restores focus or moves it to the editor (only createNote focuses, at app.js:109). The editor section comes after the whole nav in DOM order (index.html:12-26). WCAG 2.4.3 Focus Order (Level A). Keyboard only: Tab to the 40th note's 'open' button and press Enter. The button is removed from the DOM, focus falls to <body>, and the next Tab starts at the top of the page. To reach the title field the user tabs through the search box, New note and up to 80 list buttons. After pressing Delete, focus is likewise lost. A screen-reader user is dropped back to the top of the document."
+ },
+ {
+  "id": "F9972d062",
+  "app": "app-d6c8a1",
+  "finding": "store.js:30 Backup of corrupt data can fail silently while the user is told it was kept. backupRaw (store.js:29-31) swallows the setItem error and returns nothing. Its callers at store.js:47-48, 52-53 and 65-67 then return a problem string saying the data 'was kept under \"notes-backup\"'. The comment claims the load message reports the failure; it does not, because the message is written as if the backup succeeded. The raw value is already held under notes, so writing the backup needs about the same space again, and it fails once the stored data is more than about half of the quota. The first edit then overwrites STORAGE_KEY (store.js:75). Stored data is over 50% of the quota and fails JSON.parse, or holds one non-object entry. backupRaw throws QuotaExceededError and is swallowed. The page says the data was kept under 'notes-backup'. The user creates a note, saveNotes replaces the key, and the original data is gone with no copy."
+ },
+ {
+  "id": "F2a54fa89",
+  "app": "app-d6c8a1",
+  "finding": "app.js:12 Delete is a clickable div, hidden until mouse hover: not reachable by keyboard, touch or screen reader (WCAG 2.1.1, 4.1.2). Traced. The control is a div with no tabindex, role or accessible name, and its glyph is the only content. styles.css:12 sets .del { opacity: 0; } shown only on li:hover. The list items themselves are li elements with a click handler, also not focusable, so notes cannot be opened by keyboard either. Keyboard-only user: Tab goes search, New note, title, body and never reaches a note or its delete control, so no existing note can be opened or deleted. Touch user: there is no hover, so the invisible delete is a hidden tap target. Screen reader: the control is not announced."
+ },
+ {
+  "id": "F1e5d4903",
+  "app": "app-d6c8a1",
+  "finding": "Validation (steps 5 and 6): with nothing flagged, there was nothing to validate or filter.\n\nThe agents did mention three behaviours that are not definite bugs, so I left them out:"
+ },
+ {
+  "id": "F796bfbc2",
+  "app": "app-d6c8a1",
+  "finding": "app.js:187 createNote leaves an active search filter in place, so the new note is selected in the editor but missing from the list. The user types 'foo' in search, then clicks New note. The 'Untitled' note is created and selected but renderList filters it out. The sidebar shows 'No notes match' or no current item, with an editor open on an invisible note. If they retitle it to something that doesn't match 'foo', it disappears from view and they can't find it."
+ },
+ {
+  "id": "F4f046b99",
+  "app": "app-d6c8a1",
+  "finding": "Pending-save handling: a save captures its note id and values when the user types. Switching notes, creating one, deleting one, or hiding the page flushes it first, so a delayed save can't land on the wrong note."
+ },
+ {
+  "id": "Fd51f3519",
+  "app": "app-d6c8a1",
+  "finding": "store.js:75 Every save overwrites the whole notes array from one tab's stale memory, so a second tab silently deletes the first tab's notes. saveNotes writes the entire in-memory array under one key. app.js loads once (app.js:17-18) and never listens for the 'storage' event or re-reads before writing (app.js:33). Driven with Playwright in one browser context: tab A created Alpha; tab B loaded and saw ['Alpha']; tab A created 'FromTabA' (storage = ['Alpha','FromTabA']); tab B then edited the body of Alpha; storage became ['Alpha']. Open the app in two tabs. Create a note in tab 1. Type in any note in tab 2 (opened before the new note existed). After 500 ms tab 2 saves its stale array, and the note created in tab 1 is gone from storage. Tab 2 shows 'Saved'. Reload and the note is lost, and nothing was reported."
+ },
+ {
+  "id": "Fbc182b5f",
+  "app": "app-d6c8a1",
+  "finding": "index.html:19 Title and body fields have no label or name; search uses a placeholder as its only label. index.html:13, 19, 20: no <label>, aria-label or placeholder on #title and #body; #search has only a placeholder. A screen reader announces 'edit text' and 'edit text multiline' with no purpose, so the user can not tell which field is the title (WCAG 1.3.1, 3.3.2, 4.1.2)."
+ },
+ {
+  "id": "F129f3436",
+  "app": "app-d6c8a1",
+  "finding": "app.js:84 Every list render destroys the focused button, so keyboard and screen-reader focus drops to the page top after selecting or deleting a note. The click handler (app.js:161-166) calls selectNote or deleteNote, both of which end in renderList, which replaces every <li> and <button> with new nodes. Nothing restores focus (focus() is called only at app.js:109 for a new note). The pagehide and blur paths are not involved. Keyboard user tabs to a note button and presses Enter. selectNote runs, the button node is removed, document.activeElement becomes <body>. The next Tab starts at the top of the page again, and the screen reader announces nothing about the opened note. The same happens after confirming Delete: focus is lost from the removed row. Opening several notes in a row needs a full re-tab from the top each time (WCAG 2.4.3 Focus Order, level A)."
+ },
+ {
+  "id": "F31a888de",
+  "app": "app-d6c8a1",
+  "finding": "app.js:61 A migrated or normalized notes list is never persisted at load, so storage stays in the old format until the user edits something. A user with version-0 data opens the app and only reads. Storage keeps the bare array with numeric ids, and the in-memory ids are generated fresh. A second tab or the next load can regenerate different ids for the same records."
+ },
+ {
+  "id": "F5fc324bd",
+  "app": "app-d6c8a1",
+  "finding": "Missing backend: The summary agent noted that the diff does not include the /api/shared backend the app calls. That is outside the diff and not a defect in it.\n\nNothing was posted and no files were changed."
+ },
+ {
+  "id": "Fb3ba35d8",
+  "app": "app-d6c8a1",
+  "finding": "CLAUDE.md: A Glob search found no CLAUDE.md anywhere in the repo, so no rules apply. Both compliance agents confirmed this and found nothing."
+ },
+ {
+  "id": "F7fd14c16",
+  "app": "app-d6c8a1",
+  "finding": "app.js:108 A new note created while a search is active is selected but missing from the visible list. createNote does not clear the search box. renderList filters by the query, and the new note is titled 'Untitled'. Traced. The user searches 'budget', then presses New note. The editor shows the new note and focuses the title, but the list says 'No notes match \"budget\".' or omits the new note. There is no aria-current item and no sign that the note was created."
+ },
+ {
+  "id": "F9fbc28f1",
+  "app": "app-d6c8a1",
+  "finding": "app.js:12 Delete is a non-focusable div with no name, and deletes without confirm or undo. Driven: no li or .del has tabindex or role. Notes open only by mouse click on a li. The control is invisible (opacity 0) until mouse hover (styles.css:12). Clicking it removes the note and its text at once. A keyboard or screen-reader user can neither open a note from the list nor delete one (WCAG 2.1.1, 4.1.2). A mouse user who mis-clicks the bin loses the note permanently."
+ },
+ {
+  "id": "F6147dc78",
+  "app": "app-d6c8a1",
+  "finding": "app.js:61 A new note created while a search is active is selected in the editor but missing from the list, and the list says 'No notes match'. Driven: typed 'zzz' in search, clicked New note. The list had 0 items, #empty read 'No notes match \"zzz\".', and the editor held the new 'Untitled' note. createNote (app.js:103-111) never clears the filter. Search 'zzz', press New note. The editor is enabled and focused with 'Untitled', yet the sidebar claims nothing matches and shows no highlighted note. Once the user types a title that does not contain the query, the note never appears in the list until the search is cleared."
+ },
+ {
+  "id": "F00edb9f7",
+  "app": "app-d6c8a1",
+  "finding": "app.js:105 With a search term active, New note opens an editor for a note that is not in the list. Driven: search 'zzz', click New note. Result: list has 0 items, the empty text reads 'No notes match \"zzz\".', and the editor holds the new 'Untitled' note. renderList (line 62) filters by title, so the new note is hidden. The same happens when an edit changes a title so it no longer matches. Type 'zzz' in Search notes, click New note, type a title. The user sees 'No notes match', with no row for what they are editing, so they cannot tell it was saved or find it to delete it."
+ },
+ {
+  "id": "F749c1736",
+  "app": "app-d6c8a1",
+  "finding": "Shared-notes search: a new query aborts the old request, and the ctrl !== sharedCtrl check discards stale responses. A server error shows a message and leaves the local notes alone.\n\nNot flagged: /api/shared has no server in this diff. The code treats a failing endpoint as an error state, so I did not call that a bug."
+ },
+ {
+  "id": "F4a455b81",
+  "app": "app-d6c8a1",
+  "finding": "Not flagged: a few things that depend on input or are design choices. Search matches titles only. newId has no fallback if window.crypto is missing entirely."
+ },
+ {
+  "id": "F94e69f56",
+  "app": "app-d6c8a1",
+  "finding": "Shared-notes search: stale responses are dropped by comparing against sharedCtrl. Aborts are ignored and other failures show a message."
+ },
+ {
+  "id": "Fa7b860dc",
+  "app": "app-d6c8a1",
+  "finding": "app.js:62 'Search notes' matches titles only, so text inside a note is never found. index.html:14 labels the field 'Search notes'. The filter reads only n.title. Empty-state copy at app.js:87 then says 'No notes match ...' for terms that appear in note bodies. Note titled 'Shopping' has body 'buy oat milk'. Type 'milk' in the search box. The list is empty and reads 'No notes match \"milk\".' although the note contains it."
+ }
+]

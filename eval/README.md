@@ -111,15 +111,21 @@ python3 eval/lens.py eval/lens5.json
 
 ## The death match (development benchmark, SC-70)
 
-`deathmatch.py` runs the same tasks (`deathmatch.json`: suites 1 to 4 and their clean twins) on the same model through each arm: Curmudgeon, plain Claude, `/code-review`, and specialist tools only where they are already installed and only on the tasks they claim. Every arm is scored by one scorer, and every block has the same two parts for every arm: where it points (file:line, quoted code) and what it claims (title and failing case; in a free-form reply, the item without its Fix: text). A block counts toward recall only when a planted defect's file is where it points and the plant's pattern is in the claim, never in fix advice. When an answer-key entry has a `"lines"` range (or a `"quote"`), the block must also point at those lines; entries without one match on file and pattern only, so a loose pattern can over-credit. On a clean twin a block that cites a file:line (or is labelled false) is a false alarm. Any other block, there and on the planted suites, stays unlabelled until labelled in the run's `labels.json`, so precision is NOT MEASURED until then. A run that failed, timed out or wrote nothing is shown with its error and scored NOT MEASURED, never as a clean result. Cost, tokens and wall time come from Claude Code's own JSON result.
+`deathmatch.py` runs the same tasks (`deathmatch.json`: suites 1 to 4 and their clean twins) on the same model through each arm: Curmudgeon, plain Claude, `/code-review`, and specialist tools only where they are already installed and only on the tasks they claim. Every arm is scored by one scorer, and every block has the same two parts for every arm: where it points (file:line, quoted code) and what it claims (title and failing case; in a free-form reply, the item without its Fix: text). A block counts toward recall only when a planted defect's file is where it points and the plant's pattern is in the claim, never in fix advice. When an answer-key entry has a `"lines"` range (or a `"quote"`), the block must also point at those lines; entries without one match on file and pattern only, so a loose pattern can over-credit. On a clean twin a block labelled false, or one that cites a file:line and is not labelled, is a false alarm; one labelled trivial (true but minor) or none (not a finding) is not. Any other block, there and on the planted suites, stays unlabelled until labelled in the run's `labels.json`, so precision is NOT MEASURED until then. A run that failed, timed out or wrote nothing is shown with its error and scored NOT MEASURED, never as a clean result. Cost, tokens and wall time come from Claude Code's own JSON result.
 
 ```
 python3 eval/deathmatch.py plan                 # what would run; no model calls
 python3 eval/deathmatch.py run --yes-spend      # paid model calls: it refuses without the flag
 python3 eval/deathmatch.py score eval/runs/<run>
+python3 eval/deathmatch.py rerun eval/runs/<run> --yes-spend   # rerun the runs a usage limit voided; each void is kept
+python3 eval/label.py export eval/runs/<run> --apps DIR        # blind packets for two labellers, with known-truth controls
+python3 eval/label.py ties  eval/runs/<run> A.json B.json      # agreement; the packets a third labeller decides
+python3 eval/label.py final eval/runs/<run> A.json B.json T.json
+python3 eval/label.py recheck eval/runs/<run> RECHECK_DIR      # a later blind relabel of a sample against the final labels
+python3 eval/bench_stats.py eval/runs/<run> [...]              # recall, actionable share by severity, false-alarm bounds, cost, paired CIs
 ```
 
-It is a benchmark for development only, never part of a review (ruling §5.22). It has not been run yet: the first run is the owner's call, because it costs money.
+It is a benchmark for development only, never part of a review (ruling §5.22). Each run costs money, so running it is the owner's call. The latest, for 5.2.4, is written up with all its files in `benchmark-5.2.4/`; earlier ones are in `deathmatch-2026-10-24.md` and `deathmatch-2026-10-27.md`.
 
 ## Growing the kit (SC-18)
 

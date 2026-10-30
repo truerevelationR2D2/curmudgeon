@@ -1,0 +1,152 @@
+[
+ {
+  "id": "Fcced9041",
+  "app": "app-dff02c",
+  "finding": "2. tooSoon never records a send, so the one-second guard never fires (guards.js:22-25, app.js:24)"
+ },
+ {
+  "id": "F1d4148d3",
+  "app": "app-dff02c",
+  "finding": "guards.js:24 tooSoon never trips: lastSend is never updated, so double-send protection does nothing. lastSend is declared at guards.js:22 and read here. Grep of both scripts shows no assignment. app.js:28 increments sentCount instead, which nothing reads. Date.now() - 0 is always more than 1000, so tooSoon() is always false. Nothing disables #send while the POST is in flight (app.js:24-29). Double-click \"Send invoice\" (or press Enter twice on the focused button): both clicks pass tooSoon(), two POST /api/invoices requests carry the same lines, and the client is billed twice. A retry after a slow response does the same."
+ },
+ {
+  "id": "F4f9572b8",
+  "app": "app-dff02c",
+  "finding": "app.js:26 An empty invoice can be sent. The send handler checks only tooSoon() (app.js:25), never lines.length. Open the page and click Send invoice straight away. POST /api/invoices is sent with body [], creating (or erroring on) an empty invoice."
+ },
+ {
+  "id": "F2ef9b1ad",
+  "app": "app-dff02c",
+  "finding": "index.html:21 Re-rendering the whole list inside a live region re-announces every line on each add. app.js:7 replaces the whole list via innerHTML on every add. Without aria-atomic=false and appended nodes, assistive tech can read the full list again. Not tested with a screen reader. With 20 lines, adding a 21st can cause a screen reader to read all 21 lines again. The total (in an output element) is the only value that needs to be announced."
+ },
+ {
+  "id": "F4b6b1bb5",
+  "app": "app-dff02c",
+  "finding": "escapeHtml doesn't escape quotes (guards.js:4-5, used in app.js:8, bug and security).\nIt escapes only &, < and >, but its output goes inside title=\"...\" and is assigned through innerHTML.\nAny \" in the client name ends the attribute early. A name like Acme \"West\" Ltd breaks the markup, and x\" onmouseover=\"alert(1) injects an event handler.\nIn this PR the name comes only from the user's own form, so today this is self-XSS. It becomes stored XSS if lines is ever filled from shared data.\nThe validator for issue 1 couldn't run git diff and read guards.js directly. It judged the bug introduced by this PR because the PR adds the file.\n\nThe agents saw other problems and left them out because they depend on input or on the server, which isn't in this PR:"
+ },
+ {
+  "id": "F3475eb46",
+  "app": "app-dff02c",
+  "finding": "index.html:21 aria-live on a list that is rebuilt wholesale: every Add line can re-announce all lines. Traced: app.js:7 replaces the whole list through innerHTML on each render, so screen readers may announce the entire list again. Screen-reader user with 10 lines adds an 11th and may hear all 11 read out again."
+ },
+ {
+  "id": "F4237405f",
+  "app": "app-dff02c",
+  "finding": "The fix is to require a positive integer, for example /^[1-9]\\d*$/.test(qty.trim()).\n\n4. Attribute injection (XSS) through the client name (guards.js escapeHtml, used in app.js render)"
+ },
+ {
+  "id": "Ffd467ba2",
+  "app": "app-dff02c",
+  "finding": "The function only escapes &, < and >. A client name such as x\" onmouseover=\"alert(1) closes the attribute and injects an event handler, so this is XSS through the client field."
+ },
+ {
+  "id": "F5967f532",
+  "app": "app-dff02c",
+  "finding": "app.js:33 Void is a one-click irreversible action with no confirmation and no invoice identified. The click handler posts straight away with no body naming an invoice. In index.html:23-24 the Void button sits directly beside Send with the same style (styles.css:4 gives all buttons the same look). A mis-click on Void, next to Send invoice, voids with no confirm or undo. The request carries no invoice id, so which invoice is voided is up to the server's session state."
+ },
+ {
+  "id": "Fbcb26ee8",
+  "app": "app-dff02c",
+  "finding": "3. escapeHtml doesn't escape quotes, so a client name can inject attributes (guards.js:4-6, used at app.js:9)"
+ },
+ {
+  "id": "Ffed0766b",
+  "app": "app-dff02c",
+  "finding": "Double-send guard never fires (guards.js:22-24, called at app.js:25).\nlastSend starts at 0 and nothing ever updates it.\nDate.now() - 0 < 1000 is always false, so tooSoon() always returns false.\nTwo clicks within a second both POST to /api/invoices."
+ },
+ {
+  "id": "F7d7a7c19",
+  "app": "app-dff02c",
+  "finding": "Array.prototype.indexOf returns -1 when the role is missing, and -1 is truthy. It returns 0 when the role is first in the array, and 0 is falsy."
+ },
+ {
+  "id": "F5f667b38",
+  "app": "app-dff02c",
+  "finding": "app.js:2 The client-side role check is the only guard for the void action. The user object is hard-coded in the browser, so the permission check is cosmetic and can be bypassed. The user and roles are literals in app.js. Anyone can edit them in devtools, or call fetch('/api/invoices/void') directly. Unless the server also enforces the admin role, any signed-in user can void. The fix is to enforce the role on the server and make the client check a UI hint only."
+ },
+ {
+  "id": "F52e160d8",
+  "app": "app-dff02c",
+  "finding": "It stays 0, so Date.now() - 0 is never below 1000 and tooSoon() always returns false."
+ },
+ {
+  "id": "F8ffe01ce",
+  "app": "app-dff02c",
+  "finding": "index.html:16 The qty and price inputs lack required, type and min attributes, so the browser does not validate them. Only client is marked required. Submitting with qty or price blank is accepted by the browser and reaches the handler, which rejects it silently. A user on a phone gets no hint about what was wrong. Using type=number with min and step, plus required, gives native validation and messages."
+ },
+ {
+  "id": "F49726e45",
+  "app": "app-dff02c",
+  "finding": "index.html:16 The qty and price inputs use inputmode only, with no type or constraints, and the Send and Void buttons are always enabled. Nothing in the markup restricts the qty or price values, so all validation rests on the broken JS guard. The Void button is shown to every user and Send is clickable with zero lines. Invalid input is rejected silently, with no error message or aria-live feedback."
+ },
+ {
+  "id": "Fe574de73",
+  "app": "app-dff02c",
+  "finding": "app.js:19 The price check and the submit handler give no feedback, and the handler rejects the form silently. The client value is never re-checked and the price is parsed loosely. A price of \"abc\" gives NaN, and !(NaN > 0) returns without a message, so the user sees nothing happen. An empty price gives 0, which is also dropped silently. A client entered as only spaces passes the HTML required check but trims to \"\", so a line with an empty client is added. A comma decimal such as \"1,50\" gives NaN, which fails silently for locales that use a comma."
+ },
+ {
+  "id": "F5822184a",
+  "app": "app-dff02c",
+  "finding": "app.js:19 Invalid add-line input is rejected silently, with no message and no focus move. The submit handler returns with no output. The inputs have no aria-invalid, no error text and no required on qty/price (index.html:16, 18); only Client has required. Driven in head only: traced. Type \"abc\" in Quantity or leave Unit price empty and press Add line: nothing happens. A keyboard or screen-reader user gets no hint that the line was refused or which field is wrong. A client of only spaces also passes the browser required check but is stored as an empty name (line 16 trims after validation)."
+ },
+ {
+  "id": "F40494b35",
+  "app": "app-dff02c",
+  "finding": "app.js:33 Void is irreversible, has no confirmation and sends no invoice identifier. The Void button posts with no body, so the request does not say which invoice to void. There is no confirm step, no undo and no success message. Combined with the inverted role check (guards.js:10), any signed-in non-admin reaches it. Traced. Click Void invoice by mistake next to Send invoice (both buttons are adjacent, index.html:23-24): the server voids whatever it treats as current, with no prompt."
+ },
+ {
+  "id": "Fe5a2af69",
+  "app": "app-dff02c",
+  "finding": "app.js:8 escapeHtml does not escape quotes but its output is put inside a double-quoted attribute. guards.js:5 replaces only &, < and >. app.js:8 places the result in title=\"...\" and assigns the string with innerHTML. Traced: a client of x\" onmouseover=\"alert(1)\" autofocus tabindex=\"0 gives title=\"x\" onmouseover=\"alert(1)\" autofocus tabindex=\"0\", which is a live event-handler attribute. Type x\" onmouseover=\"alert(document.domain)\" x=\" in Client, set quantity 1 and price 1, press Add line. The new <a> carries an onmouseover handler and runs script when hovered. Where the client name comes from a shared source (imported client list, another user), this is stored XSS on an invoice/billing page."
+ },
+ {
+  "id": "F9cb589f6",
+  "app": "app-dff02c",
+  "finding": "Code review: \"Add the app\"\n\nI found three issues, and the validation agents confirmed all three. Nothing was posted and no files were changed. The CLAUDE.md compliance agents found nothing because the repo has no CLAUDE.md."
+ },
+ {
+  "id": "F9fab9b32",
+  "app": "app-dff02c",
+  "finding": "app.js:19 price > 0 accepts Infinity and huge values, which then post as null. Number(\"Infinity\") and Number(\"1e999\") are Infinity, and Infinity > 0 is true. render() then shows Infinity.toFixed(2) as \"Infinity\" and the total as Infinity. JSON.stringify(lines) at app.js:26 turns Infinity into null. Traced. Enter price 1e999 with quantity 1 and add the line: the total shows Infinity, and Send invoice posts {\"price\":null}."
+ },
+ {
+  "id": "F4ae12725",
+  "app": "app-dff02c",
+  "finding": "app.js:26 fetch rejection is not caught: offline or failed requests give the user no message. Only !res.ok is handled (app.js:27). fetch rejects on network failure, DNS failure or abort, and the async click handler has no try/catch. The same pattern is at app.js:33. Go offline and click Send invoice (or Void invoice). The promise rejects as an unhandled rejection in the console; the user sees nothing and cannot tell whether the invoice was sent, so they click again."
+ },
+ {
+  "id": "Fb10c7ac1",
+  "app": "app-dff02c",
+  "finding": "A client name such as x\" onmouseover=\"alert(1) is not escaped, so it breaks out of the attribute and adds an event handler. This is script injection through the client field."
+ },
+ {
+  "id": "F32f640d0",
+  "app": "app-dff02c",
+  "finding": "lastSend is initialised to 0 and nothing ever assigns to it. The send handler in app.js only does sentCount += 1."
+ },
+ {
+  "id": "F742684ee",
+  "app": "app-dff02c",
+  "finding": "app.js:8 Each line's client name is a link that goes nowhere: href=\"#\" scrolls to top and is a tab stop with no purpose. The anchor text is the client name, the target is #, and no handler is attached to it. It receives focus and has a focus ring (styles.css:5). Tab through the page after adding 5 lines: five extra tab stops that, when activated, jump the page to the top and add # to the URL."
+ },
+ {
+  "id": "F75fc538e",
+  "app": "app-dff02c",
+  "finding": "Code review\n\nI reviewed the local change (git diff main...HEAD, \"Add the app\"). Nothing was posted and no files were changed. Four files were added: app.js, guards.js, index.html and styles.css.\n\nThree issues were found, and a separate Opus validator confirmed each one."
+ },
+ {
+  "id": "Fcd4078c7",
+  "app": "app-dff02c",
+  "finding": "Negative and fractional values such as -3 or 1.5 also pass, though the input is meant to be numeric (inputmode=\"numeric\")."
+ },
+ {
+  "id": "Ff5924754",
+  "app": "app-dff02c",
+  "finding": "app.js:19 Invalid input is dropped silently with no message, and the price check is inconsistent with the quantity check. A price of \"\" or \"abc\" fails price > 0 and the handler returns with no error shown. The user clicks Add line and nothing happens. A comma decimal like \"1,5\" gives NaN and is rejected the same way."
+ },
+ {
+  "id": "Fa0fce959",
+  "app": "app-dff02c",
+  "finding": "app.js:19 Invalid input is dropped silently: no message, no focus, nothing says why Add line did nothing. The handler returns with no output. index.html has no error element, no aria-invalid and no aria-describedby. Only client has required. Enter a price of 12,50 (comma) or 0 and press Add line: Number(\"12,50\") is NaN, the handler returns, and the form looks unchanged. A keyboard or screen-reader user gets no feedback at all."
+ }
+]

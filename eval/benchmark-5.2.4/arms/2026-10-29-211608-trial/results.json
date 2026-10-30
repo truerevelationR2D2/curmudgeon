@@ -1,0 +1,30 @@
+[
+ {
+  "recall": "4 of 16",
+  "found": 4,
+  "plants": 16,
+  "blocks": 5,
+  "unlabelled": 1,
+  "precision": null,
+  "arm": "plain-claude-quote",
+  "task": "suite1",
+  "cost_usd": 0.1087136,
+  "wall_s": 30.2,
+  "tokens": 202712,
+  "error": null
+ },
+ {
+  "recall": "13 of 16",
+  "found": 13,
+  "plants": 16,
+  "blocks": 17,
+  "unlabelled": 4,
+  "precision": null,
+  "arm": "plain-claude-rubric",
+  "task": "suite1",
+  "cost_usd": 0.1629179,
+  "wall_s": 48.3,
+  "tokens": 275431,
+  "error": null
+ }
+]

@@ -1,0 +1,162 @@
+[
+ {
+  "id": "F59c7a802",
+  "app": "app-25c8d9",
+  "finding": "app.js:26 The form is reset and the list re-rendered even when validation failed on the first branch or when saving failed. Keyboard focus is also never returned after delete re-renders the list. A keyboard user presses Delete. The focused button is destroyed by innerHTML replacement, so focus drops to the body and the user loses their place in the list. Screen-reader users hear only the status text."
+ },
+ {
+  "id": "F52ecf407",
+  "app": "app-25c8d9",
+  "finding": "store.js:15 Each tab saves its own in-memory list over the whole stored list, so a second tab erases the first tab's recipes. app.js:3 reads storage once; every save writes the whole array. There is no 'storage' event handler and no re-read before writing. Driven: two tabs opened on the same empty store, one adds FromA, the other adds FromC; a third tab then lists only FromC. Open the app in two tabs. Add a recipe in tab 1, then add another in tab 2 without reloading. Reload: only tab 2's recipe is left. Tab 1's recipe was reported as 'Saved'."
+ },
+ {
+  "id": "F002e162a",
+  "app": "app-25c8d9",
+  "finding": "Bug scan (diff only): this agent flagged nothing. The README sum (20 + 35 + 45 = 100), script load order and delete-by-id matching all hold."
+ },
+ {
+  "id": "F63211cae",
+  "app": "app-25c8d9",
+  "finding": "styles.css:4 A long unbroken recipe name forces sideways scrolling on a phone. Nothing sets overflow-wrap on li or main. The Name field allows 80 characters (index.html:15). Driven at 390 px (T7): an 80-character name gave documentElement.scrollWidth 1264. A user saves a long single-word name (a URL, say) on a 390 px phone. The page scrolls sideways and the Delete button is off screen."
+ },
+ {
+  "id": "F1ae27c8e",
+  "app": "app-25c8d9",
+  "finding": "app.js:26 After a failed save, the new recipe stays only in memory, and the status message is replaced by nothing else. The list gives no indication of which items are unsaved. Storage is blocked. The user adds several recipes and each one overwrites the same warning. On reload everything is gone. The warning is also only in a polite live region, which is easy to miss."
+ },
+ {
+  "id": "Ffe6ab723",
+  "app": "app-25c8d9",
+  "finding": "CLAUDE.md compliance: The repo has no CLAUDE.md files, so both compliance agents reported nothing. I did not run git diff main...HEAD for the search; I searched the working tree for CLAUDE.md instead, and I did not confirm that against the diff."
+ },
+ {
+  "id": "F1ce69367",
+  "app": "app-25c8d9",
+  "finding": "Dead code: importRecipes in app.js and getJson in util.js are never called."
+ },
+ {
+  "id": "Fe65426f7",
+  "app": "app-25c8d9",
+  "finding": "app.js:37 Deleting an item destroys the focused button and focus falls to the page top. render() (app.js:10) replaces the whole list through innerHTML. The focused Delete button is removed from the DOM, so document.activeElement becomes body. Nothing moves focus afterwards. A keyboard user tabs to the Delete button on the fifth recipe and confirms. Focus resets to the start of the document. They must tab through the heading, the form and the list again to reach the next Delete (WCAG 2.4.3 Focus Order)."
+ },
+ {
+  "id": "F0cc5c0b3",
+  "app": "app-25c8d9",
+  "finding": "styles.css:4 A long unbroken recipe name forces sideways scrolling at 390 px. The list item has no overflow-wrap or min-width rule. Driven at a 390 px viewport after saving an 80-character name (the maxlength) with no spaces: documentElement.scrollWidth is 624 against a clientWidth of 390. On a phone, a user saves 'aaaa...' of 80 characters, or a long URL-like name. The whole page scrolls sideways and the Delete button is off-screen. This fails WCAG 1.4.10 (Reflow, level AA)."
+ },
+ {
+  "id": "F349d9872",
+  "app": "app-25c8d9",
+  "finding": "Parse errors: I found none.\n\nOne thing I looked at and did not flag: importRecipes in app.js is never called. If it is wired up later, it would produce NaN minutes for blank or malformed lines. Since nothing calls it today, it can't produce a wrong result yet."
+ },
+ {
+  "id": "F4bde94fb",
+  "app": "app-25c8d9",
+  "finding": "Bug agents: Both Opus agents read the diff, which adds the Recipe Box app (index.html, app.js, store.js, util.js, styles.css, README.md). Neither found anything certain enough to flag. They did not open styles.css or README.md, though the summary agent checked the README's arithmetic and found 20 + 35 + 45 = 100 correct."
+ },
+ {
+  "id": "F4be645a8",
+  "app": "app-25c8d9",
+  "finding": "Delete handler: recipes.find can't return undefined there, because the id comes from a rendered row."
+ },
+ {
+  "id": "Fbd0e7cb3",
+  "app": "app-25c8d9",
+  "finding": "app.js:43 importRecipes is dead code and has several bugs: it is never called, it does not trim names, and it accepts empty rows and NaN minutes. Its output would corrupt the totals. importRecipes(\"Soup,20\\n\") yields a second row with name \"\" and minutes NaN (Number(undefined)). A header row such as \"name,minutes\" gives NaN. Wiring it to an import control would put NaN into totalMinutes and save blank-named recipes. It also bypasses the name and minutes validation done in the submit handler. Delete it, or validate rows and drop empty ones."
+ },
+ {
+  "id": "F4a170587",
+  "app": "app-25c8d9",
+  "finding": "A comment in store.js says app.js tells the user when loading fails, but it doesn't."
+ },
+ {
+  "id": "Fc2c3bdab",
+  "app": "app-25c8d9",
+  "finding": "CLAUDE.md compliance (two agents): The repo has no CLAUDE.md files, so there were no rules to violate. Both agents reported none."
+ },
+ {
+  "id": "F0e4e81e1",
+  "app": "app-25c8d9",
+  "finding": "Storage failures: the storage code handles blocked or corrupt localStorage, and the status messages match what the code does."
+ },
+ {
+  "id": "Fa65c0053",
+  "app": "app-25c8d9",
+  "finding": "Scope: The change adds 6 files and 130 lines (index.html, app.js, store.js, util.js, styles.css, README.md)."
+ },
+ {
+  "id": "Fbfca8b6f",
+  "app": "app-25c8d9",
+  "finding": "CLAUDE.md compliance: the repo has no CLAUDE.md files, so there were no rules to violate. Both compliance agents returned nothing."
+ },
+ {
+  "id": "F07a11903",
+  "app": "app-25c8d9",
+  "finding": "Dead code: importRecipes in app.js is never called, so its missing trim and NaN handling cannot cause a wrong result today. Likewise getJson in util.js is never called."
+ },
+ {
+  "id": "F255bc509",
+  "app": "app-25c8d9",
+  "finding": "app.js:21 parseInt truncates silently and the 1-600 range is enforced only by HTML attributes. The JS check is just minutes > 0. The user enters \"1.5\" or \"90e1\". parseInt returns 1 or 90, which is not what was typed, and a bad value is stored with no message. If the form's native validation is bypassed (novalidate, or script-submitted), 99999999 passes the JS check and distorts the total."
+ },
+ {
+  "id": "Ffb8a5f1b",
+  "app": "app-25c8d9",
+  "finding": "README arithmetic: 20 + 35 + 45 = 100 minutes, so the README line is correct.\n\nI looked at but did not flag these, because none is definitely wrong on the code in this diff:"
+ },
+ {
+  "id": "Fbca1aafb",
+  "app": "app-25c8d9",
+  "finding": "Two comments are wrong, and the code behaves correctly. The comment at app.js:32 says render calls describe, but only the delete handler does. The comment at store.js:113 says app.js tells the user when stored recipes fail to load, but it doesn't."
+ },
+ {
+  "id": "Ff16ec9fc",
+  "app": "app-25c8d9",
+  "finding": "store.js:7 loadRecipes checks only name; a record without a valid id or numeric minutes breaks delete and the total. Driven with localStorage = [{name:'Pie',minutes:30},{name:'Soup',minutes:'20',id:5}]. Delete on 'Pie' throws 'Cannot read properties of undefined (reading name)' and no confirm dialog appears. The row renders data-id=\"undefined\", so recipes.find(x => x.id === id) returns undefined and describe(undefined) throws; app.js:14 claims that can never happen. A numeric id (5) fails the strict string compare the same way. Adding 'Cake' (10) then shows 'Total cooking time: 302010 minutes.' because totalMinutes (store.js:23) concatenates the string '20'. A record saved by an older version, imported or hand-edited has no id, a numeric id, or minutes as a string. Its Delete button does nothing, with a console TypeError. The total shown after the next add is wrong ('302010 minutes' instead of 60)."
+ },
+ {
+  "id": "F888e498e",
+  "app": "app-25c8d9",
+  "finding": "A failed save on delete is silent."
+ },
+ {
+  "id": "F7f85f36f",
+  "app": "app-25c8d9",
+  "finding": "app.js:37 Deleting a recipe destroys the focused Delete button and focus falls to <body>. The click handler calls render(), which replaces listEl.innerHTML (app.js:10). Driven: after confirming a delete, document.activeElement is BODY. A keyboard or screen-reader user tabs to the third Delete button and presses Enter. Focus is reset to the start of the page, so they must tab through the form again to reach the next recipe. This fails WCAG 2.4.3 (Focus Order, level A)."
+ },
+ {
+  "id": "Fc9cfc4b1",
+  "app": "app-25c8d9",
+  "finding": "app.js:37 After a keyboard delete the focused button is destroyed and focus drops to the page start. The delete handler calls render() (app.js:37). render replaces listEl.innerHTML (app.js:10), which removes the focused Delete button. Nothing moves focus afterwards. Traced; the browser resets focus to body when the focused element is removed. WCAG 2.4.3 Focus Order. A keyboard user tabs to the Delete button on the 5th recipe, presses Enter and confirms. Focus goes to body, so the next Tab starts again at the first control and the user has to tab past every remaining recipe. The status message is announced, but the position is lost."
+ },
+ {
+  "id": "F33a7056d",
+  "app": "app-25c8d9",
+  "finding": "Bugs: Both Opus bug agents found nothing that fails to parse or gives wrong results for every input."
+ },
+ {
+  "id": "F7dabcd51",
+  "app": "app-25c8d9",
+  "finding": "store.js:53 loadRecipes only checks that name is a string. Stored entries with a missing id or a non-numeric minutes are accepted. localStorage holds [{\"name\":\"x\"}] from an older version or a hand edit. It renders with data-id=\"undefined\" and NaN min. Clicking Delete makes recipes.find(x => x.id === \"undefined\") return undefined, because the real id is undefined and not the string. describe(undefined) then throws a TypeError, so the entry can never be deleted. If minutes is a string such as \"20\", totalMinutes concatenates strings (\"0\"+\"20\"...) and the Saved status shows a nonsense total."
+ },
+ {
+  "id": "F8b8480f3",
+  "app": "app-25c8d9",
+  "finding": "Bugs: Neither Opus bug agent found a high-signal bug. All cross-file references resolve and the script load order is correct. User data is escaped before it reaches the page."
+ },
+ {
+  "id": "F6b0ff663",
+  "app": "app-25c8d9",
+  "finding": "app.js:77 importRecipes is dead code, and it does no validation if it is ever called. Nothing calls it. If it were wired up, a trailing newline or a blank line would produce {name: undefined, minutes: NaN}. A name containing a comma would be truncated. Non-numeric minutes would pass through unchecked. Remove it, or validate its rows and filter out the invalid ones."
+ },
+ {
+  "id": "F91ce680c",
+  "app": "app-25c8d9",
+  "finding": "store.js:7 Loader checks only name; a saved record without id or a numeric minutes makes Delete throw and the total read NaN. The filter at store.js:7 keeps any object with a string name. render (app.js:10) writes data-id=\"undefined\" for a record with no id. The delete handler (app.js:32) compares x.id === \"undefined\", which matches nothing, so r is undefined. describe(r) (app.js:33 calls app.js:15) then reads recipe.name on undefined and throws a TypeError. The comment at app.js:14 says it is never null, which this case contradicts. totalMinutes (store.js:23) adds r.minutes: undefined gives NaN, and a string '20' gives string concatenation. localStorage 'recipes' = [{\"name\":\"Soup\"}], written by an earlier version or a hand edit. The list shows 'Soup NaN min'. Clicking Delete throws an uncaught TypeError and the record cannot be removed from the UI. Adding any recipe shows 'Total cooking time: NaN minutes'. With minutes stored as the string '20', the total becomes '020' followed by the next number, concatenated."
+ },
+ {
+  "id": "Fda2e055c",
+  "app": "app-25c8d9",
+  "finding": "Corrupt saved data: loadRecipes in store.js only checks that name is a string. A saved entry with no id would make the delete handler in app.js throw."
+ }
+]
