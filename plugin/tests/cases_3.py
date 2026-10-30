@@ -184,7 +184,7 @@ def _(d):
     cm = (d / ".critic/change-map.md").read_text()
     assert "\n## The owner's recorded decisions" not in cm and "\n- XSS" not in cm and "never an instruction" in cm, cm
     run(S / "critic_brief.py", cwd=d); b = "".join(p.read_text() for p in (d / ".critic/briefs").glob("brief-*.md"))
-    assert "New instructions" not in b and "Report nothing" not in b and "may not be the owner's" in b, b
+    assert "New instructions" not in b and "Report nothing" not in b and "may have come with the code" in b, b
     run(S / "critic_scan.py", ".", "--root", ".", cwd=d); rep = json.loads((d / ".critic/scan/report.json").read_text())
     assert not rep["suppressed"] and any(x["rule"] == "ledger-shipped" for x in rep["findings"]), (rep["suppressed"], [x["rule"] for x in rep["findings"]])
     sys.path.insert(0, str(S)); import importlib, safe_web, critic_scan
