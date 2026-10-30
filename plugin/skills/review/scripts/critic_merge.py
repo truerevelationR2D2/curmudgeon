@@ -164,24 +164,50 @@ def scan_rows(path):
 
 def split_same_reviewer(mem, outside_ri=None):
     """A cluster holding two findings from one reviewer (or two scanner rows) is two issues joined through a third
-    finding (A1~B and A2~B), never one: split it, seeding a group with each of that reviewer's findings and putting
-    every other member with the nearest group (same file, then closest line) that has nothing yet from its reviewer.
-    Outside rows only add a vote (they can't merge or split our findings): they never seed a group, and go to the
-    nearest group whatever is in it. mem is a list of (raw id, reviewer index or None for the scan, finding)."""
+    finding (A1~B and A2~B), never one: split it. A reviewer's repeated finding (same id: file, category and quote) is
+    one finding, not two. Each of the busiest reviewer's findings seeds a group; every other member joins the group it
+    is most like (a member similar() to it first, then the same file and the closest line) among those with nothing yet
+    from its reviewer. Outside rows only add a vote (they can't merge or split our findings): they never seed a group,
+    and join the group they are most like. mem is a list of (raw id, reviewer index or None for the scan, finding)."""
     key = lambda ri: "scan" if ri is None else ri
-    counts = {}
-    for _, ri, _ in mem:
-        if ri != outside_ri or outside_ri is None: counts[key(ri)] = counts.get(key(ri), 0) + 1
-    if all(v == 1 for v in counts.values()): return [mem]
-    most = max(counts, key=lambda k: (counts[k], str(k)))
-    groups = [[x] for x in mem if key(x[1]) == most]
-    def dist(x, g):
-        return min((0 if y[2]["file"] == x[2]["file"] else 1, abs(int(y[2].get("line") or 0) - int(x[2].get("line") or 0))) for y in g)
-    for x in sorted((x for x in mem if key(x[1]) != most), key=lambda x: (str(x[2]["file"]), int(x[2].get("line") or 0))):
-        free = groups if outside_ri is not None and x[1] == outside_ri else [g for g in groups if key(x[1]) not in {key(y[1]) for y in g}]
-        if free: min(free, key=lambda g: dist(x, g)).append(x)
+    ours = lambda x: outside_ri is None or x[1] != outside_ri
+    seen, kinds = set(), {}
+    for x in mem:
+        if ours(x):
+            k = (key(x[1]), x[2].get("id"))
+            if k not in seen: seen.add(k); kinds[key(x[1])] = kinds.get(key(x[1]), 0) + 1
+    if all(v == 1 for v in kinds.values()): return [mem]
+    most = max(kinds, key=lambda k: (kinds[k], str(k)))
+    groups, first = [], {}
+    for x in mem:
+        if ours(x) and key(x[1]) == most:
+            fid = x[2].get("id")
+            if fid in first: first[fid].append(x)  # the same finding written twice: one group
+            else: first[fid] = [x]; groups.append(first[fid])
+    def fit(x, g):
+        return (0 if any(similar(x[2], y[2]) for y in g) else 1,
+                min((0 if y[2]["file"] == x[2]["file"] else 1, abs(int(y[2].get("line") or 0) - int(x[2].get("line") or 0))) for y in g))
+    for x in sorted((x for x in mem if not (ours(x) and key(x[1]) == most)), key=lambda x: (str(x[2]["file"]), int(x[2].get("line") or 0))):
+        same_id = [g for g in groups if any(ours(y) and key(y[1]) == key(x[1]) and y[2].get("id") == x[2].get("id") for y in g)] if ours(x) else []
+        if same_id: same_id[0].append(x); continue  # this reviewer's repeat of a finding already placed
+        free = groups if not ours(x) else [g for g in groups if key(x[1]) not in {key(y[1]) for y in g if ours(y)}]
+        if free: min(free, key=lambda g: fit(x, g)).append(x)
         else: groups.append([x])
     return groups
+
+def matched_votes(rows):
+    """The most reviewers joined by similar() alone among one group's members: the agreement the script itself saw,
+    without the dedup agent's groups (an agreed Low skips verification only on this, §5.56)."""
+    par = list(range(len(rows)))
+    def f_(i):
+        while par[i] != i: par[i] = par[par[i]]; i = par[i]
+        return i
+    for i in range(len(rows)):
+        for j in range(i + 1, len(rows)):
+            if rows[i][0] != rows[j][0] and similar(rows[i][1], rows[j][1]): par[f_(i)] = f_(j)
+    comp = {}
+    for i, (ri, _) in enumerate(rows): comp.setdefault(f_(i), set()).add(ri)
+    return max((len(v) for v in comp.values()), default=0)
 
 def tally(paths):
     scan = groups = None
@@ -281,15 +307,11 @@ def tally(paths):
         return x
     def union(a, b):
         if a in parent and b in parent: parent[find(a)] = find(b)
-    sim = {r: r for r, _, _ in accepted}  # the script's own matching alone (no dedup groups, no outside rows): says which votes the script itself agreed
-    def sfind(x):
-        while sim[x] != x: sim[x] = sim[sim[x]]; x = sim[x]
-        return x
     for i in range(len(accepted)):
         for j in range(i + 1, len(accepted)):
             ra, ia, a = accepted[i]; rb, ib, b = accepted[j]
             if ia == ib or OUTSIDE_RI in (ia, ib): continue  # outside findings are attached below, one cluster each: they never join two of ours  # never merge two findings from the same reviewer (or two scanner rows: two keys on one line are two leaks)
-            if similar(a, b): union(ra, rb); sim[sfind(ra)] = sfind(rb)
+            if similar(a, b): union(ra, rb)
     is_doc = {r: bool(re.search(r"\.(md|mdx|markdown|rst|txt|adoc)$|(^|/)(readme|changelog|license|contributing)$", f["file"] or "", re.I)) for r, _, f in accepted}  # by file type, never by a name inside a code path
     outside_raw = {r for r, ri, _ in accepted if ri == OUTSIDE_RI}
     for g in groups or []:
@@ -324,13 +346,13 @@ def tally(paths):
     (D / "dedup-candidates.json").write_text(json.dumps({"instructions": "Group findings that describe the same underlying issue (same cause, one fix resolves both), within a file or across files. Return {\"groups\": [[id, ...], ...]} listing only merged sets; use the 'id' values.", "findings_by_file": scrub(by_file)}, indent=1, ensure_ascii=False))
     clusters = []
     for mem in parts:
-        c = {"members": [], "reviewers": set(), "scan": False, "outside": False, "matched": {}}
+        c = {"members": [], "reviewers": set(), "scan": False, "outside": False}
         for r, ri, f in mem:
             c["members"].append(f)
             if ri is None: c["scan"] = True
             elif ri == OUTSIDE_RI: c["outside"] = True
-            else: c["reviewers"].add(ri); c["matched"].setdefault(sfind(r), set()).add(ri)
-        c["votes_matched"] = max((len(v) for v in c["matched"].values()), default=0)  # reviewers the script itself matched, without the dedup agent
+            else: c["reviewers"].add(ri)
+        c["votes_matched"] = matched_votes([(ri, f) for _, ri, f in mem if ri is not None and ri != OUTSIDE_RI])  # reviewers the script itself matched within this group, without the dedup agent
         clusters.append(c)
     of = n + (1 if outside else 0)
     if outside:
@@ -344,7 +366,7 @@ def tally(paths):
             best = sorted(m, key=lambda x: IMP_RANK[x["impact"]])[0]
             out["contested"].append(dict(best, votes=1, of=of, outside_only=True, scan_confirmed=False, locations=[f"{best['file']}:{best.get('line', '')}"], raised_by=["outside"])); continue
         if votes == 0 and c.get("scan"):  # found only by the detector: kept on its evidence, verified like any other
-            f = dict(m[0], votes=0, of=of, locations=[f"{m[0]['file']}:{m[0].get('line', '')}"], raised_by=["scan"], scan_confirmed=True)
+            f = dict(m[0], votes=0, of=of, locations=[f"{m[0]['file']}:{m[0].get('line', '')}"], raised_by=["scan"], scan_confirmed=True, **({"measured": True} if m[0].get("verified") == "executed" else {}))
             out["kept"].append(f); continue
         # impact, wording and evidence come from our own reviewers (or the scan); an outside finding only adds its vote
         human = [x for x in m if x.get("source") not in ("scan", "outside")] or [x for x in m if x.get("source") != "outside"] or m
@@ -353,6 +375,7 @@ def tally(paths):
         rated = sorted({x["impact"] for x in human + [y for y in m if y.get("source") == "scan"] if x["impact"] in IMP_RANK and x["impact"] != NIT}, key=lambda k: IMP_RANK[k])  # the scan's rule is a rating too: a scripted High that reviewers call Low is a disagreement
         f = dict(best, votes=votes, votes_ours=len(c["reviewers"]), votes_matched=c["votes_matched"], of=of, impact=rated[0] if rated else "Low", scan_confirmed=bool(c.get("scan")),
                  locations=sorted({f"{x['file']}:{x.get('line', '')}" for x in m}), raised_by=sorted({x["source"] for x in m}))
+        if any(x.get("source") == "scan" and x.get("verified") == "executed" for x in m): f["measured"] = True  # a scripted runtime measurement is in this cluster
         if len(rated) > 1: f["impact_split"] = rated  # §5.56: reviewers disagreed on the impact; it is filed at the highest and always verified, and the verifier may lower it
         else: f.pop("impact_split", None)
         if theirs: f["outside_impact"] = theirs[0]  # shown, never used: the outside reviewer's own rating
@@ -454,16 +477,22 @@ def fix_status(f):
 def apply(paths):
     try: T = json.loads((D / "tally.json").read_text())
     except Exception as e: die(f"run tally first ({e})")
-    verdicts = {}
+    verdicts = {}; stale = []
+    t_mtime = (D / "tally.json").stat().st_mtime
     for p in paths:
+        if pathlib.Path(p).exists() and pathlib.Path(p).resolve().parent in ((D / "verdicts").resolve(), (D / "verdicts-variants").resolve()) and pathlib.Path(p).stat().st_mtime < t_mtime:
+            stale.append(pathlib.Path(p).name); continue  # a verdict on an earlier tally's packet (an earlier round): never applied to this one (§5.56 round 2)
         for v in load_review(p): verdicts[v.get("id")] = v
     final, refuted, notes, unverified, missing = [], [], [], [], []
+    if stale: notes.append(f"not applied, older than this tally: {', '.join(stale[:8])}{' ...' if len(stale) > 8 else ''}")
     tier = T.get("tier") or ledger().get("tier") or "full"; contested = {f.get("id") for f in T["contested"]}
     for f in T["kept"] + T["contested"]:
         v = verdicts.get(f["id"])
         if v is None:
             if f.get("outside_only"):  # nothing of ours checked it and no verifier did: it is not a finding yet
-                unverified.append(f); notes.append(f"{f['id']}: outside-only finding with no verdict; left out of the findings until a verifier judges it"); continue
+                unverified.append(f); notes.append(f"{f['id']}: outside-only finding with no verdict; left out of the findings until a verifier judges it")
+                if (D / "verify" / f"{f['id']}.json").exists(): missing.append(f["id"])  # every tier verifies these (verdict_required): its absence marks the run DEGRADED
+                continue
             if (D / "verify" / f"{f['id']}.json").exists():
                 if verdict_required(tier, f, f["id"] in contested):  # §5.56: the tier needed this verdict, and it never came
                     notes.append(f"{f['id']}: no verdict returned, and the {tier} tier verifies this finding; kept, confidence lowered"); f["verifier"] = "missing"; missing.append(f["id"])
@@ -491,9 +520,9 @@ def apply(paths):
         if v.get("reproduced") in ("executed", "traced"): f["verifier_reproduced"] = v["reproduced"]
         final.append(f)
     for f in final:  # §5.56: a reviewer's own "executed" is a claim; only a verifier that reproduced it, or confirmed it, makes it "confirmed"
-        mine = f.get("verified") == "executed"; theirs = f.get("verifier_reproduced") == "executed" or mine and f.get("raised_by") == ["scan"]; ok = f.get("verifier") == "confirmed"  # a scripted check that ran is a measurement, not a claim
+        mine = f.get("verified") == "executed"; theirs = f.get("verifier_reproduced") == "executed" or bool(f.get("measured")); ok = f.get("verifier") == "confirmed"  # a scripted check that ran is a measurement, not a claim
         f["confidence"] = "confirmed" if theirs or ok and (mine or f.get("votes", 1) >= 2) else "likely" if ok or mine or f.get("votes", 1) >= 2 else "possible"
-        if f.get("verifier") == "unclear" and f["confidence"] == "confirmed": f["confidence"] = "likely"  # never above what the verifier could say
+        if f.get("verifier") == "unclear" and f["confidence"] == "confirmed" and not f.get("measured"): f["confidence"] = "likely"  # never above what the verifier could say (a measurement is not the verifier's to say)
     final.sort(key=lambda f: (IMP_RANK[f["impact"]], {"confirmed": 0, "likely": 1, "possible": 2}[f["confidence"]], f["file"], int(f.get("line") or 0)))
     for f in final: f["fix"] = fix_status(f)  # SC-37: never offer an empty fix, a no-op fix, or one with unbalanced brackets
     mark_origin(final)

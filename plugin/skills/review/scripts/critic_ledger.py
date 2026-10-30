@@ -122,6 +122,12 @@ def archive_reviews(L, label):
                 dest = D / "history" / f"{label}-{k}" / "reviews"; k += 1
             dest.mkdir(parents=True)
             for p in olds: os.replace(p, dest / p.name)
+    for name_ in ("verdicts", "verdicts-variants"):  # a round's verdicts were on its own packets: the next round starts without them (§5.56 round 2)
+        vd_ = D / name_
+        if vd_.is_dir() and not vd_.is_symlink() and any(vd_.iterdir()):
+            dest, k = D / "history" / label / name_, 2
+            while dest.exists(): dest = D / "history" / f"{label}-{k}" / name_; k += 1
+            dest.parent.mkdir(parents=True, exist_ok=True); os.replace(vd_, dest)
     L["started_at"] = time.time()
 
 def finding(L, fid):
@@ -544,6 +550,7 @@ def main(a):
         ch = [k for k, h in L["stamps"].items() if not (ROOT / k).exists() or hashlib.sha256((ROOT / k).read_bytes()).hexdigest()[:16] != h]
         print("\n".join(ch) if ch else ("nothing changed since the last stamp" if L["stamps"] else "nothing stamped yet")); return 1 if ch else 0
     elif cmd == "round":
+        print("round: this round needs its own scan report: run critic_scan.py again before critic_run.py next (the tally waits for it)")
         if rest[:1] == ["--reset"]: L["round"] = 0; msg = "round reset"
         else:
             archive_reviews(L, f"run-{L['run']}-round-{L['round']}")

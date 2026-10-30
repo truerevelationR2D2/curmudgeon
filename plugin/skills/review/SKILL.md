@@ -105,7 +105,7 @@ Write it to `references/output-contract.md` in exactly its headers, and save it 
 2. A fix counts only with all three claims: `critic_ledger.py claim <id> targeted|no-new-defect|behaviour-unchanged "<evidence>"`, then `critic_ledger.py fixed <id> "<how>"`. Otherwise record it with `--untested`.
 3. Write the `<workspace_state_ledger>` and the **Closure table**.
 4. `critic_ledger.py round`. Round 2 re-reviews only the fix diffs and the open findings, with fresh reviewers who don't see their own earlier verdicts. Round 3 is verify-only. Past round 3, hand over.
-5. Touch `.critic/last-review.md` only after the re-check passes. In `/curmudgeon:fix iterate`, stamp with `--add`. Record time spent with `critic_ledger.py cost`.
+5. Only after the re-check passes: if this round wrote a new `counts.md`, write the teardown again from it (step 6) and save `.critic/last-review.md`; otherwise touch it. `critic_ledger.py stamp` refuses a teardown older than `counts.md` or one that doesn't match it. In `/curmudgeon:fix iterate`, stamp with `--add`. Record time spent with `critic_ledger.py cost`.
 
 ## Self-test
 The eval kit is in the repository's `eval/` folder, outside the installed plugin (see its README). After changing the plugin, copy a fixture to a scratch folder, run a fresh agent with only this skill on the copy, and score it with `python3 eval/score.py <review> --suite <n> --refactored <copy>`. The kit has defective apps, clean twins and decoys, so it scores precision as well as recall. A non-zero exit means a drop below the recorded baseline.

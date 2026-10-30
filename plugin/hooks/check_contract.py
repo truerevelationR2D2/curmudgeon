@@ -59,8 +59,9 @@ def problems_verdict(msg, root=None):
         if not v.get("id"): errs.append("a verdict has no id"); continue
         if v.get("verdict") not in ("confirmed", "refuted", "downgrade", "unclear"): errs.append(f"{v.get('id')}: verdict must be confirmed, refuted, downgrade or unclear")
         packet = {}
-        try: packet = json.loads((pathlib.Path(root or ".") / ".critic" / "verify" / f"{v['id']}.json").read_text())
-        except Exception: pass
+        for sub in ("verify", "verify-variants"):  # a variant packet is judged by its own impact and fields, like the main ones
+            try: packet = json.loads((pathlib.Path(root or ".") / ".critic" / sub / f"{v['id']}.json").read_text()); break
+            except Exception: pass
         if v.get("verdict") == "confirmed":
             cp = confirmation_problem(v, root=root)
             if cp: errs.append(f"{v.get('id')}: the merge would count this as unclear: {cp}")

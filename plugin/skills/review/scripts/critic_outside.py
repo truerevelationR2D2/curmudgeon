@@ -117,7 +117,8 @@ def brief(args):
               "and the smallest fix. With no credible failing case, list it under Unconfirmed concerns instead. Say whether the change "
               "introduced it.",
               "Take quotes and line numbers from the raw text, not a rendered page or memory: the quote is one complete source line, copied "
-              "character for character, or empty if you couldn't open the file.", "",
+              "character for character (when that line is under 12 characters, quote it together with the next line, on two lines), "
+              "or empty if you couldn't open the file.", "",
               "Look at: correctness on ordinary, boundary, malformed and hostile input; security and trust boundaries; state and persistence; "
               "failure handling; compatibility; tests that pass while a defect remains; and documentation that disagrees with the code.", "",
               "Impact: **Critical** severe and broadly exploitable · **High** serious with credible material impact · **Medium** meaningful but "

@@ -54,6 +54,9 @@ def find():
     out = D / "verify-variants"
     if out.is_symlink(): sys.exit("critic_variants: .critic/verify-variants is a link; refusing")
     out.mkdir(parents=True, exist_ok=True)
+    vv = D / "verdicts-variants"  # verdicts on the packets being replaced: their ids are reused, so they must never meet the new ones (§5.56 round 2)
+    if vv.is_dir() and not vv.is_symlink():
+        for old in vv.glob("*.json"): old.unlink()
     for old in out.glob("*.json"): old.unlink()
     for stale in (D / "variants.md", D / "variants.jsonl"):  # an earlier run's variants are never read as this run's
         if stale.is_file() and not stale.is_symlink(): stale.unlink()

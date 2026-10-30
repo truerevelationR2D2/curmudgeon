@@ -91,45 +91,54 @@ def bash_problem(cmd, rec, root, critic, role, me):
     if not cmd.lstrip().startswith("cd") and re.search(r"[;&|`\n]|\$\(", rest): return "a git -C command followed by another command (that one would run in the project, not your copy); use cd <workspace> && ... for chains"
     if re.search(r"(?i)\$\{?(?:OLDPWD|CLAUDE_PROJECT_DIR)\b|(?:^|[\s;&|(])(?:cd|pushd)\s+-(?:\s|$|[;&|)])|\bpopd\b|\bdirs\b", rest): return "a way back to the project folder ($OLDPWD, cd -, popd, $CLAUDE_PROJECT_DIR)"
     home = os.path.expanduser("~")
-    flat = re.sub(r"\\(.)", r"\1", rest).replace("${HOME}", home).replace("$HOME", home)
+    unquoted = re.sub(r"'[^']*'|\"(?:\\.|[^\"\\])*\"", " ", rest)  # what the shell itself would expand
+    if re.search(r"\$\{?IFS\b|(?:^|[\s=:])~-|\{[^}\s]*\b(?:cd|pushd|chdir)\b[^}\s]*,", unquoted): return "a command spelled through $IFS, ~- or brace expansion"
+    flat = re.sub(r"\\(.)", r"\1", rest).replace("${HOME}", home).replace("$HOME", home).replace("\n", " ; ")
     def split(text):
         try:
             lx = shlex.shlex(text, posix=True, punctuation_chars=True); lx.whitespace_split = True; return list(lx)
         except ValueError: return text.replace("'", " ").replace('"', " ").split()
-    SEP = {";", "&&", "||", "|", "&", "(", ")", "{", "}", "do", "then", "else", "elif", "!", ";;", "|&", "&>", "\n"}
-    ws_ = fold(payload)
-    def walk(words, cwd):
-        """Judge the words in order, following each cd (§5.56 round 1): a cd may move within the copy, never out of it,
-        and every later path is resolved from where the shell then is. Spellings of cd the shell would undo (\\cd,
-        c''d) are undone first by the parsing above; brace and $IFS spellings are refused."""
-        prev = None
+    SEP = {";", "&&", "||", "|", "&", "(", ")", "{", "}", ";;", "|&", "&>"}
+    LEAD = {"builtin", "command", "time", "eval", "exec", "nohup", "env", "if", "while", "until", "!", "then", "do", "else", "elif", "sudo"}  # a command still follows these
+    pay = pathlib.Path(payload); ws_ = fold(payload); own = fold(pay.parent)
+    inside = lambda q: fold(q) == ws_ or fold(q).startswith(ws_ + os.sep)
+    def walk(words, cands):
+        """Judge the words (§5.56 rounds 1-2). A shell's folder can't be known for sure from the text (a cd in a
+        subshell, a cd that fails, a cd spelled some way not listed here), so every path is judged from every folder
+        the shell might be in: the copy, and every cd destination named so far. A cd may move within the copy, never
+        out of it; a path that leads above the copy (to the agent's own scratch folder or higher) is refused."""
+        cmd_pos = True
         for i, w in enumerate(words):
             bare = re.sub(r"^(?:\$\(|`|\()+", "", w)
-            if re.search(r"\$\{?IFS\b", w) or re.search(r"\{[^}]*\b(?:cd|pushd|chdir)\b[^}]*,", w): return "a command spelled through brace expansion or $IFS", cwd
-            if prev == "-c" and i >= 2 and any(x in ("bash", "sh", "zsh", "dash") for x in words[max(0, i - 3):i]):
-                why, _ = walk(split(w), cwd)  # bash -c "...": the inner commands are judged the same way
-                if why: return why, cwd
-            if (prev is None or prev in SEP or w != bare) and bare in ("cd", "pushd", "chdir"):
-                arg = words[i + 1] if i + 1 < len(words) and words[i + 1] not in SEP else "~"
-                dest = pathlib.Path(os.path.expanduser(arg)); dest = dest if dest.is_absolute() else cwd / dest
-                try: dest = dest.resolve()
-                except (OSError, RuntimeError, ValueError): pass
-                if fold(dest) != ws_ and not fold(dest).startswith(ws_ + os.sep): return f"a cd out of your workspace ({arg}): work inside {payload}", cwd
-                cwd = dest
+            if i >= 1 and re.fullmatch(r"-[A-Za-z]*c[A-Za-z]*", words[i - 1]) and any(x.rsplit("/", 1)[-1] in ("bash", "sh", "zsh", "dash", "ksh") for x in words[max(0, i - 4):i - 1]) \
+               or i >= 1 and words[i - 1] == "eval":
+                why, cands = walk(split(w), cands)  # bash -c / -lc / -ec "...", eval "...": the inner commands, the same way
+                if why: return why, cands
+            if (cmd_pos or w != bare) and bare in ("cd", "pushd", "chdir"):
+                args = [x for x in words[i + 1:i + 4] if x not in SEP]
+                arg = next((x for x in args if not x.startswith("-")), "~")
+                new = []
+                for c in cands:
+                    dest = pathlib.Path(os.path.normpath(os.path.join(str(c), os.path.expanduser(arg))))  # by the path's words, not its links: node_modules is a link to the project's own
+                    if not inside(dest): return f"a cd out of your workspace ({arg}): work inside {payload}", cands
+                    new.append(dest)
+                cands = cands + [x for x in new if x not in cands]
             for piece in re.split(r"[=:,]", w):  # --file=../x, PATH-like lists
                 if not piece or piece.startswith("-") and "/" not in piece: continue
                 if not ("/" in piece or piece in (".", "..", "~") or piece.startswith("~") or any(ch in piece for ch in "*?[")): continue
-                q = pathlib.Path(os.path.expanduser(piece)); q = q if q.is_absolute() else cwd / q
-                hits = _glob.glob(str(q), recursive=True)[:2000] if any(ch in piece for ch in "*?[") else [str(q)]
-                for h in hits:
-                    try: real = pathlib.Path(h).resolve()
-                    except (OSError, RuntimeError, ValueError): continue
-                    why = judge(real, critic, role, me)
-                    if why: return why, cwd
-                    if above(real, critic): return f"{piece}: a folder that holds the project's .critic/ (search your workspace instead)", cwd
-            prev = w
-        return None, cwd
-    why, _ = walk(split(flat), pathlib.Path(payload))
+                for c in cands:
+                    q = pathlib.Path(os.path.expanduser(piece)); q = q if q.is_absolute() else c / q
+                    if fold(os.path.normpath(str(q))) == own: return f"{piece}: the folder above your workspace (stay inside {payload})", cands
+                    hits = _glob.glob(str(q), recursive=True)[:2000] if any(ch in piece for ch in "*?[") else [str(q)]
+                    for h in hits:
+                        try: real = pathlib.Path(h).resolve()
+                        except (OSError, RuntimeError, ValueError): continue
+                        why = judge(real, critic, role, me)
+                        if why: return why, cands
+                        if above(real, critic): return f"{piece}: a folder that holds the project's .critic/ (search your workspace instead)", cands
+            cmd_pos = w in SEP or bare in LEAD or (cmd_pos and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*=.*", w) is not None)
+        return None, cands
+    why, _ = walk(split(flat), [pay])
     if why: return why
     return None
 

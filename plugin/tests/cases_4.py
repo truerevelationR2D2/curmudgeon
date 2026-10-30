@@ -17,7 +17,7 @@ def _(d):
     run(S / "critic_run.py", "begin", "--files", "src/a.js", "--tier", "lite", cwd=d)
     write(d, ".critic/reviews/review-A.json", "[]")
     out = run(S / "critic_run.py", "next", cwd=d).stdout
-    assert "not written their report" in out and not (d / ".critic/tally.json").exists(), "the tally waits for this run's scan: " + out
+    assert "have not written a report" in out and not (d / ".critic/tally.json").exists(), "the tally waits for this run's scan: " + out
     run(S / "critic_scan.py", ".", "--root", ".", cwd=d)
     assert any(r["rule"] == "eval" and r["sev"] == "FAIL" for r in json.loads((d / ".critic/scan/report.json").read_text())["findings"])
     out = run(S / "critic_run.py", "next", cwd=d).stdout
@@ -46,11 +46,20 @@ def _(d):
                 f"cd {ws} && \\cd .. && \\cd .. && \\cd .. && cat reviews/review-B.json",   # round 1: spellings the shell undoes
                 f"cd {ws} && c''d .. && c''d .. && c''d .. && cat reviews/review-B.json",
                 f"cd {ws} && {{cd,..}} && cat x", f"cd {ws} && cd${{IFS}}..",
-                f"cd {ws} && cd src && cd ../.. && cat x", f"cd {ws} && bash -c 'cd ../../.. && cat reviews/review-B.json'", f"cd {ws} && cd"):
+                f"cd {ws} && cd src && cd ../.. && cat x", f"cd {ws} && bash -c 'cd ../../.. && cat reviews/review-B.json'", f"cd {ws} && cd",
+                # round 2: cd forms the guard can't follow, subshells and failed cds, ways back
+                f"cd {ws} && builtin cd .. && builtin cd .. && builtin cd .. && cat reviews/review-B.json", f"cd {ws} && command cd ..", f"cd {ws} && X=1 cd ..",
+                f"cd {ws} && time cd ..", f"cd {ws} && eval cd ..", f"cd {ws} && $'cd' ..", f"cd {ws} && if cd ..; then ls; fi", f"cd {ws} && while cd ..; do break; done",
+                f"cd {ws} && ls\ncd ..\ncd ..\ncd ..\ncat reviews/review-B.json", f"cd {ws} && cd -P ..", f"cd {ws} && cd -- ..",
+                f"cd {ws} && bash -lc 'cd ../../.. && cat reviews/review-B.json'", f"cd {ws} && sh -ec 'cat ../../../reviews/review-B.json'",
+                f"cd {ws} && (cd src/a/b && ls) && cat ../../../reviews/review-B.json", f"cd {ws} && cd no/such/dir 2>/dev/null; cat ../../../reviews/review-B.json",
+                f"cd {ws} && echo $(cd src) && cat ../../reviews/review-B.json", f"cd {ws} && cd ~- && cat .critic/reviews/review-B.json", f"cd {ws} && cat ~-/.critic/reviews/review-B.json"):
         assert _guard(p, p, "Bash", command=cmd), cmd
     write(pathlib.Path(ws), "deploy.sh", "cd /srv && ./run\n")
+    os.symlink(p / "src", pathlib.Path(ws) / "linked")  # like node_modules: a link in the copy to the project's own folder
     for cmd in (f"cd {ws} && cat src/app.js && grep -rn innerHTML src", f"cd {ws} && grep -n 'cd ' deploy.sh", f"cd {ws} && grep -rn chdir src",
-                f"cd {ws} && cd src && ls", f"cd {ws} && cd src && cd .. && cat deploy.sh", f"cd {ws} && git log --oneline | grep cd"):
+                f"cd {ws} && cd src && ls", f"cd {ws} && (cd src && ls) && cat deploy.sh", f"cd {ws} && git log --oneline | grep cd",
+                f"cd {ws} && cd linked && ls", f"cd {ws} && ls ../notes", f"cd {ws} && grep -rn '$IFS' src", f"cd {ws} && grep -n 'cd ..' deploy.sh"):
         assert not _guard(p, p, "Bash", command=cmd), "ordinary work in the copy still runs: " + cmd
 
 @test("§5.56 item 3: the quote check is strict: the cited line or one either side, case and quote marks kept, at least 12 characters with a name, never line 0")
@@ -225,3 +234,61 @@ def _(d):
     run(S / "critic_outside.py", "load", "ans.txt", cwd=h)
     assert json.loads((h / ".critic/outside/outside-review.json").read_text())[0]["line"] == 2, "a line range keeps its first line"
     assert relocate_quote({"file": "src/app.js", "line": 9, "quote": "LIST.INNERHTML = `<LI>${N.TITLE}</LI>`;"}, h) is None and relocate_quote({"file": "src/app.js", "line": 9, "quote": "list.innerHTML = `<li>${n.title}</li>`;"}, h) == 2
+
+
+@test("§5.56 round 2: the split follows similarity, not just line distance, a reviewer's repeat is one finding, and matched votes are counted per group")
+def _(d):
+    write(d, "src/app.js", "\n".join(f"// line {i}" for i in range(1, 10)) + "\nfunction pay(amount, to) {\n  db.write(amount);\n  const x = 1;\n  validateLater();\n  sendPayment(to, amount);\n}\n")
+    run(S / "critic_ledger.py", "start", "review", "--tier", "full", cwd=d)
+    a1 = finding(category="validation", impact="High", line=11, quote="db.write(amount);", title="amount not validated before write", failing_case="amount -5 is written")
+    a2 = finding(category="validation", impact="High", line=14, quote="sendPayment(to, amount);", title="recipient not validated before send", failing_case="an empty recipient is sent")
+    b1 = finding(category="validation", impact="High", line=13, quote="validateLater();", title="amount and recipient not validated before write and send", failing_case="bad input is written and sent")
+    c1 = dict(a2, line=10, quote="function pay(amount, to) {")
+    from critic_findings import similar
+    assert similar(c1, a2) and not similar(c1, a1)
+    t = _tally3(d, [a1, a2], [b1], [c1])
+    kept = {f["title"]: f["votes"] for f in t["kept"]}; live = kept | {f["title"]: f["votes"] for f in t["contested"]}
+    assert kept.get("recipient not validated before send", 0) >= 2, kept  # C's vote goes to the finding it resembles, not the nearest line
+    assert "amount not validated before write" in live, (kept, live)  # A's other finding is kept or verified, never dropped
+    e = d / "dup"; write(e, "src/app.js", APP); run(S / "critic_ledger.py", "start", "review", "--tier", "full", cwd=e)
+    t = _tally3(e, [finding(), finding(title="Title rendered as HTML without escaping")], [finding()], [finding()])
+    ids = [f["id"] for f in t["kept"] + t["contested"]]
+    assert len(ids) == 1 and t["kept"][0]["votes"] == 3, [(f["id"], f["votes"]) for f in t["kept"] + t["contested"]]
+
+@test("§5.56 round 2: a missing outside-only verdict marks the run DEGRADED, verdicts older than the tally are never applied, rounds archive verdicts, and measurements stay confirmed with a reviewer")
+def _(d):
+    write(d, "src/app.js", APP); run(S / "critic_ledger.py", "start", "review", "--tier", "full", cwd=d)
+    write(d, "o.json", json.dumps([dict(finding(category="domain", impact="High", line=4, quote="const price = total * 1.0825;", title="Tax applied twice"), source="outside", outside_id="N1")]))
+    _tally3(d, [], [], [], "--outside", "o.json"); write(d, "v.json", "[]"); run(S / "critic_merge.py", "apply", "v.json", cwd=d)
+    assert "DEGRADED: 1 verdict(s) the full tier requires" in (d / ".critic/counts.md").read_text(), (d / ".critic/counts.md").read_text()[:400]
+    e = d / "stale"; write(e, "src/app.js", APP); run(S / "critic_ledger.py", "start", "review", "--tier", "full", cwd=e)
+    _tally3(e, [finding(impact="High")], [finding(impact="High")], [])
+    fid = [p.stem for p in (e / ".critic/verify").glob("*.json")][0]
+    write(e, ".critic/verdicts/old.json", json.dumps([{"id": fid, "verdict": "refuted", "refutation": "src/app.js:2 escapes the title first", "reproduced": "traced"}]))
+    old = time.time() - 600; os.utime(e / ".critic/verdicts/old.json", (old, old))
+    run(S / "critic_merge.py", "apply", ".critic/verdicts/old.json", cwd=e)
+    c = (e / ".critic/counts.md").read_text()
+    assert "High 1" in c and "not applied, older than this tally: old.json" in c, c[:600]
+    run(S / "critic_ledger.py", "round", cwd=e)
+    assert not (e / ".critic/verdicts").exists() and list((e / ".critic/history").glob("*/verdicts/old.json")), "a new round starts without the last round's verdicts"
+    g = d / "meas"; write(g, "index.html", "<p class=\"hint\">enter a value now</p>\n"); run(S / "critic_ledger.py", "start", "review", "--tier", "lite", cwd=g)
+    write(g, "scan.json", json.dumps({"findings": [{"id": "S002", "rule": "axe-color-contrast", "sev": "FAIL", "level": "runtime", "where": "index.html:1", "what": "low contrast", "evidence": "enter a value now"}]}))
+    write(g, ".critic/reviews/review-A.json", json.dumps([finding(category="axe-color-contrast", impact="High", file="index.html", line=1, quote="<p class=\"hint\">enter a value now</p>", title="hint text has low contrast")]))
+    run(S / "critic_merge.py", "tally", ".critic/reviews/review-A.json", "--scan", "scan.json", cwd=g)
+    ids = [p.stem for p in (g / ".critic/verify").glob("*.json")]
+    write(g, "v.json", json.dumps([{"id": i, "verdict": "confirmed", "reproduced": "traced", "entry": "the page loads", "path": ["index.html:1 renders the hint in #ccc"]} for i in ids]))
+    run(S / "critic_merge.py", "apply", "v.json", cwd=g)
+    f = [json.loads(x) for x in (g / ".critic/findings.jsonl").read_text().splitlines() if x.strip()]
+    assert [x["confidence"] for x in f] == ["confirmed"], [(x.get("raised_by"), x["confidence"]) for x in f]
+
+@test("§5.56 round 2: waiting for a scan names the command to run, the outside brief allows a two-line quote for a short line, and a variant verdict is judged against its own packet")
+def _(d):
+    write(d, "src/app.js", APP); run(S / "critic_run.py", "begin", "--files", "src/app.js", "--tier", "lite", cwd=d); write(d, ".critic/reviews/review-A.json", "[]")
+    out = run(S / "critic_run.py", "next", cwd=d).stdout
+    assert "critic_scan.py . --root ." in out, out
+    assert "under 12 characters, quote it together with the next line" in (S / "critic_outside.py").read_text()
+    write(d, ".critic/verify-variants/V-abc-1.json", json.dumps({"id": "V-abc-1", "impact": "Low", "category": "style", "file": "src/app.js", "line": 2}))
+    msg = 'x\n```json\n[{"id": "V-abc-1", "verdict": "refuted", "refutation": "src/app.js:1 defines render() only for the admin page, which escapes every title before this line runs.", "reproduced": "traced"}]\n```\n'
+    r = run(H / "check_contract.py", cwd=d, stdin=json.dumps({"agent_type": "curmudgeon:curmudgeon-verifier", "agent_id": "v9", "cwd": str(d), "last_assistant_message": msg}))
+    assert '"block"' not in r.stdout, "a Low variant's refutation is held to the Low rules, not the Critical ones: " + r.stdout
+    assert (d / ".critic/verdicts-variants/v9.json").exists()

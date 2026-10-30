@@ -116,8 +116,9 @@ def early(force=False):
 def say_next(st, tier, items):
     rel = lambda p: str(p.relative_to(ROOT))
     if st == "scan":
-        print("next: the scripted checks have not written their report for this run yet. Wait for the background scan (critic_scan.py) to finish, then run critic_run.py next again. "
-              "If it can't run, critic_run.py next --no-scan goes on without it, and the counts say the run is DEGRADED.")
+        print(f"next: the scripted checks have not written a report for this run (or round) yet. If the background scan is running, wait for it; if none was started "
+              f"(a new round, say), run it now: python3 {HERE / 'critic_scan.py'} . --root . Then run critic_run.py next again. "
+              "Only if it can't run at all: critic_run.py next --no-scan goes on without it, and the counts say the run is DEGRADED.")
     elif st == "reviewing":
         print(f"next: start {len(items)} curmudgeon:curmudgeon-reviewer agent(s) by name (never a fork), blind, one per letter: "
               + ", ".join(p.stem[-1] for p in items) + ". Give each the text of its brief, unchanged, as its prompt: " + ", ".join(f".critic/briefs/brief-{p.stem[-1]}.md" for p in items) + ". Each writes " + ", ".join(rel(p) for p in items) + ".")
