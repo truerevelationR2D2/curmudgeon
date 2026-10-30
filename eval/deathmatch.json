@@ -50,6 +50,30 @@
    ]
   },
   {
+   "id": "plain-claude-rubric",
+   "prompt": "Review the code in this folder for bugs. For each bug give the file:line, what is wrong, and a concrete input or sequence that makes it fail. Change no files. Before you start, read rubrics.md and sandbox.md in {plugin}/skills/review/references and use them as your checklist.",
+   "tools": [
+    "Read",
+    "Grep",
+    "Glob"
+   ],
+   "add_dirs": [
+    "{plugin}/skills/review/references"
+   ],
+   "note": "Plain Claude given Curmudgeon's rubric and sandbox scenarios, nothing else: separates the checklist's effect from the blind panel, voting and verification (ruling §5.56 item 20)."
+  },
+  {
+   "id": "plain-claude-quote",
+   "prompt": "Review the code in this folder for bugs. Change no files. Reply with only a JSON list, one object per bug: {\"file\": path, \"line\": number, \"quote\": the code at that line copied exactly, \"title\": what is wrong, \"failing_case\": a concrete input or sequence that makes it fail}.",
+   "tools": [
+    "Read",
+    "Grep",
+    "Glob"
+   ],
+   "quote_check": true,
+   "note": "Plain Claude whose findings must pass Curmudgeon's quote check before they are scored (ruling §5.56 item 20)."
+  },
+  {
    "id": "code-review",
    "prompt": "/code-review:code-review the change on this branch. There is no GitHub pull request: the change is `git diff main...HEAD` in this folder, so read it with git instead of gh, and print your final review comment here instead of posting it. Change no files.",
    "tools": [
