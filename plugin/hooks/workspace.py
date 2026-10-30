@@ -146,10 +146,10 @@ def _own_repo(root, payload):
         head = _git(root, "rev-parse", "-q", "--verify", "HEAD^{commit}")
         r = _git(payload, "init", "-q")
         if r and not r.returncode and (payload / ".git").is_dir():
-            if head is not None and head.returncode:
-                wt = _git(root, "rev-parse", "--show-toplevel")
-                if wt and not wt.returncode and fold(wt.stdout.strip()) == fold(pathlib.Path(root).resolve()): return "empty"  # a real repository with no commit yet
-                shutil.rmtree(payload / ".git", ignore_errors=True); head = None  # no commit to copy: git status shows every file as new, which is what it is
+            wt = _git(root, "rev-parse", "--show-toplevel")
+            own = bool(wt and not wt.returncode and fold(wt.stdout.strip()) == fold(pathlib.Path(root).resolve()))  # a broken .git makes git walk up to a parent repository: never copy that one's tree
+            if head is not None and head.returncode and own: return "empty"  # a real repository with no commit yet
+            if not own or head is None or head.returncode: head = None  # no commit to copy: git status shows every file as new, which is what it is
             try:
                 if head is None: raise ValueError("no repository")
                 ls = subprocess.run(["git", "ls-tree", "-r", "-z", "--full-tree", "HEAD"], cwd=root, capture_output=True, timeout=120)
@@ -172,8 +172,9 @@ def _own_repo(root, payload):
                                    GIT_COMMITTER_EMAIL="reviewer@example.invalid", GIT_AUTHOR_DATE="2000-01-01T00:00:00Z", GIT_COMMITTER_DATE="2000-01-01T00:00:00Z")
                         c = subprocess.run(["git", "commit-tree", wt.stdout.strip(), "-m", "base"], cwd=payload, capture_output=True, text=True, timeout=60, env=env)
                         if not c.returncode and c.stdout.strip():
-                            _git(payload, "update-ref", "refs/heads/base", c.stdout.strip()); _git(payload, "symbolic-ref", "HEAD", "refs/heads/base")
-                            _git(payload, "reset", "-q")  # index = the base commit; the files on disk are the project's working tree
+                            for cmd in (["update-ref", "refs/heads/base", c.stdout.strip()], ["symbolic-ref", "HEAD", "refs/heads/base"], ["reset", "-q"]):  # reset: index = the base commit; the files on disk are the project's working tree
+                                subprocess.run(["git", "-c", "core.logAllRefUpdates=false", *cmd], cwd=payload, capture_output=True, timeout=120, env=env)
+                            shutil.rmtree(payload / ".git" / "logs", ignore_errors=True)  # a reflog would carry this machine's git identity (03 §5.56 batch 2 round 3)
                             return "base"
             except (OSError, subprocess.SubprocessError, ValueError): pass
             shutil.rmtree(payload / ".git", ignore_errors=True)

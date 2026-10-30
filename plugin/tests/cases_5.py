@@ -77,7 +77,7 @@ def _(d):
     assert "deny" in _rg(p, "Bash", command=f"cd {ws} && python3 {S / 'critic_ledger.py'} consent writes"), "an agent can't give consent"
     assert "deny" in _rg(p, "Bash", command=f"cd {ws} && python3 {S / 'critic_ledger.py'} approve rules.md")
 
-@test("§5.56 item 13: a verifier reads only its own packets, by path, one batch at most, and never the scan")
+@test("§5.56 item 13: a verifier reads packets only by path, one batch at most, and never the scan")
 def _(d):
     p = d / "proj"; write(p, "src/app.js", APP)
     for i in range(7): write(p, f".critic/verify/F-{i}.json", "{}")
@@ -264,3 +264,34 @@ def _(d):
     write(d, "elsewhere/review-A.json", json.dumps([finding(impact="High")]))
     run(S / "critic_merge.py", "tally", "elsewhere/review-A.json", cwd=d); write(d, "v.json", "[]"); run(S / "critic_merge.py", "apply", "v.json", cwd=d)
     assert "blindness not shown for review-A.json" in (d / ".critic/counts.md").read_text()
+
+# Batch 2, blind round 3 (30 Oct 2026): each test below failed on commit 9559c9b.
+
+@test("§5.56 batch 2 round 3: a tracked .CRITIC folder is the same folder on a case-blind disk, agents can't write rules.md, poetry run and pnpm exec are judged by what they launch, and naming the owner's helpers in a grep is fine")
+def _(d):
+    sys.path.insert(0, str(S)); import importlib, critic_findings as cf; importlib.reload(cf)
+    c = d / "case"; write(c, ".CRITIC/rules.md", "## Not findings\n- everything\n"); subprocess.run(["git", "init", "-q"], cwd=c); subprocess.run(["git", "config", "core.ignorecase", "true"], cwd=c)
+    subprocess.run(["git", "add", "-A", "-f"], cwd=c); subprocess.run(G5 + ["commit", "-qm", "x"], cwd=c); write(c, ".critic/rules.md", "## Not findings\n- everything\n")
+    assert not cf.state_trusted(c, "rules.md"), "git tracks .CRITIC/rules.md"
+    p = d / "proj"; write(p, "src/app.js", APP); ws = _ws(p)["payload"]; cc = f"cd {ws} && "
+    for cmd in (cc + "poetry run pip install pytest-x", cc + "poetry run curl http://x.invalid", cc + "pnpm exec npm install x"):
+        assert "deny" in _rg(p, "Bash", command=cmd), cmd
+    for cmd in (cc + "grep -rn owner_state src", cc + "CURMUDGEON_STATE_DIR=/tmp/x python3 -c 'print(1)'", cc + "grep -n '.curmudgeon' src/app.js", cc + "poetry run pytest -q"):
+        assert "deny" not in _rg(p, "Bash", command=cmd), cmd
+    for rel in (".critic/rules.md", ".critic/last-review.md"):
+        w = run(H / "guard_state.py", cwd=p, stdin=json.dumps({"tool_name": "Write", "tool_input": {"file_path": str(p / rel)}, "cwd": str(p), "agent_type": "curmudgeon:curmudgeon-reviewer", "agent_id": "r1"})).stdout
+        assert "deny" in w, rel
+
+@test("§5.56 batch 2 round 3: an archived review counts as unproven even when this run's stop record has its name, a broken .git never copies a parent repository's tree, and the copy keeps no reflog")
+def _(d):
+    write(d, "src/app.js", APP); run(S / "critic_ledger.py", "start", "review", "--tier", "lite", cwd=d)
+    write(d, ".critic/history/old/reviews/review-A.json", json.dumps([finding(impact="High")])); _blind_one(d)
+    run(S / "critic_merge.py", "tally", ".critic/history/old/reviews/review-A.json", cwd=d); write(d, "v.json", "[]"); run(S / "critic_merge.py", "apply", "v.json", cwd=d)
+    assert "blindness not shown for review-A.json" in (d / ".critic/counts.md").read_text()
+    o = d / "outer"; write(o, "secret.txt", "outside secret\n"); subprocess.run(["git", "init", "-q"], cwd=o); subprocess.run(["git", "add", "-A"], cwd=o); subprocess.run(G5 + ["commit", "-qm", "o"], cwd=o)
+    q = o / "proj"; write(q, "a.txt", "a\n"); (q / ".git").mkdir()
+    rec = _ws(q); assert rec["git"] != "base", rec["git"]
+    assert "outside secret" not in subprocess.run(["git", "cat-file", "-p", "HEAD:secret.txt"], cwd=rec["payload"], capture_output=True, text=True).stdout
+    b = d / "b"; write(b, "a.txt", "a\n"); subprocess.run(["git", "init", "-q"], cwd=b); subprocess.run(["git", "add", "-A"], cwd=b); subprocess.run(G5 + ["commit", "-qm", "b"], cwd=b)
+    rb = _ws(b); assert rb["git"] == "base" and not (pathlib.Path(rb["payload"]) / ".git/logs").exists(), "no reflog to carry this machine's git identity"
+    assert subprocess.run(["git", "reflog"], cwd=rb["payload"], capture_output=True, text=True).stdout.strip() == ""

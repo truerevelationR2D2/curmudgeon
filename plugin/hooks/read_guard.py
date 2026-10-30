@@ -17,7 +17,7 @@ can only find code. This guard holds the agent to it:
 
 What a role may read in the project's .critic/:
   reviewer  the rule files, the change map, its own scratch folder
-  verifier  the same, plus its own verify packets (by path, at most one batch) and the ledger's recorded decisions; never the scan
+  verifier  the same, plus verify packets (by path, with Read, at most one batch: the lead names its own) and the ledger's recorded decisions; never the scan
   dedup     the rule files, dedup-candidates.json and groups.json
 
 The threat is an honest agent anchoring on what it happens to see. A same-user process set on evasion can always build
@@ -109,7 +109,7 @@ def owner_problem(cmd, detector):
     project), the run's ledger script at all. Quotes and backslashes are removed first, so con""sent reads as consent."""
     flat = re.sub(r"[\\'\"]", "", cmd)
     base = os.path.realpath(os.environ.get("CURMUDGEON_STATE_DIR") or os.path.expanduser("~/.curmudgeon"))
-    if re.search(r"write_owner_state|owner_state|CURMUDGEON_STATE_DIR|\.curmudgeon\b", flat) or base in flat:
+    if re.search(r"write_owner_state\s*\(|(?:~|\$HOME|\$\{HOME\})/\.curmudgeon\b", flat) or base in flat:  # writing it, or naming its folder; mentioning the words (a grep) is fine
         return "the owner's own record of approvals and consent is theirs to write, through the lead"
     if detector and "critic_ledger" in flat: return "the detector runs the scripted checks; the run's ledger (consent and approvals among it) is the lead's"
     if re.search(r"critic_ledger(?:\.py)?\b.*\b(?:consent|approve)\b", flat): return "only the owner gives consent or approves a file, through the lead"
@@ -176,6 +176,8 @@ def bash_problem(cmd, rec, root, critic, role, me):
         n = name.rsplit("/", 1)[-1]
         for k, a in enumerate(args[:-1]):
             if a.endswith("critic_ledger.py") and args[k + 1] in ("consent", "approve"): return f"critic_ledger.py {args[k + 1]}: only the owner gives consent or approves a file, through the lead"
+        if (n == "poetry" and args[:1] == ["run"]) or (n in ("pnpm", "yarn") and args[:1] == ["exec"]):  # poetry run pip install ...: judge what they launch
+            return tripwire(args[1], args[2:]) if len(args) > 1 else None
         if n in WRAPPERS:  # timeout 10 curl ..., nice -n 5 pip install ..., xargs -n1 curl: judge the command they run
             k = 0
             while k < len(args) and (args[k].startswith("-") or re.fullmatch(r"\d+(?:\.\d+)?[smhd]?|[A-Za-z_][A-Za-z0-9_]*=.*", args[k])):

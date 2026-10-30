@@ -2,7 +2,7 @@
 
 Comments in Curmudgeon's scripts and hooks cite the maintainer's design rulings as `§2` or `§5.NN` (sometimes
 `03 §5.NN`, after the file they are kept in). This is the public index of every ruling the plugin's code, its tests and the eval kit cite: what
-was decided, and when. The design invariants (`§2`) are the ones the README lists under "How it works".
+was decided, and when. The design invariants (`§2`) are the evidence rules the README describes under "How a review runs".
 
 | Ruling | Date | What was decided |
 |---|---|---|
@@ -21,6 +21,6 @@ was decided, and when. The design invariants (`§2`) are the ones the README lis
 | §5.45 | 27 Oct 2026 | Cost experiments ship first as a separate packaged branch, and are dropped if quality falls. |
 | §5.46 | 28 Oct 2026 | 5.2.1: the cost-saving changes go into the lite tier only; the full tier is left as it was. |
 | §5.47 | 28 Oct 2026 | The 5.2.1 builds were merged into one, after their measurements. |
-| §5.56 | 29 Oct 2026 | Fixes from an independent combined review, approved item by item: the scan's FAILs reach the counts; a strict quote check (the cited line or one either side, case kept, at least 12 characters); split impacts filed at the highest and verified; one reviewer's findings never merged; self-reported runs capped below "confirmed"; one rule for what each tier verifies, with DEGRADED when a required verdict is missing; verifier verdicts saved by a hook; the teardown checked against the counts; a repository's own rules and scope files used only once approved; reviewer copies without git history; no writes through links, no installs, no network from reviewer copies; consent recorded per run for live sites and writes; verifiers limited to their own packets; rulings that hide only their exact finding; a record that each reviewer worked in its private copy; CI on Windows and macOS, with Python 3.14. |
+| §5.56 | 29 Oct 2026 | Fixes from an independent combined review, approved item by item: the scan's FAILs reach the counts; a strict quote check (the cited line or one either side, case kept, at least 12 characters); split impacts filed at the highest and verified; one reviewer's findings never merged; self-reported runs capped below "confirmed"; one rule for what each tier verifies, with DEGRADED when a required verdict is missing; verifier verdicts saved by a hook; the teardown checked against the counts; a repository's own rules and scope files used only once approved; reviewer copies without git history; no writes through links, no installs, no network from reviewer copies; consent recorded per run for live sites and writes; verifiers limited to one batch of packets, read by path; rulings that hide only their exact finding; a record that each reviewer worked in its private copy; CI on Windows and macOS, with Python 3.14. |
 
 `§11` in `security_feed.py` is section 11 of the Semantic Versioning 2.0.0 specification, not a ruling.

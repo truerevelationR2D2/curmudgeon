@@ -51,7 +51,7 @@ jobs:
         with:
           python-version: "3.12"
       - name: Script tests on Windows (first measured in 5.2.5; not yet a required check, see below)
-        # 03 §5.56 item 23: the hooks have never run in CI on Windows. This step reports every failure as an annotation
+        # 03 §5.56 item 23: the hooks have never run in CI on Windows. This step reports the first 30 failures as annotations
         # but doesn't fail the job until a run has shown which tests are Windows-specific; then it becomes required.
         continue-on-error: true
         timeout-minutes: 25  # a step that runs out of time fails only itself (continue-on-error); the job's limit is above both steps, so the required check below still runs

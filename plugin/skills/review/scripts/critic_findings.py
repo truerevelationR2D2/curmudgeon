@@ -602,14 +602,14 @@ def owner_untracked(root, rel):
     try:
         top = subprocess.run(["git", "rev-parse", "--show-toplevel"], cwd=r, capture_output=True, text=True, timeout=5)
         if top.returncode or os.path.normcase(os.path.realpath(top.stdout.strip())) != os.path.normcase(os.path.realpath(r)): return False
-        ls = subprocess.run(["git", "ls-files", "-z", "-s", "--", ".critic"], cwd=r, capture_output=True, text=True, timeout=10)
+        ls = subprocess.run(["git", "ls-files", "-z", "-s", "--", ":(icase).critic"], cwd=r, capture_output=True, text=True, timeout=10)
         if ls.returncode: return False
     except (OSError, subprocess.SubprocessError): return False
     want = f".critic/{rel}".casefold()
     for rec in ls.stdout.split("\0"):
         if not rec: continue
         meta, _, path = rec.partition("\t")
-        if path.casefold() in (want, ".critic") or meta.startswith("160000"): return False
+        if path.casefold() in (want, ".critic") or meta.startswith("160000"): return False  # the pathspec ignores case too: a tracked .CRITIC/ is the same folder on a case-blind disk
     return True
 
 def consent_given(root, kind, host=None):

@@ -6,7 +6,7 @@ import json, os, pathlib, re, sys
 
 PROTECTED = {"ledger.json", "ledger.md", "decisions.md", "gate", "gate-count", "gate-async", "findings.jsonl", "findings.sarif", "tally.json", "counts.md", "async-shown.json", "refutations.jsonl", "runlog.jsonl", "spotcheck.md"}
 PROTECTED_DIRS = {"baseline", "verify", "restore", "private", "verdicts", "verdicts-variants", "stops", "verify-opened"}  # verdicts: saved by check_contract.py as the verifier returned them, never retyped; stops and verify-opened: the hooks' own records of each agent (§5.56)
-AGENT_PROTECTED = {"scope.json"}  # private: the browser driver's signing key and live-request ledger
+AGENT_PROTECTED = {"scope.json", "rules.md", "rules", "last-review.md"}  # the owner's rules and the run's end marker: an untracked rules.md an agent wrote would count as the owner's  # private: the browser driver's signing key and live-request ledger
 
 def main():
     try: data = json.load(sys.stdin)
@@ -51,7 +51,7 @@ def main():
             return 0
     if agent and after[0] in AGENT_PROTECTED:  # the owner's consent files: the lead may write them for the owner, Curmudgeon's own agents never
         print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny",
-            "permissionDecisionReason": f"Curmudgeon's agents can't write {'/'.join(after)}: it records the owner's consent (which live sites may be loaded). Ask the lead, who asks the owner."}}))
+            "permissionDecisionReason": f"Curmudgeon's agents can't write {'/'.join(after)}: it is the owner's (their rules, which live sites may be loaded) or the run's own marker. Ask the lead, who asks the owner."}}))
         return 0
     if after[0] in PROTECTED or (after[0] in PROTECTED_DIRS):
         print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny",
