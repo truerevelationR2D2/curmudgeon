@@ -314,3 +314,40 @@ def _(d):
     sys.path.insert(0, str(S)); import importlib, critic_ledger; importlib.reload(critic_ledger)
     assert critic_ledger.teardown_counts("Counts: Critical 1 High 2 Medium 0 Low 3") == (1, 2, 0, 3)
     assert critic_ledger.teardown_counts("Counts: **Critical:** 1, **High:** 2, **Medium:** 0, **Low:** 3") == (1, 2, 0, 3)
+
+
+@test("§5.56 round 3: the guard follows a cd that certainly happened (cd X && ...), so moving back up inside the copy works; a bare cd goes home; popd and dirs are refused only as commands")
+def _(d):
+    p = d / "proj"; write(p, "src/lib/x.js", "let a = 1;\n"); write(p, "package.json", "{}\n"); write(p, ".critic/reviews/review-B.json", '[{"title": "SECRET-B"}]')
+    run(H / "scratch_dir.py", cwd=p, stdin=json.dumps({"agent_type": "curmudgeon:curmudgeon-reviewer", "agent_id": "r1", "cwd": str(p)}))
+    ws = json.loads((p / ".critic/scratch/r1/workspace.json").read_text())["payload"]
+    for cmd in (f"cd {ws} && cd src && cd .. && ls", f"cd {ws} && cd src && ls ..", f"cd {ws} && cd src/lib && cat ../../package.json",
+                f"cd {ws} && cd src && find .. -name '*.js'", f"cd {ws} && grep -rn dirs src", f"cd {ws} && grep -rn popd src"):
+        assert not _guard(p, p, "Bash", command=cmd), "ordinary work in the copy: " + cmd
+    for cmd in (f"cd {ws} && cd; cat reviews/review-B.json", f"cd {ws} && cd && cat x", f"cd {ws} && cd src && cd .. && cd .. && cat reviews/review-B.json",
+                f"cd {ws} && true || cd src && cat ../../../reviews/review-B.json", f"cd {ws} && pushd src && popd", f"cd {ws} && dirs"):
+        assert _guard(p, p, "Bash", command=cmd), cmd
+
+@test("§5.56 round 3: a member like none of the groups it may join is its own finding, the scan command printed later keeps the run's limits, and a late outside answer asks for the dedup agent again")
+def _(d):
+    write(d, "src/app.js", "\n".join(f"// line {i}" for i in range(1, 10)) + "\nfunction pay(amount, to) {\n  db.write(amount);\n  const x = 1;\n  validateLater();\n  sendPayment(to, amount);\n  audit.log(to, amount);\n}\n")
+    run(S / "critic_ledger.py", "start", "review", "--tier", "full", cwd=d)
+    a1 = finding(category="validation", impact="High", line=11, quote="db.write(amount);", title="amount not validated before write", failing_case="amount -5 is written")
+    a2 = finding(category="validation", impact="High", line=14, quote="sendPayment(to, amount);", title="recipient not validated before send", failing_case="an empty recipient is sent")
+    b1 = finding(category="validation", impact="High", line=13, quote="validateLater();", title="amount and recipient not validated before write and send", failing_case="bad input is written and sent")
+    c1 = dict(a2, line=10, quote="function pay(amount, to) {"); c2 = dict(a2, line=15, quote="audit.log(to, amount);")
+    t = _tally3(d, [a1, a2], [b1], [c1, c2])
+    titles = [f["title"] for f in t["kept"] + t["contested"]]
+    assert "amount not validated before write" in titles, titles
+    e = d / "scan"; write(e, "src/app.js", APP); write(e, "legacy/old.js", "function f(code) {\n  return eval(code);\n}\n")
+    run(S / "critic_run.py", "begin", "--files", "src/app.js", "--tier", "lite", cwd=e); write(e, ".critic/reviews/review-A.json", "[]")
+    out = run(S / "critic_run.py", "next", cwd=e).stdout
+    assert "--only .critic/scan-only.txt" in out, out
+    g = d / "late"; write(g, "src/app.js", APP); run(S / "critic_run.py", "begin", "--files", "src/app.js", "--tier", "full", cwd=g); run(S / "critic_scan.py", ".", "--root", ".", cwd=g)
+    x1 = finding(category="domain", impact="Medium", line=4, quote="const price = total * 1.0825;", title="tax rate hard-coded in render code")
+    x2 = finding(category="xss", impact="High", line=2, quote="list.innerHTML = `<li>${n.title}</li>`;", title="title written as markup")
+    for L_, rows in zip("ABC", ([x1], [x2], [])): write(g, f".critic/reviews/review-{L_}.json", json.dumps(rows))
+    run(S / "critic_run.py", "next", cwd=g); write(g, ".critic/groups.json", json.dumps({"groups": []})); run(S / "critic_run.py", "next", cwd=g)
+    write(g, ".critic/outside/outside-review.json", json.dumps([dict(finding(category="injection", impact="High", line=1, quote="function render(n) {", title="render injects the title as HTML"), source="outside", outside_id="N1")]))
+    out = run(S / "critic_run.py", "next", cwd=g).stdout
+    assert "curmudgeon-dedup" in out, "a late outside answer brings new candidates for the dedup agent: " + out

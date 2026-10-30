@@ -44,6 +44,14 @@ def mtime(p): return p.stat().st_mtime if p.exists() else 0
 
 SCAN, OUTSIDE, NO_SCAN = D / "scan" / "report.json", D / "outside" / "outside-review.json", D / "scan-skipped"
 
+def scan_cmd():
+    """The scan command for this run, as begin prints it: limited to the change's files (scan-only.txt) and to security in
+    the security scan mode, so a scan started later (a new round) covers the same ground (§5.56 round 3)."""
+    only = " --only .critic/scan-only.txt" if (D / "scan-only.txt").is_file() and not (D / "scan-only.txt").is_symlink() else ""
+    try: sec = json.loads((D / "focus.json").read_text()).get("focus") == "security" if (D / "focus.json").is_file() else False
+    except (OSError, ValueError): sec = False
+    return f"python3 {HERE / 'critic_scan.py'} . --root .{only}{' --focus security' if sec else ''}"
+
 def is_fresh(p, started): return p.is_file() and not p.is_symlink() and mtime(p) >= started
 
 def tally_extra(started, reviews=()):
@@ -72,7 +80,7 @@ def state():
     try: listed = json.loads(cands.read_text() or "{}").get("findings_by_file") or {} if cands.exists() and mtime(cands) >= started else {}
     except (OSError, ValueError): listed = {}
     need_dedup = sum(len(v) for v in listed.values()) > 1  # the merge script's own rule: one issue has nothing to group with
-    newest_review = max(mtime(p) for p in reviews)
+    newest_review = max(mtime(p) for p in reviews + ([OUTSIDE] if is_fresh(OUTSIDE, started) else []))  # a late outside answer brings new candidates: the dedup agent judges them too (SKILL.md 3b)
     if need_dedup and mtime(groups) < newest_review: return "dedup", L, tier, [cands]  # tally rewrites the candidates every time, so the groups are judged against the reviews
     if need_dedup and mtime(tally) < mtime(groups): return "tally-groups", L, tier, reviews
     verdicts = sorted((D / "verdicts").glob("*.json")) if (D / "verdicts").is_dir() else []
@@ -117,7 +125,7 @@ def say_next(st, tier, items):
     rel = lambda p: str(p.relative_to(ROOT))
     if st == "scan":
         print(f"next: the scripted checks have not written a report for this run (or round) yet. If the background scan is running, wait for it; if none was started "
-              f"(a new round, say), run it now: python3 {HERE / 'critic_scan.py'} . --root . Then run critic_run.py next again. "
+              f"(a new round, say), run it now: {scan_cmd()} Then run critic_run.py next again. "
               "Only if it can't run at all: critic_run.py next --no-scan goes on without it, and the counts say the run is DEGRADED.")
     elif st == "reviewing":
         print(f"next: start {len(items)} curmudgeon:curmudgeon-reviewer agent(s) by name (never a fork), blind, one per letter: "

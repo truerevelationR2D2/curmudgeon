@@ -193,8 +193,9 @@ def split_same_reviewer(mem, outside_ri=None):
         same_id = [g for g in groups if any(ours(y) and key(y[1]) == key(x[1]) and y[2].get("id") == x[2].get("id") for y in g)] if ours(x) else []
         if same_id: same_id[0].append(x); continue  # this reviewer's repeat of a finding already placed
         free = groups if not ours(x) else [g for g in groups if key(x[1]) not in {key(y[1]) for y in g if ours(y)}]
-        if free: min(free, key=lambda g: fit(x, g)).append(x)
-        else: groups.append([x])
+        best_ = min(free, key=lambda g: fit(x, g)) if free else None
+        if best_ is not None and (fit(x, best_)[0] == 0 or not ours(x) or x[1] is None): best_.append(x)  # outside rows and scan rows go to the nearest group
+        else: groups.append([x])  # like none of the groups it may join: its own finding, never folded into another (§5.56 round 3)
     return groups
 
 def matched_votes(rows):
