@@ -1,0 +1,10 @@
+{
+ "quote_check": "kept 14 of 14",
+ "quote_dropped": 0,
+ "total_cost_usd": 0.09957530000000002,
+ "tokens": 204632,
+ "is_error": false,
+ "num_turns": 6,
+ "agents_launched": 0,
+ "wall_s": 22.7
+}

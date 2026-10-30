@@ -1,0 +1,10 @@
+{
+ "quote_check": "kept 9 of 9",
+ "quote_dropped": 0,
+ "total_cost_usd": 0.09999740000000001,
+ "tokens": 204560,
+ "is_error": false,
+ "num_turns": 6,
+ "agents_launched": 0,
+ "wall_s": 24.5
+}

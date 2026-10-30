@@ -1,0 +1,10 @@
+{
+ "quote_check": "kept 6 of 6",
+ "quote_dropped": 0,
+ "total_cost_usd": 0.0896138,
+ "tokens": 202445,
+ "is_error": false,
+ "num_turns": 4,
+ "agents_launched": 0,
+ "wall_s": 21.3
+}
