@@ -5,7 +5,7 @@
 In `finding-record.md` (reviewers read only that file). Every rule there applies to the teardown too, with two exceptions this file sets: the teardown's first line is the banner or the verdict, and the hooks below close it (they are not a closer in the banned sense).
 
 ## Banner
-If the judgment and detector passes could not run in separate contexts, the first line is `DEGRADED: single context (<why>)`. If no independent reviewer was possible at all and the user asked for a fresh review, the first line is `BLOCKED: no independent reviewer available` and the review stops there.
+If `.critic/counts.md` starts with a `DEGRADED:` line (scripted checks that didn't run, or verdicts the tier requires that never came back), copy it as the first line. If the judgment and detector passes could not run in separate contexts, the first line is `DEGRADED: single context (<why>)`; when both apply, join them in one DEGRADED line. If no independent reviewer was possible at all and the user asked for a fresh review, the first line is `BLOCKED: no independent reviewer available` and the review stops there.
 
 ## First line: the verdict
 After the banner (if any), the first line is the verdict and the counts, so a reader who stops there has the answer: `**BLOCK** · Counts: 1 Critical, 2 High, 0 Medium, 3 Low` (copied from `.critic/counts.md`; the same word and counts as section 5).

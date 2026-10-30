@@ -185,6 +185,35 @@ def mole_lines(L):
     return [f"WHACK-A-MOLE in {f} ({c}): {len(fx)} fixed ({', '.join(fx[:5])}) and still open ({', '.join(op[:5])}). Stop patching this control. "
             f"Write one design finding with up to five solutions ranked best to worst (references/escalation.md) and give it to the owner." for f, c, fx, op in moles(L)]
 
+COUNTS_RE = re.compile(r"Counts for the VERDICT \(copy exactly\): Critical (\d+) · High (\d+) · Medium (\d+) · Low (\d+)")
+TEAR_COUNTS = re.compile(r"(\d+)\s*Critical\W+(\d+)\s*High\W+(\d+)\s*Medium\W+(\d+)\s*Low", re.I)
+
+def teardown_problems(L):
+    """The teardown is written by the lead model; its verdict word, its counts and its DEGRADED banner are checked here
+    against counts.md, which the merge script wrote (§5.56). Only for this run's teardown and counts; [] otherwise."""
+    tr, cm = D / "last-review.md", D / "counts.md"
+    started = L.get("started_at") or 0
+    if not tr.is_file() or not cm.is_file() or tr.is_symlink() or cm.is_symlink(): return []
+    if cm.stat().st_mtime < started or tr.stat().st_mtime < cm.stat().st_mtime: return []
+    ctext = cm.read_text(encoding="utf-8", errors="replace"); m = COUNTS_RE.search(ctext)
+    if not m: return []
+    want = tuple(int(x) for x in m.groups()); degraded = any(x.startswith("DEGRADED:") for x in ctext.splitlines()[:6])
+    lines = [x.strip() for x in tr.read_text(encoding="utf-8", errors="replace").splitlines() if x.strip()]
+    probs = []
+    if degraded and not (lines and lines[0].startswith("DEGRADED")): probs.append("counts.md says the run is DEGRADED, but the teardown's first line doesn't")
+    first = next((x for x in lines if not x.startswith(("DEGRADED", "BLOCKED"))), "")
+    word = re.search(r"\*\*(BLOCK|CONCERNS|CLEAN)\*\*", first); got = TEAR_COUNTS.search(first)
+    if not word or not got: probs.append("the first line after any banner must be the verdict in bold and the counts (**BLOCK** · Counts: 1 Critical, 2 High, 0 Medium, 3 Low)")
+    else:
+        if tuple(int(x) for x in got.groups()) != want: probs.append(f"the first line's counts {'/'.join(got.groups())} are not counts.md's {'/'.join(map(str, want))} (Critical/High/Medium/Low)")
+        if word.group(1) == "CLEAN" and want[0] + want[1]: probs.append("CLEAN with an open Critical or High")
+    sec = next((i for i, x in enumerate(lines) if re.match(r"#+\s*5\.\s*VERDICT", x, re.I)), None)
+    if sec is not None:
+        cl = next((x for x in lines[sec + 1:] if re.match(r"[-*]?\s*\**Counts:", x)), None)
+        g2 = TEAR_COUNTS.search(cl or "")
+        if g2 and tuple(int(x) for x in g2.groups()) != want: probs.append(f"the VERDICT section's Counts line {'/'.join(g2.groups())} is not counts.md's {'/'.join(map(str, want))}")
+    return probs
+
 def main(a):
     if not a or any(x in ("-h", "--help") for x in a): print(__doc__); return 0  # help never changes the ledger
     cmd, rest = a[0], a[1:]; L = load(); msg = "ok"
@@ -207,11 +236,12 @@ def main(a):
         if sc.is_dir() and not sc.is_symlink():
             for pl in sc.glob("*/payload"):  # an agent's copy of the project (hooks/workspace.py) left by a stop that never ran: a copy, never history
                 if pl.is_dir() and not pl.is_symlink() and not pl.parent.is_symlink(): shutil.rmtree(pl, ignore_errors=True)
-        vd_ = D / "verdicts"  # the last run's verifier answers: never applied to this run (critic_run.py), kept for audit
-        if vd_.is_dir() and not vd_.is_symlink() and any(vd_.iterdir()):
-            dest = D / "history" / f"run-{L['run'] - 1}" / "verdicts"; k = 2
-            while dest.exists(): dest = D / "history" / f"run-{L['run'] - 1}-{k}" / "verdicts"; k += 1
-            dest.parent.mkdir(parents=True, exist_ok=True); os.replace(vd_, dest)
+        for name_ in ("verdicts", "verdicts-variants"):  # the last run's verifier answers: never applied to this run (critic_run.py), kept for audit
+            vd_ = D / name_
+            if vd_.is_dir() and not vd_.is_symlink() and any(vd_.iterdir()):
+                dest = D / "history" / f"run-{L['run'] - 1}" / name_; k = 2
+                while dest.exists(): dest = D / "history" / f"run-{L['run'] - 1}-{k}" / name_; k += 1
+                dest.parent.mkdir(parents=True, exist_ok=True); os.replace(vd_, dest)
         if sc.is_dir() and not sc.is_symlink() and any(sc.iterdir()):
             dest = D / "history" / f"run-{L['run'] - 1}" / "scratch"; k = 2
             while dest.exists(): dest = D / "history" / f"run-{L['run'] - 1}-{k}" / "scratch"; k += 1
@@ -475,6 +505,8 @@ def main(a):
         try: L["costs"].append({"run": L["run"], "seconds": float(rest[0]), "note": rest[1] if len(rest) > 1 else ""})
         except ValueError: die("SECONDS must be a number")
     elif cmd == "stamp":
+        bad = teardown_problems(L)
+        if bad: die("stamp refused: the teardown in .critic/last-review.md doesn't match .critic/counts.md (§5.56): " + "; ".join(bad) + ". Copy the verdict, the counts and any DEGRADED line from counts.md, save the teardown again, then stamp")
         need(rest, 1, "stamp [--add] PATH...")
         add = rest[0] == "--add"; rest = rest[1:] if add else rest
         need(rest, 1, "stamp [--add] PATH...")

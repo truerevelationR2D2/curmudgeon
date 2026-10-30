@@ -90,6 +90,10 @@ def bash_problem(cmd, rec, root, critic, role, me):
     rest = cmd[m.end():]
     if not cmd.lstrip().startswith("cd") and re.search(r"[;&|`\n]|\$\(", rest): return "a git -C command followed by another command (that one would run in the project, not your copy); use cd <workspace> && ... for chains"
     if re.search(r"(?i)\$\{?(?:OLDPWD|CLAUDE_PROJECT_DIR)\b|(?:^|[\s;&|(])(?:cd|pushd)\s+-(?:\s|$|[;&|)])|\bpopd\b|\bdirs\b", rest): return "a way back to the project folder ($OLDPWD, cd -, popd, $CLAUDE_PROJECT_DIR)"
+    if re.search(r"(?:^|[\s;&|(`'\"{]|\$\()(?:cd|pushd|chdir)(?=\s|$|[;&|)`'\"}])", rest):
+        # §5.56: words below are judged from the workspace, so a second cd (cd .. && cd .. && cat reviews/x) would move the
+        # shell somewhere the check isn't looking. Paths inside the workspace work without changing folder.
+        return "a second cd (or pushd) after the first: every command here runs from your workspace, so use paths inside it (cat src/x.js) instead of changing folder"
     home = os.path.expanduser("~")
     flat = re.sub(r"\\(.)", r"\1", rest).replace("${HOME}", home).replace("$HOME", home)
     try:

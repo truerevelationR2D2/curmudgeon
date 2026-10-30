@@ -2,7 +2,9 @@
 """SubagentStop check: a Curmudgeon reviewer or verifier may not finish until its output meets the contract. When it
 does finish (the output passes, or this check already blocked once), its private copy of the project is deleted here,
 in order: a separate stop hook would run in parallel and delete the copy while a blocked agent still needs it.
-Reviewers must leave a valid .critic/reviews/review-<X>.json; verifiers must return a ```json verdict list.
+Reviewers must leave a valid .critic/reviews/review-<X>.json; verifiers must return a ```json verdict list, which this
+hook saves, unchanged, as .critic/verdicts/<agent id>.json (variant packets: .critic/verdicts-variants/), so no model
+copies a verdict (§5.56; guard_state.py keeps both folders from direct edits).
 Never blocks twice in a row (stop_hook_active), and never blocks other agents. Fails open on errors, with a message."""
 import json, os, pathlib, re, sys, time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -68,6 +70,26 @@ def problems_verdict(msg, root=None):
             if prob: errs.append(f"{v.get('id')}: this refutation would be ignored by the merge: {prob}")
     return errs[:8]
 
+def save_verdicts(root, msg, agent_id):
+    """Write the verifier's last ```json block, exactly as it returned it, where critic_run.py and the merge read it.
+    Verdicts on variant packets (.critic/verify-variants/) go to their own folder. Links are refused; never raises."""
+    blocks = re.findall(r"```json\s*\n(.*?)```", msg or "", re.S)
+    aid = workspace.clean_id(agent_id) if agent_id else None
+    if not blocks or not aid: return None
+    try: rows = json.loads(blocks[-1])
+    except ValueError: return None
+    ids = [str(v.get("id")) for v in (rows if isinstance(rows, list) else [rows]) if isinstance(v, dict)]
+    critic = pathlib.Path(root) / ".critic"
+    variant = ids and all((critic / "verify-variants" / f"{i}.json").is_file() and not (critic / "verify" / f"{i}.json").is_file() for i in ids)
+    d = critic / ("verdicts-variants" if variant else "verdicts")
+    if critic.is_symlink() or d.is_symlink(): return None
+    d.mkdir(parents=True, exist_ok=True)
+    out = d / f"{aid}.json"
+    if out.is_symlink(): return None
+    fd = os.open(str(out), os.O_WRONLY | os.O_CREAT | os.O_TRUNC | getattr(os, "O_NOFOLLOW", 0), 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as fh: fh.write(blocks[-1].strip() + "\n")
+    return out
+
 def main():
     try: data = json.load(sys.stdin)
     except Exception: return 0
@@ -80,6 +102,9 @@ def main():
     if errs:
         print(json.dumps({"decision": "block", "reason": "Your output doesn't meet Curmudgeon contract yet: " + " | ".join(errs) + ". Fix it, then finish."}))
         return 0  # the agent keeps working, so its private copy stays
+    if kind.endswith("curmudgeon-verifier"):
+        try: save_verdicts(root, data.get("last_assistant_message", ""), data.get("agent_id"))
+        except Exception as e: print(json.dumps({"systemMessage": f"Curmudgeon could not save this verifier's verdicts ({type(e).__name__}: {e}); critic_run.py next will ask for them again"}))
     try: workspace.remove(root, data.get("agent_id"))  # the agent is really finishing: delete its copy, keep its notes (§5.29)
     except Exception: pass
     return 0

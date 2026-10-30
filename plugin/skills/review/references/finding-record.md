@@ -17,7 +17,7 @@ A review file is `{"findings": [ ...finding records... ], "set_aside": [ {"file"
 | `category` | Short kind of problem: xss, data-loss, race, a11y-focus, domain-leak, claim, ai-tell… |
 | `impact` | Critical, High, Medium, Low or Nit (see `rubrics.md`; Nits are listed, never counted) |
 | `file`, `line` | Where. For a UI finding with no line, the file that renders it |
-| `quote` | The code or text, **copied exactly** from the file. The merge script retracts a finding whose quote isn't there |
+| `quote` | The code or text, **copied exactly** from the file (case and quote marks as written), starting on `line`: at least 12 characters, including a name. A multi-line quote is its lines in order. The merge script rejects a shorter quote or one with no line, and retracts a finding whose quote isn't at its line (one line either way is allowed) |
 | `title` | One line: the problem |
 | `evidence` | What was checked and seen (scripted ids, sandbox lines, file:line) |
 | `failing_case` | The concrete input or sequence, and the wrong result. Required for Critical, High and Medium |

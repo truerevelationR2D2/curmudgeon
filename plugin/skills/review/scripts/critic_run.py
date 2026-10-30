@@ -8,9 +8,11 @@ usage:
         start a run (critic_ledger.py start) and map the change (critic_map.py); prints the reviewers to start. --fix
         records a full-mode run (review and fix), so the stop gate holds open Critical and High findings to it.
         --security is the security scan mode (5.2): the tier's panel, security lenses and focus only, and the feed step
-  critic_run.py next [--apply-now]
-        look at the run and do the next step: the first tally, the tally with the dedup groups, or apply (verdict files
-        go in .critic/verdicts/*.json); prints the next agents to start, or that the teardown can be written
+  critic_run.py next [--apply-now] [--no-scan]
+        look at the run and do the next step: the first tally, the tally with the dedup groups, or apply (the stop hook
+        saves each verifier's verdicts in .critic/verdicts/); prints the next agents to start, or that the teardown can
+        be written. Both tallies get the scan's report and the outside review when they exist (§5.56); the tally waits
+        for this run's scan report, and --no-scan goes on without it, which marks the run DEGRADED
   critic_run.py status
         say where the run stands, change nothing
   critic_run.py early
@@ -40,6 +42,15 @@ def ledger():
 
 def mtime(p): return p.stat().st_mtime if p.exists() else 0
 
+SCAN, OUTSIDE, NO_SCAN = D / "scan" / "report.json", D / "outside" / "outside-review.json", D / "scan-skipped"
+
+def is_fresh(p, started): return p.is_file() and not p.is_symlink() and mtime(p) >= started
+
+def tally_extra(started):
+    """What both tallies get besides the reviews (§5.56): the scan's FAILs and the outside review, when this run has them."""
+    extra = ["--scan", str(SCAN.relative_to(ROOT))] if is_fresh(SCAN, started) else ["--no-scan"]
+    return extra + (["--outside", str(OUTSIDE.relative_to(ROOT))] if is_fresh(OUTSIDE, started) else [])
+
 def state():
     L = ledger(); tier = L.get("tier") or "full"
     started = L.get("started_at") or 0
@@ -49,7 +60,9 @@ def state():
     have = [p for p in reviews if p.exists() and mtime(p) >= started - 2]
     if len(have) < len(reviews): return "reviewing", L, tier, [p for p in reviews if p not in have]
     tally, groups = D / "tally.json", D / "groups.json"
-    if mtime(tally) < max(mtime(p) for p in reviews): return "tally", L, tier, reviews
+    if not is_fresh(SCAN, started) and not is_fresh(NO_SCAN, started): return "scan", L, tier, []  # scanner FAILs are findings: never tally without them unless told to
+    inputs = reviews + [p for p in (SCAN, OUTSIDE) if is_fresh(p, started)]
+    if mtime(tally) < max(mtime(p) for p in inputs): return "tally", L, tier, reviews
     cands = D / "dedup-candidates.json"
     try: listed = json.loads(cands.read_text() or "{}").get("findings_by_file") or {} if cands.exists() and mtime(cands) >= started else {}
     except (OSError, ValueError): listed = {}
@@ -68,12 +81,10 @@ def state():
     try: t = json.loads(tally.read_text())
     except (OSError, ValueError): t = {}
     contested = {str(f.get("id")) for f in t.get("contested", []) if isinstance(f, dict)}
-    outside = {str(f.get("id")) for f in t.get("kept", []) + t.get("contested", []) if isinstance(f, dict) and f.get("outside_only")}
-    def wanted(p):  # the review skill's step 4.2: what each tier verifies
-        if tier == "full" or p.stem in outside or p.stem in contested: return True  # step 4.1: contested findings are verified in every tier
-        if tier == "trivial": return p.stem in contested
-        try: return json.loads(p.read_text()).get("impact") in ("Critical", "High")
-        except (OSError, ValueError): return True
+    found = {str(f.get("id")): f for f in t.get("kept", []) + t.get("contested", []) if isinstance(f, dict)}
+    from critic_findings import verdict_required
+    def wanted(p):  # the review skill's step 4.2: what each tier verifies (one rule, shared with apply)
+        return p.stem not in found or verdict_required(tier, found[p.stem], p.stem in contested)
     missing = [p for p in packets if p.stem not in covered and wanted(p)]
     if missing and not FORCE: return "verify", L, tier, missing
     if mtime(D / "findings.jsonl") < max([mtime(tally)] + [mtime(v) for v in fresh]): return "apply", L, tier, fresh
@@ -99,13 +110,16 @@ def early(force=False):
 
 def say_next(st, tier, items):
     rel = lambda p: str(p.relative_to(ROOT))
-    if st == "reviewing":
+    if st == "scan":
+        print("next: the scripted checks have not written their report for this run yet. Wait for the background scan (critic_scan.py) to finish, then run critic_run.py next again. "
+              "If it can't run, critic_run.py next --no-scan goes on without it, and the counts say the run is DEGRADED.")
+    elif st == "reviewing":
         print(f"next: start {len(items)} curmudgeon:curmudgeon-reviewer agent(s) by name (never a fork), blind, one per letter: "
               + ", ".join(p.stem[-1] for p in items) + ". Give each the text of its brief, unchanged, as its prompt: " + ", ".join(f".critic/briefs/brief-{p.stem[-1]}.md" for p in items) + ". Each writes " + ", ".join(rel(p) for p in items) + ".")
     elif st == "dedup": print(f"next: start curmudgeon:curmudgeon-dedup on {rel(items[0])}; it writes .critic/groups.json. Then run critic_run.py next.")
     elif st == "verify":
         batches = [items[i:i + VERIFY_BATCH] for i in range(0, len(items), VERIFY_BATCH)]
-        print(f"next: start {len(batches)} curmudgeon:curmudgeon-verifier agent(s), blind, on these packets without a verdict yet (save each agent's ```json verdict list as .critic/verdicts/<n>.json, a new n each time); "
+        print(f"next: start {len(batches)} curmudgeon:curmudgeon-verifier agent(s), blind, on these packets without a verdict yet (each verifier's ```json verdict list is saved in .critic/verdicts/ by the stop hook, unchanged; don't copy verdicts yourself); "
               "then critic_run.py next. If a verifier can't answer, critic_run.py next --apply-now applies what there is (a finding with no verdict stays, at lower confidence):")
         for i, b in enumerate(batches, 1): print(f"  verifier {i}: " + " ".join(rel(p) for p in b))
     elif st == "teardown":
@@ -176,14 +190,15 @@ def main(a):
         st, L, tier, items = state(); print(f"run {L.get('run', 0)}, tier {tier}, round {L.get('round', 0)}: {st}"); say_next(st, tier, items); return 0
     if cmd == "next":
         global FORCE; FORCE = "--apply-now" in rest
+        if "--no-scan" in rest and not NO_SCAN.is_symlink(): D.mkdir(parents=True, exist_ok=True); NO_SCAN.write_text("the tally went on without the scan (critic_run.py next --no-scan)\n")
         early()  # fastest results first: the scan's FAILs as soon as they exist, once
         st, L, tier, items = state()
         letters = [f".critic/reviews/review-{x}.json" for x in REVIEWERS.get(tier, REVIEWERS["full"])]
         for _ in range(4):  # run the scripted steps back to back until one needs an agent (or the teardown)
             if st == "tally":
-                sh("critic_merge.py", "tally", *letters)
+                sh("critic_merge.py", "tally", *letters, *tally_extra(L.get("started_at") or 0))
             elif st == "tally-groups":
-                sh("critic_merge.py", "tally", *letters, "--groups", ".critic/groups.json")
+                sh("critic_merge.py", "tally", *letters, "--groups", ".critic/groups.json", *tally_extra(L.get("started_at") or 0))
             elif st == "apply":
                 if not items:  # nothing needed a verdict, or --apply-now with none back: apply with an empty verdict list
                     (D / "verdicts").mkdir(exist_ok=True); none = D / "verdicts" / f"none-{int(time.time())}.json"; none.write_text("[]\n"); items = [none]
