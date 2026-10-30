@@ -664,8 +664,8 @@
   "error": null
  },
  {
-  "recall": "6 of 27",
-  "found": 6,
+  "recall": "7 of 27",
+  "found": 7,
   "plants": 27,
   "blocks": 10,
   "unlabelled": 0,
@@ -1598,8 +1598,8 @@
   "error": null
  },
  {
-  "recall": "20 of 27",
-  "found": 20,
+  "recall": "21 of 27",
+  "found": 21,
   "plants": 27,
   "blocks": 27,
   "unlabelled": 0,
@@ -1612,8 +1612,8 @@
   "error": null
  },
  {
-  "recall": "23 of 27",
-  "found": 23,
+  "recall": "24 of 27",
+  "found": 24,
   "plants": 27,
   "blocks": 28,
   "unlabelled": 0,
@@ -1626,8 +1626,8 @@
   "error": null
  },
  {
-  "recall": "22 of 27",
-  "found": 22,
+  "recall": "23 of 27",
+  "found": 23,
   "plants": 27,
   "blocks": 26,
   "unlabelled": 0,

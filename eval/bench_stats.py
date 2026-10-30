@@ -6,7 +6,9 @@ usage: bench_stats.py RUN_DIR [RUN_DIR ...] [--out FILE.md] [--base ARM] [--seed
 
 Per arm:
 - completion: runs that finished, of runs made (a run voided by a usage limit and run again counts once);
-- planted recall: plants found / plants, over the planted tasks, with a 95% bootstrap interval (runs resampled);
+- planted recall: plants found / plants, over the planted tasks, with a 95% cluster bootstrap interval (apps resampled,
+  then runs within each app: the runs of one app share its plants, so resampling runs alone overstates the precision;
+  03 §5.56 item 21), and recall for each app on its own;
 - independently assessed findings (every finding that matched no plant, labelled blind by two labellers and a
   tiebreaker): how many were labelled real, trivial and wrong, and the share confirmed real and actionable, overall
   and by severity (findings that are not findings at all, such as headings, are left out of every share);
@@ -15,7 +17,7 @@ Per arm:
 - cost per confirmed bug: total cost / (planted bugs found + findings confirmed real and actionable);
 - median wall time, and the agent-launch rate (runs that started at least one subagent).
 Paired comparisons: against --base (default curmudgeon), on the same task and repeat, the mean difference in
-confirmed bugs per run and in cost per run, each with a 95% bootstrap interval."""
+confirmed bugs per run and in cost per run, each with a 95% cluster bootstrap interval (tasks, then runs)."""
 import collections, contextlib, io, json, math, pathlib, random, statistics, sys
 
 HERE = pathlib.Path(__file__).resolve().parent
@@ -30,6 +32,24 @@ def boot(values, f=statistics.fmean, seed=0):
     rng = random.Random(seed); n = len(values)
     est = sorted(f([values[rng.randrange(n)] for _ in range(n)]) for _ in range(B))
     return est[int(0.025 * B)], est[int(0.975 * B) - 1]
+
+def cluster_boot(groups, f, seed=0):
+    """95% interval of f over a two-stage resample: the clusters (apps) with replacement, then the items (runs) within
+    each chosen cluster with replacement (03 §5.56 item 21). groups is {cluster: [item, ...]}; None when empty. A
+    resample whose f is infinite keeps its place in the order and is reported as None, as in ratio_boot."""
+    keys = [k for k in sorted(groups) if groups[k]]
+    if not keys: return None
+    rng = random.Random(seed); est = []
+    for _ in range(B):
+        flat = []
+        for _ in keys:
+            g = groups[keys[rng.randrange(len(keys))]]
+            flat += [g[rng.randrange(len(g))] for _ in g]
+        est.append(f(flat))
+    est.sort(); lo, hi = est[int(0.025 * B)], est[int(0.975 * B) - 1]
+    return (lo if math.isfinite(lo) else None), (hi if math.isfinite(hi) else None)
+
+def ratio(xs): return (sum(a for a, _ in xs) / sum(b for _, b in xs)) if sum(b for _, b in xs) else math.inf
 
 def ratio_boot(pairs, seed=0):
     """Interval for sum(a)/sum(b) over [(a, b)] runs, resampling runs. A resample whose sum(b) is 0 (no confirmed bug
@@ -66,11 +86,11 @@ def load(run_dirs):
         vrows = [json.loads(x) for x in open(rd / "voided.jsonl") if x.strip()] if (rd / "voided.jsonl").exists() else []
         voids = sum(1 for v in vrows if v.get("voided_by_limit"))
         failed_then = collections.Counter(v["run"].split("/")[0] for v in vrows if not v.get("voided_by_limit"))  # a real failure, run again by hand: still a failure
-        dup = plant_duplicates(rd, tasks)
+        dup, credited_now = plant_duplicates(rd, tasks)
         for r in res:
             tid, _, k = r["task"].partition("~"); t = tasks.get(tid) or {}
             meta = json.loads((rd / r["arm"] / r["task"] / "meta.json").read_text()) if (rd / r["arm"] / r["task"] / "meta.json").exists() else {}
-            labs = [d for key, d in detail.items() if key.startswith(f"{r['arm']}/{r['task']}/") and key not in dup]
+            labs = [d for key, d in detail.items() if key.startswith(f"{r['arm']}/{r['task']}/") and key not in dup and key not in credited_now]  # a labelled finding the key now credits to a plant (a widened pattern) counts once, as the plant
             runs.append({"dir": rd.name, "arm": r["arm"], "task": tid, "rep": int(k or 1), "clean": bool(t.get("clean")), "ok": not r.get("error"),
                          "found": r.get("found") or 0, "plants": r.get("plants"), "false_alarms": r.get("false_alarms"), "cost": r.get("cost_usd"),
                          "wall": r.get("wall_s"), "agents": meta.get("agents_launched"), "labels": labs, "unlabelled": r.get("unlabelled")})
@@ -82,8 +102,9 @@ def load(run_dirs):
 
 def plant_duplicates(rd, tasks):
     """Label keys of blocks that restate a planted defect (deathmatch.plant_blocks) without being the block credited
-    for it: the same bug again, so it adds nothing to the confirmed count, whatever label it got."""
-    out = set()
+    for it: the same bug again, so it adds nothing to the confirmed count, whatever label it got. Also returns the blocks
+    credited to a plant, whose labels (given before a key change credited them) must not count a second time."""
+    out, cred = set(), set()
     for td in sorted(p for p in pathlib.Path(rd).glob("*/*") if p.is_dir() and p.parent.name != "labelling"):
         t = tasks.get(td.name.split("~")[0])
         if not t or t.get("clean"): continue
@@ -92,7 +113,14 @@ def plant_duplicates(rd, tasks):
         plants = deathmatch.plants_of(json.loads((HERE / t["key"]).read_text()))
         credited = set(deathmatch.match_plants(plants, blocks).values())
         out |= {f"{td.parent.name}/{td.name}/{i}" for i in deathmatch.plant_blocks(plants, blocks) - credited}
-    return out
+        cred |= {f"{td.parent.name}/{td.name}/{i}" for i in credited}
+    return out, cred
+
+def by_app(rows):
+    """{task: [value, ...]} from [(run, value)]: each task is one app (a fixture or its clean twin)."""
+    out = collections.defaultdict(list)
+    for r, v in rows: out[r["task"]].append(v)
+    return dict(out)
 
 def confirmed(r): return r["found"] + sum(1 for d in r["labels"] if d["verdict"] == "real" and d["actionable"])
 
@@ -108,7 +136,9 @@ def arm_stats(rs, seed):
         "runs": len(rs), "completed": len(ok), "completion": round(len(ok) / len(rs), 3) if rs else None,
         "planted_found": sum(r["found"] for r in planted), "plants": sum(r["plants"] or 0 for r in planted),
         "recall": round(sum(r["found"] for r in planted) / sum(r["plants"] for r in planted), 3) if planted and sum(r["plants"] for r in planted) else None,
-        "recall_ci": ratio_boot([(r["found"], r["plants"]) for r in planted], seed),
+        "recall_ci": cluster_boot(by_app([(r, (r["found"], r["plants"])) for r in planted]), ratio, seed) if planted and sum(r["plants"] or 0 for r in planted) else None,
+        "recall_ci_runs_only": ratio_boot([(r["found"], r["plants"]) for r in planted], seed),
+        "recall_by_app": {t: {"found": sum(a for a, _ in v), "plants": sum(b for _, b in v)} for t, v in sorted(by_app([(r, (r["found"], r["plants"] or 0)) for r in planted]).items())},
         "assessed": len(labs), "real": sum(1 for d in labs if d["verdict"] == "real"), "trivial": sum(1 for d in labs if d["verdict"] == "trivial"),
         "wrong": sum(1 for d in labs if d["verdict"] == "wrong"), "unlabelled": sum(r["unlabelled"] for r in ok if isinstance(r["unlabelled"], int)),
         "actionable_share": round(len(real_act) / len(labs), 3) if labs else None,
@@ -117,7 +147,7 @@ def arm_stats(rs, seed):
         "false_alarm_run_rate": round(fa_runs / len(clean), 3) if clean else None, "false_alarm_run_rate_upper95": round(upper95(fa_runs, len(clean)), 3) if clean else None,
         "false_alarms_per_clean_run": round(statistics.fmean(r["false_alarms"] or 0 for r in clean), 2) if clean else None,
         "cost_usd": round(cost, 2), "confirmed_bugs": conf, "cost_per_confirmed": round(cost / conf, 3) if conf else None,
-        "cost_per_confirmed_ci": ratio_boot([(r["cost"] or 0, confirmed(r)) for r in ok], seed),
+        "cost_per_confirmed_ci": cluster_boot(by_app([(r, (r["cost"] or 0, confirmed(r))) for r in ok]), ratio, seed) if conf else None,
         "median_wall_s": statistics.median(walls) if (walls := [r["wall"] for r in ok if r["wall"] is not None]) else None,
         "agent_launch_rate": round(sum(1 for a in agents if a > 0) / len(agents), 3) if agents else None,
         "agents_per_run": round(statistics.fmean(agents), 1) if agents else None, "agent_counts_known": len(agents),
@@ -129,8 +159,10 @@ def paired(runs, base, other, seed):
     both = sorted(set(A) & set(O))
     if not both: return None
     d_conf = [confirmed(A[k]) - confirmed(O[k]) for k in both]; d_cost = [(A[k]["cost"] or 0) - (O[k]["cost"] or 0) for k in both]
-    return {"pairs": len(both), "confirmed_diff_mean": round(statistics.fmean(d_conf), 2), "confirmed_diff_ci": boot(d_conf, seed=seed),
-            "cost_diff_mean": round(statistics.fmean(d_cost), 3), "cost_diff_ci": boot(d_cost, seed=seed),
+    g_conf = collections.defaultdict(list); g_cost = collections.defaultdict(list)
+    for k, dc, dk in zip(both, d_conf, d_cost): g_conf[k[1]].append(dc); g_cost[k[1]].append(dk)
+    return {"pairs": len(both), "confirmed_diff_mean": round(statistics.fmean(d_conf), 2), "confirmed_diff_ci": cluster_boot(dict(g_conf), statistics.fmean, seed),
+            "cost_diff_mean": round(statistics.fmean(d_cost), 3), "cost_diff_ci": cluster_boot(dict(g_cost), statistics.fmean, seed),
             "base_better": sum(1 for x in d_conf if x > 0), "other_better": sum(1 for x in d_conf if x < 0), "tied": sum(1 for x in d_conf if x == 0)}
 
 def fmt_ci(ci, nd=2):
@@ -159,6 +191,11 @@ def report(run_dirs, base="curmudgeon", seed=0):
     for a in arms:
         sv = S[a]["actionable_by_severity"]
         md.append(f"| {a} | " + " | ".join(f"{sv[x]['n']}" + ("" if sv[x]["share"] is None else f" ({sv[x]['share']:.0%})") for x in ("critical", "high", "medium", "low")) + " |")
+    apps = sorted({t for a in arms for t in S[a]["recall_by_app"]})
+    md += ["", "Planted recall by app (the interval above resamples these apps, then the runs within each):", "", "| Arm | " + " | ".join(apps) + " |", "|---|" + "---|" * len(apps)]
+    for a in arms:
+        ra = S[a]["recall_by_app"]
+        md.append(f"| {a} | " + " | ".join(f"{ra[t]['found']} of {ra[t]['plants']}" if t in ra else "n/a" for t in apps) + " |")
     md += ["", f"Paired against {base} (same task and repeat; positive means {base} found more or cost more):", "",
            "| Arm | Pairs | Confirmed bugs per run, difference (95% CI) | Runs: base better / other better / tied | Cost per run, difference (95% CI) |", "|---|---|---|---|---|"]
     for a, p in P.items():

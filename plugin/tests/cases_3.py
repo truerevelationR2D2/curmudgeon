@@ -1315,3 +1315,23 @@ def _(d):
     sys.path.insert(0, str(HERE.parent / "eval")); import importlib, deathmatch; importlib.reload(deathmatch)
     try: deathmatch.rerun(d); assert False, "rerun must stop"
     except SystemExit as e: assert "run.json" in str(e), e
+
+@test("5.2.4 benchmark (03 §5.56 item 21): intervals resample apps and then runs within each, so four apps can't pass for twenty independent runs; recall is given per app")
+def _(d):
+    E = HERE.parent / "eval"; sys.path.insert(0, str(E)); import importlib, bench_stats as bs; importlib.reload(bs)
+    groups = {"a": [(4, 4)] * 5, "b": [(4, 4)] * 5, "c": [(0, 4)] * 5, "d": [(4, 4)] * 5}
+    lo, hi = bs.cluster_boot(groups, bs.ratio, seed=1); rlo, rhi = bs.ratio_boot([x for g in groups.values() for x in g], seed=1)
+    assert hi - lo > rhi - rlo and hi == 1.0, ((lo, hi), (rlo, rhi))
+    assert bs.cluster_boot({}, bs.ratio) is None
+    assert bs.by_app([({"task": "s1"}, 1), ({"task": "s1"}, 2), ({"task": "s2"}, 3)]) == {"s1": [1, 2], "s2": [3]}
+
+@test("5.2.4 benchmark (03 §5.56 batch 3): after a key change credits a labelled finding to a plant, its label no longer counts too")
+def _(d):
+    E = HERE.parent / "eval"; sys.path.insert(0, str(E)); import importlib, bench_stats as bs; importlib.reload(bs)
+    (d / "arm/suite2~1").mkdir(parents=True); write(d, "key.json", "{}")
+    dm = bs.deathmatch; saved = (dm.blocks_for, dm.plants_of, dm.match_plants, dm.plant_blocks, bs.HERE)
+    try:
+        dm.blocks_for = lambda td: ["b0", "b1", "b2"]; dm.plants_of = lambda k: ["E02"]; dm.match_plants = lambda p, b: {"E02": 1}; dm.plant_blocks = lambda p, b: {1, 2}; bs.HERE = d
+        dup, cred = bs.plant_duplicates(d, {"suite2": {"key": "key.json"}})
+    finally: dm.blocks_for, dm.plants_of, dm.match_plants, dm.plant_blocks, bs.HERE = saved
+    assert dup == {"arm/suite2~1/2"} and cred == {"arm/suite2~1/1"}, (dup, cred)

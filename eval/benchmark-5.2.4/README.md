@@ -32,39 +32,58 @@ eval/benchmark-5.2.4/recheck` (no model calls); `stats.md` and `stats.json` here
 
 | Arm | Planted bugs found (95% CI) | Other findings judged real / trivial / wrong | Real and actionable | Clean runs with a false alarm (one-sided 95% upper bound) | Cost per run | Cost per confirmed bug (95% CI) | Median time | Runs that launched agents |
 |---|---|---|---|---|---|---|---|---|
-| Curmudgeon, full | **222 of 245, 91%** (86% to 96%) | 248 / 6 / 6 | 95% | 6 of 23 (45%) | $1.42 | $0.130 ($0.115 to $0.152) | 273 s | 43 of 43 |
-| Curmudgeon, lite | **222 of 245, 91%** (87% to 95%) | 199 / 9 / 3 | 94% | 1 of 23 (19%) | $0.75 | $0.077 ($0.067 to $0.090) | 236 s | 43 of 43 |
-| Built-in `/code-review` | 76 of 245, 31% (24% to 42%) | 215 / 69 / 16 | 72% | 9 of 23 (58%) | $0.10 | $0.015 ($0.012 to $0.018) | 38 s | not visible (see Limits) |
-| Code-review plugin, best effort | 64 of 245, 26% (17% to 34%) | 35 / 9 / 0 | 80% | 0 of 23 (13%) | $1.00 | $0.435 ($0.343 to $0.618) | 74 s | 43 of 43 |
-| Code-review plugin, as it runs | 33 of 245, 13% (6% to 22%) | 114 / 10 / 7 | 86% | 3 of 23 (30%) | $0.09 | $0.027 ($0.020 to $0.039) | 22 s | **0 of 43** |
+| Curmudgeon, full | **225 of 245, 92%** (86% to 100%) | 245 / 6 / 6 | 95% | 6 of 23 (45%) | $1.42 | $0.130 ($0.103 to $0.194) | 273 s | 43 of 43 |
+| Curmudgeon, lite | **222 of 245, 91%** (85% to 100%) | 199 / 9 / 3 | 94% | 1 of 23 (19%) | $0.75 | $0.077 ($0.060 to $0.117) | 236 s | 43 of 43 |
+| Built-in `/code-review` | 76 of 245, 31% (20% to 68%) | 215 / 69 / 16 | 72% | 9 of 23 (58%) | $0.10 | $0.015 ($0.011 to $0.022) | 38 s | not visible (see Limits) |
+| Code-review plugin, best effort | 64 of 245, 26% (14% to 48%) | 35 / 9 / 0 | 80% | 0 of 23 (13%) | $1.00 | $0.435 ($0.307 to $0.915) | 74 s | 43 of 43 |
+| Code-review plugin, as it runs | 34 of 245, 14% (6% to 27%) | 113 / 10 / 7 | 86% | 3 of 23 (30%) | $0.09 | $0.027 ($0.015 to $0.077) | 22 s | **0 of 43** |
+
+Rescored on 30 Oct 2026 with the answer key's widened E02 patterns (03 §5.56, batch 3): four findings that said
+the query went into the URL "not URL-encoded" or "without encoding" at `api.js:6` (three Curmudgeon full runs, one
+code-review run) are now credited to that plant, so full rose from 222 to 225 and the plugin as it runs from 33 to 34;
+those four had been labelled real, so they now count once, as the plant, and the confirmed totals are unchanged. The
+scores before the change are kept beside the new ones as `results.before-key.json`.
+
+The 95% intervals are cluster bootstraps (03 §5.56 item 21): they resample the apps, then the runs within each app,
+because the 20 planted runs come from only four apps and the runs of one app share its plants. They are wider than the
+run-only intervals first published here (for example 86% to 96% for the full tier), and an upper end of 100% means a
+resample drawn only from apps where every plant was found. Planted recall for each app:
+
+| Arm | suite1 | suite2 | suite3 | suite4 |
+|---|---|---|---|---|
+| Curmudgeon, full | 79 of 80 | 116 of 135 | 10 of 10 | 20 of 20 |
+| Curmudgeon, lite | 77 of 80 | 115 of 135 | 10 of 10 | 20 of 20 |
+| Built-in `/code-review` | 29 of 80 | 27 of 135 | 4 of 10 | 16 of 20 |
+| Code-review plugin, best effort | 12 of 80 | 38 of 135 | 1 of 10 | 13 of 20 |
+| Code-review plugin, as it runs | 10 of 80 | 17 of 135 | 0 of 10 | 7 of 20 |
 
 Real and actionable findings by severity, as a share of each arm's judged findings:
 
 | Arm | Critical | High | Medium | Low |
 |---|---|---|---|---|
-| Curmudgeon, full | 1 (0.4%) | 18 (7%) | 131 (50%) | 98 (38%) |
+| Curmudgeon, full | 1 (0.4%) | 18 (7%) | 128 (50%) | 98 (38%) |
 | Curmudgeon, lite | 1 (0.5%) | 16 (8%) | 106 (50%) | 76 (36%) |
 | Built-in `/code-review` | 2 (0.7%) | 25 (8%) | 93 (31%) | 95 (32%) |
 | Code-review plugin, best effort | 1 (2%) | 8 (18%) | 18 (41%) | 8 (18%) |
-| Code-review plugin, as it runs | 3 (2%) | 43 (33%) | 42 (32%) | 25 (19%) |
+| Code-review plugin, as it runs | 3 (2%) | 43 (33%) | 41 (32%) | 25 (19%) |
 
 Paired on the same task and run (43 pairs each), Curmudgeon full against:
 
 | Other arm | Confirmed bugs per run, full minus other (95% CI) | Runs full did better / worse / tied | Cost per run, full minus other (95% CI) |
 |---|---|---|---|
-| Curmudgeon, lite | +1.14 (0.53 to 1.74) | 24 / 9 / 10 | +$0.67 ($0.62 to $0.73) |
-| Built-in `/code-review` | +4.16 (2.47 to 6.00) | 34 / 9 / 0 | +$1.33 ($1.23 to $1.43) |
-| Code-review plugin, best effort | +8.63 (7.02 to 10.33) | 41 / 0 / 2 | +$0.42 ($0.32 to $0.52) |
-| Code-review plugin, as it runs | +7.53 (6.00 to 9.09) | 41 / 2 / 0 | +$1.33 ($1.24 to $1.44) |
+| Curmudgeon, lite | +1.14 (0.45 to 1.80) | 24 / 9 / 10 | +$0.67 ($0.59 to $0.75) |
+| Built-in `/code-review` | +4.16 (0.67 to 7.67) | 34 / 9 / 0 | +$1.33 ($1.13 to $1.52) |
+| Code-review plugin, best effort | +8.63 (5.26 to 11.79) | 41 / 0 / 2 | +$0.42 ($0.20 to $0.60) |
+| Code-review plugin, as it runs | +7.53 (4.31 to 10.44) | 41 / 2 / 0 | +$1.33 ($1.15 to $1.52) |
 
 What the numbers say:
 
-1. **Planted bugs.** Both Curmudgeon tiers found 91%; the best of the others found 31%. The lite tier found
-   exactly as many planted bugs as the full tier at 53% of its cost.
+1. **Planted bugs.** The full tier found 92% and the lite tier 91%; the best of the others found 31%. The lite
+   tier found 222 planted bugs to the full tier's 225, at 53% of its cost.
 2. **The code-review plugin's agent launch.** As it runs, the plugin launched no agent in any of its 43 runs,
    though its instructions name several; it read the diff itself and replied in about 20 seconds. Given the facts
    its first step asks for and told to follow its steps, it launched agents in all 43 runs (8.8 a run) and found
-   about twice as many planted bugs (64 against 33), at eleven times the cost.
+   nearly twice as many planted bugs (64 against 34), at eleven times the cost.
 3. **Real findings beyond the plants.** Of the findings that matched no planted bug, the labellers judged 95%
    (full) and 94% (lite) of Curmudgeon's real and actionable, against 72% to 86% for the others. Most of
    Curmudgeon's are Medium.

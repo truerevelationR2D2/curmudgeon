@@ -55,7 +55,7 @@ One scorer for every arm. Precision is NOT MEASURED while any block is unlabelle
 | code-review | suite2-clean~4 | - | 0 | 0 | no findings | 0.1177723 | 224825 | 26.6 |  |
 | code-review | suite2-clean~5 | - | 0 | 0 | no findings | 0.11754690000000001 | 224908 | 21.6 |  |
 | code-review | suite2~1 | 10 of 27 | - | 0 | 12 of 12 | 0.0924074 | 161759 | 23.2 |  |
-| code-review | suite2~2 | 6 of 27 | - | 0 | 9 of 9 | 0.09261620000000001 | 161783 | 21.9 |  |
+| code-review | suite2~2 | 7 of 27 | - | 0 | 9 of 9 | 0.09261620000000001 | 161783 | 21.9 |  |
 | code-review | suite2~3 | 0 of 27 | - | 0 | 10 of 10 | 0.0919262 | 161660 | 23.9 |  |
 | code-review | suite2~4 | 0 of 27 | - | 0 | 10 of 11 | 0.0981461 | 162317 | 27.0 |  |
 | code-review | suite2~5 | 0 of 27 | - | 0 | 9 of 9 | 0.09344050000000001 | 161839 | 26.3 |  |
@@ -126,9 +126,9 @@ One scorer for every arm. Precision is NOT MEASURED while any block is unlabelle
 | curmudgeon | suite2-clean~5 | - | 0 | 0 | no findings | 1.4423624999999995 | 604793 | 289.8 |  |
 | curmudgeon | suite2~1 | 25 of 27 | - | 0 | 29 of 29 | 2.0510958 | 975791 | 345.9 |  |
 | curmudgeon | suite2~2 | 23 of 27 | - | 0 | 28 of 28 | 1.9197830000000002 | 786417 | 311.4 |  |
-| curmudgeon | suite2~3 | 20 of 27 | - | 0 | 27 of 27 | 2.1180808000000004 | 881390 | 364.2 |  |
-| curmudgeon | suite2~4 | 23 of 27 | - | 0 | 28 of 28 | 1.9895869 | 849395 | 339.9 |  |
-| curmudgeon | suite2~5 | 22 of 27 | - | 0 | 26 of 26 | 1.9707756 | 838349 | 316.7 |  |
+| curmudgeon | suite2~3 | 21 of 27 | - | 0 | 27 of 27 | 2.1180808000000004 | 881390 | 364.2 |  |
+| curmudgeon | suite2~4 | 24 of 27 | - | 0 | 28 of 28 | 1.9895869 | 849395 | 339.9 |  |
+| curmudgeon | suite2~5 | 23 of 27 | - | 0 | 26 of 26 | 1.9707756 | 838349 | 316.7 |  |
 | curmudgeon | suite3~1 | 2 of 2 | - | 0 | 7 of 7 | 1.3231787 | 536210 | 274.3 |  |
 | curmudgeon | suite3~2 | 2 of 2 | - | 0 | 5 of 5 | 1.009268 | 399288 | 194.0 |  |
 | curmudgeon | suite3~3 | 2 of 2 | - | 0 | 6 of 6 | 1.3853862000000001 | 412498 | 248.3 |  |

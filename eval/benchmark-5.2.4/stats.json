@@ -4,19 +4,41 @@
    "runs": 43,
    "completed": 43,
    "completion": 1.0,
-   "planted_found": 222,
+   "planted_found": 225,
    "plants": 245,
-   "recall": 0.906,
+   "recall": 0.918,
    "recall_ci": [
-    0.8587570621468926,
-    0.9626556016597511
+    0.8566666666666667,
+    1.0
    ],
-   "assessed": 260,
-   "real": 248,
+   "recall_ci_runs_only": [
+    0.8781362007168458,
+    0.9657142857142857
+   ],
+   "recall_by_app": {
+    "suite1": {
+     "found": 79,
+     "plants": 80
+    },
+    "suite2": {
+     "found": 116,
+     "plants": 135
+    },
+    "suite3": {
+     "found": 10,
+     "plants": 10
+    },
+    "suite4": {
+     "found": 20,
+     "plants": 20
+    }
+   },
+   "assessed": 257,
+   "real": 245,
    "trivial": 6,
    "wrong": 6,
    "unlabelled": 0,
-   "actionable_share": 0.954,
+   "actionable_share": 0.953,
    "actionable_by_severity": {
     "critical": {
      "n": 1,
@@ -24,15 +46,15 @@
     },
     "high": {
      "n": 18,
-     "share": 0.069
+     "share": 0.07
     },
     "medium": {
-     "n": 131,
-     "share": 0.504
+     "n": 128,
+     "share": 0.498
     },
     "low": {
      "n": 98,
-     "share": 0.377
+     "share": 0.381
     }
    },
    "clean_runs": 23,
@@ -44,8 +66,8 @@
    "confirmed_bugs": 470,
    "cost_per_confirmed": 0.13,
    "cost_per_confirmed_ci": [
-    0.1147686570671378,
-    0.1521738984293194
+    0.10294045381263617,
+    0.19427857052980133
    ],
    "median_wall_s": 273.2,
    "agent_launch_rate": 1.0,
@@ -60,9 +82,31 @@
    "plants": 245,
    "recall": 0.31,
    "recall_ci": [
+    0.2,
+    0.6833333333333333
+   ],
+   "recall_ci_runs_only": [
     0.2367601246105919,
     0.42045454545454547
    ],
+   "recall_by_app": {
+    "suite1": {
+     "found": 29,
+     "plants": 80
+    },
+    "suite2": {
+     "found": 27,
+     "plants": 135
+    },
+    "suite3": {
+     "found": 4,
+     "plants": 10
+    },
+    "suite4": {
+     "found": 16,
+     "plants": 20
+    }
+   },
    "assessed": 300,
    "real": 215,
    "trivial": 69,
@@ -96,8 +140,8 @@
    "confirmed_bugs": 291,
    "cost_per_confirmed": 0.015,
    "cost_per_confirmed_ci": [
-    0.01236611165644172,
-    0.01762170679245283
+    0.010697594005449592,
+    0.02178727488584475
    ],
    "median_wall_s": 37.5,
    "agent_launch_rate": 0.0,
@@ -108,19 +152,41 @@
    "runs": 43,
    "completed": 43,
    "completion": 1.0,
-   "planted_found": 33,
+   "planted_found": 34,
    "plants": 245,
-   "recall": 0.135,
+   "recall": 0.139,
    "recall_ci": [
-    0.06048387096774194,
-    0.22388059701492538
+    0.05555555555555555,
+    0.27346938775510204
    ],
-   "assessed": 131,
-   "real": 114,
+   "recall_ci_runs_only": [
+    0.06222222222222222,
+    0.22962962962962963
+   ],
+   "recall_by_app": {
+    "suite1": {
+     "found": 10,
+     "plants": 80
+    },
+    "suite2": {
+     "found": 17,
+     "plants": 135
+    },
+    "suite3": {
+     "found": 0,
+     "plants": 10
+    },
+    "suite4": {
+     "found": 7,
+     "plants": 20
+    }
+   },
+   "assessed": 130,
+   "real": 113,
    "trivial": 10,
    "wrong": 7,
    "unlabelled": 0,
-   "actionable_share": 0.863,
+   "actionable_share": 0.862,
    "actionable_by_severity": {
     "critical": {
      "n": 3,
@@ -128,15 +194,15 @@
     },
     "high": {
      "n": 43,
-     "share": 0.328
+     "share": 0.331
     },
     "medium": {
-     "n": 42,
-     "share": 0.321
+     "n": 41,
+     "share": 0.315
     },
     "low": {
      "n": 25,
-     "share": 0.191
+     "share": 0.192
     }
    },
    "clean_runs": 23,
@@ -148,8 +214,8 @@
    "confirmed_bugs": 146,
    "cost_per_confirmed": 0.027,
    "cost_per_confirmed_ci": [
-    0.019964265625,
-    0.03877820882352941
+    0.015275858957654724,
+    0.07674421086956522
    ],
    "median_wall_s": 21.9,
    "agent_launch_rate": 0.0,
@@ -164,9 +230,31 @@
    "plants": 245,
    "recall": 0.261,
    "recall_ci": [
+    0.13636363636363635,
+    0.48333333333333334
+   ],
+   "recall_ci_runs_only": [
     0.17142857142857143,
     0.3442028985507246
    ],
+   "recall_by_app": {
+    "suite1": {
+     "found": 12,
+     "plants": 80
+    },
+    "suite2": {
+     "found": 38,
+     "plants": 135
+    },
+    "suite3": {
+     "found": 1,
+     "plants": 10
+    },
+    "suite4": {
+     "found": 13,
+     "plants": 20
+    }
+   },
    "assessed": 44,
    "real": 35,
    "trivial": 9,
@@ -200,8 +288,8 @@
    "confirmed_bugs": 99,
    "cost_per_confirmed": 0.435,
    "cost_per_confirmed_ci": [
-    0.3429863714539007,
-    0.6176020003389832
+    0.3071026903281854,
+    0.9154167224242423
    ],
    "median_wall_s": 73.8,
    "agent_launch_rate": 1.0,
@@ -216,9 +304,31 @@
    "plants": 245,
    "recall": 0.906,
    "recall_ci": [
+    0.8484848484848485,
+    1.0
+   ],
+   "recall_ci_runs_only": [
     0.8675213675213675,
     0.9520958083832335
    ],
+   "recall_by_app": {
+    "suite1": {
+     "found": 77,
+     "plants": 80
+    },
+    "suite2": {
+     "found": 115,
+     "plants": 135
+    },
+    "suite3": {
+     "found": 10,
+     "plants": 10
+    },
+    "suite4": {
+     "found": 20,
+     "plants": 20
+    }
+   },
    "assessed": 211,
    "real": 199,
    "trivial": 9,
@@ -252,8 +362,8 @@
    "confirmed_bugs": 421,
    "cost_per_confirmed": 0.077,
    "cost_per_confirmed_ci": [
-    0.06714579574898785,
-    0.09048501347305389
+    0.059607943447293456,
+    0.11736786621621621
    ],
    "median_wall_s": 235.6,
    "agent_launch_rate": 1.0,
@@ -266,13 +376,13 @@
    "pairs": 43,
    "confirmed_diff_mean": 4.16,
    "confirmed_diff_ci": [
-    2.4651162790697674,
-    6.0
+    0.6666666666666666,
+    7.674418604651163
    ],
    "cost_diff_mean": 1.326,
    "cost_diff_ci": [
-    1.228970258139535,
-    1.429931258139535
+    1.1320922869565218,
+    1.5154220302325583
    ],
    "base_better": 34,
    "other_better": 9,
@@ -282,13 +392,13 @@
    "pairs": 43,
    "confirmed_diff_mean": 7.53,
    "confirmed_diff_ci": [
-    6.0,
-    9.093023255813954
+    4.3076923076923075,
+    10.436363636363636
    ],
    "cost_diff_mean": 1.334,
    "cost_diff_ci": [
-    1.2392729813953487,
-    1.4363143837209302
+    1.1469502407407408,
+    1.515536046511628
    ],
    "base_better": 41,
    "other_better": 2,
@@ -298,13 +408,13 @@
    "pairs": 43,
    "confirmed_diff_mean": 8.63,
    "confirmed_diff_ci": [
-    7.023255813953488,
-    10.325581395348838
+    5.2592592592592595,
+    11.794871794871796
    ],
    "cost_diff_mean": 0.422,
    "cost_diff_ci": [
-    0.31577724348837216,
-    0.5235641762790698
+    0.2003950535483872,
+    0.5970417187179489
    ],
    "base_better": 41,
    "other_better": 0,
@@ -314,13 +424,13 @@
    "pairs": 43,
    "confirmed_diff_mean": 1.14,
    "confirmed_diff_ci": [
-    0.5348837209302325,
-    1.744186046511628
+    0.45161290322580644,
+    1.803921568627451
    ],
    "cost_diff_mean": 0.674,
    "cost_diff_ci": [
-    0.6212440093023256,
-    0.7266297093023257
+    0.5896809057142859,
+    0.7511884914285715
    ],
    "base_better": 24,
    "other_better": 9,
