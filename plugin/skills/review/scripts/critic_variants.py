@@ -9,7 +9,7 @@ usage:
         project's files of the same kind for it, the original line excluded. Each hit becomes a verify packet in
         .critic/verify-variants/ (the real line as its quote, the original finding's failing case to check against).
         Prints the verifier batches to start; at most 10 hits per finding, 50 in all.
-  critic_variants.py apply VERDICT_FILE ...
+  critic_variants.py apply [VERDICT_FILE ...]
         Apply the blind verifiers' verdicts with the same rules as critic_merge.py apply: a confirmation needs its
         evidence, a refutation needs a real guard. Only CONFIRMED variants (or downgraded ones) are kept; a variant
         with no verdict or an unclear one is listed as not verified and never reported as a finding, because a script's
@@ -20,7 +20,7 @@ import json, os, pathlib, re, sys
 
 HERE = pathlib.Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
-from critic_findings import confirmation_problem, refutation_problem, security_refutation_problem, redact_finding_text, read_jsonl, log_run, refuse_linked_state, scrub
+from critic_findings import confirmation_problem, downgrade_problem, refutation_problem, security_refutation_problem, redact_finding_text, read_jsonl, log_run, refuse_linked_state, scrub
 
 ROOT = pathlib.Path(os.environ.get("CRITIC_ROOT") or re.sub(r"[\\/]\.critic[\\/]scratch(?:[\\/].*)?$", "", os.getcwd()) or os.getcwd()).resolve(); D = ROOT / ".critic"
 SKIP = {"node_modules", "dist", "build", "vendor", ".git", "__pycache__", ".next", "coverage", ".critic", ".venv", "venv"}
@@ -91,10 +91,11 @@ def find():
 
 def apply(paths):
     packets = {p.stem: json.loads(p.read_text()) for p in sorted((D / "verify-variants").glob("*.json"))} if (D / "verify-variants").is_dir() else {}
-    verdicts = {}
+    verdicts = {}; by_hand = []
     for p in paths:
         try: rows = json.loads(pathlib.Path(p).read_text())
         except (OSError, ValueError) as e: sys.exit(f"critic_variants: can't read {p}: {e}")
+        if pathlib.Path(p).resolve().parent != (D / "verdicts-variants").resolve(): by_hand.append(pathlib.Path(p).name)  # not saved by the verifier's stop hook (batch 1 review, as critic_merge.py apply)
         for v in rows if isinstance(rows, list) else [rows]:
             if isinstance(v, dict) and v.get("id") in packets: verdicts[v["id"]] = v
     kept, refuted, open_ = [], [], []
@@ -108,11 +109,14 @@ def apply(paths):
             kind = "unclear"
         if kind == "downgrade":  # a lower impact is a judgement, not evidence: a variant needs the confirmation's evidence too
             kind = "confirmed" if not confirmation_problem(v, root=ROOT) else "unclear"
-            if v.get("impact_after") in IMP and IMP.index(v["impact_after"]) < IMP.index(f["impact"]): f = dict(f, impact=v["impact_after"])  # IMP runs Low to Critical: only ever lower
+            new_ = str(v.get("impact_after", "")).title()  # the same downgrade rule as the main findings (03 §5.57.2); without it the variant keeps its impact
+            if kind == "confirmed" and new_ in IMP and not downgrade_problem(f["impact"], new_, v.get("reproduced"), str(v.get("note") or raw), root=ROOT): f = dict(f, impact=new_)
         if kind == "confirmed": kept.append(dict(f, confidence="confirmed", source="variant", verifier_note=redact_finding_text(str(v.get("note") or ""))[:300]))
         else: open_.append((f, "unclear"))
     (D / "variants.jsonl").write_text("".join(json.dumps(scrub(x), ensure_ascii=False) + "\n" for x in kept))
-    md = ["# Variants (the variant hunt; listed apart, never in the main counts)", "", f"Confirmed by blind verification: {len(kept)}"]
+    md = ["# Variants (the variant hunt; listed apart, never in the main counts)", ""]
+    if by_hand: md += [f"DEGRADED: verdicts not saved by the verifier's stop hook (written or edited outside .critic/verdicts-variants/): {', '.join(by_hand[:8])}", ""]
+    md += [f"Confirmed by blind verification: {len(kept)}"]
     md += [f"- {x['id']} {x['impact']} {x['file']}:{x['line']}: {x['title']}" for x in kept]
     md += ["", f"Not verified (no verdict or unclear; not findings): {len(open_)}"] + [f"- {f['id']} {f['file']}:{f['line']} ({why})" for f, why in open_]
     md += ["", f"Refuted: {len(refuted)}"] + [f"- {f['id']} {f['file']}:{f['line']}: {why[:160]}" for f, why in refuted]
@@ -125,7 +129,7 @@ def main(a):
     if not a or a[0] in ("-h", "--help"): print(__doc__); return 0
     log_run(ROOT, "script", "critic_variants.py " + " ".join(a[:1]))
     if a[0] == "find": return find()
-    if a[0] == "apply" and len(a) > 1: return apply(a[1:])
+    if a[0] == "apply": return apply(a[1:])  # with no verdict files every variant is listed as not verified (critic_run.py next --apply-now; batch 1 review)
     print(__doc__); return 2
 
 if __name__ == "__main__": sys.exit(main(sys.argv[1:]))

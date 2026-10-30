@@ -63,18 +63,32 @@ def die(msg, code=2): print(f"critic_ledger: {msg}", file=sys.stderr); sys.exit(
 def set_aside_if_shipped():
     """A ledger git doesn't track but Curmudgeon didn't write here (a zip, a folder inside another repository, an edit
     after the last save) is moved aside, never loaded: otherwise the next save would record its checksum and bless its
-    rulings (ultimate audit H1, 03 §5.57). A tracked ledger stays where it is; its rulings never apply anyway."""
+    rulings (ultimate audit H1, 03 §5.57). A tracked ledger stays where it is; its rulings never apply anyway. If the
+    owner's record can't be written, nothing is moved: the command stops instead (batch 1 review: an unwritable
+    record used to set the owner's own ledger aside on every command)."""
     import critic_findings as cf_
-    if not F.is_file() or F.is_symlink() or not cf_.ledger_shipped(ROOT) or cf_.git_tracked(ROOT, ".critic/ledger.json"): return
-    aside = D / f"ledger-set-aside-{time.strftime('%Y%m%d-%H%M%S')}.json"
+    if not F.is_file() or F.is_symlink() or cf_.git_tracked(ROOT, ".critic/ledger.json"): return
+    if not cf_.owner_state_writable(ROOT):
+        die(f"Curmudgeon's own records folder outside the project ({cf_.owner_state_base()}) can't be written, so this ledger "
+            "can't be told from one that came with the code; nothing was changed. Make that folder writable (or set CURMUDGEON_STATE_DIR) and run again.")
+    if not cf_.ledger_shipped(ROOT): return
+    aside = D / f"ledger-set-aside-{time.strftime('%Y%m%d-%H%M%S')}-{os.getpid()}-{time.time_ns() % 1_000_000_000:09d}.json"  # unique: two set-asides in one second never overwrite each other
     os.replace(F, aside)
     print(f"critic_ledger: .critic/ledger.json wasn't written by Curmudgeon on this machine (it came with the folder, or was changed "
           f"after the last save), so it was set aside as .critic/{aside.name} and a new ledger was started; its rulings never apply. "
           f"If it is the owner's own ledger from before this check, show them its rulings with `critic_ledger.py adopt {aside.name} --show`, "
           f"and adopt it only after they say yes.", file=sys.stderr)
 
-def load():
-    set_aside_if_shipped()
+READ_ONLY = ("show", "check", "examples", "memories", "tokens", "integrity", "fresh", "stale")
+
+LOADED_SHIPPED = False  # a read-only command loaded a ledger that came with the code: save() must never bless it
+
+def load(read_only=False):
+    global LOADED_SHIPPED
+    if not read_only: set_aside_if_shipped()  # a read-only command moves nothing
+    else:
+        import critic_findings as cf_
+        LOADED_SHIPPED = cf_.ledger_shipped(ROOT)
     if not F.exists(): return json.loads(json.dumps(BLANK))
     try: L = json.loads(F.read_text(encoding="utf-8"))
     except Exception as e: die(f"ledger is unreadable ({e}); nothing was changed. Fix or move {F}, then run init.")
@@ -119,10 +133,12 @@ def render_decisions(L):
                       *([f"- {d['text']} ({d.get('source', '')})" for d in L["decisions"]] or ["_None recorded._"])]) + "\n"
 
 def save(L):
+    if LOADED_SHIPPED: die("this ledger may have come with the code and was only read; nothing was saved. Run any other critic_ledger.py command to set it aside first")
     md = render(L); D.mkdir(parents=True, exist_ok=True)
     for path, body in ((F, json.dumps(L, indent=1, ensure_ascii=False)), (D / "ledger.md", md), (D / "decisions.md", render_decisions(L))):
         tmp = path.with_name(path.name + ".tmp"); tmp.write_text(body, encoding="utf-8"); os.replace(tmp, path)
-    record_ledger(ROOT)  # so the merge, scan and brief know this ledger is the owner's own (ultimate audit H1)
+    try: record_ledger(ROOT)  # so the merge, scan and brief know this ledger is the owner's own (ultimate audit H1)
+    except OSError as e: die(f"saved the ledger, but couldn't record its checksum outside the project ({e}); its rulings won't apply until a save records it")
 
 def rel(p):
     p = pathlib.Path(p).resolve()
@@ -264,7 +280,7 @@ def teardown_problems(L):
 
 def main(a):
     if not a or any(x in ("-h", "--help") for x in a): print(__doc__); return 0  # help never changes the ledger
-    cmd, rest = a[0], a[1:]; L = load(); msg = "ok"
+    cmd, rest = a[0], a[1:]; L = load(read_only=cmd in READ_ONLY and not (cmd == "memories" and rest)); msg = "ok"
     if cmd not in ("show", "check", "stale", "tokens", "integrity", "fresh"): refuse_linked_state(ROOT); log_run(ROOT, "script", "critic_ledger.py " + " ".join(a))
     if cmd in ("fixed", "claim", "restore") and L.get("mode") == "audit":
         die("this run is an audit of someone else's system: it changes nothing, so nothing is fixed, claimed or restored here (start a review of your own code to fix)")
@@ -495,14 +511,16 @@ def main(a):
             msg = "stop checks off, and the while-you-work scan"
         else: die("gate on|async|off")
         import critic_findings as cf_  # the owner's own record, outside the project: a marker a repository commits turns nothing on (ultimate audit V12)
-        try: cf_.write_owner_state(ROOT, "gate", {"mode": rest[0]})
+        cur = cf_.read_owner_state(ROOT, "gate"); cur.pop("root", None); cur.pop("mode", None)
+        cur = {} if rest[0] == "off" else dict(cur, **{rest[0]: True})  # each mode its own: gate on and gate async can both be on (batch 1 review)
+        try: cf_.write_owner_state(ROOT, "gate", cur)
         except OSError as e: die(f"couldn't record the gate setting outside the project ({e}); the stop checks stay off")
         print(msg); return 0
     elif cmd == "adopt":  # ultimate audit H1: the owner takes back a ledger that was set aside (run only after they said yes to its rulings)
         need(rest, 1, "adopt ledger-set-aside-....json [--show]")
         import critic_findings as cf_
         src = D / pathlib.Path(rest[0]).name
-        if not re.fullmatch(r"ledger-set-aside-[\d-]+\.json", src.name) or not src.is_file() or src.is_symlink(): die(f"adopt takes a .critic/ledger-set-aside-*.json file; {src.name} isn't one")
+        if not re.fullmatch(r"ledger-set-aside-[\w-]+\.json", src.name) or not src.is_file() or src.is_symlink(): die(f"adopt takes a .critic/ledger-set-aside-*.json file; {src.name} isn't one")
         try: A = json.loads(src.read_text(encoding="utf-8")); assert isinstance(A, dict)
         except Exception as e: die(f"{src.name} isn't a readable ledger ({e})")
         print(f".critic/{src.name}: adopting it makes its rulings apply again. Every one of them, as the reviews and the stop gate would use them:")

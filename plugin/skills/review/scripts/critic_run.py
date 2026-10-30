@@ -169,7 +169,9 @@ def say_next(st, tier, items):
         print(f"next: start {len(batches)} curmudgeon:curmudgeon-verifier agent(s), blind, on these variant packets (the stop hook saves each verdict list in .critic/verdicts-variants/; don't copy verdicts yourself); then critic_run.py next:")
         for i, b in enumerate(batches, 1): print(f"  verifier {i}: " + " ".join(rel(p) for p in b))
     elif st == "variants-apply":
-        print("next: critic_variants.py apply " + " ".join(rel(p) for p in items) + ", then critic_run.py next. Confirmed variants go in the teardown's own section, from .critic/variants.md.")
+        files = " ".join(rel(p) for p in items)
+        if files: print(f"next: critic_variants.py apply {files}, then critic_run.py next. Confirmed variants go in the teardown's own section, from .critic/variants.md.")
+        else: print("next: no variant verdicts came back. Run critic_variants.py apply with no files (every variant is listed as not verified), then critic_run.py next.")
     elif st == "teardown":
         print("next: write the teardown from .critic/counts.md (references/output-contract.md), save .critic/last-review.md, then critic_ledger.py stamp <payload>.")
     elif st == "idle": print("next: no run is active; critic_run.py begin starts one.")

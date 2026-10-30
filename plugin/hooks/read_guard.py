@@ -113,7 +113,7 @@ def owner_problem(cmd, detector):
         return "the owner's own record of approvals and consent is theirs to write, through the lead"
     if detector and "critic_ledger" in flat: return "the detector runs the scripted checks; the run's ledger (consent and approvals among it) is the lead's"
     if re.search(r"critic_ledger(?:\.py)?\b.*\b(?:consent|approve|adopt)\b", flat): return "only the owner gives consent, approves a file or adopts a set-aside ledger, through the lead"
-    if re.search(r"security_feed(?:\.py)?\b.*\b(?:set|update|pick-folder)\b", flat):  # the owner's sign-off on the downloads, and the downloads themselves (ultimate audit V13)
+    if re.search(r"security_feed(?:\.py)?\s+(?:set|update|pick-folder)\b", flat):  # the subcommand itself, so reading the file (cat ... | grep update) is fine (batch 1 review)  # the owner's sign-off on the downloads, and the downloads themselves (ultimate audit V13)
         return "the security feed's settings, sign-off and downloads are the owner's, through the lead"
     return None
 

@@ -668,32 +668,39 @@ def rules_test_command(text):
 def ledger_shipped(root):
     """True when .critic/ledger.json could have come with the code, so its rulings and decisions are never applied (the
     merge, the scan and the brief all check this). A ledger git tracks always could (5.2.1 F-76114fb3). Otherwise it is
-    the owner's own only when it is untracked in the project's own git work tree (owner_untracked, the rule rules.md and
-    scope.json follow), or when it is exactly the file critic_ledger.py last saved on this machine (its sha256 in the
-    owner's record outside the project). A ledger in a downloaded zip, untracked inside another repository, or edited
-    after the last save is not (ultimate audit H1, 03 §5.57: the old test asked only whether git tracks it).
+    the owner's own only when it is exactly the file critic_ledger.py last saved on this machine (its sha256 in the
+    owner's record outside the project), wherever the project sits. A ledger in a downloaded zip (with or without its
+    own .git), untracked inside another repository, or edited after the last save is not (ultimate audit H1, 03 §5.57:
+    the old test asked only whether git tracks it).
     critic_ledger.py sets such a ledger aside the first time it loads it, so a save can never bless it."""
     p = pathlib.Path(root) / ".critic" / "ledger.json"
     if p.is_symlink(): return True
     if not p.is_file(): return False
     if git_tracked(root, ".critic/ledger.json"): return True
-    if owner_untracked(root, "ledger.json"): return False
-    return read_owner_state(root, "ledger").get("sha") != _sha(p)
+    return read_owner_state(root, "ledger").get("sha") != _sha(p)  # not owner_untracked: a shipped archive can carry its own .git (batch 1 review)
 
 LEDGER_RULINGS = ("false_positives", "dismissals", "memories", "decisions", "overrides")  # what a ledger can use to hide or steer
 
 def record_ledger(root):
     """Note the sha256 of the ledger critic_ledger.py just saved, in the owner's record outside the project, so
-    ledger_shipped() can tell the owner's own ledger from one that came with the code. Best effort: a failed write only
-    means the ledger counts as shipped until the next save works (fail closed)."""
+    ledger_shipped() can tell the owner's own ledger from one that came with the code. Raises OSError when the record
+    can't be written; critic_ledger.py checks first that it can (owner_state_writable), so the owner's ledger is never
+    set aside for a folder it couldn't write (batch 1 review)."""
     p = pathlib.Path(root) / ".critic" / "ledger.json"
-    try: write_owner_state(root, "ledger", {"sha": _sha(p)})
-    except OSError as e: print(f"note: couldn't record the ledger's checksum outside the project ({e}); its rulings won't apply until it can be", file=sys.stderr)
+    write_owner_state(root, "ledger", {"sha": _sha(p)})
+
+def owner_state_writable(root):
+    """True when the owner's record outside the project can be written (the folder exists or can be made, and a file
+    in it can be created): approvals, consent, gate settings and the ledger's checksum all live there."""
+    try:
+        f = owner_state(root, "ledger"); f.parent.mkdir(parents=True, exist_ok=True)
+        return os.access(f.parent, os.W_OK) and not f.is_symlink() and not f.parent.is_symlink()
+    except OSError: return False
 
 def gate_owned(root, mode):
     """True when the owner turned this stop check on (critic_ledger.py gate on|async), as recorded outside the project.
     The .critic/gate and .critic/gate-async markers alone could have been committed by a repository (ultimate audit V12)."""
-    return read_owner_state(root, "gate").get("mode") == mode
+    return read_owner_state(root, "gate").get(mode) is True
 
 def leaves_root(p, root):
     """True when p, with every link followed, is outside root: the scan never reads such a file (one rule for every

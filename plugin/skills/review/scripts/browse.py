@@ -380,7 +380,8 @@ def check(page, allow_live, allow_writes):
         if has_userinfo(page): return False, None, "an address with user@host is never loaded"
         ok, live, why = scope_file.decide(page, ROOT, allow_live, is_local_url(page))
         if not ok: return False, None, why
-    elif pathlib.Path(page).is_symlink(): return False, None, f"{page} is a link: a linked page is never served (its target's folder would become the server's root; ultimate audit Q18)"
+    elif pathlib.Path(page).is_symlink() or not pathlib.Path(page).resolve().is_relative_to(ROOT):  # a linked page, or one a linked folder takes outside the project (batch 1 review)
+        return False, None, f"{page} is a link, or a link takes it outside the project: such a page is never served (its real folder would become the server's root; ultimate audit Q18)"
     elif not pathlib.Path(page).is_file(): return False, None, f"{page} is not a file or an http(s) URL"
     if allow_writes and live: return False, None, "--allow-writes is for the page's own loopback server, never a live site"
     from critic_findings import consent_given

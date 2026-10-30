@@ -61,7 +61,7 @@ def problems_review(root, msg, agent_id=None):
         rows = rows.get("findings")
     if not isinstance(rows, list): return [f"{rv[-1].name} must hold a JSON list of findings, or an object with a findings list"]
     for i, f in enumerate(rows):
-        e = validate(f) if isinstance(f, dict) else ["not an object"]
+        e = validate({k: v for k, v in f.items() if k != "source"}) if isinstance(f, dict) else ["not an object"]  # the merge names the source from the file, so the hook judges the row the same way (batch 1 review)
         if e: errs.append(f"finding {i + 1}: {'; '.join(e)}")  # never its title: if a reviewer named another's file, the message must not carry that review's words
     return errs[:8]
 
@@ -87,7 +87,7 @@ def problems_verdict(msg, root=None):
             prob = refutation_problem(v.get("refutation") or v.get("reason"), imp, v.get("reproduced"), root=root) or security_refutation_problem(v, packet)
             if prob: errs.append(f"{v.get('id')}: this refutation would be ignored by the merge: {prob}")
         if v.get("verdict") == "downgrade":  # 03 §5.57.2: the same rule apply uses, so the verifier hears it before stopping
-            dp = downgrade_problem(packet.get("impact") or "Critical", v.get("impact_after"), v.get("reproduced"), v.get("note") or v.get("refutation"), root=root)
+            dp = downgrade_problem(packet.get("impact") or "Critical", v.get("impact_after"), v.get("reproduced"), v.get("note") or v.get("refutation") or v.get("reason"), root=root)  # the fields apply reads
             if dp: errs.append(f"{v.get('id')}: this downgrade would be ignored by the merge: {dp}")
     return errs[:8]
 

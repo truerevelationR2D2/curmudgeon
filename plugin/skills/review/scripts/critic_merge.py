@@ -75,7 +75,8 @@ def load_review(path):
         if not rows:
             try: rows = read_jsonl(p)
             except ValueError: rows = []
-    return [dict(r, source=p.stem) for r in rows if isinstance(r, dict)]  # the channel names the source, never the row: a reviewer's "source": "scan" would skip the quote check (ultimate audit Q05)
+    src = p.stem if p.stem not in ("scan", "outside") else f"file-{p.stem}"  # only scan_rows() and the outside loader name those channels (batch 1 review: a file called scan.json)
+    return [dict(r, source=src) for r in rows if isinstance(r, dict)]  # the channel names the source, never the row: a reviewer's "source": "scan" would skip the quote check (ultimate audit Q05)
 
 def inside_root(rel):
     """Findings may only point inside the project: an absolute path, .. or a link out is never read or verified."""
@@ -100,11 +101,17 @@ def ledger():
     try: return json.loads((D / "ledger.json").read_text())
     except Exception: return {}
 
+_SHIPPED = {}
 def ledger_committed():
     """True when .critic/ledger.json may have come with the code (critic_findings.ledger_shipped): its false-positive
-    rulings never hide anything (they are listed in counts.md instead)."""
+    rulings never hide anything (they are listed in counts.md instead). Asked once per ledger state, not once per
+    finding (batch 1 review: 363 git calls for a 180-row tally, against 2)."""
     from critic_findings import ledger_shipped
-    return ledger_shipped(ROOT)
+    p = D / "ledger.json"
+    try: key = (p.stat().st_mtime_ns, p.stat().st_size)
+    except OSError: key = None
+    if key not in _SHIPPED: _SHIPPED.clear(); _SHIPPED[key] = ledger_shipped(ROOT)
+    return _SHIPPED[key]
 
 MEMORY_HITS = []
 def suppressed_by_ledger(f, L):

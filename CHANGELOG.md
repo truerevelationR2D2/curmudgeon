@@ -6,8 +6,12 @@ Every release of Curmudgeon, newest first. The repository's history starts at 4.
 
 The full audit of 5.2.5 (six blind lenses, Curmudgeon's own full-tier review, three outside reviewers and mutation testing) confirmed 89 findings: 5 High, 27 Medium, 51 Low, 5 Nit. Batch 1 fixes the trust and evidence rules. Each fix has a test that fails on 5.2.5 (`plugin/tests/cases_7.py`).
 
+**After upgrading**
+- Run `/curmudgeon:gate on` (or `async`) again where you use the stop checks: the setting now lives outside the project, so the old marker alone does nothing.
+- The first ledger command in each project sets your existing ledger aside, because 5.2.5 didn't record its checksum. Check its rulings with `critic_ledger.py adopt <file> --show`, then `adopt <file>` to take it back.
+
 **Trust boundaries**
-- A `.critic/ledger.json` counts as yours only when git doesn't track it and it is untracked in the project's own work tree, or it is exactly the file Curmudgeon last saved on this computer. A ledger that came in a zip, sits untracked inside another repository, or was changed after the last save is set aside on the next run and a new ledger starts; its rulings never apply. `critic_ledger.py adopt <file> --show` lists its rulings, and `adopt <file>` takes it back after you agree. (Before, a false-positive ruling in such a ledger could hide a Critical.)
+- A `.critic/ledger.json` counts as yours only when git doesn't track it and it is exactly the file Curmudgeon last saved on this computer (its checksum is kept outside the project). A read-only command (`show`, `check`) moves nothing, and if that outside folder can't be written, the command stops and changes nothing. A ledger that came in a zip, sits untracked inside another repository, or was changed after the last save is set aside on the next run and a new ledger starts; its rulings never apply. `critic_ledger.py adopt <file> --show` lists its rulings, and `adopt <file>` takes it back after you agree. (Before, a false-positive ruling in such a ledger could hide a Critical.)
 - The page server answers a refused request with a 404, never from a file inside the served folder, and a folder's `index.html` that links outside is never served. (Before, a planted link at `.curmudgeon-refused/404` served any file you can read.)
 - A page that is a link is refused by the browser driver and the scan.
 - Lockfiles, manifests and earlier CI results that link outside the project are never read, and each is listed once.

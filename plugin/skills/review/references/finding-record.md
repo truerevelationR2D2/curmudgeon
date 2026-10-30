@@ -20,7 +20,7 @@ A review file is `{"findings": [ ...finding records... ], "set_aside": [ {"file"
 | `quote` | The code or text, **copied exactly** from the file (case and quote marks as written), starting on `line`: at least 12 characters, including a name. A multi-line quote is its lines in order. The merge script rejects a shorter quote or one with no line, and retracts a finding whose quote isn't at its line (one line either way is allowed) |
 | `title` | One line: the problem |
 | `evidence` | What was checked and seen (scripted ids, sandbox lines, file:line) |
-| `failing_case` | The concrete input or sequence, and the wrong result. Required for Critical, High and Medium |
+| `failing_case` | The concrete input or sequence, and the wrong result. Required for Critical, High, Medium and Low (not Nit) |
 | `verified` | `executed` (you ran it and saw it fail), `traced` (followed the code path), or `inferred` |
 | `remediation` | The structural fix, in one or two sentences |
 | `requirement` | Optional. What the finding rests on when it is about intent or behaviour: `{"basis": "stated", "where": "docs/spec.md:12"}` when a document says it (the script checks the line exists), or `{"basis": "inferred", "why": "what you inferred it from"}`. A finding that rests on an inferred requirement is capped at Medium by the script: inferred is never presented as stated |

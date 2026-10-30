@@ -123,7 +123,7 @@ def main(a):
     from critic_findings import state_trusted
     if (D / "rules.md").is_file() and state_trusted(ROOT, "rules.md"): shared.append(f"- Project rules: {D / 'rules.md'} (apply only the rules whose paths match the payload)")
     elif (D / "rules.md").is_file(): shared.append("- Project rules: none used (.critic/rules.md may have come with the code, and the owner hasn't approved it)")
-    none_ = "- none used: git tracks .critic/ledger.json, so it may not be the owner's" if shipped else "- none recorded"
+    none_ = "- none used: the ledger may have come with the code (git tracks it, or Curmudgeon didn't write it on this machine)" if shipped else "- none recorded"
     shared += ["", "## The owner's recorded decisions (not re-argued on taste)"] + ([f"- {x}" for x in decisions] or [none_])
     shared += ["", "## Not findings (the owner's past rulings)"] + ([f"- {x}" for x in fps] or [none_])
     shared += ["", f"## Payload ({len(files)} files; your reading order is below)"] + [f"- {f}" for f in sorted(files)]

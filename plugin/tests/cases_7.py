@@ -87,6 +87,7 @@ def _(d):
     secret = d / "secret.txt"; secret.write_text("PRIVATE-KEY-TEXT\n")
     site = d / "site"; (site / ".curmudgeon-refused").mkdir(parents=True); (site / "sub").mkdir()
     os.symlink(secret, site / ".curmudgeon-refused" / "404"); os.symlink(secret, site / "sub" / "index.html")
+    (site / "sub2" / "index.html").mkdir(parents=True); os.symlink(secret, site / "sub2" / "index.htm")  # batch 1 review: a folder named index.html
     write(site, "page.html", "<p>ok</p>")
     srv, origin, _hp = safe_web.serve(site)
     def get(path):
@@ -94,9 +95,10 @@ def _(d):
         except urllib.error.HTTPError as e: return f"HTTP {e.code}"
     try:
         assert "ok" in get("/page.html")
-        for path in ("/.env", "/../secret.txt", "/.git/config", "/sub/", "/sub/index.html"):
+        for path in ("/.env", "/../secret.txt", "/.git/config", "/sub/", "/sub/index.html", "/sub2/", "/sub2/index.htm"):
             body = get(path)
             assert "PRIVATE-KEY-TEXT" not in body and body.startswith("HTTP 404"), (path, body)
+        assert "mkdtemp" not in (S / "safe_web.py").read_text(), "no temp folder left behind per import"
     finally: srv.shutdown()
 
 @test("audit Q18 and V44: a page that is a link is refused by the browser driver and the scan (it would make the link target's folder the server root), and a sibling folder's page is served from its own folder")
@@ -110,6 +112,9 @@ def _(d):
     assert "PRIVATE" not in rep and "is a link" in rep, rep[:2000]
     import critic_scan, inspect
     assert "is_relative_to" in inspect.getsource(critic_scan.runtime), "the page folder test compares paths, not string prefixes"
+    other = d / "outside2"; other.mkdir(); (other / "index.html").write_text("<p>OUTSIDE-PAGE</p>"); os.symlink(other, proj / "site")
+    r = run(S / "browse.py", "start", str(proj / "site" / "index.html"), "--session", str(d / "s2.json"), cwd=proj)
+    assert r.returncode != 0 and "outside the project" in (r.stdout + r.stderr), ("a linked parent folder is refused too (batch 1 review)", r.stdout + r.stderr)
 
 @test("audit Q05: a reviewer can't mark its own finding as a scan row to skip the quote check; the review file names the source, not the row")
 def _(d):
@@ -167,6 +172,11 @@ def _(d):
     run(S / "critic_variants.py", "find", cwd=d)
     out = run(S / "critic_run.py", "next", cwd=d).stdout
     assert "variant packets" in out and ".critic/verify-variants/" in out, out
+    out = run(S / "critic_run.py", "next", "--apply-now", cwd=d).stdout  # no variant verifier answered (batch 1 review: this used to loop)
+    assert "critic_variants.py apply with no files" in out, out
+    assert run(S / "critic_variants.py", "apply", cwd=d).returncode == 0
+    out = run(S / "critic_run.py", "next", "--apply-now", cwd=d).stdout
+    assert "write the teardown" in out, out
 
 @test("audit V39: --online sends nothing without the owner's consent on file for this run; critic_ledger.py consent online records it")
 def _(d):
@@ -283,6 +293,13 @@ def _(d):
     run(S / "critic_ledger.py", "gate", "on", cwd=d)
     r = run(H / "stop_gate.py", cwd=d, stdin=json.dumps({"cwd": str(d)}))
     assert '"block"' in r.stdout, "turned on by the owner, it blocks"
+    (d / ".critic/gate-count").unlink(missing_ok=True); run(S / "critic_ledger.py", "gate", "async", cwd=d)
+    r = run(H / "stop_gate.py", cwd=d, stdin=json.dumps({"cwd": str(d)}))
+    assert '"block"' in r.stdout, "turning on the background check keeps the blocking gate on (batch 1 review)"
+    import critic_findings as cf
+    assert cf.gate_owned(d, "on") and cf.gate_owned(d, "async")
+    run(S / "critic_ledger.py", "gate", "off", cwd=d)
+    assert not cf.gate_owned(d, "on") and not cf.gate_owned(d, "async")
 
 @test("audit V13: no Curmudgeon agent can record the owner's sign-off on the security feed, or start its downloads")
 def _(d):
@@ -291,6 +308,8 @@ def _(d):
         for cmd in (f"python3 {S}/security_feed.py set --cadence daily --folder /tmp/x --signed-off 5000000000", f"python3 {S}/security_feed.py update"):
             r = run(H / "pre_tool.py", cwd=d, stdin=json.dumps({"tool_name": "Bash", "tool_input": {"command": cmd}, "cwd": str(d), "agent_type": agent, "agent_id": "me"}))
             assert "deny" in r.stdout, (agent, cmd, r.stdout)
+    r = run(H / "pre_tool.py", cwd=d, stdin=json.dumps({"tool_name": "Bash", "tool_input": {"command": f"cat {S}/security_feed.py | grep -n 'to update the feed'"}, "cwd": str(d), "agent_type": "curmudgeon:curmudgeon-reviewer", "agent_id": "me"}))
+    assert "deny" not in r.stdout or "security feed" not in r.stdout, ("reading the file is fine (batch 1 review)", r.stdout)
 
 @test("audit V29: in round 3 a new unconfirmed Critical is recorded open and marked held, so check and the stop gate see it; an unconfirmed Medium is still held back")
 def _(d):
@@ -329,3 +348,60 @@ def _(d):
     ask = lambda target: run(H / "guard_state.py", cwd=d, stdin=json.dumps({"tool_name": "Write", "tool_input": {"file_path": str(d / target)}, "cwd": str(d / ".critic/scratch/aaa/payload"), "agent_type": "curmudgeon:curmudgeon-reviewer", "agent_id": "aaa"})).stdout
     assert "deny" in ask(".critic/scratch/bbb/payload/conftest.py") and "deny" in ask(".critic/scratch/bbb/notes/n.md")
     assert "deny" not in ask(".critic/scratch/aaa/notes/n.md") and "deny" not in ask(".critic/scratch/aaa/payload/probe.py")
+
+@test("audit batch 1 review (H1 follow-ups): an unwritable owner record never moves the owner's ledger, read-only commands move nothing, set-aside names never collide, and an untracked ledger in a fresh git work tree is not trusted without its checksum")
+def _(d):
+    import critic_findings as cf
+    p = d / "p"; p.mkdir()
+    run(S / "critic_ledger.py", "add", "F-aaaa1111", "Critical", "x.py:1", "real crit", cwd=p)
+    bad = d / "not-a-folder"; bad.write_text("x")
+    for cmd in (["decision", "note 1"], ["decision", "note 2"], ["check"]):
+        run(S / "critic_ledger.py", *cmd, cwd=p, env={"CURMUDGEON_STATE_DIR": str(bad)})
+    assert not list((p / ".critic").glob("ledger-set-aside-*")), "nothing is moved when the owner's record can't be written"
+    r = run(S / "critic_ledger.py", "check", cwd=p)
+    assert r.returncode == 1 and "F-aaaa1111" in r.stdout, ("the owner's open Critical is still there", r.stdout, r.stderr)
+    q = d / "q"; q.mkdir(); _ledger_by_hand(q)
+    r = run(S / "critic_ledger.py", "show", cwd=q)
+    assert not list((q / ".critic").glob("ledger-set-aside-*")) and (q / ".critic/ledger.json").exists(), "show moves nothing"
+    assert cf.ledger_shipped(q), "and a shipped ledger stays untrusted after a read-only command"
+    for _ in range(2):
+        _ledger_by_hand(q); run(S / "critic_ledger.py", "decision", "x", cwd=q)
+    assert len(list((q / ".critic").glob("ledger-set-aside-*"))) == 2, "two set-asides, two files"
+    g = d / "g"; g.mkdir(); subprocess.run(["git", "init", "-q"], cwd=g); _ledger_by_hand(g)
+    assert cf.ledger_shipped(g), "an archive that carries its own .git: an untracked ledger with no checksum is not the owner's"
+
+@test("audit batch 1 review (Q05 follow-up): a review file named scan.json is not the scan, and the reviewer's stop hook judges a row's quote as the merge does")
+def _(d):
+    import critic_merge as cm, importlib.util
+    write(d, "x/scan.json", json.dumps([{"title": "t"}]))
+    assert cm.load_review(d / "x/scan.json")[0]["source"] == "file-scan"
+    spec = importlib.util.spec_from_file_location("cc_", H / "check_contract.py"); cc = importlib.util.module_from_spec(spec); spec.loader.exec_module(cc)
+    row = {"category": "security", "impact": "High", "file": "src/a.py", "line": 2, "quote": "", "title": "eval on input", "evidence": "src/a.py:2", "failing_case": "x", "verified": "traced", "remediation": "r", "source": "scan"}
+    write(d, ".critic/reviews/review-A.json", json.dumps([row]))
+    errs = cc.problems_review(d, "I wrote .critic/reviews/review-A.json")
+    assert any("missing quote" in e for e in errs), errs
+
+@test("audit batch 1 review (V03 and H2 follow-ups): variant verdicts not saved by the stop hook are marked DEGRADED in variants.md, and a variant downgrade follows the same rule")
+def _(d):
+    write(d, "src/app.js", APP); run(S / "critic_ledger.py", "start", "review", "--tier", "full", cwd=d)
+    write(d, ".critic/verify-variants/V-abcdef-1.json", json.dumps({"id": "V-abcdef-1", "variant_of": "F-abcdef12", "category": "xss", "impact": "Critical", "file": "src/app.js", "line": 2,
+          "quote": "list.innerHTML = `<li>${n.title}</li>`;", "title": "Possible variant", "failing_case": "a title with <img onerror> runs script"}))
+    v = {"id": "V-abcdef-1", "verdict": "downgrade", "impact_after": "Low", "reproduced": "traced", "note": "minor", "entry": "render() runs on every update", "path": ["src/app.js:2 writes the title as HTML"]}
+    write(d, "v.json", json.dumps([v]))
+    run(S / "critic_variants.py", "apply", "v.json", cwd=d)
+    md = (d / ".critic/variants.md").read_text()
+    assert "DEGRADED" in md and "v.json" in md, md
+    assert "V-abcdef-1 Critical" in md, ("a Critical lowered with no cited reason keeps its impact", md)
+
+@test("audit batch 1 review (cost): the tally asks whether the ledger is the owner's once per ledger state, not once per finding")
+def _(d):
+    write(d, "src/app.js", APP); run(S / "critic_ledger.py", "start", "review", "--tier", "full", cwd=d)
+    import critic_merge as cm, critic_findings as cf
+    old_root, old_d = cm.ROOT, cm.D
+    cm.ROOT = d; cm.D = d / ".critic"; cm._SHIPPED.clear()
+    calls = []; orig = cf.ledger_shipped
+    try:
+        cf.ledger_shipped = lambda r: calls.append(r) or orig(r)
+        for _ in range(50): cm.ledger_committed()
+    finally: cf.ledger_shipped = orig; cm.ROOT, cm.D = old_root, old_d; cm._SHIPPED.clear()
+    assert len(calls) == 1, len(calls)
