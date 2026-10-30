@@ -110,14 +110,12 @@ MEMORY_HITS = []
 def suppressed_by_ledger(f, L):
     """Only the owner's explicit ruling on this exact finding (fp <id>) hides it, and it is still listed under
     "Hidden by your rulings" in counts.md. Learned memories never hide anything: see memory_note."""
-    from critic_findings import fingerprint2
-    mine = fingerprint2(f); alias = (L.get("aliases") or {}).get(f.get("id"))
     for x in L.get("false_positives", []):
         xid = x.get("id")
         if not xid: continue
         old = (L.get("findings") or {}).get(xid) or {}
         if old.get("score") and IMP_RANK.get(str(f.get("impact", "")).title(), 2) < IMP_RANK.get(old["score"], 2): continue  # never hide a finding more serious than the one ruled on
-        if xid in (f.get("id"), alias): return f"known false positive (owner's ruling on this exact finding): {x.get('why', '')}"
+        if xid == f.get("id"): return f"known false positive (owner's ruling on this exact finding): {x.get('why', '')}"  # the exact id only: an alias could carry the ruling onto another finding (03 §5.56 item 14)
     return None
 
 def ruling_like(f, L):
@@ -247,7 +245,7 @@ def tally(paths):
         if stale: die(f"refusing to count {', '.join(stale)}: written before this run started, so it is from an earlier run. Remove it, or have a fresh reviewer write it again")
     reviews = [load_review(p) for p in paths]
     blind = set()  # 03 §5.56 item 15: reviews whose agent the stop hook saw working in its private copy
-    for st_ in (D / "scratch").glob("*/stop.json") if (D / "scratch").is_dir() else []:
+    for st_ in (D / "stops").glob("*.json") if (D / "stops").is_dir() and not (D / "stops").is_symlink() else []:  # written by the stop hook; agents can't write there
         try:
             j_ = json.loads(st_.read_text())
             if j_.get("workspace") and (not started or float(j_.get("at") or 0) >= started - 2): blind.add(j_.get("review"))

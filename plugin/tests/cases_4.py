@@ -7,7 +7,7 @@ def _guard(p, cwd, tool, role="reviewer", aid="r1", **ti):
 
 def _blind(d, letters="ABC"):
     """What the SubagentStop hook records for a reviewer that worked in its private copy (§5.56 item 15)."""
-    for L_ in letters: write(d, f".critic/scratch/agent-{L_}/stop.json", json.dumps({"review": f"review-{L_}.json", "workspace": True, "at": time.time()}))
+    for L_ in letters: write(d, f".critic/stops/agent-{L_}.json", json.dumps({"review": f"review-{L_}.json", "workspace": True, "at": time.time()}))
 
 def _tally3(d, a, b, c, *extra):
     for L_, rows in zip("ABC", (a, b, c)): write(d, f".critic/reviews/review-{L_}.json", json.dumps(rows))

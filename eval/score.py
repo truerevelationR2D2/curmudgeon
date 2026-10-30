@@ -40,6 +40,8 @@ def _crash(t, v, tb):  # a crash must never look like a gate verdict: FAIL is 1,
     traceback.print_exception(t, v, tb); sys.stderr.flush(); sys.stdout.flush(); os._exit(4)
 sys.excepthook = _crash
 HERE = pathlib.Path(__file__).resolve().parent
+import tempfile
+UNMATCHED = pathlib.Path(os.environ.get("CURMUDGEON_STATE_DIR") or pathlib.Path(tempfile.gettempdir()) / "curmudgeon-eval") / "last-unmatched.json"  # scratch state, never in the source tree (03 §5.56 item 24)
 sys.path.insert(0, str(HERE))
 import keymatch
 args = sys.argv[1:]
@@ -389,7 +391,7 @@ if "--refutations" in args:
     sys.exit(0)
 
 if "--label" in args:
-    pend = json.loads((HERE / ".last-unmatched.json").read_text()) if (HERE / ".last-unmatched.json").exists() else []
+    pend = json.loads(UNMATCHED.read_text()) if UNMATCHED.exists() else []
     for b in pend: labels.setdefault(lab_key(b), "unlabelled")
     LABELS.write_text(json.dumps(labels, indent=1)); print(f"{len(pend)} unmatched finding(s) written to {LABELS.name}: set each to real, hallucinated or nitpick"); sys.exit(0)
 
@@ -417,7 +419,7 @@ else:
     lb = r0["labels"]
     for name, want, got in r0["impact_misses"]: print(f"  impact miss: {name[:70]} was planted {want}, rated {got or 'unrated'}")
     print(f"Precision: {rate(r0['tp'], r0['tp'] + r0['fp'])}  (unmatched findings: {len(r0['unmatched'])} — real {lb['real']}, hallucinated {lb['hallucinated']}, nitpick {lb['nitpick']}, unlabelled {lb['unlabelled']})")
-    (HERE / ".last-unmatched.json").write_text(json.dumps(r0["unmatched"]))
+    UNMATCHED.parent.mkdir(parents=True, exist_ok=True); UNMATCHED.write_text(json.dumps(r0["unmatched"]))
     if r0["by_area"]:
         print("Precision by kind of finding (true / judged):")
         for k_, (t_, f_) in sorted(r0["by_area"].items(), key=lambda kv: -(kv[1][0] + kv[1][1])):

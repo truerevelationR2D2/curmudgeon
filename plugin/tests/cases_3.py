@@ -107,7 +107,7 @@ def _(d):
         def do_POST(self): seen.append(f"POST {self.path}"); self.send_response(200); self.end_headers(); self.wfile.write(b"ok")
     app = hs.ThreadingHTTPServer(("127.0.0.1", 0), App); threading.Thread(target=app.serve_forever, daemon=True).start(); port = app.server_address[1]
     B = S / "browse.py"; live = f"http://localhost.:{port}/"
-    write(d, ".critic/scope.json", json.dumps({"version": 1, "targets": [{"origin": f"http://localhost.:{port}", "max_requests": 5, "note": "test"}]}))
+    write(d, ".critic/scope.json", json.dumps({"version": 1, "targets": [{"origin": f"http://localhost.:{port}", "max_requests": 5, "note": "test"}]})); run(S / "critic_ledger.py", "approve", "scope.json", cwd=d)
     r = run_c(B, "start", live, "--session", "s/a.json", "--allow-live", "localhost.", cwd=d); assert "refused" not in r.stdout, r.stdout
     time.sleep(0.3); n1 = len(seen)
     r = run_c(B, "start", live, "--session", "s/b.json", "--allow-live", "localhost.", cwd=d)
@@ -950,13 +950,13 @@ def _(d):
     (d / DB).unlink(); (d / DB).symlink_to(d / "elsewhere.sqlite")
     r = run(F, "update", "--force", cwd=d, env=env); assert r.returncode == 1 and "link" in r.stdout and not (d / "elsewhere.sqlite").exists(), r.stdout
 
-@test("5.2: without Playwright, the page check names the install command and says to offer it, never to install it unasked")
+@test("5.2: without Playwright, the page check names the install command for the user to run themselves; Curmudgeon never runs it")
 def _(d):
     write(d, "stub/playwright/__init__.py", "raise ImportError('no playwright here')\n"); write(d, "index.html", "<!doctype html><title>x</title><p>hi</p>\n")
     run(S / "critic_scan.py", ".", "--root", ".", "--page", "index.html", cwd=d, env={"PYTHONPATH": str(d / "stub")})
     row = [x for x in json.loads((d / ".critic/scan/report.json").read_text())["findings"] if x["rule"] == "no-playwright"]
-    assert row and "pip install playwright && playwright install chromium" in row[0]["what"] and "never install without their yes" in row[0]["what"], row
-    assert "offer once to install it" in (S.parent / "SKILL.md").read_text()
+    assert row and "pip install playwright && playwright install chromium" in row[0]["what"] and "Curmudgeon never runs that command" in row[0]["what"], row
+    assert "Curmudgeon installs nothing, so never run that command for them" in (S.parent / "SKILL.md").read_text()
 
 @test("5.2 database round 2: a feed that is on is never a silent pass (never built, folder unreadable, damaged); a plain update repairs a missing or damaged database; npm pre-releases follow semver; network shares get a URI SQLite accepts; death-match plugin folders are absolute")
 def _(d):

@@ -39,6 +39,7 @@ def main():
             if rec.get("deps_not_linked"): msg += f" Dependency folders left out, so tests that need them won't run here: {', '.join(rec['deps_not_linked'][:5])}."
             if rec.get("nested"): msg += f" Copied as plain files, without their git history: {', '.join(rec['nested'][:10])}."
             if rec.get("links_skipped"): msg += f" Links the system wouldn't let us make were left out: {', '.join(rec['links_skipped'][:10])}."
+            if rec.get("git") == "empty": msg += " The copy is a git repository with no commits yet (the project has none), so git status shows every file as new."
             if rec.get("git") in ("stub", "stub-failed", "none"): msg += " Git history isn't available in the copy (git will say there is no repository); read the code as it is."
             if rec.get("skipped_large"): msg += f" Files over 5 MB were not copied: {', '.join(rec['skipped_large'][:10])}."
         else:

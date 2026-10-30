@@ -20,7 +20,6 @@ means the same; actions are compared exactly, so a search in a new folder is nev
 Fails open: a broken check never stops an agent."""
 import hashlib, json, os, pathlib, re, sys, time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import workspace
 
 WINDOW = 12
 NORM = [(re.compile(r"\d{4}-\d\d-\d\d[T ]\d\d:\d\d(:\d\d(\.\d+)?)?Z?"), "<time>"), (re.compile(r"\b\d\d:\d\d:\d\d\b"), "<time>"),
@@ -59,9 +58,12 @@ def signal(calls):
         if acts[0] != acts[1] and acts[0::2] == [acts[0]] * 3 and acts[1::2] == [acts[1]] * 3: return "stuck_pingpong"
     return None
 
-def main():
-    try: data = json.load(sys.stdin)
-    except Exception: return 0
+def main(data=None):
+    global workspace
+    import workspace  # here, not at the top: the user's own calls exit before paying for it (03 §5.56 item 22)
+    if data is None:
+        try: data = json.load(sys.stdin)
+        except Exception: return 0
     kind = str(data.get("agent_type") or "")
     if not re.fullmatch(r"(?:curmudgeon:)?curmudgeon-(reviewer|verifier|dedup|detector)", kind): return 0
     root = workspace.project_root(data); aid = workspace.clean_id(data.get("agent_id"))
@@ -101,5 +103,7 @@ def main():
     return 0
 
 if __name__ == "__main__":
-    try: sys.exit(main())
+    try:
+        d_ = json.load(sys.stdin)
+        sys.exit(main(d_) if re.fullmatch(r"(?:curmudgeon:)?curmudgeon-[a-z]+", str(d_.get("agent_type") or "")) else 0)  # the user's own calls: nothing to watch
     except Exception: sys.exit(0)

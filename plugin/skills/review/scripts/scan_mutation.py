@@ -95,11 +95,9 @@ def sanity_break(suffix, src):
     return SANITY[suffix] + src if suffix in SANITY else None
 
 def rules_test_cmd(root):
+    from critic_findings import rules_test_command
     p = root / ".critic" / "rules.md"
-    if p.exists():
-        m = re.search(r"(?im)^\s*test command\s*:\s*(.+)$", p.read_text(encoding="utf-8", errors="replace"))
-        if m: return m.group(1).strip().strip("`")
-    return None
+    return rules_test_command(p.read_text(encoding="utf-8", errors="replace")) if p.exists() else None
 
 def test_cmd(root, given, allow_rules=False):
     """--test-cmd always wins. The rules.md command is used only when the user approved rules.md (--project-checks)."""

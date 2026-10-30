@@ -23,6 +23,8 @@ def read_rules(root):
     layers, forbid = {}, []
     p = root / ".critic" / "rules.md"
     if not p.exists(): return None, None
+    from critic_findings import state_trusted
+    if not state_trusted(root, "rules.md"): return None, None  # a rules.md that may have come with the code is not used until approved (03 §5.56 item 9)
     sec = False
     for line in p.read_text(encoding="utf-8", errors="replace").splitlines():
         if line.startswith("## "): sec = line.strip().lower() == "## boundaries"; continue

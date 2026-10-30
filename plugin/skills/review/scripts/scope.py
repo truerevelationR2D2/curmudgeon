@@ -39,7 +39,7 @@ def load(root):
     if not p.exists() and not p.is_symlink(): return [], None
     from critic_findings import state_trusted
     if p.is_file() and not p.is_symlink() and not state_trusted(root, "scope.json"):
-        return [], "scope.json is tracked by git, so it may have come with a clone: the owner approves it with critic_ledger.py approve scope.json (03 §5.56 item 9)"
+        return [], "scope.json may have come with the code (git tracks it, or the folder isn't a git work tree): the owner approves it with critic_ledger.py approve scope.json (03 §5.56 item 9)"
     if p.is_symlink() or not p.is_file(): return [], "scope.json is a link or not a plain file; it is never read through a link"
     if p.stat().st_size > MAX_BYTES: return [], f"scope.json is over {MAX_BYTES // 1024} KB; a scope file is a short list"
     try: j = json.loads(p.read_text(encoding="utf-8"))

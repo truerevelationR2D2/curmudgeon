@@ -25,6 +25,23 @@ def started_at(root, agent_id):
         v = json.loads(p.read_text()).get("made_at"); return float(v) if isinstance(v, (int, float)) else None
     except Exception: return None
 
+def worked_in_copy(root, agent_id):
+    """True when this agent's private copy was finished being made (its workspace record says so)."""
+    try:
+        h = workspace.home_for(root, agent_id); p = h / "workspace.json" if h else None
+        if not p or p.is_symlink() or not p.is_file(): return False
+        j = json.loads(p.read_text()); return isinstance(j, dict) and not j.get("building") and isinstance(j.get("made_at"), (int, float))
+    except Exception: return False
+
+def write_stop(root, me, rec):
+    """The stop record (03 §5.56 item 15), in .critic/stops/, where agents can't write (guard_state) or read (read_guard);
+    never through a link."""
+    d = root / ".critic" / "stops"
+    if d.is_symlink() or (root / ".critic").is_symlink(): return
+    d.mkdir(parents=True, exist_ok=True)
+    fd = os.open(str(d / f"{me}.json"), os.O_WRONLY | os.O_CREAT | os.O_TRUNC | getattr(os, "O_NOFOLLOW", 0), 0o644)
+    with os.fdopen(fd, "w") as fh: fh.write(json.dumps(rec))
+
 def problems_review(root, msg, agent_id=None):
     d = root / ".critic" / "reviews"
     named = re.findall(r"review-([A-Za-z0-9]+)\.json", msg or "")
@@ -106,10 +123,8 @@ def main():
     if kind.endswith("curmudgeon-reviewer"):  # 03 §5.56 item 15: the tally checks that each review came from an agent that worked in its private copy
         try:
             named = re.findall(r"review-([A-Za-z0-9]+)\.json", data.get("last_assistant_message", "") or "")
-            h = workspace.home_for(root, data.get("agent_id")) if data.get("agent_id") else None
-            if named and h and not h.is_symlink():
-                h.mkdir(parents=True, exist_ok=True)
-                (h / "stop.json").write_text(json.dumps({"review": f"review-{named[-1]}.json", "workspace": started_at(root, data.get("agent_id")) is not None, "at": time.time()}))
+            me = workspace.clean_id(data.get("agent_id")) if data.get("agent_id") else None
+            if named and me: write_stop(root, me, {"review": f"review-{named[-1]}.json", "workspace": worked_in_copy(root, data.get("agent_id")), "at": time.time()})
         except Exception: pass
     if kind.endswith("curmudgeon-verifier"):
         try: save_verdicts(root, data.get("last_assistant_message", ""), data.get("agent_id"))

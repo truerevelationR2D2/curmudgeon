@@ -474,42 +474,42 @@ def main(a):
         print(msg); return 0
     elif cmd == "approve":  # 03 §5.56 item 9: the owner approves the exact rules.md or scope.json (run only after they said yes to what it shows)
         need(rest, 1, "approve rules.md|scope.json [--show]")
-        import critic_findings as cf_
+        import critic_findings as cf_, hashlib as hl_
         which = rest[0]
         if which not in cf_.APPROVABLE: die(f"approve takes one of: {', '.join(cf_.APPROVABLE)}")
         p = D / which
         if not p.is_file() or p.is_symlink(): die(f".critic/{which} is missing, or a link")
-        text = p.read_text(encoding="utf-8", errors="replace")
-        print(f".critic/{which} ({'tracked by git' if cf_.git_tracked(ROOT, '.critic/' + which) else 'not tracked'}), sha256 {cf_._sha(p)[:16]}:")
-        if which == "rules.md":
-            cmds = re.findall(r"(?m)^\s*-\s*([\w .-]+?)\s*:\s*`?(.+?)`?\s*$", text.split("## Scripted checks", 1)[1].split("\n## ", 1)[0]) if "## Scripted checks" in text else []
-            tc = re.search(r"(?im)^\s*test command\s*:\s*(.+)$", text)
-            nf = text.split("## Not findings", 1)[1].split("\n## ", 1)[0].strip().splitlines() if "## Not findings" in text else []
-            print("  commands it runs with --project-checks: " + ("; ".join(f"{n}: {c}" for n, c in cmds[:10]) or "none"))
-            print("  test command: " + (tc.group(1).strip() if tc else "none"))
-            print("  'Not findings' (reviewers are told to skip these): " + ("; ".join(x.lstrip("- ").strip() for x in nf if x.strip())[:600] or "none"))
+        raw = p.read_bytes(); text = raw.decode("utf-8", errors="replace"); sha = hl_.sha256(raw).hexdigest()  # what is shown is what is hashed
+        print(f".critic/{which} ({'tracked by git' if cf_.git_tracked(ROOT, '.critic/' + which) else 'not tracked'}), sha256 {sha[:16]}:")
+        if which == "rules.md":  # the same parsers the scan, the mutation test and the brief use, so what is shown is what runs
+            cmds = cf_.rules_commands(text); tc = cf_.rules_test_command(text)
+            nf = [x.strip().lstrip("-*+ ").strip() for x in cf_.rules_sections(text, "Not findings").splitlines() if x.strip()]
+            bd = [x.strip() for x in cf_.rules_sections(text, "Boundaries").splitlines() if x.strip()]
+            print("  commands it runs with --project-checks: " + ("; ".join(f"{n}: {c}" for n, c in cmds) or "none"))
+            print("  test command (mutation testing runs it): " + (tc or "none"))
+            print("  'Not findings' (reviewers are told to skip these): " + ("; ".join(nf) or "none"))
+            print("  layer rules for the scan: " + ("; ".join(bd) or "none"))
         else:
-            print("  live targets it allows: " + ", ".join(str(t.get("origin") or t.get("url") or t) for t in (json.loads(text).get("targets") or []))[:600] if text.strip().startswith("{") else "  (not JSON)")
+            try: tg = json.loads(text).get("targets") or []
+            except (ValueError, AttributeError): tg = None
+            print("  live targets it allows: " + ("(not valid JSON: it will be refused whole)" if tg is None else ", ".join(str(t.get("origin") if isinstance(t, dict) else t) for t in tg) or "none"))
         if "--show" in rest: return 0
-        a = D / "private" / "approved.json"
-        if a.is_symlink(): die(".critic/private/approved.json is a link; refusing")
-        a.parent.mkdir(parents=True, exist_ok=True)
-        try: cur = json.loads(a.read_text()) if a.is_file() else {}
-        except ValueError: cur = {}
-        cur[which] = cf_._sha(p); a.write_text(json.dumps(cur, indent=1) + "\n"); os.chmod(a, 0o600)
-        msg = f"approved .critic/{which} as it is now (any change needs approving again)"
+        files = dict(cf_.read_owner_state(ROOT, "approvals").get("files") or {}); files[which] = sha
+        try: cf_.write_owner_state(ROOT, "approvals", {"files": files})
+        except OSError as e: die(str(e))
+        msg = f"approved .critic/{which} as it is now (any change needs approving again); the approval is kept outside the project, where a repository can't ship one"
     elif cmd == "consent":  # 03 §5.56 item 12: run by the lead only after the owner said yes (live: they typed the host)
         need(rest, 1, "consent live HOST | consent writes")
-        c = D / "private" / "consent.json"
-        if c.is_symlink(): die(".critic/private/consent.json is a link; refusing")
-        try: cur = json.loads(c.read_text()) if c.is_file() else {}
-        except ValueError: cur = {}
+        import critic_findings as cf_
+        if not L.get("started_at"): die("start a run first: consent is recorded for one run")
+        cur = cf_.read_owner_state(ROOT, "consent")
         if cur.get("run") != L.get("run") or cur.get("started_at") != L.get("started_at"): cur = {}  # a new run starts with no consent
-        cur.update(run=L.get("run"), started_at=L.get("started_at"))
+        cur.pop("root", None); cur.update(run=L.get("run"), started_at=L.get("started_at"))
         if rest[0] == "writes": cur["writes"] = True; msg = "recorded the owner's consent to send writes to their own loopback server, for this run"
         elif rest[0] == "live" and len(rest) > 1 and re.fullmatch(r"[A-Za-z0-9.-]+", rest[1]): cur["live"] = sorted(set(cur.get("live") or []) | {rest[1].lower()}); msg = f"recorded the owner's consent to load {rest[1].lower()}, for this run"
         else: die("consent live HOST | consent writes")
-        c.parent.mkdir(parents=True, exist_ok=True); c.write_text(json.dumps(cur, indent=1) + "\n"); os.chmod(c, 0o600)
+        try: cf_.write_owner_state(ROOT, "consent", cur)
+        except OSError as e: die(str(e))
     elif cmd == "decision":
         need(rest, 1, "decision \"text\" [SOURCE]"); L["decisions"].append({"text": rest[0], "source": rest[1] if len(rest) > 1 else ""})
     elif cmd == "override":

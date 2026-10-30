@@ -28,7 +28,7 @@ claude plugin validate --strict plugin
 claude plugin validate --strict --profile directory plugin
 ```
 
-All of them must pass. None of them needs a model, an account or a network connection beyond installing Claude Code, and CI (`.github/workflows/ci.yml`) runs them on Python 3.9 to 3.13 for every push and pull request.
+All of them must pass. None of them needs a model, an account or a network connection beyond installing Claude Code, and CI (`.github/workflows/ci.yml`) runs them on Python 3.9 to 3.14 for every push and pull request (the script tests also run on Windows and macOS).
 - `golden.py` checks that the scripted checks still find exactly what they found on each eval fixture. If your change is meant to alter that, rerun it with `CRITIC_UPDATE_GOLDEN=1`, and explain the diff in your pull request.
 - `replay.py` runs recorded review runs (the models' reviews, groups and verdicts) through the counting scripts and checks the outcome is unchanged. Use `CRITIC_UPDATE_REPLAY=1` only for a change meant to alter it.
 - `score.py --selftest` checks that the accept/kill gate can still fail.
@@ -38,3 +38,5 @@ All of them must pass. None of them needs a model, an account or a network conne
 ## Reporting a wrong finding
 
 Open an issue with the finding as `.critic/findings.jsonl` shows it (redact anything private), the code it pointed at, and why it's wrong. False alarms are the most useful bug reports Curmudgeon gets.
+
+Comments in the code cite design rulings as `§2` or `§5.NN`; [plugin/RULINGS.md](plugin/RULINGS.md) says what each one decided.

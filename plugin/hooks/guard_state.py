@@ -5,7 +5,7 @@ Only active in projects that have a .critic/ folder. Fails open (allows) on any 
 import json, os, pathlib, re, sys
 
 PROTECTED = {"ledger.json", "ledger.md", "decisions.md", "gate", "gate-count", "gate-async", "findings.jsonl", "findings.sarif", "tally.json", "counts.md", "async-shown.json", "refutations.jsonl", "runlog.jsonl", "spotcheck.md"}
-PROTECTED_DIRS = {"baseline", "verify", "restore", "private", "verdicts", "verdicts-variants"}  # verdicts: saved by check_contract.py as the verifier returned them, never retyped (§5.56)
+PROTECTED_DIRS = {"baseline", "verify", "restore", "private", "verdicts", "verdicts-variants", "stops", "verify-opened"}  # verdicts: saved by check_contract.py as the verifier returned them, never retyped; stops and verify-opened: the hooks' own records of each agent (§5.56)
 AGENT_PROTECTED = {"scope.json"}  # private: the browser driver's signing key and live-request ledger
 
 def main():

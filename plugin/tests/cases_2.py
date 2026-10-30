@@ -120,6 +120,7 @@ def _(d):
 @test("5.0 card-C review: the guard covers .critic itself, searches from above it, case, globs and links, and no longer blocks payload or search text; with no workspace, Bash is off")
 def _(d):
     write(d, ".critic/reviews/review-B.json", '[{"title": "SECRET-B"}]'); write(d, "src/a.py", "x = 1\n"); write(d, "eval/fixture3/.critic/ledger.json", "{}")
+    write(d, ".critic/rules.md", "# rules\n"); r = run(S / "critic_ledger.py", "approve", "rules.md", cwd=d); assert r.returncode == 0, r.stderr  # not a git work tree: its rules.md is read once approved (03 §5.56 item 9)
     (d / ".critic/scratch/me").mkdir(parents=True); os.symlink(d / ".critic/reviews", d / ".critic/scratch/me/r"); os.symlink(d / ".critic", d / "src/link")
     def ask(tool, agent="curmudgeon:curmudgeon-reviewer", **ti):
         return "deny" in run(H / "read_guard.py", cwd=d, stdin=json.dumps({"tool_name": tool, "tool_input": ti, "cwd": str(d), "agent_type": agent, "agent_id": "me"})).stdout
@@ -250,6 +251,7 @@ def _(d):
 def _(d):
     p = d / "proj"; write(p, ".critic/reviews/review-B.json", '[{"title": "SECRET-B"}]'); write(p, ".critic/scan/report.md", "SCAN"); write(p, ".critic/rules.md", "r")
     write(p, "src/a.py", "x = 1\n"); write(p, "eval/fx/.critic/reviews/r.json", "{}"); write(p, ".git/config", "[core]"); write(p, "node_modules/lib/index.js", "1")
+    run(S / "critic_ledger.py", "approve", "rules.md", cwd=p)  # not a git work tree: its rules.md is read once approved (03 §5.56 item 9)
     write(p, "big.bin", "x" * (5 * 1024 * 1024 + 1)); os.symlink(p / ".critic", p / "src/link"); os.symlink(p, p / "src/up"); os.symlink(p / "src/a.py", p / "src/alias.py")
     def start(agent, aid):
         out = run(H / "scratch_dir.py", cwd=p, stdin=json.dumps({"agent_type": agent, "agent_id": aid, "cwd": str(p)})).stdout
@@ -573,6 +575,8 @@ def _(d):
     assert any("no .critic/scope.json" in w for w in scan()), "no scope file: refused"
     assert any("no .critic/scope.json" in w for w in scan("--allow-live", "staging.example.invalid")), "the old flag alone is not enough"
     write(d, ".critic/scope.json", json.dumps({"version": 1, "targets": [{"origin": "http://staging.example.invalid", "max_requests": 50, "note": "test copy"}]}))
+    assert any("approve scope.json" in w for w in scan("--allow-live", "staging.example.invalid")), "a folder that isn't a git work tree: the scope file counts only once approved"
+    run(S / "critic_ledger.py", "approve", "scope.json", cwd=d)
     assert any("typed confirmation" in w for w in scan()), "listed but not confirmed this run: refused"
     assert any("typed confirmation" in w for w in scan("--allow-live", "other.example.invalid")), "the wrong host: refused"
     assert not scan("--allow-live", "staging.example.invalid"), "listed and confirmed: not refused"
@@ -581,7 +585,7 @@ def _(d):
     for bad, why in [({"version": 1, "targets": [{"origin": "http://u:p@staging.example.invalid"}]}, "user name"), ({"version": 1, "targets": [{"origin": "http://staging.example.invalid/admin"}]}, "no path"),
                      ({"version": 1, "targets": [{"origin": "http://staging.example.invalid", "methods": ["POST"]}]}, "may not have"), ({"version": 1, "targets": [], "allow": "all"}, "may not have"),
                      ({"version": 1, "targets": [{"origin": "http://staging.example.invalid", "max_requests": 10 ** 6}]}, "max_requests")]:
-        write(d, ".critic/scope.json", json.dumps(bad)); w = scan("--allow-live", "staging.example.invalid")
+        write(d, ".critic/scope.json", json.dumps(bad)); run(S / "critic_ledger.py", "approve", "scope.json", cwd=d); w = scan("--allow-live", "staging.example.invalid")
         assert any(why in x for x in w), (bad, w)
     (d / ".critic/scope.json").unlink(); write(d, "elsewhere.json", json.dumps({"version": 1, "targets": [{"origin": "http://staging.example.invalid"}]})); os.symlink(d / "elsewhere.json", d / ".critic/scope.json")
     r = run_c(S / "critic_scan.py", ".", "--root", ".", "--page", "http://staging.example.invalid/", "--allow-live", "staging.example.invalid", cwd=d)
