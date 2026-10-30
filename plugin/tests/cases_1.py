@@ -4,8 +4,8 @@
 def _(d):
     write(d, "src/app.js", APP); run(S / "critic_ledger.py", "start", "full", cwd=d)
     write(d, "a.json", json.dumps([finding(), finding(category="domain", impact="Medium", line=4, quote="const price = total * 1.0825;", title="Tax rule in render code")]))
-    write(d, "b.json", json.dumps([finding(impact="High", quote="${n.title}"), finding(title="no case", category="other", failing_case="", evidence="")]))
-    write(d, "c.json", json.dumps([finding(title="eval of input", category="eval", quote="eval(x)", line=3)]))
+    write(d, "b.json", json.dumps([finding(impact="High", quote="innerHTML = `<li>${n.title}"), finding(title="no case", category="other", failing_case="", evidence="")]))
+    write(d, "c.json", json.dumps([finding(title="eval of input", category="eval", quote="return eval(userInput);", line=3)]))
     r = run(S / "critic_merge.py", "tally", "a.json", "b.json", "c.json", cwd=d); assert r.returncode == 0, r.stderr
     t = json.loads((d / ".critic/tally.json").read_text())
     assert [f["title"] for f in t["kept"]] == ["Title rendered as HTML"] and t["kept"][0]["votes"] == 2, t["kept"]
@@ -782,7 +782,8 @@ def _(d):
     agrees = dict(finding(category="domain", impact="Low", line=4, quote="const price = total * 1.0825;", title="Hard-coded tax rule"), source="outside", outside_id="N8")
     write(w, "o.json", json.dumps([unrelated])); run(S / "critic_merge.py", "tally", "a.json", "b.json", "c.json", "--outside", "o.json", cwd=w)
     t = json.loads((w / ".critic/tally.json").read_text())
-    assert any(f.get("outside_only") and f["impact"] == "High" for f in t["contested"]), t  # the one-letter quote did not attach it to ours
+    assert any(x["finding"].get("outside_id") == "N9" and any("too short" in w for w in x["why"]) for x in t["rejected"]), t  # §5.56: a one-letter quote is too weak to check, so it never attaches to ours or counts
+    assert not any("outside" in (f.get("raised_by") or []) for f in t["kept"] + t["contested"]), t
     write(w, "o.json", json.dumps([agrees])); run(S / "critic_merge.py", "tally", "a.json", "b.json", "c.json", "--outside", "o.json", cwd=w)
     t = json.loads((w / ".critic/tally.json").read_text()); k = [f for f in t["kept"] if f["title"] == "Tax rule in render code"]
     assert k and k[0]["votes"] == 2 and k[0]["votes_ours"] == 1 and (w / ".critic/verify" / f"{k[0]['id']}.json").exists(), t

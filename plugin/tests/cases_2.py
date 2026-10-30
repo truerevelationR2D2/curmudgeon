@@ -345,6 +345,7 @@ def _(d):
     write(d, "src/app.js", APP)
     out = run(S / "critic_run.py", "begin", "--files", "src/app.js", "--tier", "full", cwd=d).stdout
     assert "curmudgeon:curmudgeon-reviewer" in out and "A, B, C" in out, out
+    run(S / "critic_scan.py", ".", "--root", ".", cwd=d)  # the background scan the lead starts; the tally waits for its report (§5.56)
     g = finding(category="domain", impact="Medium", line=4, quote="const price = total * 1.0825;", title="Tax rule in render code")
     for L in "ABC": write(d, f".critic/reviews/review-{L}.json", json.dumps([g]))
     out = run(S / "critic_run.py", "next", cwd=d).stdout
@@ -456,7 +457,7 @@ def _(d):
 @test("5.0 SC-31 blind review: critic_run never loops on dedup, never applies an earlier run's verdicts, and waits for every verifier batch")
 def _(d):
     write(d, "src/app.js", APP)
-    run(S / "critic_run.py", "begin", "--files", "src/app.js", "--tier", "full", cwd=d)
+    run(S / "critic_run.py", "begin", "--files", "src/app.js", "--tier", "full", cwd=d); run(S / "critic_scan.py", ".", "--root", ".", cwd=d)
     g1 = finding(category="domain", impact="High", line=4, quote="const price = total * 1.0825;", title="Tax rule in render code")
     g2 = finding(category="xss", impact="High", line=2, quote=APP.splitlines()[1].strip(), title="Second issue")
     for L in "ABC": write(d, f".critic/reviews/review-{L}.json", json.dumps([g1, g2]))
@@ -527,7 +528,7 @@ def _(d):
     assert not ask(p, "Bash", command=f"git -C {ws} log --oneline") and ask(p, "Bash", command=f"git -C {ws} log; grep -rn SECRET .") and ask(p, "Bash", command=f"git -C {p} log")
     assert ask(p, "Glob", pattern=str(p) + "/**/review-*.json", path=str(p)), "an absolute Glob pattern is expanded with dot-folders"
     e = d / "lite"; write(e, "src/app.js", APP)
-    run(S / "critic_run.py", "begin", "--files", "src/app.js", "--tier", "lite", cwd=e)
+    run(S / "critic_run.py", "begin", "--files", "src/app.js", "--tier", "lite", cwd=e); run(S / "critic_scan.py", ".", "--root", ".", cwd=e)
     g = finding(category="domain", impact="Medium", line=4, quote="const price = total * 1.0825;", title="Tax rule in render code", verified="executed")
     write(e, ".critic/reviews/review-A.json", json.dumps([g]))
     out = run(S / "critic_run.py", "next", cwd=e)

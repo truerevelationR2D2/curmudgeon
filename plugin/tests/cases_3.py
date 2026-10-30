@@ -365,7 +365,7 @@ def _(d):
     assert not SECURITY.search("Unclosed resource handle") and SECURITY.search("stored XSS in title")
     assert to_sarif([])["runs"][0]["tool"]["driver"]["version"] == json.loads((HERE / ".claude-plugin/plugin.json").read_text())["version"]
     assert "redacted in restore copies" not in (S / "critic_ledger.py").read_text().split('"""')[1]
-    assert "within 15 lines" in (S / "critic_findings.py").read_text()
+    assert "or one either side" in (S / "critic_findings.py").read_text()  # §5.56: the quote check's window is the cited line, plus or minus one
 
 @test("5.0 self-review (change map): renames and odd names, a project in a subfolder, folders keep every text file, qualified callers, bounded reads, sensitivity from the change, and an honest intent")
 def _(d):

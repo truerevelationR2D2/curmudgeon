@@ -57,32 +57,63 @@ def similar(a, b):
             if len(seen_) >= 6 and q_ and (seen_ in q_ or q_ in seen_): return True
     return jac >= 0.5 and close or jac >= 0.7
 
+def quote_text(s):
+    """A quote as the quote check compares it: runs of spaces and tabs made one space, ends trimmed. Case and quote marks
+    are kept (§5.56): `Foo` is not `foo`, and 'a' is not "a"."""
+    return re.sub(r"\s+", " ", str(s or "")).strip()
+
+QUOTE_MIN = 12  # characters, after quote_text: shorter quotes (";", "return") are found almost anywhere
+
+def quote_problem(q):
+    """Why a quote is too weak for the quote check to mean anything, or None (§5.56: at least 12 characters, with a name in them)."""
+    t = quote_text(q)
+    if len(t) < QUOTE_MIN: return f"quote too short to check ({len(t)} characters): quote at least {QUOTE_MIN} characters of the line, exactly as written"
+    if not re.search(r"[^\W\d]\w", t): return "quote has no name or word in it: quote the part of the line that names what is wrong"
+    return None
+
+def _quote_at(lines, want, i):
+    """True when the quote lines `want` (already quote_text) start on lines[i] and go on, in order, over the next
+    non-blank lines (blank lines between them are skipped)."""
+    if not (0 <= i < len(lines)) or not lines[i].strip(): return False
+    src = [quote_text(x) for x in lines[i:i + 4 * len(want) + 40] if x.strip()]
+    return len(src) >= len(want) and all(w in s_ for w, s_ in zip(want, src))
+
+def _quote_lines(q): return [quote_text(x) for x in str(q or "").split("\n") if x.strip()]
+
 def quote_check(f, root):
-    """True when the quote appears (normalised) within 5 lines of file:line, or when every line of a long quote appears
-    within 15 lines of it (a quote that crosses the window edge). No quote, no file: can't be checked."""
-    q = norm_code(f.get("quote"))
-    if not q or not f.get("file"): return None
+    """True when the quote is at file:line (§2 invariant 3, made strict by §5.56): its first line starts on the cited line
+    or one either side (an off-by-one), and each further line of a multi-line quote is on the next non-blank line, in
+    order. Case and quote marks count; only runs of whitespace are evened out. A quote at line 0 is never confirmed.
+    No quote or no file: None (nothing to check)."""
+    q = str(f.get("quote") or "")
+    if not q.strip() or not f.get("file"): return None
     p = pathlib.Path(root) / f["file"]
     try: lines = p.read_text(encoding="utf-8", errors="replace").split("\n")
     except OSError: return False
     ln = safe_int(f.get("line"))
-    lo, hi = (max(0, ln - 6), min(len(lines), ln + 5)) if ln else (0, len(lines))
-    window = norm_code("\n".join(lines[lo:hi]))
-    if q in window: return True
-    # long quotes may span the window edge: accept when every quote line is in the file near the line
-    parts = [norm_code(x) for x in str(f.get("quote")).split("\n") if x.strip()]
-    whole = [norm_code(x) for x in lines[max(0, lo - 10):hi + 10]]
-    return bool(parts) and all(any(p_ in w for w in whole) for p_ in parts)
+    if ln < 1: return False
+    want = _quote_lines(q)
+    return any(_quote_at(lines, want, i) for i in (ln - 1, ln - 2, ln))
 
 def relocate_quote(f, root):
     """For an outside reviewer whose viewer numbered lines differently: the line where a long quote appears, when it
     appears on exactly one line of the file; otherwise None. A short or repeated quote is never moved."""
-    q = norm_code(f.get("quote"))
+    q = quote_text(f.get("quote"))  # case and quote marks count here too (§5.56)
     if len(q) < 20 or "\n" in str(f.get("quote") or "").strip() or not f.get("file"): return None
     try: lines = (pathlib.Path(root) / f["file"]).read_text(encoding="utf-8", errors="replace").split("\n")
     except OSError: return None
-    hits = [i + 1 for i, l in enumerate(lines) if q in norm_code(l)]
+    hits = [i + 1 for i, l in enumerate(lines) if q in quote_text(l)]
     return hits[0] if len(hits) == 1 else None
+
+def find_quote(f, root):
+    """Every line where the quote starts, compared as the quote check compares it (any length, multi-line in order):
+    for critic_ledger.py fresh, which asks whether reviewed code has moved, not whether a citation was exact."""
+    q = str(f.get("quote") or "")
+    if not q.strip() or not f.get("file"): return []
+    try: lines = (pathlib.Path(root) / f["file"]).read_text(encoding="utf-8", errors="replace").split("\n")
+    except OSError: return []
+    want = _quote_lines(q)
+    return [i + 1 for i in range(len(lines)) if want and want[0] in quote_text(lines[i]) and _quote_at(lines, want, i)]
 
 def read_jsonl(path):
     out = []
@@ -132,10 +163,24 @@ def validate(f):
         elif r["basis"] == "inferred" and not str(r.get("why") or "").strip(): errs.append("an inferred requirement needs why: what it was inferred from")
     for k in ("preconditions", "root_cause"):  # optional (SC-61): what the failure needs, and the decision behind the bug
         if k in f and not isinstance(f[k], str): errs.append(f"{k} must be text when given")
+    if f.get("source") != "scan" and str(f.get("quote") or "").strip() and f.get("impact") != NIT:  # §5.56: a quote the check can't place, or one too weak to mean anything, proves nothing
+        if safe_int(f.get("line")) < 1: errs.append("a quoted finding needs its line number (1 or more): the quote check looks for the quote at that line")
+        qp = quote_problem(f.get("quote"))
+        if qp and "[redacted]" not in str(f.get("quote")): errs.append(qp)
     if f.get("source") != "scan" and f.get("impact") in ("Critical", "High", "Medium") and str(f.get("file") or "").lower().endswith(CODE_EXT) and safe_int(f.get("line")) and not str(f.get("quote") or "").strip():
         # scanner rows are exempt: they come from the scan's own match, and quoting the line would copy a found secret into the reports
         errs.append("missing quote: a finding about a line of a file must quote it exactly, so the quote check can confirm it exists")
     return errs
+
+def verdict_required(tier, f, contested=False):
+    """Whether a finding's packet must have a verifier's verdict in this tier (SKILL.md step 4.2; §5.56). Every tier: a
+    contested finding, one only the outside reviewer raised, and one whose reviewers disagreed on its impact. Full: every
+    packet. Lite: Critical and High. Trivial: nothing more. critic_run.py asks for these; apply marks the run DEGRADED
+    when one has no verdict."""
+    if contested or f.get("outside_only") or f.get("impact_split"): return True
+    if tier == "trivial": return False
+    if tier == "lite": return f.get("impact") in ("Critical", "High")
+    return True
 
 LOCATION = re.compile(r"([\w./-]+\.\w+):(\d+)")
 HEDGE = re.compile(r"(?i)\b(i (?:do not|don't) think|i think|i believe|i guess|i assume|i suspect|i doubt|presumably|apparently|supposedly|seems?|probably|maybe|perhaps|possibly|unlikely|not sure|unclear|afaict|as far as i (?:can )?(?:tell|know|see)|likely (?:fine|ok|safe)|looks? (?:fine|ok|safe)|should be (?:fine|ok|safe))\b")
@@ -483,7 +528,7 @@ RUNLOG_MAX = 1_000_000
 # Local state that must never be committed: logs, restore copies, and the files that hold reviewers' raw quotes (a
 # quote can contain a secret from the code under review; the outputs Curmudgeon writes itself are masked by scrub()).
 IGNORED = ("runlog.jsonl", "refutations.jsonl", "cost.jsonl", "scratch/", "manifest.json", "spotcheck.md", "restore/", "reviews/", "history/", "outside/", "verify/",
-           "tally.json", "dedup-candidates.json", "findings-import.jsonl", "briefs/", "scan-only.txt", "verdicts/", "verify-variants/", "variants.jsonl")
+           "tally.json", "dedup-candidates.json", "findings-import.jsonl", "briefs/", "scan-only.txt", "verdicts/", "verdicts-variants/", "verify-variants/", "variants.jsonl", "scan-skipped")
 _TRACKED = {}
 def git_tracked(root, rel):
     """True when the repository tracks this file: ignore rules don't apply to a tracked file, so anything written to

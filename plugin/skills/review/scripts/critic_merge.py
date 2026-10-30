@@ -2,7 +2,7 @@
 """Triple-blind merge for Curmudgeon. The counting is done here, in code, never by a model.
 
 usage (from the project root, or set CRITIC_ROOT):
-  critic_merge.py tally REVIEW_FILE... [--scan .critic/scan/report.json] [--groups GROUPS.json] [--outside FILE]
+  critic_merge.py tally REVIEW_FILE... [--scan .critic/scan/report.json | --no-scan] [--groups GROUPS.json] [--outside FILE]
                                             blind reviews (JSON, JSONL, or markdown with ```json blocks); --scan adds
                                             the detector's FAIL rows as evidence-backed findings (they are never votes);
                                             --outside adds an outside reviewer's findings (critic_outside.py load): one
@@ -17,14 +17,18 @@ issue in the same file". So tally also writes .critic/dedup-candidates.json: eve
   critic_merge.py show                      print the current merged findings
 
 tally:
-  1. Contract check on every finding (impact, category, file, evidence, failing case, verified tag). Failures are
-     rejected with the reason, not silently dropped.
-  2. Quote check: the quoted code must be at file:line (within 5 lines). Otherwise the finding is retracted.
+  1. Contract check on every finding (impact, category, file, evidence, failing case, verified tag; a quote of at
+     least 12 characters with a name, and a line number, when there is a quote). Failures are rejected with the
+     reason, not silently dropped.
+  2. Quote check: the quote must start on the cited line or one either side, case and quote marks as written
+     (03 §5.56). Otherwise the finding is retracted.
   3. Ledger: a finding the owner marked a false positive (by its stable id) is suppressed, whatever its impact: that
      is an explicit ruling on that exact finding. Not when git tracks .critic/ledger.json: a cloned repository could
      ship rulings, so they are listed in counts.md and hide nothing. Learned memories (patterns from repeated dismissals) never suppress a
      Critical or High finding of any kind.
-  4. Cluster the same issue across reviewers; votes = how many reviewers raised it.
+  4. Cluster the same issue across reviewers; votes = how many reviewers raised it. One reviewer's two findings are
+     never one cluster. When the members disagree on the impact (the scan's rule counts), the finding is filed at
+     the highest and always verified (impact_split); the verifier may lower it.
      Kept: votes >= 2 of 3, or a single vote with an executed failing case.
      Contested: a single vote at Critical/High that was traced, not executed. It goes to verification.
      Dropped: other single votes. Listed with reasons so drops can be audited.
@@ -39,7 +43,7 @@ apply:
   records every kept finding in the ledger (new, known or regressed)."""
 import hashlib, json, math, os, pathlib, re, subprocess, sys, time
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
-from critic_findings import NIT, IMPACTS, extract_findings, norm_code, relocate_quote, fingerprint, quote_check, read_jsonl, refutation_problem, confirmation_problem, security_refutation_problem, similar, log_run, append_line, refuse_linked_state, to_sarif, validate, write_jsonl, tokens, scrub, redact_finding_text, write_manifest, strip_workspace_path, _cites_real_line
+from critic_findings import verdict_required, NIT, IMPACTS, extract_findings, norm_code, relocate_quote, fingerprint, quote_check, read_jsonl, refutation_problem, confirmation_problem, security_refutation_problem, similar, log_run, append_line, refuse_linked_state, to_sarif, validate, write_jsonl, tokens, scrub, redact_finding_text, write_manifest, strip_workspace_path, _cites_real_line
 
 ROOT = pathlib.Path(os.environ.get("CRITIC_ROOT") or re.sub(r"[\\/]\.critic[\\/]scratch(?:[\\/].*)?$", "", os.getcwd()) or os.getcwd()).resolve(); D = ROOT / ".critic"
 
@@ -61,9 +65,11 @@ def norm_path(p):
 def load_review(path):
     p = pathlib.Path(path)
     if not p.exists(): die(f"{path} does not exist")
-    text = p.read_text(encoding="utf-8")
+    text = p.read_text(encoding="utf-8", errors="replace")  # a damaged file is read, never a crash (§5.56 round 3)
     try:
-        v = json.loads(text); rows = v if isinstance(v, list) else v.get("findings", [v])
+        v = json.loads(text)
+        rows = v if isinstance(v, list) else (v.get("findings", [v]) if isinstance(v, dict) else [])  # null, a number or a string holds no findings
+        if not isinstance(rows, list): rows = []
     except json.JSONDecodeError:
         rows = extract_findings(text)
         if not rows:
@@ -131,9 +137,6 @@ def memory_note(f, L):
     return None
 
 IMP_RANK = {k: i for i, k in enumerate(IMPACTS + (NIT,))}  # a verifier may lower a Low to a Nit (SC-79)
-def median_impact(xs):
-    r = sorted(IMP_RANK[x] for x in xs if x in IMP_RANK and x != NIT)
-    return IMPACTS[r[len(r) // 2]] if r else "Low"
 
 # A scripted FAIL's impact by rule (it used to be High for every rule). A live credential is Critical; code that runs
 # input, or a page that throws, is High; an accessibility or layout failure is Medium unless it locks people out.
@@ -161,6 +164,54 @@ def scan_rows(path):
                     "verified": "executed" if r.get("level") == "runtime" else "traced", "remediation": "", "source": "scan", "scan_id": r.get("id")})
     return out
 
+def split_same_reviewer(mem, outside_ri=None):
+    """A cluster holding two findings from one reviewer (or two scanner rows) is two issues joined through a third
+    finding (A1~B and A2~B), never one: split it. A reviewer's repeated finding (same id: file, category and quote) is
+    one finding, not two. Each of the busiest reviewer's findings seeds a group; every other member joins the group it
+    is most like (a member similar() to it first, then the same file and the closest line) among those with nothing yet
+    from its reviewer. Outside rows only add a vote (they can't merge or split our findings): they never seed a group,
+    and join the group they are most like. mem is a list of (raw id, reviewer index or None for the scan, finding)."""
+    key = lambda ri: "scan" if ri is None else ri
+    ours = lambda x: outside_ri is None or x[1] != outside_ri
+    seen, kinds = set(), {}
+    for x in mem:
+        if ours(x):
+            k = (key(x[1]), x[2].get("id"))
+            if k not in seen: seen.add(k); kinds[key(x[1])] = kinds.get(key(x[1]), 0) + 1
+    if all(v == 1 for v in kinds.values()): return [mem]
+    most = max(kinds, key=lambda k: (kinds[k], str(k)))
+    groups, first = [], {}
+    for x in mem:
+        if ours(x) and key(x[1]) == most:
+            fid = x[2].get("id")
+            if fid in first: first[fid].append(x)  # the same finding written twice: one group
+            else: first[fid] = [x]; groups.append(first[fid])
+    def fit(x, g):
+        return (0 if any(similar(x[2], y[2]) for y in g) else 1,
+                min((0 if y[2]["file"] == x[2]["file"] else 1, abs(int(y[2].get("line") or 0) - int(x[2].get("line") or 0))) for y in g))
+    for x in sorted((x for x in mem if not (ours(x) and key(x[1]) == most)), key=lambda x: (str(x[2]["file"]), int(x[2].get("line") or 0))):
+        same_id = [g for g in groups if any(ours(y) and key(y[1]) == key(x[1]) and y[2].get("id") == x[2].get("id") for y in g)] if ours(x) else []
+        if same_id: same_id[0].append(x); continue  # this reviewer's repeat of a finding already placed
+        free = groups if not ours(x) else [g for g in groups if key(x[1]) not in {key(y[1]) for y in g if ours(y)}]
+        best_ = min(free, key=lambda g: fit(x, g)) if free else None
+        if best_ is not None and (fit(x, best_)[0] == 0 or not ours(x) or x[1] is None): best_.append(x)  # outside rows and scan rows go to the nearest group
+        else: groups.append([x])  # like none of the groups it may join: its own finding, never folded into another (§5.56 round 3)
+    return groups
+
+def matched_votes(rows):
+    """The most reviewers joined by similar() alone among one group's members: the agreement the script itself saw,
+    without the dedup agent's groups (an agreed Low skips verification only on this, §5.56)."""
+    par = list(range(len(rows)))
+    def f_(i):
+        while par[i] != i: par[i] = par[par[i]]; i = par[i]
+        return i
+    for i in range(len(rows)):
+        for j in range(i + 1, len(rows)):
+            if rows[i][0] != rows[j][0] and similar(rows[i][1], rows[j][1]): par[f_(i)] = f_(j)
+    comp = {}
+    for i, (ri, _) in enumerate(rows): comp.setdefault(f_(i), set()).add(ri)
+    return max((len(v) for v in comp.values()), default=0)
+
 def tally(paths):
     scan = groups = None
     if "--groups" in paths:
@@ -172,6 +223,12 @@ def tally(paths):
         i = paths.index("--outside"); outside = paths[i + 1] if i + 1 < len(paths) else die("--outside needs a file"); paths = paths[:i] + paths[i + 2:]
     if "--scan" in paths:
         i = paths.index("--scan"); scan = paths[i + 1] if i + 1 < len(paths) else die("--scan needs a report path"); paths = paths[:i] + paths[i + 2:]
+    no_scan = "--no-scan" in paths; paths = [x for x in paths if x != "--no-scan"]
+    degraded = ["the scripted checks did not run (the tally went on without them)"] if no_scan else []
+    if scan:
+        try: blocked = json.loads(pathlib.Path(scan).read_text()).get("degraded") or []
+        except (OSError, ValueError, AttributeError): blocked = []
+        if blocked: degraded.append("these scripted checks could not run: " + ", ".join(map(str, blocked)))  # SKILL.md rule 8: blocked or unavailable checks make the review DEGRADED
     if not paths: die("tally needs the blind review files (for example .critic/reviews/review-*.json); refusing to count scan rows alone")
     started = ledger().get("started_at")
     if started:  # a review file older than this run is left over from an earlier one: counting it would invent votes
@@ -203,7 +260,7 @@ def tally(paths):
     n = len(reviews); need = 1 if n == 1 else math.ceil(2 * n / 3)
     # an outside run we can't see never counts as executed: verification decides
     outside_rows = [dict(r, source="outside", verified=r.get("verified") if r.get("verified") == "inferred" else "traced") for r in load_review(outside)] if outside else []
-    L = ledger(); out = {"reviewers": n, "votes_needed": need, "outside": None, "kept": [], "contested": [], "dropped": [], "retracted": [], "rejected": [], "suppressed": [], "ruling_committed": [], "set_aside": set_aside, "sandbox": sandbox, "nits": [], "coverage": coverage_report(coverage)}
+    L = ledger(); out = {"tier": L.get("tier") or "full", "degraded": degraded, "reviewers": n, "votes_needed": need, "outside": None, "kept": [], "contested": [], "dropped": [], "retracted": [], "rejected": [], "suppressed": [], "ruling_committed": [], "set_aside": set_aside, "sandbox": sandbox, "nits": [], "coverage": coverage_report(coverage)}
     scanned = scan_rows(scan) if scan else []
     accepted = []  # (raw_id, reviewer_index or None for scan, finding)
     OUTSIDE_RI = len(reviews) + 1
@@ -256,6 +313,7 @@ def tally(paths):
     for i in range(len(accepted)):
         for j in range(i + 1, len(accepted)):
             ra, ia, a = accepted[i]; rb, ib, b = accepted[j]
+            if ia == ib and ia != OUTSIDE_RI and a.get("id") == b.get("id"): union(ra, rb); continue  # one source's repeat of one finding (same file, category and quote) is one finding, never two votes or two packets (§5.56 round 3)
             if ia == ib or OUTSIDE_RI in (ia, ib): continue  # outside findings are attached below, one cluster each: they never join two of ours  # never merge two findings from the same reviewer (or two scanner rows: two keys on one line are two leaks)
             if similar(a, b): union(ra, rb)
     is_doc = {r: bool(re.search(r"\.(md|mdx|markdown|rst|txt|adoc)$|(^|/)(readme|changelog|license|contributing)$", f["file"] or "", re.I)) for r, _, f in accepted}  # by file type, never by a name inside a code path
@@ -280,22 +338,26 @@ def tally(paths):
         if cands: parent[r] = find(min(cands)[2])
     # The dedup agent gets every finding not already merged, listed by file (pairs by line distance missed real
     # duplicates cited at distant lines or in another file). No reviewer names or votes; ids are opaque.
-    by_file, roots = {}, {}
-    for r, ri, f in accepted: roots.setdefault(find(r), []).append((r, f))
-    for root, mem in roots.items():
-        r, f = mem[0]
-        by_file.setdefault(f["file"] or "(no file)", []).append({"id": r, "also": [x for x, _ in mem[1:]], "line": f["line"], "title": f["title"], "quote": f.get("quote", "")[:200]})
-    cands = sum(len(v) for v in by_file.values()) if len(roots) > 1 else 0
+    by_root = {}
+    for r, ri, f in accepted: by_root.setdefault(find(r), []).append((r, ri, f))
+    parts = [p_ for mem in by_root.values() for p_ in split_same_reviewer(mem, OUTSIDE_RI)]  # §5.56: grouping is transitive; one reviewer's two findings stay two
+    by_file = {}
+    for mem in parts:
+        r, _, f = mem[0]
+        by_file.setdefault(f["file"] or "(no file)", []).append({"id": r, "also": [x for x, _, _ in mem[1:]], "line": f["line"], "title": f["title"], "quote": f.get("quote", "")[:200]})
+    cands = sum(len(v) for v in by_file.values()) if len(parts) > 1 else 0
     (D).mkdir(parents=True, exist_ok=True)
     (D / "dedup-candidates.json").write_text(json.dumps({"instructions": "Group findings that describe the same underlying issue (same cause, one fix resolves both), within a file or across files. Return {\"groups\": [[id, ...], ...]} listing only merged sets; use the 'id' values.", "findings_by_file": scrub(by_file)}, indent=1, ensure_ascii=False))
-    clusters = {}
-    for r, ri, f in accepted:
-        c = clusters.setdefault(find(r), {"members": [], "reviewers": set(), "scan": False, "outside": False})
-        c["members"].append(f)
-        if ri is None: c["scan"] = True
-        elif ri == OUTSIDE_RI: c["outside"] = True
-        else: c["reviewers"].add(ri)
-    clusters = list(clusters.values())
+    clusters = []
+    for mem in parts:
+        c = {"members": [], "reviewers": set(), "scan": False, "outside": False}
+        for r, ri, f in mem:
+            c["members"].append(f)
+            if ri is None: c["scan"] = True
+            elif ri == OUTSIDE_RI: c["outside"] = True
+            else: c["reviewers"].add(ri)
+        c["votes_matched"] = matched_votes([(ri, f) for _, ri, f in mem if ri is not None and ri != OUTSIDE_RI])  # reviewers the script itself matched within this group, without the dedup agent
+        clusters.append(c)
     of = n + (1 if outside else 0)
     if outside:
         out["outside"] = {"file": str(outside), "raised": len(outside_rows), "accepted": out_raised,
@@ -308,14 +370,18 @@ def tally(paths):
             best = sorted(m, key=lambda x: IMP_RANK[x["impact"]])[0]
             out["contested"].append(dict(best, votes=1, of=of, outside_only=True, scan_confirmed=False, locations=[f"{best['file']}:{best.get('line', '')}"], raised_by=["outside"])); continue
         if votes == 0 and c.get("scan"):  # found only by the detector: kept on its evidence, verified like any other
-            f = dict(m[0], votes=0, of=of, locations=[f"{m[0]['file']}:{m[0].get('line', '')}"], raised_by=["scan"], scan_confirmed=True)
+            f = dict(m[0], votes=0, of=of, locations=[f"{m[0]['file']}:{m[0].get('line', '')}"], raised_by=["scan"], scan_confirmed=True, **({"measured": True} if m[0].get("verified") == "executed" and MEASURED.match(str(m[0].get("category"))) else {}))
             out["kept"].append(f); continue
         # impact, wording and evidence come from our own reviewers (or the scan); an outside finding only adds its vote
         human = [x for x in m if x.get("source") not in ("scan", "outside")] or [x for x in m if x.get("source") != "outside"] or m
         best = sorted(human, key=lambda x: (["executed", "traced", "inferred"].index(x["verified"]), IMP_RANK[x["impact"]]))[0]
         theirs = [x["impact"] for x in m if x.get("source") == "outside"]
-        f = dict(best, votes=votes, votes_ours=len(c["reviewers"]), of=of, impact=median_impact([x["impact"] for x in human]), scan_confirmed=bool(c.get("scan")),
+        rated = sorted({x["impact"] for x in human + [y for y in m if y.get("source") == "scan"] if x["impact"] in IMP_RANK and x["impact"] != NIT}, key=lambda k: IMP_RANK[k])  # the scan's rule is a rating too: a scripted High that reviewers call Low is a disagreement
+        f = dict(best, votes=votes, votes_ours=len(c["reviewers"]), votes_matched=c["votes_matched"], of=of, impact=rated[0] if rated else "Low", scan_confirmed=bool(c.get("scan")),
                  locations=sorted({f"{x['file']}:{x.get('line', '')}" for x in m}), raised_by=sorted({x["source"] for x in m}))
+        if any(x.get("source") == "scan" and x.get("verified") == "executed" and MEASURED.match(str(x.get("category"))) for x in m): f["measured"] = True  # a scripted runtime measurement is in this cluster
+        if len(rated) > 1: f["impact_split"] = rated  # §5.56: reviewers disagreed on the impact; it is filed at the highest and always verified, and the verifier may lower it
+        else: f.pop("impact_split", None)
         if theirs: f["outside_impact"] = theirs[0]  # shown, never used: the outside reviewer's own rating
         if c.get("scan") and best.get("source") != "scan":  # a reviewer restated a scripted row: keep the script's evidence too
             f["scan_evidence"] = [x["evidence"] for x in m if x.get("source") == "scan"]
@@ -331,7 +397,7 @@ def tally(paths):
     vd = D / "verify"; vd.mkdir(parents=True, exist_ok=True)
     for old in vd.glob("*.json"): old.unlink()
     for f in out["kept"] + out["contested"]:
-        if f["impact"] == "Low" and f.get("votes_ours", f["votes"]) >= need and not f.get("outside_only"): continue  # agreed by OUR reviewers (an outside vote alone never skips verification): agreed Lows skip verification
+        if f["impact"] == "Low" and not f.get("impact_split") and f.get("votes_matched", 0) >= need and not f.get("outside_only"): continue  # agreed Lows skip verification: only when every reviewer said Low and the script itself matched enough of them (a dedup group or an outside vote alone never skips it, §5.56)
         if f.get("raised_by") == ["scan"] and f.get("verified") == "executed" and MEASURED.match(str(f.get("category"))): continue  # a measurement, not an interpretation: nothing to reproduce
         packet = {k: f.get(k) for k in ("id", "category", "impact", "file", "line", "quote", "title", "failing_case", "preconditions", "root_cause") if k in f}
         (vd / f"{f['id']}.json").write_text(json.dumps(scrub(packet), indent=1, ensure_ascii=False))
@@ -415,17 +481,26 @@ def fix_status(f):
 def apply(paths):
     try: T = json.loads((D / "tally.json").read_text())
     except Exception as e: die(f"run tally first ({e})")
-    verdicts = {}
+    verdicts = {}; stale = []
+    t_mtime = (D / "tally.json").stat().st_mtime
     for p in paths:
+        if pathlib.Path(p).exists() and pathlib.Path(p).resolve().parent in ((D / "verdicts").resolve(), (D / "verdicts-variants").resolve()) and pathlib.Path(p).stat().st_mtime < t_mtime:
+            stale.append(pathlib.Path(p).name); continue  # a verdict on an earlier tally's packet (an earlier round): never applied to this one (§5.56 round 2)
         for v in load_review(p): verdicts[v.get("id")] = v
-    final, refuted, notes, unverified = [], [], [], []
+    final, refuted, notes, unverified, missing = [], [], [], [], []
+    if stale: notes.append(f"not applied, older than this tally: {', '.join(stale[:8])}{' ...' if len(stale) > 8 else ''}")
+    tier = T.get("tier") or ledger().get("tier") or "full"; contested = {f.get("id") for f in T["contested"]}
     for f in T["kept"] + T["contested"]:
         v = verdicts.get(f["id"])
         if v is None:
             if f.get("outside_only"):  # nothing of ours checked it and no verifier did: it is not a finding yet
-                unverified.append(f); notes.append(f"{f['id']}: outside-only finding with no verdict; left out of the findings until a verifier judges it"); continue
+                unverified.append(f); notes.append(f"{f['id']}: outside-only finding with no verdict; left out of the findings until a verifier judges it")
+                if (D / "verify" / f"{f['id']}.json").exists(): missing.append(f["id"])  # every tier verifies these (verdict_required): its absence marks the run DEGRADED
+                continue
             if (D / "verify" / f"{f['id']}.json").exists():
-                notes.append(f"{f['id']}: no verdict returned; kept, confidence lowered"); f["verifier"] = "missing"
+                if verdict_required(tier, f, f["id"] in contested):  # §5.56: the tier needed this verdict, and it never came
+                    notes.append(f"{f['id']}: no verdict returned, and the {tier} tier verifies this finding; kept, confidence lowered"); f["verifier"] = "missing"; missing.append(f["id"])
+                else: f["verifier"] = "not-in-tier"  # the tier doesn't verify this one (lite: Medium and Low): a design choice, not a failure
             final.append(f); continue
         kind = str(v.get("verdict", "unclear")).lower(); raw = str(v.get("refutation") or v.get("reason") or "")
         why = redact_finding_text(raw)  # a refutation can quote a secret: it is checked raw, stored masked
@@ -448,10 +523,10 @@ def apply(paths):
         f["verifier"] = kind
         if v.get("reproduced") in ("executed", "traced"): f["verifier_reproduced"] = v["reproduced"]
         final.append(f)
-    for f in final:
-        ex = f.get("verified") == "executed" or f.get("verifier_reproduced") == "executed"
-        f["confidence"] = "confirmed" if ex or (f.get("votes", 1) >= 2 and f.get("verifier") == "confirmed") else \
-                          "likely" if f.get("verifier") in ("confirmed",) or f.get("votes", 1) >= 2 else "possible"
+    for f in final:  # §5.56: a reviewer's own "executed" is a claim; only a verifier that reproduced it, or confirmed it, makes it "confirmed"
+        mine = f.get("verified") == "executed"; theirs = f.get("verifier_reproduced") == "executed" or bool(f.get("measured")); ok = f.get("verifier") == "confirmed"  # a scripted check that ran is a measurement, not a claim
+        f["confidence"] = "confirmed" if theirs or ok and (mine or f.get("votes", 1) >= 2) else "likely" if ok or mine or f.get("votes", 1) >= 2 else "possible"
+        if f.get("verifier") == "unclear" and f["confidence"] == "confirmed" and not f.get("measured"): f["confidence"] = "likely"  # never above what the verifier could say (a measurement is not the verifier's to say)
     final.sort(key=lambda f: (IMP_RANK[f["impact"]], {"confirmed": 0, "likely": 1, "possible": 2}[f["confidence"]], f["file"], int(f.get("line") or 0)))
     for f in final: f["fix"] = fix_status(f)  # SC-37: never offer an empty fix, a no-op fix, or one with unbalanced brackets
     mark_origin(final)
@@ -464,7 +539,9 @@ def apply(paths):
     write_verifier_log()
     (D / "findings.sarif").write_text(json.dumps(to_sarif(final), indent=1))
     cnt = {k: sum(1 for f in final if f["impact"] == k) for k in IMPACTS}
-    md = ["# Curmudgeon merged findings", "", f"Reviewers: {T['reviewers']} (votes needed: {T['votes_needed']}).",
+    why_degraded = list(T.get("degraded") or []) + ([f"{len(missing)} verdict(s) the {tier} tier requires never came back ({', '.join(missing[:8])}{' ...' if len(missing) > 8 else ''})"] if missing else [])
+    md = ["# Curmudgeon merged findings", ""] + ([f"DEGRADED: {'; '.join(why_degraded)}", "(Copy that line as the teardown's first line, before the verdict.)", ""] if why_degraded else []) + [
+          f"Reviewers: {T['reviewers']} (votes needed: {T['votes_needed']}; {tier} tier).",
           "Counts for the VERDICT (copy exactly): " + " · ".join(f"{k} {v}" for k, v in cnt.items()) + f" · total {len(final)}", "",
           "| ID | Impact | Confidence | Votes | Verifier | Where | Title |", "| --- | --- | --- | --- | --- | --- | --- |"]
     def where_(f):  # every place the merged reviewers cited, first the one the finding is filed under: a reader (and the teardown) sees them all

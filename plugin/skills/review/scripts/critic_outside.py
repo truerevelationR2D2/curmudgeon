@@ -117,7 +117,8 @@ def brief(args):
               "and the smallest fix. With no credible failing case, list it under Unconfirmed concerns instead. Say whether the change "
               "introduced it.",
               "Take quotes and line numbers from the raw text, not a rendered page or memory: the quote is one complete source line, copied "
-              "character for character, or empty if you couldn't open the file.", "",
+              "character for character (when that line is under 12 characters, quote it together with the next line, on two lines), "
+              "or empty if you couldn't open the file.", "",
               "Look at: correctness on ordinary, boundary, malformed and hostile input; security and trust boundaries; state and persistence; "
               "failure handling; compatibility; tests that pass while a defect remains; and documentation that disagrees with the code.", "",
               "Impact: **Critical** severe and broadly exploitable · **High** serious with credible material impact · **Medium** meaningful but "
@@ -211,8 +212,8 @@ def load(args):
         f["file"] = f["file"].replace("\\", "/")
         while f["file"].startswith("./"): f["file"] = f["file"][2:]
         if not inside_root(f["file"]): notes.append(f"{oid}: names a file outside this project ({f['file'][:80]}), not loaded"); continue
-        try: f["line"] = max(0, int(str(r.get("line") or 0).strip()))
-        except ValueError: f["line"] = 0
+        m_ = re.match(r"\s*L?(\d+)", str(r.get("line") or ""))  # "12", "12-14", "L12": the first number (§5.56 round 1: a range used to become 0)
+        f["line"] = int(m_.group(1)) if m_ else 0
         f["impact"] = f["impact"].strip().title()
         if f["impact"] not in IMPACTS:  # e.g. the brief's own template row, "Critical | High | Medium | Low", pasted back
             notes.append(f"{oid}: impact {f['impact'][:40]!r} is not Critical, High, Medium or Low, not loaded"); continue
