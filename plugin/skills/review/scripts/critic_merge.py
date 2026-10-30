@@ -65,9 +65,11 @@ def norm_path(p):
 def load_review(path):
     p = pathlib.Path(path)
     if not p.exists(): die(f"{path} does not exist")
-    text = p.read_text(encoding="utf-8")
+    text = p.read_text(encoding="utf-8", errors="replace")  # a damaged file is read, never a crash (§5.56 round 3)
     try:
-        v = json.loads(text); rows = v if isinstance(v, list) else v.get("findings", [v])
+        v = json.loads(text)
+        rows = v if isinstance(v, list) else (v.get("findings", [v]) if isinstance(v, dict) else [])  # null, a number or a string holds no findings
+        if not isinstance(rows, list): rows = []
     except json.JSONDecodeError:
         rows = extract_findings(text)
         if not rows:
@@ -310,6 +312,7 @@ def tally(paths):
     for i in range(len(accepted)):
         for j in range(i + 1, len(accepted)):
             ra, ia, a = accepted[i]; rb, ib, b = accepted[j]
+            if ia == ib and ia != OUTSIDE_RI and a.get("id") == b.get("id"): union(ra, rb); continue  # one source's repeat of one finding (same file, category and quote) is one finding, never two votes or two packets (§5.56 round 3)
             if ia == ib or OUTSIDE_RI in (ia, ib): continue  # outside findings are attached below, one cluster each: they never join two of ours  # never merge two findings from the same reviewer (or two scanner rows: two keys on one line are two leaks)
             if similar(a, b): union(ra, rb)
     is_doc = {r: bool(re.search(r"\.(md|mdx|markdown|rst|txt|adoc)$|(^|/)(readme|changelog|license|contributing)$", f["file"] or "", re.I)) for r, _, f in accepted}  # by file type, never by a name inside a code path
@@ -366,7 +369,7 @@ def tally(paths):
             best = sorted(m, key=lambda x: IMP_RANK[x["impact"]])[0]
             out["contested"].append(dict(best, votes=1, of=of, outside_only=True, scan_confirmed=False, locations=[f"{best['file']}:{best.get('line', '')}"], raised_by=["outside"])); continue
         if votes == 0 and c.get("scan"):  # found only by the detector: kept on its evidence, verified like any other
-            f = dict(m[0], votes=0, of=of, locations=[f"{m[0]['file']}:{m[0].get('line', '')}"], raised_by=["scan"], scan_confirmed=True, **({"measured": True} if m[0].get("verified") == "executed" else {}))
+            f = dict(m[0], votes=0, of=of, locations=[f"{m[0]['file']}:{m[0].get('line', '')}"], raised_by=["scan"], scan_confirmed=True, **({"measured": True} if m[0].get("verified") == "executed" and MEASURED.match(str(m[0].get("category"))) else {}))
             out["kept"].append(f); continue
         # impact, wording and evidence come from our own reviewers (or the scan); an outside finding only adds its vote
         human = [x for x in m if x.get("source") not in ("scan", "outside")] or [x for x in m if x.get("source") != "outside"] or m
@@ -375,7 +378,7 @@ def tally(paths):
         rated = sorted({x["impact"] for x in human + [y for y in m if y.get("source") == "scan"] if x["impact"] in IMP_RANK and x["impact"] != NIT}, key=lambda k: IMP_RANK[k])  # the scan's rule is a rating too: a scripted High that reviewers call Low is a disagreement
         f = dict(best, votes=votes, votes_ours=len(c["reviewers"]), votes_matched=c["votes_matched"], of=of, impact=rated[0] if rated else "Low", scan_confirmed=bool(c.get("scan")),
                  locations=sorted({f"{x['file']}:{x.get('line', '')}" for x in m}), raised_by=sorted({x["source"] for x in m}))
-        if any(x.get("source") == "scan" and x.get("verified") == "executed" for x in m): f["measured"] = True  # a scripted runtime measurement is in this cluster
+        if any(x.get("source") == "scan" and x.get("verified") == "executed" and MEASURED.match(str(x.get("category"))) for x in m): f["measured"] = True  # a scripted runtime measurement is in this cluster
         if len(rated) > 1: f["impact_split"] = rated  # §5.56: reviewers disagreed on the impact; it is filed at the highest and always verified, and the verifier may lower it
         else: f.pop("impact_split", None)
         if theirs: f["outside_impact"] = theirs[0]  # shown, never used: the outside reviewer's own rating

@@ -195,14 +195,12 @@ COUNTS_RE = re.compile(r"Counts for the VERDICT \(copy exactly\): Critical (\d+)
 LEVELS = ("Critical", "High", "Medium", "Low")
 
 def teardown_counts(text):
-    """The four counts on a line, written either way: "1 Critical, 2 High, ..." or counts.md's own "Critical 1 · High 2 ..."
-    (§5.56 round 1). None unless all four are there."""
-    got = []
-    for lv in LEVELS:
-        m = re.search(rf"(\d+)\s*\**\s*{lv}\b|\b{lv}\s*\**\s*:?\s*(\d+)", text, re.I)
-        if not m: return None
-        got.append(int(m.group(1) or m.group(2)))
-    return tuple(got)
+    """The four counts on a line, in one of the two written orders: "1 Critical, 2 High, 0 Medium, 3 Low" or counts.md's own
+    "Critical 1 · High 2 · Medium 0 · Low 3" (labels may be bold, with a colon). None unless all four are there, in order."""
+    t = text.replace("*", "").replace("_", "")
+    if re.search(r"\d+\s*Critical\b", t, re.I): m = re.search(r"(\d+)\s*Critical\W+(\d+)\s*High\W+(\d+)\s*Medium\W+(\d+)\s*Low\b", t, re.I)
+    else: m = re.search(r"\bCritical\W*?(\d+)\W+High\W*?(\d+)\W+Medium\W*?(\d+)\W+Low\W*?(\d+)", t, re.I)
+    return tuple(int(x) for x in m.groups()) if m else None
 
 def teardown_problems(L):
     """The teardown is written by the lead model; its verdict words, its counts and its DEGRADED banner are checked here

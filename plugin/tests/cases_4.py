@@ -250,6 +250,8 @@ def _(d):
     kept = {f["title"]: f["votes"] for f in t["kept"]}; live = kept | {f["title"]: f["votes"] for f in t["contested"]}
     assert kept.get("recipient not validated before send", 0) >= 2, kept  # C's vote goes to the finding it resembles, not the nearest line
     assert "amount not validated before write" in live, (kept, live)  # A's other finding is kept or verified, never dropped
+    rec = next(f for f in t["kept"] if f["title"] == "recipient not validated before send")
+    assert "src/app.js:10" in rec["locations"], rec["locations"]  # round 3: C's finding (line 10, nearest A's line 11) is with the one it resembles
     e = d / "dup"; write(e, "src/app.js", APP); run(S / "critic_ledger.py", "start", "review", "--tier", "full", cwd=e)
     t = _tally3(e, [finding(), finding(title="Title rendered as HTML without escaping")], [finding()], [finding()])
     ids = [f["id"] for f in t["kept"] + t["contested"]]
@@ -264,7 +266,7 @@ def _(d):
     e = d / "stale"; write(e, "src/app.js", APP); run(S / "critic_ledger.py", "start", "review", "--tier", "full", cwd=e)
     _tally3(e, [finding(impact="High")], [finding(impact="High")], [])
     fid = [p.stem for p in (e / ".critic/verify").glob("*.json")][0]
-    write(e, ".critic/verdicts/old.json", json.dumps([{"id": fid, "verdict": "refuted", "refutation": "src/app.js:2 escapes the title first", "reproduced": "traced"}]))
+    write(e, ".critic/verdicts/old.json", json.dumps([{"id": fid, "verdict": "refuted", "refutation": "src/app.js:2 is reached only after the title passed through the escaping helper, so no markup can run there.", "reproduced": "traced"}]))
     old = time.time() - 600; os.utime(e / ".critic/verdicts/old.json", (old, old))
     run(S / "critic_merge.py", "apply", ".critic/verdicts/old.json", cwd=e)
     c = (e / ".critic/counts.md").read_text()
@@ -292,3 +294,23 @@ def _(d):
     r = run(H / "check_contract.py", cwd=d, stdin=json.dumps({"agent_type": "curmudgeon:curmudgeon-verifier", "agent_id": "v9", "cwd": str(d), "last_assistant_message": msg}))
     assert '"block"' not in r.stdout, "a Low variant's refutation is held to the Low rules, not the Critical ones: " + r.stdout
     assert (d / ".critic/verdicts-variants/v9.json").exists()
+
+
+@test("§5.56 round 3: one source's repeat of a finding is one finding with one packet, a damaged verdict file never crashes apply, only measured rules skip the unclear cap, and stamp reads counts in either order")
+def _(d):
+    write(d, "src/app.js", APP); run(S / "critic_ledger.py", "start", "review", "--tier", "full", cwd=d)
+    t = _tally3(d, [finding(), finding(title="Untrusted title html sink")], [], [])
+    assert [(f["id"], f["votes"]) for f in t["kept"] + t["contested"]] == [(t["contested"][0]["id"] if t["contested"] else t["kept"][0]["id"], 1)], [(f["id"], f["votes"]) for f in t["kept"] + t["contested"]]
+    write(d, ".critic/verdicts/v1.json", "null"); write(d, ".critic/verdicts/v2.json", '{"findings": null}'); (d / ".critic/verdicts/v3.json").write_bytes(b"\xff\xfe junk")
+    r = run(S / "critic_merge.py", "apply", ".critic/verdicts/v1.json", ".critic/verdicts/v2.json", ".critic/verdicts/v3.json", cwd=d)
+    assert r.returncode == 0 and "Traceback" not in r.stderr, r.stderr[-400:]
+    e = d / "ce"; write(e, "index.html", "<p>x</p>\n<button>go now please</button>\n"); run(S / "critic_ledger.py", "start", "review", "--tier", "full", cwd=e)
+    write(e, "scan.json", json.dumps({"findings": [{"id": "S001", "rule": "console-error", "sev": "FAIL", "level": "runtime", "where": "index.html:2", "what": "a console error on load", "evidence": "TypeError x"}]}))
+    _tally3(e, [], [], [], "--scan", "scan.json")
+    ids = [p.stem for p in (e / ".critic/verify").glob("*.json")]; assert ids
+    write(e, "v.json", json.dumps([{"id": i, "verdict": "unclear", "reproduced": "no"} for i in ids])); run(S / "critic_merge.py", "apply", "v.json", cwd=e)
+    f = [json.loads(x) for x in (e / ".critic/findings.jsonl").read_text().splitlines() if x.strip()]
+    assert [x["confidence"] for x in f] == ["likely"], f  # a console error can come from the test setup: not a measurement
+    sys.path.insert(0, str(S)); import importlib, critic_ledger; importlib.reload(critic_ledger)
+    assert critic_ledger.teardown_counts("Counts: Critical 1 High 2 Medium 0 Low 3") == (1, 2, 0, 3)
+    assert critic_ledger.teardown_counts("Counts: **Critical:** 1, **High:** 2, **Medium:** 0, **Low:** 3") == (1, 2, 0, 3)
