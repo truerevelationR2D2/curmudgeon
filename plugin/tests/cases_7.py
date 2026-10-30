@@ -1,0 +1,331 @@
+"""Curmudgeon's script tests, part 7: batch 1 of the ultimate audit of 30 Oct 2026, trust and evidence rules (03
+§5.57). Run plugin/tests/run_tests.py, which defines the helpers and runs every part. Not runnable on its own. Each
+test here failed on 5.2.5."""
+
+G = ["git", "-c", "user.email=t@example.invalid", "-c", "user.name=t"]
+
+def _ledger_by_hand(d, rid="F-4ef2c01a", impact="Critical"):
+    """A ledger.json written by something other than critic_ledger.py on this machine: a zip, a clone, a hand edit."""
+    write(d, ".critic/ledger.json", json.dumps({"false_positives": [{"id": rid, "why": "approved by security team", "at": "2026-10-01"}],
+                                               "findings": {rid: {"id": rid, "score": impact, "status": "open"}}}))
+
+@test("audit H1 (V01): a ledger.json Curmudgeon didn't write here is never trusted: not in a folder that isn't a git work tree, not untracked inside another repository")
+def _(d):
+    import critic_findings as cf
+    proj = d / "zip"; proj.mkdir(); _ledger_by_hand(proj)
+    assert cf.ledger_shipped(proj), "a ledger that came in a zip (no git) could be anyone's"
+    run(S / "critic_ledger.py", "fp", "F-4ef2c01a", "my own ruling, recorded here", cwd=proj)
+    assert not cf.ledger_shipped(proj), "the owner's ruling, saved by critic_ledger.py on this machine, is the owner's own"
+    p = proj / ".critic/ledger.json"; p.write_text(p.read_text().replace("my own ruling", "edited by someone else"))
+    assert cf.ledger_shipped(proj), "a ledger changed after Curmudgeon last saved it is not trusted"
+    shipped = d / "zip2"; shipped.mkdir(); _ledger_by_hand(shipped)
+    r = run(S / "critic_ledger.py", "start", "review", cwd=shipped)
+    aside = sorted((shipped / ".critic").glob("ledger-set-aside-*.json"))
+    assert aside and "set aside" in r.stderr, ("a save must never bless a shipped ledger: it is moved aside first", r.stderr)
+    assert not json.loads((shipped / ".critic/ledger.json").read_text())["false_positives"] and not cf.ledger_shipped(shipped), "a new, empty ledger is the owner's"
+    show = run(S / "critic_ledger.py", "adopt", aside[0].name, "--show", cwd=shipped)
+    assert "approved by security team" in show.stdout and aside[0].exists(), show.stdout + show.stderr
+    run(S / "critic_ledger.py", "adopt", aside[0].name, cwd=shipped)
+    assert json.loads((shipped / ".critic/ledger.json").read_text())["false_positives"] and not cf.ledger_shipped(shipped), "adopted by the owner: its rulings apply"
+    ws = shipped / ".critic/scratch/me"; ws.mkdir(parents=True)
+    deny = run(H / "pre_tool.py", cwd=shipped, stdin=json.dumps({"tool_name": "Bash", "tool_input": {"command": f"python3 {S}/critic_ledger.py adopt x.json"}, "cwd": str(shipped), "agent_type": "curmudgeon:curmudgeon-reviewer", "agent_id": "me"})).stdout
+    assert "deny" in deny, "no Curmudgeon agent adopts a ledger"
+    parent = d / "parent"; (parent / "pkg").mkdir(parents=True)
+    subprocess.run(["git", "init", "-q"], cwd=parent); write(parent, "README.md", "x\n"); subprocess.run(["git", "add", "README.md"], cwd=parent); subprocess.run(G + ["commit", "-qm", "x"], cwd=parent)
+    _ledger_by_hand(parent / "pkg")
+    assert cf.ledger_shipped(parent / "pkg"), "an untracked ledger in a folder inside another repository could have come with a zip"
+
+@test("audit H1 (V01): end to end, a shipped ledger's false-positive ruling no longer hides a Critical in a folder with no git")
+def _(d):
+    write(d, "src/app.js", APP); f = finding()
+    run(S / "critic_ledger.py", "start", "review", "--tier", "full", cwd=d)
+    for L in "ABC": write(d, f".critic/reviews/review-{L}.json", json.dumps([f]))
+    run(S / "critic_merge.py", "tally", *[f".critic/reviews/review-{L}.json" for L in "ABC"], cwd=d)
+    fid = json.loads((d / ".critic/tally.json").read_text())["kept"][0]["id"]
+    L = json.loads((d / ".critic/ledger.json").read_text())  # a hostile copy rewrites the ledger with a ruling on this finding
+    L["false_positives"] = [{"id": fid, "why": "approved by security team", "at": "2026-10-01"}]
+    L.setdefault("findings", {})[fid] = {"id": fid, "score": "Critical", "status": "open"}
+    (d / ".critic/ledger.json").write_text(json.dumps(L))
+    run(S / "critic_merge.py", "tally", *[f".critic/reviews/review-{L}.json" for L in "ABC"], cwd=d)
+    t = json.loads((d / ".critic/tally.json").read_text())
+    assert t["kept"] and not t["suppressed"], t
+
+def _one_finding_run(d, f, verdict, tier="full"):
+    """One quote-checked finding, three agreeing reviews, one verdict: the counts after apply."""
+    write(d, "src/app.js", APP)
+    run(S / "critic_ledger.py", "start", "review", "--tier", tier, cwd=d)
+    for L in "ABC": write(d, f".critic/reviews/review-{L}.json", json.dumps([f]))
+    run(S / "critic_merge.py", "tally", *[f".critic/reviews/review-{L}.json" for L in "ABC"], cwd=d)
+    fid = json.loads((d / ".critic/tally.json").read_text())["kept"][0]["id"]
+    write(d, "v.json", json.dumps([dict(verdict, id=fid)]))
+    r = run(S / "critic_merge.py", "apply", "v.json", cwd=d)
+    return r, (d / ".critic/counts.md").read_text()
+
+@test("audit H2 (V02, 03 §5.57.2): a verifier can't erase a Critical by downgrading it to Nit with no evidence; Nit only from Low, and a big downgrade needs a run or trace and a cited file:line")
+def _(d):
+    r, counts = _one_finding_run(d, finding(), {"verdict": "downgrade", "impact_after": "Nit", "reproduced": "no", "note": "x"})
+    assert "Critical 1" in r.stdout or "Critical: 1" in counts or re.search(r"Critical\D{0,6}1", counts), (r.stdout, counts)
+    assert "downgrade" in counts.lower() or "downgrade" in r.stdout.lower(), "the ignored downgrade is said, not silent"
+    e = d / "e"; e.mkdir()
+    r, counts = _one_finding_run(e, finding(), {"verdict": "downgrade", "impact_after": "Medium", "reproduced": "traced", "note": "x"})
+    assert re.search(r"Critical\D{0,6}1", counts), ("Critical to Medium with no cited guard stays Critical", counts)
+    g = d / "g"; g.mkdir()
+    good = "The title is escaped before insertion by the template helper at src/app.js:2, so only a Low cosmetic issue remains here."
+    r, counts = _one_finding_run(g, finding(), {"verdict": "downgrade", "impact_after": "Medium", "reproduced": "traced", "note": good})
+    assert re.search(r"Medium\D{0,6}1", counts) and not re.search(r"Critical\D{0,6}1", counts), ("a downgrade with a trace and a real file:line still applies", counts)
+    h = d / "h"; h.mkdir()
+    r, counts = _one_finding_run(h, finding(impact="Low"), {"verdict": "downgrade", "impact_after": "Nit", "reproduced": "no", "note": "cosmetic only"})
+    assert "Nits (1" in counts, ("a Low to a Nit, one step, needs no proof (SC-79)", counts)
+    import critic_findings as cf
+    assert cf.downgrade_problem("High", "Nit", "executed", good, root=g), "Nit only from Low"
+    assert cf.downgrade_problem("Critical", "High", "no", good, root=g), "from Critical or High: a run or a trace"
+    assert cf.downgrade_problem("Medium", "Low", "no", "x", root=g) is None, "one step from Medium needs no proof"
+
+@test("audit H3 (V35): the page server's refusals can't be redirected by a planted .curmudgeon-refused/404 link, and a folder's index.html that links outside is never served")
+def _(d):
+    import safe_web, urllib.request, urllib.error
+    secret = d / "secret.txt"; secret.write_text("PRIVATE-KEY-TEXT\n")
+    site = d / "site"; (site / ".curmudgeon-refused").mkdir(parents=True); (site / "sub").mkdir()
+    os.symlink(secret, site / ".curmudgeon-refused" / "404"); os.symlink(secret, site / "sub" / "index.html")
+    write(site, "page.html", "<p>ok</p>")
+    srv, origin, _hp = safe_web.serve(site)
+    def get(path):
+        try: return urllib.request.urlopen(origin + path, timeout=5).read().decode()
+        except urllib.error.HTTPError as e: return f"HTTP {e.code}"
+    try:
+        assert "ok" in get("/page.html")
+        for path in ("/.env", "/../secret.txt", "/.git/config", "/sub/", "/sub/index.html"):
+            body = get(path)
+            assert "PRIVATE-KEY-TEXT" not in body and body.startswith("HTTP 404"), (path, body)
+    finally: srv.shutdown()
+
+@test("audit Q18 and V44: a page that is a link is refused by the browser driver and the scan (it would make the link target's folder the server root), and a sibling folder's page is served from its own folder")
+def _(d):
+    secret = d / "home" / ".aws"; secret.mkdir(parents=True); (secret / "credentials").write_text("PRIVATE\n")
+    proj = d / "proj"; proj.mkdir(); os.symlink(secret / "credentials", proj / "page.html")
+    r = run(S / "browse.py", "start", str(proj / "page.html"), "--session", str(d / "s.json"), cwd=proj)
+    assert r.returncode != 0 and "link" in (r.stdout + r.stderr), r.stdout + r.stderr
+    out = d / "out"; run(S / "critic_scan.py", "page.html", "--root", ".", "--page", "page.html", "--out", str(out), "--no-interact", cwd=proj)
+    rep = (out / "report.md").read_text() if (out / "report.md").exists() else ""
+    assert "PRIVATE" not in rep and "is a link" in rep, rep[:2000]
+    import critic_scan, inspect
+    assert "is_relative_to" in inspect.getsource(critic_scan.runtime), "the page folder test compares paths, not string prefixes"
+
+@test("audit Q05: a reviewer can't mark its own finding as a scan row to skip the quote check; the review file names the source, not the row")
+def _(d):
+    write(d, "src/a.py", "def f():\n    return eval(input())\n")
+    run(S / "critic_ledger.py", "start", "review", "--tier", "full", cwd=d)
+    f = {"category": "security", "impact": "High", "file": "src/a.py", "line": 2, "quote": "", "title": "eval on input", "evidence": "src/a.py:2", "failing_case": "input __import__('os') runs code", "verified": "traced", "remediation": "no eval"}
+    for L in "ABC": write(d, f".critic/reviews/review-{L}.json", json.dumps([dict(f, source="scan")]))
+    run(S / "critic_merge.py", "tally", *[f".critic/reviews/review-{L}.json" for L in "ABC"], cwd=d)
+    t = json.loads((d / ".critic/tally.json").read_text())
+    assert not t["kept"] and t["rejected"] and all("quote" in str(x.get("why") or x.get("errors") or x) for x in t["rejected"]), t
+
+@test("audit V03: verdicts applied from a file the verifier's stop hook didn't save mark the run DEGRADED and are named; hook-saved verdicts don't")
+def _(d):
+    r, counts = _one_finding_run(d, finding(), {"verdict": "confirmed", "reproduced": "traced", "note": "src/app.js:2 inserts the title as HTML; a title with <img onerror> runs"})
+    assert "DEGRADED" in counts and "not saved by the verifier's stop hook" in counts and "v.json" in counts, counts
+    e = d / "e"; e.mkdir(); write(e, "src/app.js", APP)
+    run(S / "critic_ledger.py", "start", "review", "--tier", "full", cwd=e)
+    for L in "ABC": write(e, f".critic/reviews/review-{L}.json", json.dumps([finding()]))
+    run(S / "critic_merge.py", "tally", *[f".critic/reviews/review-{L}.json" for L in "ABC"], cwd=e)
+    fid = json.loads((e / ".critic/tally.json").read_text())["kept"][0]["id"]
+    time.sleep(0.05); vp = write(e, ".critic/verdicts/agent1.json", json.dumps([{"id": fid, "verdict": "confirmed", "reproduced": "traced", "note": "src/app.js:2 inserts the title as HTML; a title with <img onerror> runs"}]))
+    run(S / "critic_merge.py", "apply", str(vp), cwd=e)
+    assert "not saved by the verifier's stop hook" not in (e / ".critic/counts.md").read_text()
+
+@test("audit V28: a finding a verifier refuted stays refuted when the ledger is loaded again, so check and the stop gate don't count it as open")
+def _(d):
+    run(S / "critic_ledger.py", "init", cwd=d)
+    run(S / "critic_ledger.py", "add", "F-aaaa1111", "High", "x.py:1", "something", cwd=d)
+    run(S / "critic_ledger.py", "status", "F-aaaa1111", "refuted", "a verifier refuted it with a run", cwd=d)
+    r = run(S / "critic_ledger.py", "check", cwd=d)
+    assert r.returncode == 0, ("a refuted High is not open", r.stdout, r.stderr)
+    run(S / "critic_ledger.py", "decision", "noop", cwd=d)
+    assert json.loads((d / ".critic/ledger.json").read_text())["findings"]["F-aaaa1111"]["status"] == "refuted"
+
+@test("audit Q08 and Q07: in the full tier each Critical packet gets its own verifier, and critic_run.py next walks the variant hunt before the teardown")
+def _(d):
+    app = APP + "function show(m) {\n  box.innerHTML = `<b>${m.body}</b>`;\n}\n"
+    write(d, "src/app.js", app); write(d, "src/other.js", "function card(c) {\n  list.innerHTML = `<li>${c.title}</li>`;\n}\n")
+    run(S / "critic_run.py", "begin", "--files", "src/app.js", "--tier", "full", cwd=d)
+    run(S / "critic_scan.py", ".", "--root", ".", cwd=d)
+    c1 = finding(); c2 = finding(line=6, quote="box.innerHTML = `<b>${m.body}</b>`;", title="Body rendered as HTML")
+    m = finding(category="domain", impact="Medium", line=4, quote="const price = total * 1.0825;", title="Tax rule in render code")
+    for L in "ABC": write(d, f".critic/reviews/review-{L}.json", json.dumps([c1, c2, m]))
+    run(S / "critic_run.py", "next", cwd=d); time.sleep(0.05); write(d, ".critic/groups.json", json.dumps({"groups": []}))
+    out = run(S / "critic_run.py", "next", cwd=d).stdout
+    if "verifier " not in out: out = run(S / "critic_run.py", "next", cwd=d).stdout
+    lines = [x for x in out.splitlines() if x.strip().startswith("verifier ")]
+    t = json.loads((d / ".critic/tally.json").read_text()); crit = {f["id"] for f in t["kept"] if f["impact"] == "Critical"}
+    solo = [x for x in lines if len(x.split(":", 1)[1].split()) == 1 and any(c in x for c in crit)]
+    assert len(crit) == 2 and len(solo) == 2, ("each Critical alone", out)
+    good = lambda fid: {"id": fid, "verdict": "confirmed", "reproduced": "traced", "entry": "render() runs on every update", "path": ["src/app.js:2 assigns the title to innerHTML unescaped"]}
+    write(d, ".critic/verdicts/1.json", json.dumps([good(f["id"]) for f in t["kept"]]))
+    out = run(S / "critic_run.py", "next", cwd=d).stdout
+    assert "critic_variants.py find" in out and "write the teardown" not in out, out
+    run(S / "critic_variants.py", "find", cwd=d)
+    out = run(S / "critic_run.py", "next", cwd=d).stdout
+    assert "variant packets" in out and ".critic/verify-variants/" in out, out
+
+@test("audit V39: --online sends nothing without the owner's consent on file for this run; critic_ledger.py consent online records it")
+def _(d):
+    write(d, "package-lock.json", json.dumps({"lockfileVersion": 3, "packages": {"": {}, "node_modules/left-pad": {"version": "1.3.0"}}}))
+    run(S / "critic_ledger.py", "start", "review", cwd=d)
+    import critic_findings as cf
+    r = run(S / "critic_scan.py", ".", "--root", ".", "--online", cwd=d, env={"HTTPS_PROXY": "http://127.0.0.1:9", "https_proxy": "http://127.0.0.1:9"})
+    rep = (d / ".critic/scan/report.md").read_text()
+    assert "deps-online-refused" in rep and "consent online" in rep, rep[:3000]
+    assert not cf.consent_given(d, "online")
+    run(S / "critic_ledger.py", "consent", "online", cwd=d)
+    assert cf.consent_given(d, "online"), "recorded for this run"
+    run(S / "critic_ledger.py", "start", "review", cwd=d)
+    assert not cf.consent_given(d, "online"), "a new run starts with no consent"
+
+@test("audit V37 and F-0dcc1490: a key in an earlier tool's SARIF message is masked in every report, and a false-positive ruling with no rule id hides nothing")
+def _(d):
+    sarif = {"version": "2.1.0", "runs": [{"tool": {"driver": {"name": "gitleaks"}}, "results": [{"ruleId": "stripe", "level": "error", "message": {"text": "found: @LIVE@"},
+             "locations": [{"physicalLocation": {"artifactLocation": {"uri": "a.py"}, "region": {"startLine": 1}}}]}]}]}
+    write(d, "old.sarif", json.dumps(sarif)); write(d, "a.py", "x = 1\n")
+    run(S / "critic_scan.py", ".", "--root", ".", cwd=d)
+    for name in ("report.md", "report.json", "scan.sarif"):
+        p = d / ".critic/scan" / name
+        if p.exists(): assert T("@LIVE@") not in p.read_text(), name
+    e = d / "e"; e.mkdir(); write(e, "src/a.js", "eval(userInput);\n")
+    run(S / "critic_scan.py", ".", "--root", ".", cwd=e)
+    rows = json.loads((e / ".critic/scan/report.json").read_text())["findings"]
+    ev = next(r for r in rows if r["where"].startswith("src/a.js"))
+    run(S / "critic_ledger.py", "add", "F-aaaa2222", "Low", ev["where"], "a reviewer's finding at the same place", cwd=e)
+    run(S / "critic_ledger.py", "fp", "F-aaaa2222", "the owner rules this reviewer finding a false positive", cwd=e)  # stored as {id, where}: no rule id
+    led = json.loads((e / ".critic/ledger.json").read_text()); assert led["false_positives"] and not led["false_positives"][0].get("rule"), led
+    run(S / "critic_scan.py", ".", "--root", ".", cwd=e)
+    rows2 = json.loads((e / ".critic/scan/report.json").read_text())["findings"]
+    assert any(r["rule"] == ev["rule"] and r["where"] == ev["where"] for r in rows2), "a ruling with no rule id must not hide the row"
+
+@test("audit Q03 and Q13: a lockfile or SARIF file linked to a file outside the project is never read (and listed once), and a project's own reports/findings.sarif is read")
+def _(d):
+    out = d / "outside"; out.mkdir()
+    (out / "package-lock.json").write_text(json.dumps({"lockfileVersion": 3, "packages": {"": {}, "node_modules/outsidepkg-private": {"version": "1.0.0", "license": "GPL-3.0"}}}))
+    (out / "secret.sarif").write_text(json.dumps({"version": "2.1.0", "runs": [{"tool": {"driver": {"name": "semgrep"}}, "results": [{"ruleId": "x", "level": "error", "message": {"text": "OUTSIDE-SECRET-CONTENT-123"}, "locations": [{"physicalLocation": {"artifactLocation": {"uri": "z.js"}, "region": {"startLine": 1}}}]}]}]}))
+    proj = d / "proj"; (proj / "reports").mkdir(parents=True)
+    os.symlink(out / "package-lock.json", proj / "package-lock.json"); os.symlink(out / "secret.sarif", proj / "reports" / "tool.sarif")
+    (proj / "reports" / "findings.sarif").write_text(json.dumps({"version": "2.1.0", "runs": [{"tool": {"driver": {"name": "eslint"}}, "results": [{"ruleId": "no-eval", "level": "error", "message": {"text": "PROJECT-OWN-RESULT"}, "locations": [{"physicalLocation": {"artifactLocation": {"uri": "a.js"}, "region": {"startLine": 1}}}]}]}]}))
+    write(proj, "a.js", "x = 1\n")
+    run(S / "critic_scan.py", ".", "--root", ".", cwd=proj)
+    rep = (proj / ".critic/scan/report.md").read_text()
+    assert "outsidepkg-private" not in rep and "OUTSIDE-SECRET-CONTENT-123" not in rep, rep[:3000]
+    assert rep.count("package-lock.json") >= 1 and "link-not-followed" in rep, rep[:3000]
+    assert "PROJECT-OWN-RESULT" in rep, "a project's own findings.sarif is evidence, not Curmudgeon's output"
+
+@test("audit MUT1, MUT2 and F-ab3afc90: the quote check and the evidence floors are pinned by tests that fail on each surviving mutant")
+def _(d):
+    import critic_findings as cf
+    write(d, "a.py", "def f(user_input):\n    return eval(user_input)\n")
+    q = "    return eval(user_input)"
+    assert cf.quote_check({"file": "missing.py", "line": 2, "quote": q}, d) is False, "MUT1: a finding citing a file that doesn't exist fails the quote check"
+    assert cf.quote_check({"file": "a.py", "line": 3, "quote": q}, d) is True, "the last line, cited one past the end, is an off-by-one, not a crash"
+    write(d, "b.py", "alpha_value = compute_alpha()\n" + "\n" * 35 + "beta_value = compute_beta()\n")
+    assert cf.quote_check({"file": "b.py", "line": 1, "quote": "alpha_value = compute_alpha()\nbeta_value = compute_beta()"}, d), "a two-line quote across blank lines is found"
+    assert cf.relocate_quote({"file": "a.py", "quote": "eval(user_input)"}, d) is None, "a quote under 20 characters is never moved"
+    write(d, "c.py", "x = 1\nresult_total_value = 2\n")
+    assert cf.relocate_quote({"file": "c.py", "quote": "result_total_value = 2"}, d) == 2, "a unique quote of 20 or more characters is moved to its line"
+    assert cf.find_quote({"quote": "a long enough quote here"}, d) == [], "no file: nothing to find, never a crash"
+    floor = "The input is checked by the allow-list at a.py:1 before eval, so it is safe." 
+    assert len(floor) >= 60 and cf.refutation_problem(floor, "High", "traced", root=d) is None
+    short = floor[:59]
+    assert short.count("a.py:1") and cf.refutation_problem(short, "High", "traced", root=d), "F-ab3afc90: 59 characters is under the floor"
+    assert cf.downgrade_problem("High", "High", "executed", floor, root=d), "an equal impact is not a downgrade"
+    e = d / "e"; e.mkdir(); write(e, "src/app.js", APP)
+    run(S / "critic_ledger.py", "start", "review", "--tier", "full", cwd=e)
+    f = finding(impact="Medium", category="domain", line=4, quote="const price = total * 1.0825;", title="Tax rule in render code")
+    write(e, ".critic/reviews/review-A.json", json.dumps([f])); write(e, ".critic/reviews/review-B.json", json.dumps([f])); write(e, ".critic/reviews/review-C.json", "[]")
+    run(S / "critic_merge.py", "tally", *[f".critic/reviews/review-{L}.json" for L in "ABC"], cwd=e)
+    fid = json.loads((e / ".critic/tally.json").read_text())["kept"][0]["id"]
+    write(e, "v.json", json.dumps([{"id": fid, "verdict": "confirmed", "reproduced": "traced", "entry": "render() runs on every update", "path": ["src/app.js:4 multiplies by the tax rate inside render"]}]))
+    run(S / "critic_merge.py", "apply", "v.json", cwd=e)
+    rows = [json.loads(x) for x in (e / ".critic/findings.jsonl").read_text().splitlines() if x.strip()]
+    assert rows and rows[0]["confidence"] == "confirmed", ("MUT2: a 2-vote finding a verifier confirmed is confirmed", rows)
+
+@test("audit 03 §5.57.3: a Critical or High raised by one reviewer, with no run, is never dropped: it is contested and gets a verification packet")
+def _(d):
+    write(d, "src/app.js", APP); run(S / "critic_ledger.py", "start", "review", "--tier", "full", cwd=d)
+    write(d, ".critic/reviews/review-A.json", json.dumps([finding(impact="High")])); write(d, ".critic/reviews/review-B.json", "[]"); write(d, ".critic/reviews/review-C.json", "[]")
+    run(S / "critic_merge.py", "tally", *[f".critic/reviews/review-{L}.json" for L in "ABC"], cwd=d)
+    t = json.loads((d / ".critic/tally.json").read_text())
+    assert not t["dropped"] and len(t["contested"]) == 1, t
+    assert (d / ".critic/verify" / f"{t['contested'][0]['id']}.json").exists(), "it goes to a blind verifier"
+
+@test("audit V09: a Critical, High or Medium finding at a line of any text file needs its quote: C, Kotlin, Swift, YAML, SQL, Terraform and Dockerfile included, images not")
+def _(d):
+    import critic_findings as cf
+    base = {"category": "security", "impact": "High", "line": 10, "quote": "", "title": "t", "evidence": "e", "failing_case": "c", "verified": "traced", "remediation": "r"}
+    for name in ("a.c", "a.cpp", "a.kt", "a.swift", "ci.yml", "q.sql", "main.tf", "Dockerfile", "a.py"):
+        assert any("missing quote" in e for e in cf.validate(dict(base, file=name))), name
+    assert not any("missing quote" in e for e in cf.validate(dict(base, file="logo.png"))), "an image has no line to quote"
+
+@test("audit V10: a Low with no failing case fails the contract, as the rubric and the skill say; a Nit needs none")
+def _(d):
+    import critic_findings as cf
+    low = {"category": "ux", "impact": "Low", "file": "a.js", "line": 3, "quote": 'const label = "Sumbit";', "title": "typo", "verified": "inferred"}
+    assert any("failing_case" in e for e in cf.validate(low)), cf.validate(low)
+    assert not any("failing_case" in e for e in cf.validate(dict(low, failing_case="the button reads Sumbit"))), "with its case it passes"
+    assert not any("failing_case" in e for e in cf.validate(dict(low, impact="Nit")))
+
+@test("audit V12: a .critic/gate or .critic/gate-async a repository commits turns no stop check on; the owner's /curmudgeon:gate does")
+def _(d):
+    subprocess.run(["git", "init", "-q"], cwd=d); write(d, "a.py", "x = 1\n"); write(d, ".critic/gate", ""); write(d, ".critic/gate-async", "on\n")
+    subprocess.run(["git", "add", "-f", "a.py", ".critic/gate", ".critic/gate-async"], cwd=d); subprocess.run(G + ["commit", "-qm", "ship gate markers"], cwd=d)
+    r = run(H / "stop_gate.py", cwd=d, stdin=json.dumps({"cwd": str(d)}))
+    assert '"block"' not in r.stdout and not (d / ".critic/gate-count").exists(), r.stdout
+    write(d, "b.py", "eval(input())\n")
+    r = run(H / "stop_async.py", cwd=d, stdin=json.dumps({"cwd": str(d)}))
+    assert r.returncode == 0 and not (d / ".critic/scan-async-files.txt").exists(), r.stdout + r.stderr
+    run(S / "critic_ledger.py", "gate", "on", cwd=d)
+    r = run(H / "stop_gate.py", cwd=d, stdin=json.dumps({"cwd": str(d)}))
+    assert '"block"' in r.stdout, "turned on by the owner, it blocks"
+
+@test("audit V13: no Curmudgeon agent can record the owner's sign-off on the security feed, or start its downloads")
+def _(d):
+    (d / ".critic/scratch/me").mkdir(parents=True)
+    for agent in ("curmudgeon:curmudgeon-reviewer", "curmudgeon:curmudgeon-verifier", "curmudgeon:curmudgeon-detector"):
+        for cmd in (f"python3 {S}/security_feed.py set --cadence daily --folder /tmp/x --signed-off 5000000000", f"python3 {S}/security_feed.py update"):
+            r = run(H / "pre_tool.py", cwd=d, stdin=json.dumps({"tool_name": "Bash", "tool_input": {"command": cmd}, "cwd": str(d), "agent_type": agent, "agent_id": "me"}))
+            assert "deny" in r.stdout, (agent, cmd, r.stdout)
+
+@test("audit V29: in round 3 a new unconfirmed Critical is recorded open and marked held, so check and the stop gate see it; an unconfirmed Medium is still held back")
+def _(d):
+    run(S / "critic_ledger.py", "start", "full", "--tier", "full", cwd=d)
+    for _ in range(2): run(S / "critic_ledger.py", "round", cwd=d)
+    assert json.loads((d / ".critic/ledger.json").read_text())["round"] >= 3
+    write(d, "f.jsonl", json.dumps({"id": "F-c0000001", "impact": "Critical", "file": "a.py", "line": 1, "title": "new critical", "verified": "executed", "votes": 3, "confidence": "likely"}) + "\n"
+          + json.dumps({"id": "F-c0000002", "impact": "Medium", "file": "a.py", "line": 2, "title": "new medium", "verified": "traced", "votes": 1, "confidence": "possible"}) + "\n")
+    run(S / "critic_ledger.py", "import", "f.jsonl", cwd=d)
+    F_ = json.loads((d / ".critic/ledger.json").read_text())["findings"]
+    assert F_.get("F-c0000001", {}).get("held_round3") and "F-c0000002" not in F_, F_
+    r = run(S / "critic_ledger.py", "check", cwd=d)
+    assert r.returncode == 1 and "F-c0000001" in r.stdout, r.stdout
+
+@test("audit V31: a tally with an unreadable ledger refuses to count, instead of treating the run as unstarted and counting stale reviews")
+def _(d):
+    write(d, "src/app.js", APP); run(S / "critic_ledger.py", "start", "review", "--tier", "full", cwd=d)
+    for L in "ABC": write(d, f".critic/reviews/review-{L}.json", json.dumps([finding()]))
+    (d / ".critic/ledger.json").write_text('{"started_at": 17')
+    r = run(S / "critic_merge.py", "tally", *[f".critic/reviews/review-{L}.json" for L in "ABC"], cwd=d)
+    assert r.returncode != 0 and "unreadable" in r.stderr and not (d / ".critic/tally.json").exists(), r.stdout + r.stderr
+
+@test("audit V33: a false-positive ruling on an id the ledger never scored never hides a Critical or High")
+def _(d):
+    import critic_merge as cm
+    f = {"id": "F-12345678", "impact": "Critical"}
+    L = {"false_positives": [{"id": "F-12345678", "why": "ruled before it was ever recorded"}], "findings": {}}
+    assert cm.suppressed_by_ledger(f, L) is None
+    assert cm.suppressed_by_ledger(dict(f, impact="Low"), L), "a Low under the owner's exact ruling is still hidden (and listed)"
+    L["findings"]["F-12345678"] = {"score": "Critical"}
+    assert cm.suppressed_by_ledger(f, L), "a ruling on the recorded Critical itself still applies"
+
+@test("audit Q02: an agent's Write into another agent's private copy or notes is refused; its own copy is allowed")
+def _(d):
+    for a in ("aaa", "bbb"): (d / f".critic/scratch/{a}/payload").mkdir(parents=True); (d / f".critic/scratch/{a}/notes").mkdir(parents=True)
+    ask = lambda target: run(H / "guard_state.py", cwd=d, stdin=json.dumps({"tool_name": "Write", "tool_input": {"file_path": str(d / target)}, "cwd": str(d / ".critic/scratch/aaa/payload"), "agent_type": "curmudgeon:curmudgeon-reviewer", "agent_id": "aaa"})).stdout
+    assert "deny" in ask(".critic/scratch/bbb/payload/conftest.py") and "deny" in ask(".critic/scratch/bbb/notes/n.md")
+    assert "deny" not in ask(".critic/scratch/aaa/notes/n.md") and "deny" not in ask(".critic/scratch/aaa/payload/probe.py")

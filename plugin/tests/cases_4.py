@@ -113,8 +113,8 @@ def _(d):
     run(S / "critic_merge.py", "apply", "v.json", cwd=d)
     f = [json.loads(x) for x in (d / ".critic/findings.jsonl").read_text().splitlines() if x.strip()]
     assert [(x["verifier"], x["confidence"]) for x in f] == [("unclear", "likely")], f
-    write(d, "v.json", json.dumps([{"id": i, "verdict": "confirmed", "reproduced": "traced", "entry": "render() runs on load", "path": ["src/app.js:2 writes the title as HTML"]} for i in ids]))
-    run(S / "critic_merge.py", "apply", "v.json", cwd=d)
+    vp = hook_verdicts(d, [{"id": i, "verdict": "confirmed", "reproduced": "traced", "entry": "render() runs on load", "path": ["src/app.js:2 writes the title as HTML"]} for i in ids])
+    run(S / "critic_merge.py", "apply", str(vp), cwd=d)
     f = [json.loads(x) for x in (d / ".critic/findings.jsonl").read_text().splitlines() if x.strip()]
     assert f[0]["confidence"] == "confirmed", "confirmed by the verifier, executed by the reviewer: confirmed"
 
@@ -155,8 +155,8 @@ def _(d):
     assert "deny" in deny, "a verdict can't be typed in by hand"
     t = _tally3(d, [finding(impact="High")], [finding(impact="High")], [])
     ids = [p.stem for p in (d / ".critic/verify").glob("*.json")]
-    write(d, "v.json", json.dumps([{"id": i, "verdict": "confirmed", "reproduced": "traced", "entry": "render() runs on load", "path": ["src/app.js:2 writes the title as HTML"]} for i in ids]))
-    run(S / "critic_merge.py", "apply", "v.json", cwd=d)
+    vp = hook_verdicts(d, [{"id": i, "verdict": "confirmed", "reproduced": "traced", "entry": "render() runs on load", "path": ["src/app.js:2 writes the title as HTML"]} for i in ids])
+    run(S / "critic_merge.py", "apply", str(vp), cwd=d)
     tear = lambda first, sec: write(d, ".critic/last-review.md", f"{first}\n\n#### 5. VERDICT\n- **BLOCK**\n- {sec}\n")
     tear("**CLEAN** · Counts: 0 Critical, 1 High, 0 Medium, 0 Low", "Counts: 0 Critical, 1 High, 0 Medium, 0 Low")
     r = run(S / "critic_ledger.py", "stamp", "src", cwd=d); assert r.returncode != 0 and "CLEAN with an open Critical or High" in r.stderr + r.stdout, r.stdout + r.stderr
@@ -197,8 +197,8 @@ def _(d):
     write(d, "src/app.js", APP); run(S / "critic_ledger.py", "start", "review", "--tier", "full", cwd=d)
     _tally3(d, [finding(impact="High")], [finding(impact="High")], [])
     ids = [p.stem for p in (d / ".critic/verify").glob("*.json")]
-    write(d, "v.json", json.dumps([{"id": i, "verdict": "confirmed", "reproduced": "traced", "entry": "render() runs on load", "path": ["src/app.js:2 writes the title as HTML"]} for i in ids]))
-    run(S / "critic_merge.py", "apply", "v.json", cwd=d)
+    vp = hook_verdicts(d, [{"id": i, "verdict": "confirmed", "reproduced": "traced", "entry": "render() runs on load", "path": ["src/app.js:2 writes the title as HTML"]} for i in ids])
+    run(S / "critic_merge.py", "apply", str(vp), cwd=d)
     stamp = lambda: run(S / "critic_ledger.py", "stamp", "src", cwd=d)
     r = stamp(); assert r.returncode != 0 and "no .critic/last-review.md" in r.stdout + r.stderr, r.stdout + r.stderr
     tear = lambda first, w5="BLOCK", c5="Counts: 0 Critical, 1 High, 0 Medium, 0 Low": write(d, ".critic/last-review.md", f"{first}\n\n#### 5. VERDICT\n- **{w5}**\n- {c5}\n- Panel: 2 reviewers\n")

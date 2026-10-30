@@ -73,16 +73,28 @@ def spdx_kind(expr):
     except (ValueError, IndexError, RecursionError):
         return max((_one(t) for t in toks if t not in ("(", ")")), key=RANK.get, default="permissive")
 
+def _inside(root, pattern, emit):
+    """root.rglob(pattern) without the files that lead outside the project through a link: a cloned repository's
+    package-lock.json linked to another file would otherwise be read, and with --online its packages sent (ultimate
+    audit Q03). Each skipped one is listed."""
+    from critic_findings import leaves_root
+    for p in root.rglob(pattern):
+        if leaves_root(p, root):
+            if p not in _SKIPPED: _SKIPPED.add(p); emit("NOTE", "link-not-followed", "deps", str(p.relative_to(root)), "a link pointing outside the project; not followed, so nothing outside the project is read", "")
+            continue
+        yield p
+_SKIPPED = set()  # listed once, though the licence and vulnerability passes both walk the lockfiles
+
 def licences(root, emit):
     """Licence check, offline: the project's own licence field, then every locked npm package's declared licence.
     Missing or unusual licences are NOTE; strong copyleft (GPL, AGPL, SSPL...) is WARN, since shipping it inside closed
     code has obligations. Informational, never legal advice. Idea from license checkers such as licensee (MIT)."""
-    for pj in root.rglob("package.json"):
+    for pj in _inside(root, "package.json", emit):
         if _skip(pj, root): continue
         try: j = json.loads(pj.read_text())
         except Exception: continue
         if not j.get("private") and not j.get("license"): emit("NOTE", "licence-missing-own", "deps", str(pj.relative_to(root)), "the package declares no licence: others can't legally reuse it", "")
-    for lf in root.rglob("package-lock.json"):
+    for lf in _inside(root, "package-lock.json", emit):
         if _skip(lf, root): continue
         try: j = json.loads(lf.read_text())
         except Exception: continue
@@ -128,7 +140,7 @@ def scan(root, emit, online=False, state=None):
     found_manifest = False
     try: licences(root, emit)
     except Exception: pass  # informational; never blocks the dependency check
-    for pj in root.rglob("package.json"):
+    for pj in _inside(root, "package.json", emit):
         if _skip(pj, root): continue
         found_manifest = True; rel = str(pj.relative_to(root))
         try: j = json.loads(pj.read_text())
@@ -145,7 +157,7 @@ def scan(root, emit, online=False, state=None):
         if not (pj.parent / "package-lock.json").exists() and not (pj.parent / "yarn.lock").exists() and not (pj.parent / "pnpm-lock.yaml").exists() and (j.get("dependencies") or j.get("devDependencies")):
             emit("NOTE", "deps-no-lock", "deps", rel, "no lockfile: installs can differ from machine to machine", "")
     pkgs = []; unread = []; wild = []
-    for lf in root.rglob("package-lock.json"):
+    for lf in _inside(root, "package-lock.json", emit):
         if _skip(lf, root): continue
         found_manifest = True
         try: pkgs += [(lf, *x) for x in _lock_npm(lf)]
@@ -153,11 +165,11 @@ def scan(root, emit, online=False, state=None):
             unread.append(str(lf.relative_to(root)))
             emit("WARN", "deps-lock-unreadable", "deps", str(lf.relative_to(root)), f"the lockfile can't be read ({e}): none of its packages were checked", "")
     for n in UNREAD_LOCKS:
-        for x in root.rglob(n):
+        for x in _inside(root, n, emit):
             if _skip(x, root) or (x.parent / "package-lock.json").exists(): continue
             found_manifest = True; unread.append(str(x.relative_to(root)))
             emit("WARN", "deps-lock-unread", "deps", str(x.relative_to(root)), f"{n} is not a format the dependency check reads: none of its packages were checked for known vulnerabilities", "")
-    for rf in root.rglob("requirements*.txt"):
+    for rf in _inside(root, "requirements*.txt", emit):
         if not _skip(rf, root): pkgs += [(rf, *x) for x in _reqs(rf, wild)]; found_manifest = True
     if wild: emit("NOTE", "deps-not-exact", "deps", "requirements", f"{len(wild)} wildcard pin(s) are not exact versions, so they were not looked up: {', '.join(wild[:5])}{' …' if len(wild) > 5 else ''}", "")
     gap = f"; {len(unread)} lockfile(s) not read: {', '.join(unread[:3])}" if unread else ""

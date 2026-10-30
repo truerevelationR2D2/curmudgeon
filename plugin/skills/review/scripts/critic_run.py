@@ -101,7 +101,33 @@ def state():
     missing = [p for p in packets if p.stem not in covered and wanted(p)]
     if missing and not FORCE: return "verify", L, tier, missing
     if mtime(D / "findings.jsonl") < max([mtime(tally)] + [mtime(v) for v in fresh]): return "apply", L, tier, fresh
+    if tier == "full":  # SKILL.md step 4.5, the variant hunt: the full tier runs it before the teardown (ultimate audit Q07)
+        try: rows = [json.loads(x) for x in (D / "findings.jsonl").read_text().splitlines() if x.strip()]
+        except (OSError, ValueError): rows = []
+        if any(isinstance(f, dict) and f.get("impact") in ("Critical", "High") and f.get("confidence") in ("confirmed", "likely") for f in rows):
+            found_mark = D / "variants-found.json"
+            if mtime(found_mark) < mtime(D / "findings.jsonl"): return "variants-find", L, tier, []
+            vpk = sorted((D / "verify-variants").glob("*.json")) if (D / "verify-variants").is_dir() else []
+            vv = [v for v in (sorted((D / "verdicts-variants").glob("*.json")) if (D / "verdicts-variants").is_dir() else []) if mtime(v) >= mtime(found_mark)]
+            got = set()
+            for v in vv:
+                try: rr = json.loads(v.read_text())
+                except (OSError, ValueError): continue
+                got |= {str(r.get("id")) for r in (rr if isinstance(rr, list) else [rr]) if isinstance(r, dict)}
+            vmiss = [p for p in vpk if p.stem not in got]
+            if vmiss and not FORCE: return "variants-verify", L, tier, vmiss
+            if vpk and mtime(D / "variants.md") < max([mtime(found_mark)] + [mtime(v) for v in vv]): return "variants-apply", L, tier, vv
     return "teardown", L, tier, []
+
+def verifier_batches(items, tier):
+    """Packets in groups of VERIFY_BATCH for the verifiers, except that in the full tier each Critical gets a verifier
+    of its own (SKILL.md step 4.2; ultimate audit Q08: they used to share a batch of five)."""
+    def impact(p):
+        try: return json.loads(p.read_text()).get("impact")
+        except (OSError, ValueError, AttributeError): return None
+    crit = [p for p in items if tier == "full" and impact(p) == "Critical"]
+    rest = [p for p in items if p not in crit]
+    return [[p] for p in crit] + [rest[i:i + VERIFY_BATCH] for i in range(0, len(rest), VERIFY_BATCH)]
 
 def early(force=False):
     """The scan's FAIL rows, once per scan report (SC-80). Returns True when it printed something."""
@@ -132,10 +158,18 @@ def say_next(st, tier, items):
               + ", ".join(p.stem[-1] for p in items) + ". Give each the text of its brief, unchanged, as its prompt: " + ", ".join(f".critic/briefs/brief-{p.stem[-1]}.md" for p in items) + ". Each writes " + ", ".join(rel(p) for p in items) + ".")
     elif st == "dedup": print(f"next: start curmudgeon:curmudgeon-dedup on {rel(items[0])}; it writes .critic/groups.json. Then run critic_run.py next.")
     elif st == "verify":
-        batches = [items[i:i + VERIFY_BATCH] for i in range(0, len(items), VERIFY_BATCH)]
+        batches = verifier_batches(items, tier)
         print(f"next: start {len(batches)} curmudgeon:curmudgeon-verifier agent(s), blind, on these packets without a verdict yet (each verifier's ```json verdict list is saved in .critic/verdicts/ by the stop hook, unchanged; don't copy verdicts yourself); "
               "then critic_run.py next. If a verifier can't answer, critic_run.py next --apply-now applies what there is (a finding with no verdict stays, at lower confidence):")
         for i, b in enumerate(batches, 1): print(f"  verifier {i}: " + " ".join(rel(p) for p in b))
+    elif st == "variants-find":
+        print("next: the full tier's variant hunt (SKILL.md step 4.5): run critic_variants.py find, then critic_run.py next.")
+    elif st == "variants-verify":
+        batches = verifier_batches(items, tier)
+        print(f"next: start {len(batches)} curmudgeon:curmudgeon-verifier agent(s), blind, on these variant packets (the stop hook saves each verdict list in .critic/verdicts-variants/; don't copy verdicts yourself); then critic_run.py next:")
+        for i, b in enumerate(batches, 1): print(f"  verifier {i}: " + " ".join(rel(p) for p in b))
+    elif st == "variants-apply":
+        print("next: critic_variants.py apply " + " ".join(rel(p) for p in items) + ", then critic_run.py next. Confirmed variants go in the teardown's own section, from .critic/variants.md.")
     elif st == "teardown":
         print("next: write the teardown from .critic/counts.md (references/output-contract.md), save .critic/last-review.md, then critic_ledger.py stamp <payload>.")
     elif st == "idle": print("next: no run is active; critic_run.py begin starts one.")

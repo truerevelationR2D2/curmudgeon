@@ -82,6 +82,8 @@ def find():
             if hits >= PER or n >= TOTAL: break
         if n >= TOTAL: break
     packets = sorted(out.glob("*.json"))
+    mark = D / "variants-found.json"  # critic_run.py next reads this: the hunt ran for these findings, even when it found nothing
+    if not mark.is_symlink(): mark.write_text(json.dumps({"variants": n}) + "\n")
     print(f"variant hunt: {n} possible variant(s) in .critic/verify-variants")
     for i in range(0, len(packets), 5): print(f"  verifier {i // 5 + 1}: " + " ".join(str(p.relative_to(ROOT)) for p in packets[i:i + 5]))
     if n: print("next: start curmudgeon:curmudgeon-verifier agents on these packets (blind, as in step 4); the stop hook saves each verifier's ```json list in .critic/verdicts-variants/ (never retype one), then critic_variants.py apply .critic/verdicts-variants/*.json")

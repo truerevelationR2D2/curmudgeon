@@ -12,7 +12,7 @@ service workers and symlinks getting past the request-by-request guard). Two par
 
 The request-by-request guard stays on top of this for what it does well: refusing methods other than GET, HEAD and
 OPTIONS on the allowed origin, and logging what would have been sent."""
-import functools, http.server, os, pathlib, re, threading, urllib.parse
+import functools, http.server, os, pathlib, re, tempfile, threading, urllib.parse
 
 DEAD_PROXY = "http://127.0.0.1:9"
 
@@ -25,19 +25,39 @@ def hidden(part):
     '.' and '..' are left to the folder check."""
     return part.startswith(".") and part not in (".", "..", ".well-known")
 
+# Where a refused request points: a path in a private, empty folder this process made, so nothing a repository ships
+# can stand there (ultimate audit H3: the old sentinel lived inside the served folder, and a planted link at
+# .curmudgeon-refused/404 turned every refusal into a read of any file the user can read).
+_REFUSED = os.path.join(tempfile.mkdtemp(prefix="curmudgeon-refused-"), "404")
+
 class _Handler(http.server.SimpleHTTPRequestHandler):
     def log_message(self, *a): pass
     def list_directory(self, path):
         self.send_error(404, "not found"); return None
+    def _inside(self, real):
+        base = os.path.realpath(self.directory)
+        return real == base or real.startswith(base.rstrip(os.sep) + os.sep)
     def translate_path(self, path):
         p = super().translate_path(path)
         base = os.path.realpath(self.directory)
         real = os.path.realpath(p)
-        refused = os.path.join(base, ".curmudgeon-refused", "404")
-        if real != base and not real.startswith(base.rstrip(os.sep) + os.sep): return refused  # outside the folder: not found
+        if not self._inside(real): return _REFUSED  # outside the folder: not found
         asked = urllib.parse.unquote(urllib.parse.urlsplit(path).path).replace("\\", "/").split("/")
-        if any(hidden(x) for x in asked + os.path.relpath(real, base).split(os.sep)): return refused  # .critic/, .git/, .env ...: never served
+        if any(hidden(x) for x in asked + os.path.relpath(real, base).split(os.sep)): return _REFUSED  # .critic/, .git/, .env ...: never served
         return real
+    def send_head(self):
+        """A folder is answered with its index.html, which the base class opens without asking where it really points:
+        the same outside-the-folder and dot-name checks apply to it (ultimate audit H3)."""
+        path = self.translate_path(self.path)
+        if os.path.isdir(path):
+            for name in ("index.html", "index.htm"):
+                idx = os.path.join(path, name)
+                if os.path.lexists(idx):
+                    real = os.path.realpath(idx)
+                    if not self._inside(real) or any(hidden(x) for x in os.path.relpath(real, os.path.realpath(self.directory)).split(os.sep)):
+                        self.send_error(404, "not found"); return None
+                    break
+        return super().send_head()
 
 def serve(folder):
     """Start the page server for folder; returns (server, origin, host_port)."""

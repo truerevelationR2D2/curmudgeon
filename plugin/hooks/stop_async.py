@@ -20,6 +20,10 @@ def main():
     root = workspace.project_root(data); c = root / ".critic"
     if c.is_symlink() or any(x.is_symlink() for x in c.glob("*")): return 0  # never write through a link a cloned repo planted
     if not (c / "gate-async").exists(): return 0
+    try:
+        from critic_findings import gate_owned
+        if not gate_owned(root, "async"): return 0  # a committed marker turns nothing on (ultimate audit V12)
+    except Exception: pass
     try: stamps = json.loads((c / "ledger.json").read_text()).get("stamps", {})
     except Exception: stamps = {}
     review = c / "last-review.md"; since = review.stat().st_mtime if review.exists() else 0

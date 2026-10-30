@@ -2,6 +2,36 @@
 
 Every release of Curmudgeon, newest first. The repository's history starts at 4.2.1; earlier versions are summarised from the project's own build and review records. Numbers are the ones measured at the time; the README's Benchmarks section has the current ones and how they were measured.
 
+## 5.2.6 (unreleased): fixes from the full audit, batch 1 of 5
+
+The full audit of 5.2.5 (six blind lenses, Curmudgeon's own full-tier review, three outside reviewers and mutation testing) confirmed 89 findings: 5 High, 27 Medium, 51 Low, 5 Nit. Batch 1 fixes the trust and evidence rules. Each fix has a test that fails on 5.2.5 (`plugin/tests/cases_7.py`).
+
+**Trust boundaries**
+- A `.critic/ledger.json` counts as yours only when git doesn't track it and it is untracked in the project's own work tree, or it is exactly the file Curmudgeon last saved on this computer. A ledger that came in a zip, sits untracked inside another repository, or was changed after the last save is set aside on the next run and a new ledger starts; its rulings never apply. `critic_ledger.py adopt <file> --show` lists its rulings, and `adopt <file>` takes it back after you agree. (Before, a false-positive ruling in such a ledger could hide a Critical.)
+- The page server answers a refused request with a 404, never from a file inside the served folder, and a folder's `index.html` that links outside is never served. (Before, a planted link at `.curmudgeon-refused/404` served any file you can read.)
+- A page that is a link is refused by the browser driver and the scan.
+- Lockfiles, manifests and earlier CI results that link outside the project are never read, and each is listed once.
+- `.critic/gate` and `.critic/gate-async` turn a stop check on only when you ran `/curmudgeon:gate`; a committed marker does nothing.
+- Reviewers, verifiers and the detector can't record your sign-off on the security feed or start its downloads, and can't write into another agent's private folder.
+
+**Evidence rules**
+- A verifier may lower a finding to Nit only from Low. A downgrade of two or more steps, or from Critical or High, needs a run or a trace and a note that cites the reason as `file:line`; otherwise the old impact stays (03 §5.57.2).
+- The review file names a finding's source; a reviewer can no longer mark its own finding as a scan row to skip the quote check.
+- Verdicts applied from a file the verifier's stop hook didn't save mark the run DEGRADED and are named.
+- A finding a verifier refuted stays refuted when the ledger loads again.
+- In the full tier each Critical gets its own verifier, and `critic_run.py next` walks the variant hunt before the teardown.
+- In round 3 a new unconfirmed Critical or High is recorded and marked held, so the stop gate shows it.
+- Every finding at a line of a text file needs its quote (not only a list of code extensions), and a Low needs its failing case.
+- A false-positive ruling hides nothing when it has no rule id (scan rows) or when its id was never scored (a Critical or High).
+- The tally refuses to count when the ledger can't be read.
+
+**Privacy**
+- `--online` sends package names only after you agree on that run (`critic_ledger.py consent online`); without it the lookup runs offline and the report says so.
+- Text from earlier tools' SARIF results is masked like every other report field.
+
+**Tests**
+- New tests pin the quote check and the evidence floors where mutation testing found gaps (a missing file, the 60-character refutation, two-vote confirmation, quote windows).
+
 ## 5.2.5 (30 October 2026)
 
 Fixes from an independent combined review (two outside reviews and two blind reviews, every claim reproduced or read), each with a test that fails on the code before it, and each batch put through three blind review rounds. [plugin/RULINGS.md](plugin/RULINGS.md) indexes the rulings the code cites.

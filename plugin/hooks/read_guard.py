@@ -112,7 +112,9 @@ def owner_problem(cmd, detector):
     if re.search(r"write_owner_state\s*\(|(?:~|\$HOME|\$\{HOME\})/\.curmudgeon\b", flat) or base in flat:  # writing it, or naming its folder; mentioning the words (a grep) is fine
         return "the owner's own record of approvals and consent is theirs to write, through the lead"
     if detector and "critic_ledger" in flat: return "the detector runs the scripted checks; the run's ledger (consent and approvals among it) is the lead's"
-    if re.search(r"critic_ledger(?:\.py)?\b.*\b(?:consent|approve)\b", flat): return "only the owner gives consent or approves a file, through the lead"
+    if re.search(r"critic_ledger(?:\.py)?\b.*\b(?:consent|approve|adopt)\b", flat): return "only the owner gives consent, approves a file or adopts a set-aside ledger, through the lead"
+    if re.search(r"security_feed(?:\.py)?\b.*\b(?:set|update|pick-folder)\b", flat):  # the owner's sign-off on the downloads, and the downloads themselves (ultimate audit V13)
+        return "the security feed's settings, sign-off and downloads are the owner's, through the lead"
     return None
 
 DENIED = []  # set when this call refused the tool, so pre_tool.py runs nothing after it
@@ -175,7 +177,7 @@ def bash_problem(cmd, rec, root, critic, role, me):
         mode): reviewers and verifiers send nothing over the network and install nothing, from their copy."""
         n = name.rsplit("/", 1)[-1]
         for k, a in enumerate(args[:-1]):
-            if a.endswith("critic_ledger.py") and args[k + 1] in ("consent", "approve"): return f"critic_ledger.py {args[k + 1]}: only the owner gives consent or approves a file, through the lead"
+            if a.endswith("critic_ledger.py") and args[k + 1] in ("consent", "approve", "adopt"): return f"critic_ledger.py {args[k + 1]}: only the owner gives consent, approves a file or adopts a set-aside ledger, through the lead"
         if (n == "poetry" and args[:1] == ["run"]) or (n in ("pnpm", "yarn") and args[:1] == ["exec"]):  # poetry run pip install ...: judge what they launch
             return tripwire(args[1], args[2:]) if len(args) > 1 else None
         if n in WRAPPERS:  # timeout 10 curl ..., nice -n 5 pip install ..., xargs -n1 curl: judge the command they run

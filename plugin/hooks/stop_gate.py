@@ -38,6 +38,11 @@ def main():
     if (c / "gate").exists() and (c.is_symlink() or any(x.is_symlink() for x in c.glob("*"))):  # gate on, but never write through a planted link
         print(json.dumps({"systemMessage": "Curmudgeon stop gate skipped: .critic/ contains links. Remove them to use the gate."})); return 0
     if not (c / "gate").exists(): return 0
+    sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent / "skills" / "review" / "scripts"))
+    try:
+        from critic_findings import gate_owned
+        if not gate_owned(root, "on"): return out({"systemMessage": "Curmudgeon stop gate skipped: .critic/gate is there, but the owner's record doesn't show it turned on here (a repository may have committed it). Run /curmudgeon:gate on to turn it on."})
+    except Exception: pass  # the scripts can't load: the gate's own checks below still run, as before
     try: L = json.loads((c / "ledger.json").read_text())
     except FileNotFoundError: L = {}
     except Exception as e: return out({"systemMessage": f"Curmudgeon gate is off for this stop: the ledger can't be read ({e}). Fix .critic/ledger.json or run critic_ledger.py init."})

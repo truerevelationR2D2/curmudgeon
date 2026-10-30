@@ -10,7 +10,7 @@ import json, os, pathlib, re, sys, time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import workspace  # this folder's helper: project root, agent workspaces
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent / "skills" / "review" / "scripts"))
-try: from critic_findings import validate, refutation_problem, confirmation_problem, security_refutation_problem  # the same rules apply uses
+try: from critic_findings import validate, refutation_problem, downgrade_problem, confirmation_problem, security_refutation_problem  # the same rules apply uses
 except Exception as _e:  # a broken install must say so, not fail open silently, and still never leave a copy behind
     try:
         _d = json.load(sys.stdin); workspace.remove(workspace.project_root(_d), _d.get("agent_id"))
@@ -86,6 +86,9 @@ def problems_verdict(msg, root=None):
             imp = packet.get("impact") or "Critical"  # unknown impact: hold it to the strictest rule
             prob = refutation_problem(v.get("refutation") or v.get("reason"), imp, v.get("reproduced"), root=root) or security_refutation_problem(v, packet)
             if prob: errs.append(f"{v.get('id')}: this refutation would be ignored by the merge: {prob}")
+        if v.get("verdict") == "downgrade":  # 03 §5.57.2: the same rule apply uses, so the verifier hears it before stopping
+            dp = downgrade_problem(packet.get("impact") or "Critical", v.get("impact_after"), v.get("reproduced"), v.get("note") or v.get("refutation"), root=root)
+            if dp: errs.append(f"{v.get('id')}: this downgrade would be ignored by the merge: {dp}")
     return errs[:8]
 
 def save_verdicts(root, msg, agent_id):

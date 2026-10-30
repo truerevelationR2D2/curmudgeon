@@ -10,7 +10,10 @@ import hashlib, json, pathlib, re, subprocess, time, os, sys
 IMPACTS = ("Critical", "High", "Medium", "Low")  # the counted levels: the verdict, the ledger and SARIF use only these
 NIT = "Nit"  # SC-79: below Low; listed under Nits, never counted, never verified, never blocking
 VERIFIED = ("executed", "traced", "inferred")
-CODE_EXT = (".js", ".mjs", ".cjs", ".ts", ".jsx", ".tsx", ".py", ".html", ".htm", ".css", ".scss", ".vue", ".svelte", ".go", ".rb", ".php", ".java", ".cs", ".rs", ".sh", ".json", ".md")
+# Files with no line a reviewer could quote. Every other file cited at a line needs its quote (ultimate audit V09: an
+# allow-list of code extensions left out C, C++, Kotlin, Swift, YAML, SQL, Terraform and Dockerfile).
+NON_TEXT = (".png", ".jpg", ".jpeg", ".gif", ".webp", ".ico", ".bmp", ".pdf", ".zip", ".gz", ".tgz", ".bz2", ".xz", ".7z", ".woff", ".woff2", ".ttf", ".otf",
+            ".eot", ".mp3", ".mp4", ".wav", ".webm", ".mov", ".wasm", ".bin", ".exe", ".dll", ".so", ".dylib", ".class", ".jar", ".pyc", ".o", ".a")
 
 def safe_int(v):
     """Line numbers arrive as 12, "12", "12-14" or junk: take the first number, else 0. Never raises."""
@@ -152,6 +155,8 @@ def validate(f):
     if f.get("impact") in ("Critical", "High", "Medium"):
         for k in ("evidence", "failing_case"):
             if not str(f.get(k) or "").strip(): errs.append(f"missing {k} (no case, no finding)")
+    elif f.get("impact") == "Low" and not str(f.get("failing_case") or "").strip():  # rubrics.md and SKILL.md: a Low needs its case too (ultimate audit V10); a Nit doesn't
+        errs.append("missing failing_case (no case, no finding: a Low needs one too)")
     if f.get("verified") not in VERIFIED: errs.append("verified must be executed, traced or inferred")
     if "difficulty" in f and f["difficulty"] not in ("Low", "Medium", "High"): errs.append("difficulty must be Low, Medium or High (audit mode: how hard the failure is to trigger)")
     for k in ("exploit_scenario", "fix_short", "fix_long"):  # optional, audit mode (after Trail of Bits' report format)
@@ -167,7 +172,7 @@ def validate(f):
         if safe_int(f.get("line")) < 1: errs.append("a quoted finding needs its line number (1 or more): the quote check looks for the quote at that line")
         qp = quote_problem(f.get("quote"))
         if qp and "[redacted]" not in str(f.get("quote")): errs.append(qp)
-    if f.get("source") != "scan" and f.get("impact") in ("Critical", "High", "Medium") and str(f.get("file") or "").lower().endswith(CODE_EXT) and safe_int(f.get("line")) and not str(f.get("quote") or "").strip():
+    if f.get("source") != "scan" and f.get("impact") in ("Critical", "High", "Medium") and str(f.get("file") or "").strip() and not str(f.get("file")).lower().endswith(NON_TEXT) and safe_int(f.get("line")) and not str(f.get("quote") or "").strip():
         # scanner rows are exempt: they come from the scan's own match, and quoting the line would copy a found secret into the reports
         errs.append("missing quote: a finding about a line of a file must quote it exactly, so the quote check can confirm it exists")
     return errs
@@ -243,6 +248,10 @@ def refutation_problem(why, impact, reproduced, root=None):
     if HEDGE.search(why): return "hedged (doubt is not a refutation: state the guard as fact, or return unclear)"
     if str(reproduced or "") not in ("executed", "traced"): return "needs a run or a trace (reproduced: executed or traced)"
     if impact == "Critical" and str(reproduced) != "executed": return "refuting a Critical needs a run (reproduced: executed), not only a trace"
+    return _cited_problem(why, root)
+
+def _cited_problem(why, root):
+    """None when the text cites a file:line, and (given root) one that exists in the project; else what is wrong."""
     locs = LOCATION.findall(why)
     if not locs: return "no location (cite the guard, or the line that relies on a platform rule, as file:line)"
     if root is not None:
@@ -254,6 +263,23 @@ def refutation_problem(why, impact, reproduced, root=None):
             except (OSError, ValueError): return False
         if not any(exists(f, n) for f, n in locs): return "the cited file:line does not exist"
     return None
+
+DOWN_ORDER = ("Critical", "High", "Medium", "Low", "Nit")
+def downgrade_problem(old, new, reproduced, note, root=None):
+    """One rule for what may lower a finding, shared by the verifier's stop check and apply (ultimate audit H2, 03
+    §5.57.2: a downgrade to Nit used to need nothing at all, so it could erase a Critical that a refutation could not).
+    A Nit comes only from a Low. A downgrade of two or more steps, or any downgrade from a Critical or a High, needs a
+    run or a trace and a note of at least 60 characters that cites the reason as a file:line that exists. Lowering a
+    Medium to a Low, or a Low to a Nit, needs no proof. Returns None when the downgrade may apply."""
+    old, new = str(old or "").title(), str(new or "").title()
+    if old not in DOWN_ORDER or new not in DOWN_ORDER or DOWN_ORDER.index(new) <= DOWN_ORDER.index(old): return "a verifier may lower an impact, never raise or keep it"
+    if new == "Nit" and old != "Low": return "only a Low may become a Nit"
+    if DOWN_ORDER.index(new) - DOWN_ORDER.index(old) < 2 and old not in ("Critical", "High"): return None
+    note = str(note or "").replace("\u2019", "'").replace("\u2018", "'")
+    if str(reproduced or "") not in ("executed", "traced"): return f"lowering a {old} to a {new} needs a run or a trace (reproduced: executed or traced)"
+    if len(note) < 60: return "the note is too short (at least 60 characters, naming why it is less severe)"
+    if HEDGE.search(note): return "hedged (state why it is less severe as fact, or return unclear)"
+    return _cited_problem(note, root)
 
 SARIF_LEVEL = {"Critical": "error", "High": "error", "Medium": "warning", "Low": "note"}
 def plugin_version():
@@ -529,7 +555,7 @@ RUNLOG_MAX = 1_000_000
 # Local state that must never be committed: logs, restore copies, and the files that hold reviewers' raw quotes (a
 # quote can contain a secret from the code under review; the outputs Curmudgeon writes itself are masked by scrub()).
 IGNORED = ("runlog.jsonl", "refutations.jsonl", "cost.jsonl", "scratch/", "manifest.json", "spotcheck.md", "restore/", "reviews/", "history/", "outside/", "verify/",
-           "tally.json", "dedup-candidates.json", "findings-import.jsonl", "briefs/", "scan-only.txt", "verdicts/", "verdicts-variants/", "verify-variants/", "variants.jsonl", "scan-skipped")
+           "tally.json", "dedup-candidates.json", "findings-import.jsonl", "briefs/", "scan-only.txt", "verdicts/", "verdicts-variants/", "verify-variants/", "variants.jsonl", "variants-found.json", "scan-skipped")
 _TRACKED = {}
 def git_tracked(root, rel):
     """True when the repository tracks this file: ignore rules don't apply to a tracked file, so anything written to
@@ -621,6 +647,7 @@ def consent_given(root, kind, host=None):
     except (OSError, ValueError): return False
     if not j or j.get("run") != led.get("run") or j.get("started_at") != led.get("started_at") or not led.get("started_at"): return False  # consent is per run (and round)
     if kind == "writes": return j.get("writes") is True
+    if kind == "online": return j.get("online") is True  # --online: package names and versions go to the OSV API (ultimate audit V39)
     return kind == "live" and str(host or "").strip().lower() in [str(x).lower() for x in j.get("live") or []]
 
 RULES_SECTION = re.compile(r"(?im)^##[ \t]+(.+?)[ \t]*$")
@@ -639,9 +666,40 @@ def rules_test_command(text):
     return m.group(1).strip().strip("`") if m else None
 
 def ledger_shipped(root):
-    """True when git tracks .critic/ledger.json: then a cloned repository could have written it, so its rulings and
-    decisions are never applied (the merge, the scan and the brief all check this)."""
-    return git_tracked(root, ".critic/ledger.json")
+    """True when .critic/ledger.json could have come with the code, so its rulings and decisions are never applied (the
+    merge, the scan and the brief all check this). A ledger git tracks always could (5.2.1 F-76114fb3). Otherwise it is
+    the owner's own only when it is untracked in the project's own git work tree (owner_untracked, the rule rules.md and
+    scope.json follow), or when it is exactly the file critic_ledger.py last saved on this machine (its sha256 in the
+    owner's record outside the project). A ledger in a downloaded zip, untracked inside another repository, or edited
+    after the last save is not (ultimate audit H1, 03 §5.57: the old test asked only whether git tracks it).
+    critic_ledger.py sets such a ledger aside the first time it loads it, so a save can never bless it."""
+    p = pathlib.Path(root) / ".critic" / "ledger.json"
+    if p.is_symlink(): return True
+    if not p.is_file(): return False
+    if git_tracked(root, ".critic/ledger.json"): return True
+    if owner_untracked(root, "ledger.json"): return False
+    return read_owner_state(root, "ledger").get("sha") != _sha(p)
+
+LEDGER_RULINGS = ("false_positives", "dismissals", "memories", "decisions", "overrides")  # what a ledger can use to hide or steer
+
+def record_ledger(root):
+    """Note the sha256 of the ledger critic_ledger.py just saved, in the owner's record outside the project, so
+    ledger_shipped() can tell the owner's own ledger from one that came with the code. Best effort: a failed write only
+    means the ledger counts as shipped until the next save works (fail closed)."""
+    p = pathlib.Path(root) / ".critic" / "ledger.json"
+    try: write_owner_state(root, "ledger", {"sha": _sha(p)})
+    except OSError as e: print(f"note: couldn't record the ledger's checksum outside the project ({e}); its rulings won't apply until it can be", file=sys.stderr)
+
+def gate_owned(root, mode):
+    """True when the owner turned this stop check on (critic_ledger.py gate on|async), as recorded outside the project.
+    The .critic/gate and .critic/gate-async markers alone could have been committed by a repository (ultimate audit V12)."""
+    return read_owner_state(root, "gate").get("mode") == mode
+
+def leaves_root(p, root):
+    """True when p, with every link followed, is outside root: the scan never reads such a file (one rule for every
+    walk: the static checks, the dependency files and earlier CI results; ultimate audit Q03)."""
+    try: return not pathlib.Path(p).resolve().is_relative_to(pathlib.Path(root).resolve())
+    except (OSError, RuntimeError): return True
 
 def one_line(text, cap=600):
     """Text someone else wrote (a commit message, a recorded decision), as one line that can't add a heading, a list

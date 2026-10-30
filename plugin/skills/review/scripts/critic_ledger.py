@@ -19,11 +19,13 @@ usage (run from the project root, or set CRITIC_ROOT):
   memories [--retire N]                  list learned memories (retire one by number)
   examples                               print up to 5 recent false positives as few-shot examples for reviewers
   acted                                  for findings open last run: check whether the quoted code is gone (acted on)
-  consent live HOST | consent writes     the owner's consent for this run (after they typed the host or said yes):
-                                         browse.py and the scan's live checks refuse without it (03 §5.56 item 12)
+  consent live HOST | consent writes | consent online   the owner's consent for this run (after they typed the host or
+                                         said yes): browse.py, the scan's live checks and --online refuse without it
   approve rules.md|scope.json [--show]   the owner approves that exact file (it shows the commands, test command,
                                          Not findings or live targets first; --show only shows). Project commands
                                          run, and a file git tracks is used, only while it matches (03 §5.56 item 9)
+  adopt ledger-set-aside-...json [--show]   take back a ledger that was set aside because Curmudgeon didn't write it
+                                         here (it shows every ruling first; --show only shows; run only after the owner says yes)
   decision "text" [SOURCE] | override "what" "who" "why"   recorded choices; overrides can't be by "author"
   score NAME VALUE MAX | cost SECONDS [NOTE] | tokens [--all] | integrity | fresh [ID...]   (fresh: findings whose code changed since the review; tokens: what each agent role cost this run; integrity: outputs edited since the last apply)
   stamp [--add] PATH... | stale | round [--reset]   (--add keeps earlier stamps: use it for /curmudgeon:fix iterate)
@@ -39,11 +41,11 @@ usage (run from the project root, or set CRITIC_ROOT):
   show | check                           check exits 1 if a Critical/High is open"""
 import hashlib, json, os, pathlib, re, shutil, sys, time
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
-from critic_findings import log_run, norm_code, read_jsonl, refuse_linked_state, tokens
+from critic_findings import log_run, norm_code, read_jsonl, record_ledger, refuse_linked_state, tokens
 RANK = {"Critical": 0, "High": 1, "Medium": 2, "Low": 3}
 
 ROOT = pathlib.Path(os.environ.get("CRITIC_ROOT") or re.sub(r"[\\/]\.critic[\\/]scratch(?:[\\/].*)?$", "", os.getcwd()) or os.getcwd()).resolve(); D = ROOT / ".critic"; F = D / "ledger.json"
-SCORES = ("Critical", "High", "Medium", "Low"); STATES = ("open", "fixed", "deferred", "wontfix", "dismissed")
+SCORES = ("Critical", "High", "Medium", "Low"); STATES = ("open", "fixed", "deferred", "wontfix", "dismissed", "refuted")  # refuted: written by the merge after a verifier refutation (ultimate audit V28: it used to load back as open)
 REASONS = ("impossible", "conflicts", "worse"); DISMISS = ("false-positive", "out-of-scope", "redundant", "intended", "preference")
 CLAIMS = ("targeted", "no-new-defect", "behaviour-unchanged")
 try:  # the same provider key shapes the secret scan uses, so a restore point never stores a key the scan would flag
@@ -58,7 +60,21 @@ MEMORY_TTL_DAYS = 90
 
 def die(msg, code=2): print(f"critic_ledger: {msg}", file=sys.stderr); sys.exit(code)
 
+def set_aside_if_shipped():
+    """A ledger git doesn't track but Curmudgeon didn't write here (a zip, a folder inside another repository, an edit
+    after the last save) is moved aside, never loaded: otherwise the next save would record its checksum and bless its
+    rulings (ultimate audit H1, 03 §5.57). A tracked ledger stays where it is; its rulings never apply anyway."""
+    import critic_findings as cf_
+    if not F.is_file() or F.is_symlink() or not cf_.ledger_shipped(ROOT) or cf_.git_tracked(ROOT, ".critic/ledger.json"): return
+    aside = D / f"ledger-set-aside-{time.strftime('%Y%m%d-%H%M%S')}.json"
+    os.replace(F, aside)
+    print(f"critic_ledger: .critic/ledger.json wasn't written by Curmudgeon on this machine (it came with the folder, or was changed "
+          f"after the last save), so it was set aside as .critic/{aside.name} and a new ledger was started; its rulings never apply. "
+          f"If it is the owner's own ledger from before this check, show them its rulings with `critic_ledger.py adopt {aside.name} --show`, "
+          f"and adopt it only after they say yes.", file=sys.stderr)
+
 def load():
+    set_aside_if_shipped()
     if not F.exists(): return json.loads(json.dumps(BLANK))
     try: L = json.loads(F.read_text(encoding="utf-8"))
     except Exception as e: die(f"ledger is unreadable ({e}); nothing was changed. Fix or move {F}, then run init.")
@@ -106,6 +122,7 @@ def save(L):
     md = render(L); D.mkdir(parents=True, exist_ok=True)
     for path, body in ((F, json.dumps(L, indent=1, ensure_ascii=False)), (D / "ledger.md", md), (D / "decisions.md", render_decisions(L))):
         tmp = path.with_name(path.name + ".tmp"); tmp.write_text(body, encoding="utf-8"); os.replace(tmp, path)
+    record_ledger(ROOT)  # so the merge, scan and brief know this ledger is the owner's own (ultimate audit H1)
 
 def rel(p):
     p = pathlib.Path(p).resolve()
@@ -300,9 +317,15 @@ def main(a):
             seen_now.add(fid)
             ex = L["findings"].get(fid)
             if ex is None and L["round"] >= 3 and r.get("confidence") != "confirmed":
-                held += 1; print(f"round 3 is verify-only: not recording new unconfirmed finding {fid} ({r.get('title', '')[:60]})", file=sys.stderr); continue
+                held += 1
+                if str(r.get("impact", "")).title() not in ("Critical", "High"):
+                    print(f"round 3 is verify-only: not recording new unconfirmed finding {fid} ({r.get('title', '')[:60]})", file=sys.stderr); continue
+                # a new Critical or High is never hidden from the stop gate: recorded open and marked held, for the owner (ultimate audit V29)
+                print(f"round 3 is verify-only: new unconfirmed {r.get('impact')} {fid} recorded as held for the owner; the stop gate counts it", file=sys.stderr)
+                r = dict(r, held_round3=True)
             base = {"score": str(r.get("impact", "Medium")).title(), "where": f"{r.get('file', '')}:{r.get('line', '')}", "summary": r.get("title", ""),
-                    "quote": r.get("quote", ""), "category": r.get("category", ""), "confidence": r.get("confidence", ""), "votes": r.get("votes", 1)}
+                    "quote": r.get("quote", ""), "category": r.get("category", ""), "confidence": r.get("confidence", ""), "votes": r.get("votes", 1),
+                    **({"held_round3": True} if r.get("held_round3") else {})}
             if ex is None:
                 L["findings"][fid] = dict(base, status="open", first_run=L["run"], claims={}, history=[f"run {L['run']}: new"]); new += 1
             elif ex["status"] == "fixed":
@@ -330,7 +353,7 @@ def main(a):
                 if k_ not in seen_now and v_.get("status") in ("open", "fixed") and v_.get("first_run", L["run"]) < L["run"]:
                     v_.setdefault("absent_in_full_runs", [])
                     if L["run"] not in v_["absent_in_full_runs"]: v_["absent_in_full_runs"].append(L["run"])
-        msg = f"imported {len(rows)}: {new} new, {known} known, {regressed} regressed" + (f", {held} held back (round 3)" if held else "")
+        msg = f"imported {len(rows)}: {new} new, {known} known, {regressed} regressed" + (f", {held} held (round 3: unconfirmed; any Critical or High among them is recorded for the owner)" if held else "")
         msg += "".join("\n" + x for x in mole_lines(L))
     elif cmd == "add":
         need(rest, 4, "add ID Critical|High|Medium|Low WHERE \"summary\" [--verified]")
@@ -471,7 +494,29 @@ def main(a):
             (D / "watch-off").write_text("")  # also silences the while-you-work scan (SC-62)
             msg = "stop checks off, and the while-you-work scan"
         else: die("gate on|async|off")
+        import critic_findings as cf_  # the owner's own record, outside the project: a marker a repository commits turns nothing on (ultimate audit V12)
+        try: cf_.write_owner_state(ROOT, "gate", {"mode": rest[0]})
+        except OSError as e: die(f"couldn't record the gate setting outside the project ({e}); the stop checks stay off")
         print(msg); return 0
+    elif cmd == "adopt":  # ultimate audit H1: the owner takes back a ledger that was set aside (run only after they said yes to its rulings)
+        need(rest, 1, "adopt ledger-set-aside-....json [--show]")
+        import critic_findings as cf_
+        src = D / pathlib.Path(rest[0]).name
+        if not re.fullmatch(r"ledger-set-aside-[\d-]+\.json", src.name) or not src.is_file() or src.is_symlink(): die(f"adopt takes a .critic/ledger-set-aside-*.json file; {src.name} isn't one")
+        try: A = json.loads(src.read_text(encoding="utf-8")); assert isinstance(A, dict)
+        except Exception as e: die(f"{src.name} isn't a readable ledger ({e})")
+        print(f".critic/{src.name}: adopting it makes its rulings apply again. Every one of them, as the reviews and the stop gate would use them:")
+        for k in cf_.LEDGER_RULINGS:
+            rows = A.get(k) or []
+            print(f"  {k} ({len(rows)}):" + ("".join(f"\n    - {json.dumps(r, ensure_ascii=False)[:300]}" for r in rows) if rows else " none"))
+        closed = {i: x.get("status") for i, x in (A.get("findings") or {}).items() if isinstance(x, dict) and str(x.get("status", "open")).lower() != "open"}
+        print(f"  findings not open ({len(closed)}): " + (", ".join(f"{i} {s}" for i, s in list(closed.items())[:40]) or "none"))
+        if "--show" in rest: return 0
+        led = D / "ledger.json"
+        if led.exists(): os.replace(led, D / f"ledger-replaced-{time.strftime('%Y%m%d-%H%M%S')}.json")
+        os.replace(src, led); record_ledger(ROOT)
+        print(f"adopted .critic/{src.name} as the ledger"); log_run(ROOT, "script", f"critic_ledger.py adopt {src.name}")
+        return 0  # not main's closing save: that would write the ledger loaded before the adopt over the adopted one
     elif cmd == "approve":  # 03 §5.56 item 9: the owner approves the exact rules.md or scope.json (run only after they said yes to what it shows)
         need(rest, 1, "approve rules.md|scope.json [--show]")
         import critic_findings as cf_, hashlib as hl_
@@ -500,15 +545,16 @@ def main(a):
         except OSError as e: die(str(e))
         msg = f"approved .critic/{which} as it is now (any change needs approving again); the approval is kept outside the project, where a repository can't ship one"
     elif cmd == "consent":  # 03 §5.56 item 12: run by the lead only after the owner said yes (live: they typed the host)
-        need(rest, 1, "consent live HOST | consent writes")
+        need(rest, 1, "consent live HOST | consent writes | consent online")
         import critic_findings as cf_
         if not L.get("started_at"): die("start a run first: consent is recorded for one run")
         cur = cf_.read_owner_state(ROOT, "consent")
         if cur.get("run") != L.get("run") or cur.get("started_at") != L.get("started_at"): cur = {}  # a new run starts with no consent
         cur.pop("root", None); cur.update(run=L.get("run"), started_at=L.get("started_at"))
         if rest[0] == "writes": cur["writes"] = True; msg = "recorded the owner's consent to send writes to their own loopback server, for this run"
+        elif rest[0] == "online": cur["online"] = True; msg = "recorded the owner's consent to send package names and versions to the OSV API (api.osv.dev), for this run"
         elif rest[0] == "live" and len(rest) > 1 and re.fullmatch(r"[A-Za-z0-9.-]+", rest[1]): cur["live"] = sorted(set(cur.get("live") or []) | {rest[1].lower()}); msg = f"recorded the owner's consent to load {rest[1].lower()}, for this run"
-        else: die("consent live HOST | consent writes")
+        else: die("consent live HOST | consent writes | consent online")
         try: cf_.write_owner_state(ROOT, "consent", cur)
         except OSError as e: die(str(e))
     elif cmd == "decision":

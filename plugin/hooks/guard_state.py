@@ -37,6 +37,11 @@ def main():
     if ".critic" not in parts: return 0
     after = parts[parts.index(".critic") + 1:]
     if not after: return 0
+    mine = re.sub(r"[^A-Za-z0-9_-]", "", str(data.get("agent_id") or ""))[:64]  # workspace.clean_id
+    if agent and after[0] == "scratch" and len(after) >= 2 and after[1] != mine:  # another agent's copy or notes: a blind reviewer never changes what another one reads (ultimate audit Q02)
+        print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny",
+            "permissionDecisionReason": f"Curmudgeon: {path} is in another agent's private folder; write only in your own copy and notes."}}))
+        return 0
     if agent and after[0] == "scratch" and len(after) == 3 and after[2] in ("workspace.json", "stop.json"):  # the hooks' record of the copy, which the stop record trusts
         print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny",
             "permissionDecisionReason": f"Curmudgeon: {'/'.join(after)} is the hooks' record of your copy; agents can't write it."}}))
