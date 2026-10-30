@@ -1031,7 +1031,7 @@ def _(d):
         r = sp.run(["pwsh", "-NoProfile", "-Command", "$e=$null; [void][System.Management.Automation.Language.Parser]::ParseInput($env:PS_SRC,[ref]$null,[ref]$e); $e.Count"],
                    capture_output=True, text=True, env=dict(os.environ, PS_SRC=sf.windows_dialog_script(title)))
         assert r.stdout.strip() == "0", r.stdout + r.stderr
-    real = (pf.system, sp.run, shutil.which)
+    real = (pf.system, sp.run, shutil.which); away = {k: os.environ.pop(k) for k in ("CI", "SSH_CONNECTION", "SSH_TTY", "CURMUDGEON_NO_WINDOW") if k in os.environ}  # this test is the person at the screen
     try:
         pf.system = lambda: "Windows"; shutil.which = lambda x: "powershell" if x == "powershell" else real[2](x)
         for out, code, err, want in (("", 1, "ParserError: missing terminator", None), ("", 0, "", None), ("D:\\\r\n", 0, "", "D:\\"), ("C:\\Users\\r\\db\r\n", 0, "", "C:\\Users\\r\\db")):
@@ -1040,12 +1040,12 @@ def _(d):
             assert path == want, (out, path, how)
             if code: assert how.startswith("the folder window failed") and "ParserError" in how, how
             elif not out: assert how == "cancelled", how
-    finally: pf.system, sp.run, shutil.which = real
+    finally: pf.system, sp.run, shutil.which = real; os.environ.update(away)
 
 @test("5.2.1 round 3 F-b67c76f8: Cancel in zenity, kdialog or the macOS window (exit 1) is a cancel, not a failure")
 def _(d):
     sys.path.insert(0, str(S)); import security_feed as sf, subprocess as sp, platform as pf, types
-    real = (pf.system, sp.run, shutil.which)
+    real = (pf.system, sp.run, shutil.which); away = {k: os.environ.pop(k) for k in ("CI", "SSH_CONNECTION", "SSH_TTY", "CURMUDGEON_NO_WINDOW") if k in os.environ}  # this test is the person at the screen
     try:
         pf.system = lambda: "Darwin"; shutil.which = lambda x: "/usr/bin/osascript" if x == "osascript" else real[2](x)
         for err in ("", "execution error: User canceled. (-128)"):
@@ -1053,7 +1053,7 @@ def _(d):
             assert sf.pick_folder() == (None, "cancelled"), err
         sp.run = lambda *a, **k: types.SimpleNamespace(stdout="", stderr="syntax error", returncode=1)
         assert sf.pick_folder()[1].startswith("the folder window failed")
-    finally: pf.system, sp.run, shutil.which = real
+    finally: pf.system, sp.run, shutil.which = real; os.environ.update(away)
 
 @test("5.2.1 round 3 F-5ba3017f: a page under a dot folder (.vitepress/dist) is served and scanned, not a 404")
 def _(d):
