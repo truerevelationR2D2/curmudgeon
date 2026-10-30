@@ -541,6 +541,38 @@ def git_tracked(root, rel):
         except (OSError, subprocess.TimeoutExpired): _TRACKED[key] = False
     return _TRACKED[key]
 
+APPROVABLE = ("rules.md", "scope.json")  # the owner's files that can make Curmudgeon run commands, drop findings or load live sites
+
+def _sha(p):
+    try: return hashlib.sha256(pathlib.Path(p).read_bytes()).hexdigest()
+    except OSError: return None
+
+def approved_state(root, rel):
+    """True when the owner approved this exact .critic/<rel> (its sha256 in .critic/private/approved.json, written by
+    critic_ledger.py approve after the owner saw what it does). 03 §5.56 item 9."""
+    d = pathlib.Path(root) / ".critic"; p = d / rel; a = d / "private" / "approved.json"
+    if not p.is_file() or p.is_symlink() or not a.is_file() or a.is_symlink(): return False
+    try: return json.loads(a.read_text()).get(rel) == _sha(p)
+    except (OSError, ValueError, AttributeError): return False
+
+def state_trusted(root, rel):
+    """A .critic/<rel> the repository tracks could have come with a clone, so it counts only once approved; an untracked
+    one is the owner's own (03 §5.56 item 9, the same threat ledger_shipped answers for the ledger)."""
+    return not git_tracked(root, f".critic/{rel}") or approved_state(root, rel)
+
+def consent_given(root, kind, host=None):
+    """True when the owner's consent for this run is on file (03 §5.56 item 12): kind "live" with the host they typed,
+    or "writes". Written by critic_ledger.py consent, which the lead runs after the owner says yes; the file is in
+    .critic/private/, which no tool may edit and no agent's command may write. A flag on its own is never consent."""
+    d = pathlib.Path(root) / ".critic"; c = d / "private" / "consent.json"
+    if not c.is_file() or c.is_symlink(): return False
+    try:
+        j = json.loads(c.read_text()); led = json.loads((d / "ledger.json").read_text())
+    except (OSError, ValueError): return False
+    if not isinstance(j, dict) or j.get("run") != led.get("run") or j.get("started_at") != led.get("started_at"): return False  # consent is per run (and round)
+    if kind == "writes": return j.get("writes") is True
+    return kind == "live" and str(host or "").strip().lower() in [str(x).lower() for x in j.get("live") or []]
+
 def ledger_shipped(root):
     """True when git tracks .critic/ledger.json: then a cloned repository could have written it, so its rulings and
     decisions are never applied (the merge, the scan and the brief all check this)."""

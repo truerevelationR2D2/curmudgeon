@@ -20,6 +20,14 @@ def main():
     after = parts[parts.index(".critic") + 1:]
     if not after: return 0
     agent = bool(re.fullmatch(r"(?:curmudgeon:)?curmudgeon-[a-z]+", str(data.get("agent_type") or "")))
+    if agent and after[0] == "scratch" and "payload" in after[:3]:  # 03 §5.56 item 11: a write inside the copy that a link carries into the real project
+        pl = pathlib.Path(*parts[:parts.index(".critic") + 1 + after.index("payload") + 1])
+        try: out = not os.path.realpath(p).startswith(os.path.realpath(pl) + os.sep)
+        except OSError: out = False
+        if out:
+            print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny",
+                "permissionDecisionReason": f"Curmudgeon: {path} is inside your copy, but a link (node_modules, .venv) carries a write there into the real project. Write probes in your notes folder instead."}}))
+            return 0
     if agent and after[0] in AGENT_PROTECTED:  # the owner's consent files: the lead may write them for the owner, Curmudgeon's own agents never
         print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny",
             "permissionDecisionReason": f"Curmudgeon's agents can't write {'/'.join(after)}: it records the owner's consent (which live sites may be loaded). Ask the lead, who asks the owner."}}))

@@ -7,13 +7,13 @@ def _(d):
     B = S / "browse.py"
     write(d, "f/index.html", "<!doctype html><title>t</title><form action='delete-account.html'><input id=n aria-label=Name><button>Go</button></form>")
     write(d, "f/delete-account.html", "<!doctype html><title>DELETED</title>")
-    run(B, "start", "f/index.html", "--session", "s/a.json", "--allow-writes", cwd=d); run(B, "step", "press", "Tab", "--session", "s/a.json", cwd=d)
+    run_c(B, "start", "f/index.html", "--session", "s/a.json", "--allow-writes", cwd=d); run(B, "step", "press", "Tab", "--session", "s/a.json", cwd=d)
     for k in ("\n", "\r", "Shift+Enter"):
         r = run(B, "step", "press", k, "--session", "s/a.json", cwd=d); assert "DELETED" not in r.stdout and "refused" in r.stdout, (repr(k), r.stdout)
     write(d, "w/index.html", "<!doctype html><title>t</title><script>try{const w=new WebSocket('ws://'+location.host+'/ws');w.onopen=()=>w.send('x');}catch(e){}</script>")
     r = run(B, "start", "w/index.html", "--session", "s/w.json", cwd=d); assert "a socket can't be simulated" in r.stdout, r.stdout
     write(d, "x/index.html", "<!doctype html><title>t</title><button id=delete1 onclick=\"document.title='DELETED'\">Go</button><button id=XMLDelete>Go</button><button id=DELETEALL>Go</button>")
-    r = run(B, "start", "x/index.html", "--session", "s/x.json", "--allow-writes", cwd=d); assert r.stdout.count("[destructive: never clicked]") == 3, r.stdout
+    r = run_c(B, "start", "x/index.html", "--session", "s/x.json", "--allow-writes", cwd=d); assert r.stdout.count("[destructive: never clicked]") == 3, r.stdout
     write(d, "l/index.html", "<!doctype html><title>L</title><label for=a>I agree to the terms</label><input type=checkbox id=a onchange=\"document.title='AGREED'\">"
           "<button id=m onmousedown=\"document.title=event.isTrusted?'TRUSTED':'UNTRUSTED'\">Press</button>"
           "<div style='position:relative'><button id=c onclick=\"document.title='COVERED-CLICKED'\">Under</button><div style='position:absolute;inset:0;background:#fff'></div></div>")
@@ -88,9 +88,9 @@ def _(d):
     write(d, "w/index.html", "<!doctype html><title>W</title><script>const b=new Blob([\"try{new WebSocket('ws://'+self.location.host+'/w')}catch(e){};postMessage(typeof WebSocket)\"]);"
           "let ok='none'; try{ const w=new Worker(URL.createObjectURL(b)); ok='made'; }catch(e){ ok='blocked'; } document.title='W-'+ok;</script>")
     r = run(B, "start", "w/index.html", "--session", "s/w.json", cwd=d); assert "title: W-blocked" in r.stdout, "workers are off without --allow-writes: " + r.stdout
-    r = run(B, "start", "w/index.html", "--session", "s/w2.json", "--allow-writes", cwd=d); assert "title: W-made" in r.stdout, r.stdout
+    r = run_c(B, "start", "w/index.html", "--session", "s/w2.json", "--allow-writes", cwd=d); assert "title: W-made" in r.stdout, r.stdout
     write(d, "h/index.html", "<!doctype html><title>H</title><script>try{new WebSocket('ws://'+location.host+'/hmr')}catch(e){}</script><button onclick=\"document.title='CLICKED'\">Go on</button>")
-    run(B, "start", "h/index.html", "--session", "s/h.json", "--allow-writes", cwd=d)
+    run_c(B, "start", "h/index.html", "--session", "s/h.json", "--allow-writes", cwd=d)
     r = run(B, "step", "click", "e1", "--session", "s/h.json", cwd=d); assert "sent data" not in r.stdout, "an idle socket is not a write: " + r.stdout
 
 @test("5.0 open item 7: a browser session is signed, a live target's request cap holds across sessions, and an earlier write is never replayed even if the record is forged")
@@ -108,16 +108,16 @@ def _(d):
     app = hs.ThreadingHTTPServer(("127.0.0.1", 0), App); threading.Thread(target=app.serve_forever, daemon=True).start(); port = app.server_address[1]
     B = S / "browse.py"; live = f"http://localhost.:{port}/"
     write(d, ".critic/scope.json", json.dumps({"version": 1, "targets": [{"origin": f"http://localhost.:{port}", "max_requests": 5, "note": "test"}]}))
-    r = run(B, "start", live, "--session", "s/a.json", "--allow-live", "localhost.", cwd=d); assert "refused" not in r.stdout, r.stdout
+    r = run_c(B, "start", live, "--session", "s/a.json", "--allow-live", "localhost.", cwd=d); assert "refused" not in r.stdout, r.stdout
     time.sleep(0.3); n1 = len(seen)
-    r = run(B, "start", live, "--session", "s/b.json", "--allow-live", "localhost.", cwd=d)
+    r = run_c(B, "start", live, "--session", "s/b.json", "--allow-live", "localhost.", cwd=d)
     time.sleep(0.3); assert len(seen) <= 5 and "request cap" in r.stdout, (seen, r.stdout)
     assert not (d / ".critic/private/browse.key").read_text() in json.dumps(json.loads((d / "s/a.json").read_text())), "the key never goes into a session"
     s_ = json.loads((d / "s/a.json").read_text()); s_["requests_total"] = 0; (d / "s/a.json").write_text(json.dumps(s_))
     r = run(B, "step", "snapshot", "--session", "s/a.json", cwd=d); assert r.returncode == 2 and "signature" in r.stdout, r.stdout
     seen.clear()
     write(d, "w/index.html", "<!doctype html><title>W</title><button onclick=\"fetch('/save',{method:'POST',body:'x'}).catch(()=>{})\">Save draft</button>")
-    run(B, "start", "w/index.html", "--session", "s/w.json", "--allow-writes", cwd=d); run(B, "step", "click", "e1", "--session", "s/w.json", cwd=d)
+    run_c(B, "start", "w/index.html", "--session", "s/w.json", "--allow-writes", cwd=d); run(B, "step", "click", "e1", "--session", "s/w.json", cwd=d)
     forge = ("import json, os, sys; sys.path.insert(0, sys.argv[1]); os.environ['CRITIC_ROOT'] = sys.argv[2]; import browse; p = sys.argv[3]; "
              "s = json.load(open(p)); s.pop('wrote_at', None); open(p, 'w').write(json.dumps(browse.sign(s)))")
     subprocess.run([sys.executable, "-c", forge, str(S), str(d), str(d / "s/w.json")], cwd=d, check=True, env=dict(os.environ, CRITIC_ROOT=str(d)))

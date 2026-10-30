@@ -103,6 +103,14 @@ def main():
     if errs:
         print(json.dumps({"decision": "block", "reason": "Your output doesn't meet Curmudgeon contract yet: " + " | ".join(errs) + ". Fix it, then finish."}))
         return 0  # the agent keeps working, so its private copy stays
+    if kind.endswith("curmudgeon-reviewer"):  # 03 §5.56 item 15: the tally checks that each review came from an agent that worked in its private copy
+        try:
+            named = re.findall(r"review-([A-Za-z0-9]+)\.json", data.get("last_assistant_message", "") or "")
+            h = workspace.home_for(root, data.get("agent_id")) if data.get("agent_id") else None
+            if named and h and not h.is_symlink():
+                h.mkdir(parents=True, exist_ok=True)
+                (h / "stop.json").write_text(json.dumps({"review": f"review-{named[-1]}.json", "workspace": started_at(root, data.get("agent_id")) is not None, "at": time.time()}))
+        except Exception: pass
     if kind.endswith("curmudgeon-verifier"):
         try: save_verdicts(root, data.get("last_assistant_message", ""), data.get("agent_id"))
         except Exception as e: print(json.dumps({"systemMessage": f"Curmudgeon could not save this verifier's verdicts ({type(e).__name__}: {e}); critic_run.py next will ask for them again"}))

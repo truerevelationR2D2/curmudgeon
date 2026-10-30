@@ -20,8 +20,9 @@ Past MAX_TOTAL bytes or MAX_FILES files the copy stops and is marked partial; th
 project's own files (never its .critic). A link the system won't let us make (Windows without symlink rights) is
 skipped and listed, never fatal.
 
-Git: the copy is its own repository, a shared clone of the project's (objects shared, nothing copied), reset to the
-project's HEAD with no remote. So `git log`, `blame` and `diff` work in the copy and show the working-tree edits, and
+Git: the copy is its own repository with one anonymous commit holding the project's HEAD tree (no history, no
+authors, no messages: 03 §5.56 item 10; the objects are read through an alternates file, nothing copied). So `git diff`
+and `git status` work in the copy and show the working-tree edits, and
 `git stash`, `reset` or `checkout` there can never touch the user's real work. When that can't be made, a `.git` file
 pointing nowhere stops git from walking up into the project's repository, and git simply reports no repository.
 
@@ -134,18 +135,30 @@ def _git_files(root):
     return tracked + extra
 
 def _own_repo(root, payload):
-    """Make the copy its own repository (see the module notes). Returns how: "clone", "none" or "stub"."""
+    """Make the copy its own repository with no history (03 §5.56 item 10): one commit holding the project's HEAD tree,
+    by an anonymous author with a plain message, so `git diff` shows the working-tree edits but `git log` and `blame`
+    show no author, email, commit message or co-author line. The project's objects are reached read-only through an
+    alternates file (nothing copied). Returns how: "base", "none" or "stub"."""
     if not (pathlib.Path(root) / ".git").exists(): kind = "none"
     else:
-        tmp = payload.parent / "gitclone"; shutil.rmtree(tmp, ignore_errors=True)
-        r = _git(root, "clone", "-q", "--shared", "--no-checkout", str(root), str(tmp), timeout=90)
-        head = _git(root, "rev-parse", "-q", "--verify", "HEAD")
-        if r and not r.returncode and (tmp / ".git").is_dir():
-            os.replace(tmp / ".git", payload / ".git"); shutil.rmtree(tmp, ignore_errors=True)
-            _git(payload, "remote", "remove", "origin")
-            if head and not head.returncode: _git(payload, "reset", "-q", head.stdout.strip())  # index = project HEAD; files untouched
-            return "clone"
-        shutil.rmtree(tmp, ignore_errors=True); kind = "stub"
+        tree = _git(root, "rev-parse", "-q", "--verify", "HEAD^{tree}")
+        objs = _git(root, "rev-parse", "--git-path", "objects")
+        if tree and not tree.returncode and objs and not objs.returncode:
+            odir = pathlib.Path(objs.stdout.strip()); odir = odir if odir.is_absolute() else (pathlib.Path(root) / odir)
+            r = _git(payload, "init", "-q")
+            if r and not r.returncode and (payload / ".git").is_dir():
+                (payload / ".git" / "objects" / "info").mkdir(parents=True, exist_ok=True)
+                (payload / ".git" / "objects" / "info" / "alternates").write_text(str(odir.resolve()) + "\n")
+                env = dict(os.environ, GIT_AUTHOR_NAME="reviewed code", GIT_AUTHOR_EMAIL="reviewer@example.invalid", GIT_COMMITTER_NAME="reviewed code",
+                           GIT_COMMITTER_EMAIL="reviewer@example.invalid", GIT_AUTHOR_DATE="2000-01-01T00:00:00Z", GIT_COMMITTER_DATE="2000-01-01T00:00:00Z")
+                try: c = subprocess.run(["git", "commit-tree", tree.stdout.strip(), "-m", "base"], cwd=payload, capture_output=True, text=True, timeout=60, env=env)
+                except (OSError, subprocess.SubprocessError): c = None
+                if c and not c.returncode and c.stdout.strip():
+                    _git(payload, "update-ref", "refs/heads/base", c.stdout.strip()); _git(payload, "symbolic-ref", "HEAD", "refs/heads/base")
+                    _git(payload, "reset", "-q")  # index = the base commit; the files on disk are the project's working tree
+                    return "base"
+            shutil.rmtree(payload / ".git", ignore_errors=True)
+        kind = "stub"
     (payload / ".git").write_text("gitdir: .git-none-curmudgeon-copy\n")  # stops git walking up into the project's repository
     return kind
 

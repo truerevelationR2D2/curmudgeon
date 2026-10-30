@@ -382,6 +382,8 @@ def check(page, allow_live, allow_writes):
         if not ok: return False, None, why
     elif not pathlib.Path(page).is_file(): return False, None, f"{page} is not a file or an http(s) URL"
     if allow_writes and live: return False, None, "--allow-writes is for the page's own loopback server, never a live site"
+    from critic_findings import consent_given
+    if allow_writes and not consent_given(ROOT, "writes"): return False, None, "--allow-writes needs the owner's consent on file for this run: after they say yes, run critic_ledger.py consent writes"
     return True, live, ""
 
 def safe_web_hp(page):

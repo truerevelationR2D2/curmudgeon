@@ -29,7 +29,7 @@ def main():
         if rec:
             q = shlex.quote(rec["payload"])
             msg = (f"Your workspace is {rec['payload']}: a private frozen copy of the project made for you (the project's .critic/ is left out). "
-                   + ("It is its own git repository sharing the project's history, so git commands there (log, blame, diff, even stash or reset) never touch the real project. " if rec.get("git") == "clone" else "")
+                   + ("It is its own git repository: one commit holding the project's last commit, with no history or authors (you review the code, not who wrote it); git diff shows the uncommitted edits, and git commands there never touch the real project. " if rec.get("git") == "base" else "")
                    + f"Read and search files there. Start every Bash command with `cd {q} && `; commands that don't are refused. For git, use `git -C {q} <command>` on its own (Claude Code asks the user before a cd followed by git). "
                    f"Cite files by their path relative to the workspace, which is the same as in the project (src/app.js:12, never the full path). "
                    f"Put notes, probes and test scripts in {rec['notes']}; they are kept after you finish, and the copy is deleted. "

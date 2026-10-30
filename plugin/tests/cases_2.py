@@ -189,10 +189,12 @@ def _(d):
     assert list(led["findings"]) == [first] and "still there" in led["findings"][first]["history"][-1], led["findings"]
     run(S / "critic_ledger.py", "fp", first, "the rate is fixed by law here", cwd=d)
     t = review("pricing")
-    assert t["suppressed"] and not t["kept"], t["suppressed"]
+    assert not t["suppressed"] and t["kept"] and t["kept"][0]["ruling_like"]["ruling"] == first, (t["suppressed"], t["kept"])  # §5.56 item 14: another category on the same code is shown next to the ruling, never hidden by it
+    review("pricing")  # a later run: the pricing finding is no longer new
     write(d, "src/app.js", APP.replace(q, "const price = total * rate(region);"))
     run(S / "critic_ledger.py", "acted", cwd=d)
-    f = json.loads((d / ".critic/ledger.json").read_text())["findings"][first]
+    led = json.loads((d / ".critic/ledger.json").read_text())["findings"]
+    f = led.get(t["kept"][0]["id"]) or led[first]  # the pricing finding is its own entry now (never aliased onto a ruled false positive)
     assert "acted_on" not in f and f.get("acted_pending"), f
 
 @test("5.2.1 security scan F-76114fb3: a ledger the repository tracks can't hide a finding; its ruling is listed in counts.md instead")
@@ -422,7 +424,7 @@ def _(d):
     write(p, "src/a.py", "x = 2  # uncommitted edit\n"); write(p, ".critic/reviews/review-B.json", '[{"title": "SECRET-B"}]')
     out = run(H / "scratch_dir.py", cwd=p, stdin=json.dumps({"agent_type": "curmudgeon:curmudgeon-verifier", "agent_id": "v1", "cwd": str(p)})).stdout
     rec = json.loads((p / ".critic/scratch/v1/workspace.json").read_text()); ws = pathlib.Path(rec["payload"])
-    assert rec["git"] == "clone" and "own git repository" in out, (rec, out)
+    assert rec["git"] == "base" and "own git repository" in out, (rec, out)
     top = subprocess.run(["git", "rev-parse", "--show-toplevel"], cwd=ws, capture_output=True, text=True).stdout.strip()
     assert pathlib.Path(top).resolve() == ws.resolve(), "git in the copy must find the copy, not the project"
     assert subprocess.run(["git", "log", "--oneline", "--", "src/a.py"], cwd=ws, capture_output=True, text=True).stdout.strip(), "history works in the copy"
@@ -565,7 +567,7 @@ def _(d):
 def _(d):
     write(d, "index.html", "<!doctype html><title>x</title><p>x</p>")
     def scan(*extra):
-        run(S / "critic_scan.py", ".", "--root", ".", "--page", "http://staging.example.invalid/", *extra, cwd=d)
+        run_c(S / "critic_scan.py", ".", "--root", ".", "--page", "http://staging.example.invalid/", *extra, cwd=d)
         rep = json.loads((d / ".critic/scan/report.json").read_text())
         return [r["what"] for r in rep["findings"] if r["rule"] == "live-refused"]
     assert any("no .critic/scope.json" in w for w in scan()), "no scope file: refused"
@@ -574,7 +576,7 @@ def _(d):
     assert any("typed confirmation" in w for w in scan()), "listed but not confirmed this run: refused"
     assert any("typed confirmation" in w for w in scan("--allow-live", "other.example.invalid")), "the wrong host: refused"
     assert not scan("--allow-live", "staging.example.invalid"), "listed and confirmed: not refused"
-    run(S / "critic_scan.py", ".", "--root", ".", "--page", "http://evil.example.invalid/", "--allow-live", "evil.example.invalid", cwd=d)
+    run_c(S / "critic_scan.py", ".", "--root", ".", "--page", "http://evil.example.invalid/", "--allow-live", "evil.example.invalid", cwd=d)
     assert any("not a target" in r["what"] for r in json.loads((d / ".critic/scan/report.json").read_text())["findings"] if r["rule"] == "live-refused")
     for bad, why in [({"version": 1, "targets": [{"origin": "http://u:p@staging.example.invalid"}]}, "user name"), ({"version": 1, "targets": [{"origin": "http://staging.example.invalid/admin"}]}, "no path"),
                      ({"version": 1, "targets": [{"origin": "http://staging.example.invalid", "methods": ["POST"]}]}, "may not have"), ({"version": 1, "targets": [], "allow": "all"}, "may not have"),
@@ -582,7 +584,7 @@ def _(d):
         write(d, ".critic/scope.json", json.dumps(bad)); w = scan("--allow-live", "staging.example.invalid")
         assert any(why in x for x in w), (bad, w)
     (d / ".critic/scope.json").unlink(); write(d, "elsewhere.json", json.dumps({"version": 1, "targets": [{"origin": "http://staging.example.invalid"}]})); os.symlink(d / "elsewhere.json", d / ".critic/scope.json")
-    r = run(S / "critic_scan.py", ".", "--root", ".", "--page", "http://staging.example.invalid/", "--allow-live", "staging.example.invalid", cwd=d)
+    r = run_c(S / "critic_scan.py", ".", "--root", ".", "--page", "http://staging.example.invalid/", "--allow-live", "staging.example.invalid", cwd=d)
     assert r.returncode == 2 and "link" in r.stderr, "a linked scope file stops the scan: never read through a link"
     (d / ".critic/scope.json").unlink()
     run(S / "critic_scan.py", ".", "--root", ".", "--page", "index.html", cwd=d)
@@ -797,7 +799,7 @@ def _(d):
     out = run(B, "step", "click", "e4", "--session", "s/s.json", cwd=d).stdout; assert "POST" in out and "answered by the simulation" in out, out
     out = run(B, "step", "click", "e5", "--session", "s/s.json", cwd=d).stdout; assert "tracker.example.invalid/t?u=…" in out and "would have sent" in out, out
     r = run(B, "start", "http://shop.example.invalid/", "--session", "s/l.json", cwd=d); assert r.returncode == 2 and "scope.json" in r.stdout, r.stdout
-    out = run(B, "start", "site/index.html", "--session", "s/w.json", "--allow-writes", cwd=d).stdout
+    out = run_c(B, "start", "site/index.html", "--session", "s/w.json", "--allow-writes", cwd=d).stdout
     assert "[destructive: never clicked]" in out, "a session that sends data for real still refuses destructive controls: " + out
     r = run(B, "step", "click", "e3", "--session", "s/w.json", cwd=d); assert r.returncode == 2 and "never used" in r.stdout, r.stdout
     assert json.loads((d / "s/w.json").read_text())["steps"] == [], "a refused step is not recorded"
@@ -875,7 +877,7 @@ def _(d):
           "<button id=deleteBtn>Go</button><input type=checkbox id=purge aria-label=Option>"
           f"<button id=nx onclick=\"location='http://{other}/away'\">Next</button>")
     B = S / "browse.py"; ses = "s/s.json"
-    out = run(B, "start", "site/index.html", "--session", ses, "--allow-writes", cwd=d).stdout  # writes for real, so the destructive backstop is on (decision 29)
+    out = run_c(B, "start", "site/index.html", "--session", ses, "--allow-writes", cwd=d).stdout  # writes for real, so the destructive backstop is on (decision 29)
     assert "TOPSECRET" not in out and "leak.txt 404" in out, "a link out of the served folder is never served: " + out
     refs = {m.group(2): m.group(1) for m in re.finditer(r"(e\d+) \S+ \"([^\"]*)\"", out)}
     assert "[destructive" in out.split("\"Go\"")[1].split("\n")[0], "deleteBtn reads as destructive by its id: " + out
@@ -894,7 +896,7 @@ def _(d):
     r = run(B, "step", "click", "e1", "--session", "s/w.json", cwd=d)
     assert "DELETED" not in r.stdout and ("changed" in r.stdout or "destructive" in r.stdout), r.stdout
     write(d, "w/index.html", "<!doctype html><title>t</title><button onclick=\"fetch('/save',{method:'POST',body:'x'}).catch(()=>{})\">Save draft</button>")
-    run(B, "start", "w/index.html", "--session", "s/x.json", "--allow-writes", cwd=d); run(B, "step", "click", "e1", "--session", "s/x.json", cwd=d)
+    run_c(B, "start", "w/index.html", "--session", "s/x.json", "--allow-writes", cwd=d); run(B, "step", "click", "e1", "--session", "s/x.json", cwd=d)
     r = run(B, "step", "snapshot", "--session", "s/x.json", cwd=d); assert r.returncode == 2 and "send it again" in r.stdout, r.stdout
     sink.shutdown()
 

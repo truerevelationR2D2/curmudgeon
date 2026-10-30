@@ -17,7 +17,7 @@ can only find code. This guard holds the agent to it:
 
 What a role may read in the project's .critic/:
   reviewer  the rule files, the change map, its own scratch folder
-  verifier  the same, plus its verify packets, the scan and the ledger's recorded decisions
+  verifier  the same, plus its own verify packets (by path, at most one batch) and the ledger's recorded decisions; never the scan
   dedup     the rule files, dedup-candidates.json and groups.json
 
 The threat is an honest agent anchoring on what it happens to see. A same-user process set on evasion can always build
@@ -32,7 +32,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import workspace
 
 ALLOW = {"reviewer": {"rules", "rules.md", "change-map.md", "change-map.json", "risk-map.md", ".gitignore", "briefs"},  # a brief holds no findings, so reading one by path (a lead that passed the path, not the text) breaks no blindness
-         "verifier": {"rules", "rules.md", "change-map.md", "change-map.json", "risk-map.md", ".gitignore", "verify", "verify-variants", "scan", "decisions.md"},  # never ledger.md: it holds dismissal notes and memories
+         "verifier": {"rules", "rules.md", "change-map.md", "change-map.json", "risk-map.md", ".gitignore", "verify", "verify-variants", "decisions.md"},  # never ledger.md: it holds dismissal notes and memories; never the scan (03 §5.56 item 13)
          "dedup": {"rules", "rules.md", ".gitignore", "dedup-candidates.json", "groups.json"}}
 
 def role_of(agent_type):
@@ -51,7 +51,25 @@ def judge(target, critic, role, me):
     if top == "scratch":
         if len(parts) >= 2 and me and parts[1] == me.casefold(): return None
         return ".critic/scratch" + (f"/{parts[1]}" if len(parts) >= 2 else "")
+    if role == "verifier" and top in ("verify", "verify-variants"):  # 03 §5.56 item 13: its own packets, by path, and no more than one batch
+        if len(parts) != 2 or not parts[1].endswith(".json"): return f".critic/{top} (the folder): read only your packets, by the paths you were given"
+        if me and not packet_ok(critic, me, f"{top}/{parts[1]}"): return f".critic/{top}/{parts[1]}: more packets than one batch ({PACKETS}); judge only the ones you were given"
+        return None
     return None if top in ALLOW[role] else f".critic/{top}"
+
+PACKETS = 5  # critic_run.py's VERIFY_BATCH: a verifier is given at most this many packets
+
+def packet_ok(critic, me, rel):
+    """Record the packets this verifier opens, in its own scratch folder; the sixth distinct one is refused."""
+    f = pathlib.Path(critic) / "scratch" / me / "packets-opened.json"
+    try: seen = json.loads(f.read_text()) if f.is_file() and not f.is_symlink() else []
+    except (OSError, ValueError): seen = []
+    if rel in seen: return True
+    if len(seen) >= PACKETS: return False
+    try:
+        if not f.is_symlink(): f.parent.mkdir(parents=True, exist_ok=True); f.write_text(json.dumps(seen + [rel]))
+    except OSError: pass
+    return True
 
 def above(base, inner):
     """True when a search rooted at base would reach inner (base is inner itself or a folder above it)."""
@@ -102,12 +120,37 @@ def bash_problem(cmd, rec, root, critic, role, me):
     LEAD = {"builtin", "command", "time", "eval", "exec", "nohup", "env", "if", "while", "until", "!", "then", "do", "else", "elif", "sudo"}  # a command still follows these
     pay = pathlib.Path(payload); ws_ = fold(payload); own = fold(pay.parent)
     inside = lambda q: fold(q) == ws_ or fold(q).startswith(ws_ + os.sep)
+    try: real_ws = fold(pay.resolve())
+    except (OSError, RuntimeError): real_ws = ws_
+    NET = {"curl", "wget", "nc", "ncat", "netcat", "ssh", "scp", "sftp", "rsync", "telnet", "ftp", "socat"}
+    WRITERS = {"rm", "rmdir", "mv", "cp", "touch", "tee", "truncate", "ln", "chmod", "chown", "dd", "install", "mkdir"}
+    def tripwire(name, args):
+        """03 §5.56 items 11 and 16, a tripwire (not a sandbox: PRIVACY.md says the boundary is the user's permission
+        mode): reviewers and verifiers send nothing over the network and install nothing, from their copy."""
+        n = name.rsplit("/", 1)[-1]
+        for k, a in enumerate(args[:-1]):
+            if a.endswith("critic_ledger.py") and args[k + 1] in ("consent", "approve"): return f"critic_ledger.py {args[k + 1]}: only the owner gives consent or approves a file, through the lead"
+        if n in NET: return f"a network command ({n}): reviewers and verifiers work offline in their copy"
+        if n == "git" and args[:1] and args[0] in ("fetch", "pull", "push", "clone", "ls-remote", "remote", "submodule"): return f"git {args[0]} (it reaches the network): review the copy as it is"
+        if n in ("npm", "pnpm", "yarn", "bun") and args[:1] and args[0] in ("install", "i", "ci", "add", "update", "upgrade", "uninstall", "remove", "rm", "link", "publish"): return f"{n} {args[0]}: it would change the dependencies (linked to the real project) or reach the network"
+        if n in ("pip", "pip3", "uv", "poetry", "pipx") and any(a in ("install", "uninstall", "add", "sync", "remove") for a in args[:2]): return f"{n} install: it would change the environment (linked to the real project) or reach the network"
+        if n.startswith("python") and "-m" in args and any(a in ("pip", "ensurepip", "venv") for a in args[args.index("-m") + 1:args.index("-m") + 2]): return "python -m pip: it would change the environment or reach the network"
+        if (n.startswith("python") or n in ("node", "deno", "ruby", "perl", "php")) and any(re.search(r"\b(?:socket|urllib|http\.client|requests|httpx|aiohttp|fetch\(|net\.|https?\.(?:get|request)|XMLHttpRequest|LWP|Net::HTTP)", a) for a in args): return f"{n} with network code: reviewers and verifiers work offline"
+        return None
+    def through_link(piece, c):
+        """A path inside the copy by its words that leads outside it through a link (node_modules, .venv): a write
+        there changes the real project (03 §5.56 item 11)."""
+        q = pathlib.Path(os.path.expanduser(piece)); q = q if q.is_absolute() else c / q
+        if not inside(pathlib.Path(os.path.normpath(str(q)))): return False
+        try: r = fold(q.resolve())
+        except (OSError, RuntimeError): return False
+        return r != real_ws and not r.startswith(real_ws + os.sep)
     def walk(words, cands):
         """Judge the words (§5.56 rounds 1-2). A shell's folder can't be known for sure from the text (a cd in a
         subshell, a cd that fails, a cd spelled some way not listed here), so every path is judged from every folder
         the shell might be in: the copy, and every cd destination named so far. A cd may move within the copy, never
         out of it; a path that leads above the copy (to the agent's own scratch folder or higher) is refused."""
-        cmd_pos = True
+        cmd_pos = True; cmd = None
         sure = not any(x in ("(", ")", "|", "|&", "||", "&") or "$(" in x or "`" in x for x in words)  # no subshell or pipe: a cd joined by && really happened if the command goes on
         skip = None
         for i, w in enumerate(words):
@@ -117,6 +160,16 @@ def bash_problem(cmd, rec, root, critic, role, me):
                 why, cands = walk(split(w), cands)  # bash -c / -lc / -ec "...", eval "...": the inner commands, the same way
                 if why: return why, cands
             if (cmd_pos or w != bare) and bare in ("popd", "dirs"): return "a way back to the project folder (popd, dirs)", cands
+            if cmd_pos and bare not in LEAD and w not in SEP and not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*=.*", w):
+                cmd = bare; rest_args = []
+                for x in words[i + 1:]:
+                    if x in SEP: break
+                    rest_args.append(x)
+                why = tripwire(bare, rest_args)
+                if why: return why, cands
+            if (cmd in WRITERS or (i >= 1 and words[i - 1] in (">", ">>", "&>", "1>", "2>")) or (cmd == "sed" and "-i" in words[max(0, i - 6):i])) and i != skip \
+               and any(through_link(p_, c) for p_ in re.split(r"[=:,]", w) if p_ and not p_.startswith("-") for c in cands):
+                return f"{w}: a write through a link (node_modules, .venv) changes the real project; write in your notes folder instead", cands
             if (cmd_pos or w != bare) and bare in ("cd", "pushd", "chdir"):
                 args = []
                 for x in words[i + 1:i + 4]:

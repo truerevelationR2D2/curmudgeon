@@ -19,6 +19,11 @@ usage (run from the project root, or set CRITIC_ROOT):
   memories [--retire N]                  list learned memories (retire one by number)
   examples                               print up to 5 recent false positives as few-shot examples for reviewers
   acted                                  for findings open last run: check whether the quoted code is gone (acted on)
+  consent live HOST | consent writes     the owner's consent for this run (after they typed the host or said yes):
+                                         browse.py and the scan's live checks refuse without it (03 §5.56 item 12)
+  approve rules.md|scope.json [--show]   the owner approves that exact file (it shows the commands, test command,
+                                         Not findings or live targets first; --show only shows). Project commands
+                                         run, and a file git tracks is used, only while it matches (03 §5.56 item 9)
   decision "text" [SOURCE] | override "what" "who" "why"   recorded choices; overrides can't be by "author"
   score NAME VALUE MAX | cost SECONDS [NOTE] | tokens [--all] | integrity | fresh [ID...]   (fresh: findings whose code changed since the review; tokens: what each agent role cost this run; integrity: outputs edited since the last apply)
   stamp [--add] PATH... | stale | round [--reset]   (--add keeps earlier stamps: use it for /curmudgeon:fix iterate)
@@ -290,7 +295,8 @@ def main(a):
             imp = RANK.get(str(r.get("impact", "Medium")).title(), 2)
             if fid not in L["findings"]:  # the same code under another category is the same finding: keep its history
                 same = by_fp2.get(fp2_(r) or "")
-                if same and imp >= RANK.get(L["findings"][same].get("score"), 2): L.setdefault("aliases", {})[fid] = same; fid = same  # never alias across a rise in impact: a new Critical on a dismissed Low's line is new
+                fp_ids = {x.get("id") for x in L.get("false_positives", [])}
+                if same and same not in fp_ids and imp >= RANK.get(L["findings"][same].get("score"), 2): L.setdefault("aliases", {})[fid] = same; fid = same  # never alias across a rise in impact: a new Critical on a dismissed Low's line is new; never onto a finding the owner ruled false (an alias would make that ruling hide this one, 03 §5.56 item 14)
             seen_now.add(fid)
             ex = L["findings"].get(fid)
             if ex is None and L["round"] >= 3 and r.get("confidence") != "confirmed":
@@ -466,6 +472,44 @@ def main(a):
             msg = "stop checks off, and the while-you-work scan"
         else: die("gate on|async|off")
         print(msg); return 0
+    elif cmd == "approve":  # 03 §5.56 item 9: the owner approves the exact rules.md or scope.json (run only after they said yes to what it shows)
+        need(rest, 1, "approve rules.md|scope.json [--show]")
+        import critic_findings as cf_
+        which = rest[0]
+        if which not in cf_.APPROVABLE: die(f"approve takes one of: {', '.join(cf_.APPROVABLE)}")
+        p = D / which
+        if not p.is_file() or p.is_symlink(): die(f".critic/{which} is missing, or a link")
+        text = p.read_text(encoding="utf-8", errors="replace")
+        print(f".critic/{which} ({'tracked by git' if cf_.git_tracked(ROOT, '.critic/' + which) else 'not tracked'}), sha256 {cf_._sha(p)[:16]}:")
+        if which == "rules.md":
+            cmds = re.findall(r"(?m)^\s*-\s*([\w .-]+?)\s*:\s*`?(.+?)`?\s*$", text.split("## Scripted checks", 1)[1].split("\n## ", 1)[0]) if "## Scripted checks" in text else []
+            tc = re.search(r"(?im)^\s*test command\s*:\s*(.+)$", text)
+            nf = text.split("## Not findings", 1)[1].split("\n## ", 1)[0].strip().splitlines() if "## Not findings" in text else []
+            print("  commands it runs with --project-checks: " + ("; ".join(f"{n}: {c}" for n, c in cmds[:10]) or "none"))
+            print("  test command: " + (tc.group(1).strip() if tc else "none"))
+            print("  'Not findings' (reviewers are told to skip these): " + ("; ".join(x.lstrip("- ").strip() for x in nf if x.strip())[:600] or "none"))
+        else:
+            print("  live targets it allows: " + ", ".join(str(t.get("origin") or t.get("url") or t) for t in (json.loads(text).get("targets") or []))[:600] if text.strip().startswith("{") else "  (not JSON)")
+        if "--show" in rest: return 0
+        a = D / "private" / "approved.json"
+        if a.is_symlink(): die(".critic/private/approved.json is a link; refusing")
+        a.parent.mkdir(parents=True, exist_ok=True)
+        try: cur = json.loads(a.read_text()) if a.is_file() else {}
+        except ValueError: cur = {}
+        cur[which] = cf_._sha(p); a.write_text(json.dumps(cur, indent=1) + "\n"); os.chmod(a, 0o600)
+        msg = f"approved .critic/{which} as it is now (any change needs approving again)"
+    elif cmd == "consent":  # 03 §5.56 item 12: run by the lead only after the owner said yes (live: they typed the host)
+        need(rest, 1, "consent live HOST | consent writes")
+        c = D / "private" / "consent.json"
+        if c.is_symlink(): die(".critic/private/consent.json is a link; refusing")
+        try: cur = json.loads(c.read_text()) if c.is_file() else {}
+        except ValueError: cur = {}
+        if cur.get("run") != L.get("run") or cur.get("started_at") != L.get("started_at"): cur = {}  # a new run starts with no consent
+        cur.update(run=L.get("run"), started_at=L.get("started_at"))
+        if rest[0] == "writes": cur["writes"] = True; msg = "recorded the owner's consent to send writes to their own loopback server, for this run"
+        elif rest[0] == "live" and len(rest) > 1 and re.fullmatch(r"[A-Za-z0-9.-]+", rest[1]): cur["live"] = sorted(set(cur.get("live") or []) | {rest[1].lower()}); msg = f"recorded the owner's consent to load {rest[1].lower()}, for this run"
+        else: die("consent live HOST | consent writes")
+        c.parent.mkdir(parents=True, exist_ok=True); c.write_text(json.dumps(cur, indent=1) + "\n"); os.chmod(c, 0o600)
     elif cmd == "decision":
         need(rest, 1, "decision \"text\" [SOURCE]"); L["decisions"].append({"text": rest[0], "source": rest[1] if len(rest) > 1 else ""})
     elif cmd == "override":

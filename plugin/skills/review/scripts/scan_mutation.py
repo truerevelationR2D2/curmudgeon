@@ -104,7 +104,8 @@ def rules_test_cmd(root):
 def test_cmd(root, given, allow_rules=False):
     """--test-cmd always wins. The rules.md command is used only when the user approved rules.md (--project-checks)."""
     if given: return given
-    return rules_test_cmd(root) if allow_rules else None
+    from critic_findings import approved_state
+    return rules_test_cmd(root) if allow_rules and approved_state(root, "rules.md") else None  # only from the rules.md the owner approved (03 §5.56 item 9)
 
 BACKUP_SUFFIX = ".critic-mutation-backup"
 _pending = []

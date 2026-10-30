@@ -15,6 +15,15 @@ def run(script, *a, cwd, stdin=None, env=None):
     e = dict(os.environ, CRITIC_ROOT=str(cwd), TMPDIR=TMP, CURMUDGEON_FEED_DIR=os.path.join(TMP, "no-feed"), CURMUDGEON_STATE_DIR=os.path.join(TMP, "state")); e.update(env or {})  # a user's own feed or state never changes a test
     return subprocess.run([sys.executable, str(script), *a], cwd=cwd, capture_output=True, text=True, input=stdin, env=e, timeout=300)
 
+def run_c(script, *a, cwd, **k):
+    """run(), after recording the owner's consent for the flags the run carries (03 §5.56 item 12): a test stands in
+    for the owner who said yes."""
+    if "--allow-writes" in a or "--allow-live" in a:
+        if not (pathlib.Path(cwd) / ".critic/ledger.json").exists(): run(S / "critic_ledger.py", "start", "review", cwd=cwd)
+        if "--allow-writes" in a: run(S / "critic_ledger.py", "consent", "writes", cwd=cwd)
+        if "--allow-live" in a: run(S / "critic_ledger.py", "consent", "live", a[a.index("--allow-live") + 1], cwd=cwd)
+    return run(script, *a, cwd=cwd, **k)
+
 ONLY = os.environ.get("CRITIC_TEST_ONLY", "")  # run only the tests whose name contains this text
 
 class Skip(Exception):

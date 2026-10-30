@@ -118,8 +118,18 @@ def suppressed_by_ledger(f, L):
         old = (L.get("findings") or {}).get(xid) or {}
         if old.get("score") and IMP_RANK.get(str(f.get("impact", "")).title(), 2) < IMP_RANK.get(old["score"], 2): continue  # never hide a finding more serious than the one ruled on
         if xid in (f.get("id"), alias): return f"known false positive (owner's ruling on this exact finding): {x.get('why', '')}"
-        if mine and mine == fingerprint2({"file": str(old.get("where", "")).rsplit(":", 1)[0], "quote": old.get("quote")}):  # the same code filed under another category
-            return f"known false positive (owner's ruling on this exact code, {xid}): {x.get('why', '')}"
+    return None
+
+def ruling_like(f, L):
+    """An owner's false-positive ruling on the same quoted code under another category: shown next to the finding,
+    never hiding it (03 §5.56 item 14: an XSS ruling once hid a performance finding on the same line)."""
+    from critic_findings import fingerprint2
+    mine = fingerprint2(f)
+    if not mine: return None
+    for x in L.get("false_positives", []):
+        old = (L.get("findings") or {}).get(x.get("id")) or {}
+        if x.get("id") and mine == fingerprint2({"file": str(old.get("where", "")).rsplit(":", 1)[0], "quote": old.get("quote")}):
+            return {"ruling": x.get("id"), "why": str(x.get("why", ""))[:200]}
     return None
 
 def memory_note(f, L):
@@ -236,6 +246,14 @@ def tally(paths):
                  and pathlib.Path(p).stat().st_mtime < started - 2]
         if stale: die(f"refusing to count {', '.join(stale)}: written before this run started, so it is from an earlier run. Remove it, or have a fresh reviewer write it again")
     reviews = [load_review(p) for p in paths]
+    blind = set()  # 03 §5.56 item 15: reviews whose agent the stop hook saw working in its private copy
+    for st_ in (D / "scratch").glob("*/stop.json") if (D / "scratch").is_dir() else []:
+        try:
+            j_ = json.loads(st_.read_text())
+            if j_.get("workspace") and (not started or float(j_.get("at") or 0) >= started - 2): blind.add(j_.get("review"))
+        except (OSError, ValueError, AttributeError, TypeError): pass
+    unproven = [pathlib.Path(p).name for p in paths if pathlib.Path(p).resolve().parent == (D / "reviews").resolve() and pathlib.Path(p).name not in blind]
+    if unproven: degraded.append(f"blindness not shown for {', '.join(unproven)} (no record that its agent worked in a private copy: the hooks may not have run)")
     coverage = {"read": set(), "not_reached": set()}  # files the reviewers say they read, and the ones they didn't reach (SC-46)
     sandbox = []  # sandbox scenario lines: numbered SB1, SB2 ... here, so the teardown's SANDBOX LEDGER has a source (SC: self-review D C6)
     set_aside = []  # candidates a reviewer dropped, with the guard it relied on: logged so the eval can measure self-filtering, never counted
@@ -297,6 +315,8 @@ def tally(paths):
             if s_ and ledger_committed():  # a ledger the repository ships could be anyone's: its rulings are shown, never applied
                 out["ruling_committed"].append({"finding": f, "why": s_}); s_ = None
             if s_: out["suppressed"].append({"finding": f, "why": s_}); continue
+            rl = ruling_like(f, L) if not ledger_committed() else None
+            if rl: f["ruling_like"] = rl
             if f["impact"] == NIT:  # SC-79: listed under Nits, never counted, never voted on, never verified
                 if not any(similar(f, x) for x in out["nits"]): out["nits"].append(f)
                 continue
@@ -582,6 +602,10 @@ def apply(paths):
         md += ["", "## Not hidden: rulings from a ledger the repository tracks (.critic/ledger.json is committed, so its rulings could be anyone's; these findings stay in the counts above)"]
         md += [f"- {r['finding'].get('id')} {r['finding'].get('file')}:{r['finding'].get('line', '')} {r['finding'].get('title')}: {r['why']}" for r in T["ruling_committed"]]
         md += ["To apply your own rulings, stop tracking the ledger (your copy stays): git rm --cached .critic/ledger.json"]
+    alike = [f for f in final if f.get("ruling_like")]
+    if alike:
+        md += ["", "## Same code as a finding you ruled a false positive (still counted above; your ruling covered another kind of finding)"]
+        md += [f"- {f['id']} {f['impact']} {f['file']}:{f.get('line', '')} {f['title']}: like your ruling on {f['ruling_like']['ruling']} ({f['ruling_like']['why']}). Rule on this one with critic_ledger.py fp {f['id']} \"<why>\" if it is wrong too." for f in alike]
     looks = [f for f in final if f.get("memory_note")]
     if looks:
         md += ["", "## Looks like your past dismissals (still counted above; nothing is hidden)"]
