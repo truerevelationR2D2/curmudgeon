@@ -250,7 +250,7 @@ def tally(paths):
             j_ = json.loads(st_.read_text())
             if j_.get("workspace") and (not started or float(j_.get("at") or 0) >= started - 2): blind.add(j_.get("review"))
         except (OSError, ValueError, AttributeError, TypeError): pass
-    unproven = [pathlib.Path(p).name for p in paths if pathlib.Path(p).resolve().parent == (D / "reviews").resolve() and pathlib.Path(p).name not in blind]
+    unproven = [pathlib.Path(p).name for p in paths if pathlib.Path(p).name not in blind]  # wherever the file is: a review from outside .critic/reviews/ came from no hooked reviewer
     if unproven: degraded.append(f"blindness not shown for {', '.join(unproven)} (no record that its agent worked in a private copy: the hooks may not have run)")
     coverage = {"read": set(), "not_reached": set()}  # files the reviewers say they read, and the ones they didn't reach (SC-46)
     sandbox = []  # sandbox scenario lines: numbered SB1, SB2 ... here, so the teardown's SANDBOX LEDGER has a source (SC: self-review D C6)

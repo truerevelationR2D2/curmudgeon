@@ -42,7 +42,7 @@ jobs:
   windows:
     # the security database's Windows-only paths, run for real (plugin/tests/windows_checks.py)
     runs-on: windows-latest
-    timeout-minutes: 15
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -54,6 +54,7 @@ jobs:
         # 03 §5.56 item 23: the hooks have never run in CI on Windows. This step reports every failure as an annotation
         # but doesn't fail the job until a run has shown which tests are Windows-specific; then it becomes required.
         continue-on-error: true
+        timeout-minutes: 25  # a step that runs out of time fails only itself (continue-on-error); the job's limit is above both steps, so the required check below still runs
         shell: bash
         run: |
           set +e; python plugin/tests/run_tests.py 2>&1 | tee tests.out; status=${PIPESTATUS[0]}

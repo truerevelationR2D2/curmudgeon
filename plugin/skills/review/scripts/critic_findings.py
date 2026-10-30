@@ -297,8 +297,9 @@ def state_links(root):
                     for nm in ds + fs:
                         q = pathlib.Path(dp) / nm
                         if q.is_symlink():
-                            t = os.path.realpath(q)
-                            if t != top and not t.startswith(top + os.sep): bad.append(str(q.relative_to(root)))
+                            t = os.path.realpath(q); proj = os.path.realpath(root); crit = os.path.realpath(d)
+                            dep = (t == proj or t.startswith(proj + os.sep)) and not (t == crit or t.startswith(crit + os.sep))  # a copy's node_modules link to the project's own (workspace.py): no script writes through it
+                            if t != top and not t.startswith(top + os.sep) and not dep: bad.append(str(q.relative_to(root)))
                     if len(bad) >= 5: break
             dirs[:] = []; continue
         dirs[:] = [x for x in dirs if not (here / x).is_symlink()]
@@ -548,12 +549,16 @@ def _sha(p):
     except OSError: return None
 
 def owner_state(root, kind):
-    """The owner's own record for this project, kept outside it in Curmudgeon's data folder (CURMUDGEON_STATE_DIR, else
-    CLAUDE_PLUGIN_DATA, else ~/.curmudgeon), one file per project path: a repository can't ship it, whatever it commits
-    (03 §5.56 batch 2 review: an approval kept in .critic/ could be committed along with the files it approved)."""
-    base = pathlib.Path(os.environ.get("CURMUDGEON_STATE_DIR") or os.environ.get("CLAUDE_PLUGIN_DATA") or pathlib.Path.home() / ".curmudgeon")
+    """The owner's own record for this project, kept outside it in ~/.curmudgeon (CURMUDGEON_STATE_DIR overrides), one
+    file per project path: a repository can't ship it, whatever it commits (03 §5.56 batch 2 review: an approval kept in
+    .critic/ could be committed along with the files it approved). Not CLAUDE_PLUGIN_DATA: the hooks may have it and
+    the lead's shell may not, and both must read the same record."""
+    base = owner_state_base()
     key = hashlib.sha256(str(pathlib.Path(root).resolve()).encode()).hexdigest()[:16]
     return base / kind / f"{key}.json"
+
+def owner_state_base():
+    return pathlib.Path(os.environ.get("CURMUDGEON_STATE_DIR") or pathlib.Path.home() / ".curmudgeon")
 
 def read_owner_state(root, kind):
     f = owner_state(root, kind)
@@ -585,7 +590,27 @@ def state_trusted(root, rel):
     downloaded zip) nothing tells the owner's file from a shipped one: either way it counts only once approved. An
     untracked file in a git work tree is the owner's own (03 §5.56 item 9)."""
     if approved_state(root, rel): return True
-    return is_git_work_tree(root) and not git_tracked(root, f".critic/{rel}")
+    return owner_untracked(root, rel)
+
+def owner_untracked(root, rel):
+    """True only when this project is a git work tree's top folder, .critic is a plain folder (not a link, not a
+    submodule), and git tracks nothing at .critic/<rel> under any spelling of its case (03 §5.56 batch 2 round 2: a zip
+    unpacked inside another repository, a submodule or tracked link at .critic, and .critic/Rules.md on a case-blind
+    disk each passed the old test)."""
+    r = pathlib.Path(root); c = r / ".critic"
+    if c.is_symlink() or not c.is_dir() or (c / ".git").exists(): return False
+    try:
+        top = subprocess.run(["git", "rev-parse", "--show-toplevel"], cwd=r, capture_output=True, text=True, timeout=5)
+        if top.returncode or os.path.normcase(os.path.realpath(top.stdout.strip())) != os.path.normcase(os.path.realpath(r)): return False
+        ls = subprocess.run(["git", "ls-files", "-z", "-s", "--", ".critic"], cwd=r, capture_output=True, text=True, timeout=10)
+        if ls.returncode: return False
+    except (OSError, subprocess.SubprocessError): return False
+    want = f".critic/{rel}".casefold()
+    for rec in ls.stdout.split("\0"):
+        if not rec: continue
+        meta, _, path = rec.partition("\t")
+        if path.casefold() in (want, ".critic") or meta.startswith("160000"): return False
+    return True
 
 def consent_given(root, kind, host=None):
     """True when the owner's consent for this run is on file (03 §5.56 item 12): kind "live" with the host they typed,

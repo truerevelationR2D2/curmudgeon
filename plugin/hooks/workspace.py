@@ -21,7 +21,7 @@ project's own files (never its .critic). A link the system won't let us make (Wi
 skipped and listed, never fatal.
 
 Git: the copy is its own repository with one anonymous commit holding the project's HEAD tree (no history, no
-authors, no messages: 03 §5.56 item 10; the objects are read through an alternates file, nothing copied). So `git diff`
+authors, no messages: 03 §5.56 item 10; only that tree's objects are copied in, with no link to the project's object store). So `git diff`
 and `git status` work in the copy and show the working-tree edits, and
 `git stash`, `reset` or `checkout` there can never touch the user's real work. When that can't be made, a `.git` file
 pointing nowhere stops git from walking up into the project's repository, and git simply reports no repository.

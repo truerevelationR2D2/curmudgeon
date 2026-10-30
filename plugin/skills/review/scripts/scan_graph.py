@@ -23,12 +23,9 @@ def read_rules(root):
     layers, forbid = {}, []
     p = root / ".critic" / "rules.md"
     if not p.exists(): return None, None
-    from critic_findings import state_trusted
+    from critic_findings import state_trusted, rules_sections
     if not state_trusted(root, "rules.md"): return None, None  # a rules.md that may have come with the code is not used until approved (03 §5.56 item 9)
-    sec = False
-    for line in p.read_text(encoding="utf-8", errors="replace").splitlines():
-        if line.startswith("## "): sec = line.strip().lower() == "## boundaries"; continue
-        if not sec: continue
+    for line in rules_sections(p.read_text(encoding="utf-8", errors="replace"), "Boundaries").splitlines():  # the parser approve shows the owner
         m = re.match(r"\s*layer\s+(\w+)\s*:\s*(.+)", line)
         if m: layers[m.group(1)] = m.group(2).split()
         m = re.match(r"\s*forbid\s*:\s*(\w+)\s*->\s*(\w+)", line)

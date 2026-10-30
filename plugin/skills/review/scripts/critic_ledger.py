@@ -480,7 +480,8 @@ def main(a):
         p = D / which
         if not p.is_file() or p.is_symlink(): die(f".critic/{which} is missing, or a link")
         raw = p.read_bytes(); text = raw.decode("utf-8", errors="replace"); sha = hl_.sha256(raw).hexdigest()  # what is shown is what is hashed
-        print(f".critic/{which} ({'tracked by git' if cf_.git_tracked(ROOT, '.critic/' + which) else 'not tracked'}), sha256 {sha[:16]}:")
+        print(f".critic/{which} ({'tracked by git' if cf_.git_tracked(ROOT, '.critic/' + which) else 'not tracked'}), sha256 {sha[:16]}. Approving it approves the whole file: reviewers are given all of it, so the owner reads all of it.")
+        print("----- the file -----\n" + text.rstrip("\n") + "\n----- end of the file -----\nWhat Curmudgeon itself does with it:")
         if which == "rules.md":  # the same parsers the scan, the mutation test and the brief use, so what is shown is what runs
             cmds = cf_.rules_commands(text); tc = cf_.rules_test_command(text)
             nf = [x.strip().lstrip("-*+ ").strip() for x in cf_.rules_sections(text, "Not findings").splitlines() if x.strip()]

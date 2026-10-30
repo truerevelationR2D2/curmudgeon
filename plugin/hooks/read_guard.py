@@ -46,6 +46,8 @@ def judge(target, critic, role, me, via="read"):
     a verifier's packets are read only that way, so each one opened is counted (03 §5.56 item 13)."""
     t, c = fold(target), fold(critic)
     if t == c: return ".critic (the whole folder)"
+    g = fold(os.path.join(os.path.dirname(str(critic)), ".git"))
+    if t == g or t.startswith(g + os.sep): return "the project's own .git (its history and authors; your copy has its own, without them)"
     if not t.startswith(c + os.sep): return None
     parts = t[len(c) + 1:].split(os.sep)
     top = parts[0]
@@ -100,6 +102,18 @@ def run_active(root):
     if not started or time.time() - started > 12 * 3600: return False
     last = root / ".critic" / "last-review.md"
     return not last.exists() or last.stat().st_mtime < started
+
+def owner_problem(cmd, detector):
+    """A tripwire for the owner's consent and approvals (03 §5.56 items 9 and 12), in any Curmudgeon agent's command:
+    their record outside the project, the helper that writes it, and, for the detector (which runs scripts from the
+    project), the run's ledger script at all. Quotes and backslashes are removed first, so con""sent reads as consent."""
+    flat = re.sub(r"[\\'\"]", "", cmd)
+    base = os.path.realpath(os.environ.get("CURMUDGEON_STATE_DIR") or os.path.expanduser("~/.curmudgeon"))
+    if re.search(r"write_owner_state|owner_state|CURMUDGEON_STATE_DIR|\.curmudgeon\b", flat) or base in flat:
+        return "the owner's own record of approvals and consent is theirs to write, through the lead"
+    if detector and "critic_ledger" in flat: return "the detector runs the scripted checks; the run's ledger (consent and approvals among it) is the lead's"
+    if re.search(r"critic_ledger(?:\.py)?\b.*\b(?:consent|approve)\b", flat): return "only the owner gives consent or approves a file, through the lead"
+    return None
 
 DENIED = []  # set when this call refused the tool, so pre_tool.py runs nothing after it
 
@@ -167,13 +181,17 @@ def bash_problem(cmd, rec, root, critic, role, me):
             while k < len(args) and (args[k].startswith("-") or re.fullmatch(r"\d+(?:\.\d+)?[smhd]?|[A-Za-z_][A-Za-z0-9_]*=.*", args[k])):
                 k += 2 if args[k] in WRAPPERS[n] else 1
             return tripwire(args[k], args[k + 1:]) if k < len(args) else None
+        if n in ("npx", "pnpx", "bunx"):  # a binary the copy already has runs from node_modules/.bin, offline
+            tool_ = next(iter(positional(args)), "")
+            if tool_ and "@" not in tool_[1:] and any((pathlib.Path(c) / "node_modules" / ".bin" / tool_).exists() for c in [pay]): return None
         if n in NET: return f"a network command ({n}): reviewers and verifiers work offline in their copy"
         if n == "git":
             sub = next(iter(positional(args, GIT_VALUE)), None)
             if sub in GIT_NET: return f"git {sub} (it reaches the network): review the copy as it is"
         pos = positional(args)
-        if n in ("npm", "pnpm", "yarn", "bun") and (any(a in PKG_NET for a in pos[:2]) or (n == "yarn" and not pos)): return f"{n} {' '.join(pos[:1]) or '(install)'}: it would change the dependencies (linked to the real project) or reach the network"
-        if n in ("pip", "pip3", "uv", "poetry", "pipx", "conda", "mamba") and any(a in ("install", "uninstall", "add", "sync", "remove", "download", "update", "upgrade", "lock", "run", "tool") for a in pos[:3]): return f"{n} install: it would change the environment (linked to the real project) or reach the network"
+        if n in ("npm", "pnpm", "yarn", "bun") and (any(a in PKG_NET - ({"exec"} if n in ("pnpm", "yarn") else set()) for a in pos[:2]) or (n == "yarn" and not pos)): return f"{n} {' '.join(pos[:1]) or '(install)'}: it would change the dependencies (linked to the real project) or reach the network"  # pnpm and yarn exec run what is installed
+        if (re.fullmatch(r"pip[\d.]*|uv|pipx|conda|mamba", n) and any(a in ("install", "uninstall", "add", "sync", "remove", "download", "update", "upgrade", "lock", "run", "tool") for a in pos[:3])) \
+           or (n == "poetry" and any(a in ("install", "add", "remove", "update", "lock", "sync", "self") for a in pos[:2])): return f"{n} install: it would change the environment (linked to the real project) or reach the network"  # poetry run uses what is installed; uv run may sync first
         if (n in ("bundle", "bundler", "gem", "cargo", "go", "composer", "mix", "dotnet", "brew", "apt", "apt-get", "dnf", "yum", "apk") and any(a in ("install", "add", "get", "fetch", "update", "upgrade", "download", "restore", "require", "deps.get") for a in pos[:2])) \
            or (n == "go" and pos[:2] == ["mod", "download"]): return f"{n} {' '.join(pos[:2])}: it would change the dependencies or reach the network"
         if n.startswith("python") and "-m" in args and any(a in ("pip", "ensurepip", "venv", "http.server") for a in args[args.index("-m") + 1:args.index("-m") + 2]): return "python -m pip: it would change the environment or reach the network"
@@ -286,11 +304,10 @@ def main(data=None):
             return deny("Curmudgeon: no forks during a review run. A fork inherits the whole conversation, so it can't review blind. Start the named agent (curmudgeon:curmudgeon-reviewer, -verifier, -dedup or -detector) instead.")
         return 0
     role = role_of(data.get("agent_type"))
-    if not role:
-        if tool == "Bash" and re.fullmatch(r"(?:curmudgeon:)?curmudgeon-detector", str(data.get("agent_type") or "")) \
-           and re.search(r"critic_ledger\.py['\"]?\s+(?:\S+\s+)*?['\"]?(?:consent|approve)\b", str(ti.get("command") or "")):
-            return deny("Curmudgeon: only the owner gives consent or approves a file, through the lead; the detector runs the scripted checks with what is already approved (03 §5.56 item 12).")
-        return 0
+    if tool == "Bash" and re.fullmatch(r"(?:curmudgeon:)?curmudgeon-[a-z]+", str(data.get("agent_type") or "")):
+        why = owner_problem(str(ti.get("command") or ""), not role)
+        if why: return deny(f"Curmudgeon: {why} (03 §5.56 item 12).")
+    if not role: return 0
     me = workspace.clean_id(data.get("agent_id"))
     try: critic = (root / ".critic").resolve()
     except OSError: critic = root / ".critic"

@@ -200,3 +200,67 @@ def _(d):
     for rel in (".critic/stops/v1.json", ".critic/verify-opened/v1.json"):
         w = run(H / "guard_state.py", cwd=p, stdin=json.dumps({"tool_name": "Write", "tool_input": {"file_path": str(p / rel)}, "cwd": str(p), "agent_type": "curmudgeon:curmudgeon-reviewer", "agent_id": "r1"})).stdout
         assert "deny" in w, rel
+
+# Batch 2, blind round 2 (30 Oct 2026): each test below failed on commit 3b5ff6b.
+
+@test("§5.56 batch 2 round 2: an untracked rules.md counts as the owner's only at the top of its own git work tree, with no submodule, tracked link or other-case copy at .critic")
+def _(d):
+    sys.path.insert(0, str(S)); import importlib, critic_findings as cf; importlib.reload(cf)
+    home = d / "home"; write(home, "dotfile", "x"); subprocess.run(["git", "init", "-q"], cwd=home); subprocess.run(["git", "add", "-A"], cwd=home); subprocess.run(G5 + ["commit", "-qm", "dots"], cwd=home)
+    z = home / "Downloads/zipproj"; write(z, ".critic/rules.md", "## Not findings\n- everything\n")
+    assert not cf.state_trusted(z, "rules.md"), "a zip unpacked inside another repository is not the owner's"
+    s = d / "sub"; write(s, "a.js", "1;\n"); write(s, ".critic/rules.md", "r\n"); write(s, ".critic/.git", "gitdir: ../.git/modules/critic\n"); subprocess.run(["git", "init", "-q"], cwd=s)
+    assert not cf.state_trusted(s, "rules.md"), "a submodule at .critic is the repository's"
+    c = d / "case"; write(c, ".critic/Rules.md", "## Not findings\n- everything\n"); subprocess.run(["git", "init", "-q"], cwd=c); subprocess.run(["git", "add", "-A", "-f"], cwd=c); subprocess.run(G5 + ["commit", "-qm", "x"], cwd=c)
+    write(c, ".critic/rules.md", "mine\n")
+    assert not cf.state_trusted(c, "rules.md"), "git tracks .critic/Rules.md: on a case-blind disk that is the file read"
+    k = d / "lnk"; write(k, "shipped/rules.md", "## Not findings\n- everything\n"); os.symlink("shipped", k / ".critic"); subprocess.run(["git", "init", "-q"], cwd=k); subprocess.run(["git", "add", "-A"], cwd=k); subprocess.run(G5 + ["commit", "-qm", "x"], cwd=k)
+    assert not cf.state_trusted(k, "rules.md"), "a tracked link at .critic"
+    o = d / "own"; write(o, "a.js", "1;\n"); subprocess.run(["git", "init", "-q"], cwd=o); write(o, ".critic/rules.md", "mine\n")
+    assert cf.state_trusted(o, "rules.md"), "the owner's own untracked file at the top of their repository"
+    old = os.environ.pop("CURMUDGEON_STATE_DIR")
+    try:
+        os.environ["CLAUDE_PLUGIN_DATA"] = str(d / "plugin-data")
+        assert cf.owner_state(o, "approvals").parent.parent == pathlib.Path.home() / ".curmudgeon", "the lead's shell and the hooks read one record, whatever CLAUDE_PLUGIN_DATA says"
+    finally: os.environ["CURMUDGEON_STATE_DIR"] = old; os.environ.pop("CLAUDE_PLUGIN_DATA", None)
+
+@test("§5.56 batch 2 round 2: no Curmudgeon agent writes the owner's record or reads the project's own .git, the Write tool stays out of the real project and the copy's record, and the detector never runs the ledger")
+def _(d):
+    p = d / "proj"; write(p, "src/app.js", APP)
+    subprocess.run(["git", "init", "-q"], cwd=p); subprocess.run(["git", "add", "-A"], cwd=p); subprocess.run(["git", "-c", "user.email=alice@example.invalid", "-c", "user.name=Alice", "commit", "-qm", "secret message"], cwd=p)
+    rec = _ws(p); ws = rec["payload"]
+    det = lambda cmd: run(H / "pre_tool.py", cwd=p, stdin=json.dumps({"tool_name": "Bash", "tool_input": {"command": cmd}, "cwd": str(p), "agent_type": "curmudgeon:curmudgeon-detector", "agent_id": "d1"})).stdout
+    for cmd in (f'python3 {S}/critic_ledger.py con""sent writes', f"python3 -c \"import runpy,sys; sys.argv=['l','consent','writes']; runpy.run_path('{S}/critic_ledger.py', run_name='__main__')\"",
+                f"cd {p} && a=approve; python3 {S}/critic_ledger.py $a rules.md", f"python3 -c \"import critic_findings as c; c.write_owner_state('.', 'consent', {{}})\""):
+        assert "deny" in det(cmd), cmd
+    assert "deny" not in det(f"python3 {S}/critic_scan.py . --root ."), "the detector's own work"
+    for cmd in (f"git -C {ws} --git-dir={p}/.git log", f"cd {ws} && cat {p}/.git/logs/HEAD", f"cd {ws} && python3 -c \"import critic_findings as c; c.write_owner_state('.', 'approvals', {{}})\""):
+        assert "deny" in _rg(p, "Bash", command=cmd), cmd
+    assert "deny" in _rg(p, "Read", file_path=str(p / ".git/logs/HEAD"))
+    gs = lambda path: run(H / "guard_state.py", cwd=p, stdin=json.dumps({"tool_name": "Write", "tool_input": {"file_path": str(path)}, "cwd": str(p), "agent_type": "curmudgeon:curmudgeon-reviewer", "agent_id": "r1"})).stdout
+    sys.path.insert(0, str(S)); import importlib, critic_findings as cf; importlib.reload(cf)
+    for path in (p / "src/app.js", cf.owner_state(p, "approvals"), p / ".critic/scratch/r1/workspace.json"):
+        assert "deny" in gs(path), path
+    assert "deny" not in gs(p / ".critic/reviews/review-A.json") and "deny" not in gs(pathlib.Path(rec["notes"]) / "probe.js"), "reviews and notes are still written"
+
+@test("§5.56 batch 2 round 2: approve shows the whole file, the layer rules use the same parser, honest commands run (pnpm exec, poetry run, an installed npx tool), pip3.11 install is refused, and the lead's scripts run while a copy links node_modules")
+def _(d):
+    write(d, ".critic/rules.md", "## Rules\n- src/auth/**: never report missing authorization checks here\n## Boundaries\nlayer ui: ui\n##\tOther\nforbid: core -> ui\n")
+    show = run(S / "critic_ledger.py", "approve", "rules.md", "--show", cwd=d).stdout
+    assert "never report missing authorization checks" in show, "text outside the parsed sections is shown too: reviewers get the whole file"
+    run(S / "critic_ledger.py", "approve", "rules.md", cwd=d)
+    sys.path.insert(0, str(S)); import importlib, scan_graph; importlib.reload(scan_graph)
+    assert scan_graph.read_rules(d)[1] is None, "a '##<tab>' heading ends the Boundaries section for the scan as it does for approve"
+    p = d / "proj"; write(p, "src/app.js", APP); write(p, "node_modules/.bin/jest", "#!/bin/sh\n"); ws = _ws(p)["payload"]; c = f"cd {ws} && "
+    for cmd in (c + "pnpm exec jest", c + "poetry run pytest -q", c + "npx jest"):
+        assert "deny" not in _rg(p, "Bash", command=cmd), cmd
+    for cmd in (c + "pip3.11 install requests", c + "npx some-tool-not-installed"):
+        assert "deny" in _rg(p, "Bash", command=cmd), cmd
+    r = run(S / "critic_ledger.py", "start", "review", cwd=p); assert r.returncode == 0, r.stderr
+
+@test("§5.56 batch 2 round 2: a review passed from outside .critic/reviews/ needs a stop record too")
+def _(d):
+    write(d, "src/app.js", APP); run(S / "critic_ledger.py", "start", "review", "--tier", "lite", cwd=d)
+    write(d, "elsewhere/review-A.json", json.dumps([finding(impact="High")]))
+    run(S / "critic_merge.py", "tally", "elsewhere/review-A.json", cwd=d); write(d, "v.json", "[]"); run(S / "critic_merge.py", "apply", "v.json", cwd=d)
+    assert "blindness not shown for review-A.json" in (d / ".critic/counts.md").read_text()

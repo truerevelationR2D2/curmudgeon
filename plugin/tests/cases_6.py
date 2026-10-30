@@ -15,11 +15,11 @@ def _(d):
     write(d, ".critic/ledger.json", json.dumps({"started_at": time.time()}))
     assert "deny" in ask("", tool="Agent", subagent_type="fork"), "the fork check still sees the main session's Agent calls"
 
-@test("§5.56 item 23: every design ruling the shipped code cites is in plugin/RULINGS.md, so a reviewer can look it up")
+@test("§5.56 item 23: every design ruling the plugin's code, tests and eval kit cite is in plugin/RULINGS.md, so a reviewer can look it up")
 def _(d):
     cited = set()
-    for f in HERE.rglob("*.py"):
-        if "tests" not in f.parts: cited |= set(re.findall(r"§(5\.\d+|2)\b", f.read_text(encoding="utf-8", errors="replace")))
+    for f in list(HERE.rglob("*.py")) + list((HERE.parent / "eval").glob("*.py")) + list((HERE.parent / "eval").glob("*.md")):
+        if f.name != "cases_6.py": cited |= set(re.findall(r"§(5\.\d+|2)\b", f.read_text(encoding="utf-8", errors="replace")))
     idx = (HERE / "RULINGS.md").read_text()
     missing = sorted(c for c in cited if not re.search(rf"^\| §{re.escape(c)}\b", idx, re.M))
     assert cited and not missing, missing
