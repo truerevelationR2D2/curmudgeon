@@ -1315,3 +1315,22 @@ def _(d):
     sys.path.insert(0, str(HERE.parent / "eval")); import importlib, deathmatch; importlib.reload(deathmatch)
     try: deathmatch.rerun(d); assert False, "rerun must stop"
     except SystemExit as e: assert "run.json" in str(e), e
+
+
+@test("§5.56 item 20: the new benchmark arms: plain Claude given the rubric names the plugin's references folder, and the quote-check arm scores only findings whose quote is at their line")
+def _(d):
+    sys.path.insert(0, str(HERE.parent / "eval")); import importlib, deathmatch; importlib.reload(deathmatch)
+    cfg = {a["id"]: a for a in json.loads((HERE.parent / "eval/deathmatch.json").read_text())["arms"]}
+    assert "{plugin}" in cfg["plain-claude-rubric"]["prompt"] and cfg["plain-claude-rubric"]["add_dirs"] == ["{plugin}/skills/review/references"] and cfg["plain-claude-quote"]["quote_check"] is True
+    w = d / "work"; write(w, "app.js", "function f(n) {\n  list.innerHTML = n.title;\n}\n")
+    td = d / "td"; td.mkdir()
+    good = {"file": "app.js", "line": 2, "quote": "list.innerHTML = n.title;", "title": "XSS", "failing_case": "a title with markup"}
+    bad = {"file": "app.js", "line": 2, "quote": "list.innerHTML = n.body;", "title": "invented", "failing_case": "x"}
+    (td / "output.md").write_text("Here:\n```json\n" + json.dumps([good, bad]) + "\n```\n")
+    deathmatch.PLUGIN = HERE
+    meta = deathmatch.quote_filter(td, w)
+    assert meta == {"quote_check": "kept 1 of 2", "quote_dropped": 1}, meta
+    kept = json.loads(re.search(r"```json\n(.*)```", (td / "output.md").read_text(), re.S).group(1))
+    assert [k["title"] for k in kept] == ["XSS"] and "invented" in (td / "output-raw.md").read_text()
+    (td / "output.md").write_text("no json at all")
+    assert "scored as given" in deathmatch.quote_filter(td, w)["quote_check"] and (td / "output.md").read_text() == "no json at all"

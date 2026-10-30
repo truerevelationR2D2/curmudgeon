@@ -191,7 +191,9 @@ def one_run(a, w, td, model):
         (td / "output.md").write_text(r.stdout); meta = {"exit": r.returncode}
         if r.returncode not in (0, 1): meta["error"] = f"exit {r.returncode}: {(r.stderr or '')[-200:]}"
         return meta
-    cmd = ["claude", "-p", a["prompt"], "--output-format", "json", "--allowedTools", ",".join(a.get("tools", ["Read", "Grep", "Glob"]))]
+    prompt = a["prompt"].replace("{plugin}", str(PLUGIN))  # an arm given part of Curmudgeon's material names it here (03 §5.56 item 20)
+    cmd = ["claude", "-p", prompt, "--output-format", "json", "--allowedTools", ",".join(a.get("tools", ["Read", "Grep", "Glob"]))]
+    for ad in a.get("add_dirs") or []: cmd += ["--add-dir", str(pathlib.Path(ad.replace("{plugin}", str(PLUGIN))).resolve())]  # read-only material outside the task folder
     if model: cmd += ["--model", model]
     if a.get("plugin"): cmd += ["--plugin-dir", str(PLUGIN)]
     for pd in a.get("plugin_dirs") or []:  # another plugin under test, kept outside this repository (its own licence); $VARS from the environment
@@ -204,10 +206,30 @@ def one_run(a, w, td, model):
     try:
         j = json.loads(r.stdout); u = j.get("usage") or {}
         (td / "output.md").write_text(str(j.get("result") or ""))
-        return {"total_cost_usd": j.get("total_cost_usd"), "tokens": sum(int(u.get(x) or 0) for x in ("input_tokens", "cache_creation_input_tokens", "cache_read_input_tokens", "output_tokens")),
+        qc = quote_filter(td, w) if a.get("quote_check") else {}
+        return {**qc, "total_cost_usd": j.get("total_cost_usd"), "tokens": sum(int(u.get(x) or 0) for x in ("input_tokens", "cache_creation_input_tokens", "cache_read_input_tokens", "output_tokens")),
                 "is_error": j.get("is_error"), "num_turns": j.get("num_turns"), "agents_launched": agents_launched(w),
                 **({"error_text": str(j.get("result") or j.get("subtype") or "")[-300:]} if j.get("is_error") else {})}  # so a usage limit can be told from a real failure
     except ValueError: return {"error": (r.stderr or r.stdout)[-500:] or f"no result (exit {r.returncode})"}
+
+def quote_filter(td, w):
+    """For an arm that is plain Claude plus Curmudgeon's quote check (03 §5.56 item 20): read the reply's JSON list of
+    findings, keep those whose quote is at their file:line by the plugin's own quote_check, and score only those. The
+    reply as given is kept in output-raw.md. A reply with no JSON list is scored as it is, and says so."""
+    raw = (td / "output.md").read_text(); (td / "output-raw.md").write_text(raw)
+    blocks = re.findall(r"```(?:json)?\s*\n(.*?)```", raw, re.S) or [raw]
+    rows = None
+    for b in reversed(blocks):
+        try:
+            v = json.loads(b.strip())
+            if isinstance(v, list): rows = v; break
+        except ValueError: continue
+    if rows is None: return {"quote_check": "no JSON list in the reply: scored as given"}
+    sys.path.insert(0, str(PLUGIN / "skills" / "review" / "scripts"))
+    import importlib, critic_findings; importlib.reload(critic_findings)
+    kept = [r for r in rows if isinstance(r, dict) and critic_findings.quote_check(r, w) is True]
+    (td / "output.md").write_text("```json\n" + json.dumps(kept, indent=1, ensure_ascii=False) + "\n```\n")
+    return {"quote_check": f"kept {len(kept)} of {len(rows)}", "quote_dropped": len(rows) - len(kept)}
 
 def agents_launched(work, root=None):
     """How many subagents a run started (Agent or Task tool calls in its transcript), so a reviewer that is meant to fan
