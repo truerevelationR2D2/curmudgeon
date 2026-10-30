@@ -798,6 +798,8 @@ def _(d):
     r = run(F, "update", cwd=d, env=env); assert r.returncode == 5 and "signed off" in r.stdout and not (d / DB).exists(), r.stdout
     assert {p.name for p in (d / "feed").iterdir()} <= {"feed.json", "feed-log.jsonl"}, "settings only in the plugin's data folder; the database goes where the user chose"
     r = run(F, "pick-folder", cwd=d, env=dict(env, DISPLAY="", WAYLAND_DISPLAY="")); assert r.returncode == 4 and r.stdout.startswith("NO_WINDOW"), r.stdout
+    for k in ("CI", "SSH_CONNECTION", "CURMUDGEON_NO_WINDOW"):  # macOS and Windows always have a dialog tool: with no one at the screen it would wait ten minutes
+        r = run(F, "pick-folder", cwd=d, env=dict(env, **{k: "1"})); assert r.returncode == 4 and r.stdout.startswith("NO_WINDOW") and "no one at the screen" in r.stdout, (k, r.stdout)
     rules = json.loads((S.parent / "references/feed-rules.json").read_text())
     assert {s["id"] for s in rules["sources"]} == {"osv-npm", "osv-pypi", "cisa-kev"} and rules["always"] == ["cisa-kev"] and rules["estimate"]["stop_over_signed_off"] == 1.25
 
