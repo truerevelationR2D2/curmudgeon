@@ -1,0 +1,36 @@
+{
+ "data": {
+  "on": "pull_request_target",
+  "jobs": {
+   "build": {
+    "if": "github.event.pull_request.head.repo.full_name != github.repository",
+    "runs-on": "ubuntu-latest",
+    "steps": [
+     {
+      "uses": "actions/checkout@v4",
+      "with": {
+       "ref": "${{ github.event.pull_request.head.sha }}"
+      }
+     },
+     {
+      "run": "echo \"Title: ${{ github.event.pull_request.title }}\""
+     },
+     {
+      "name": "quoted name",
+      "run": "make build"
+     },
+     {
+      "name": "keep",
+      "run": "trailing\n\n"
+     },
+     {
+      "uses": "harden-runner@v2",
+      "with": {
+       "allowed-endpoints": "api.github.com:443 pypi.org:443"
+      }
+     }
+    ]
+   }
+  }
+ }
+}

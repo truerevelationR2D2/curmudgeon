@@ -1,0 +1,72 @@
+{
+ "lens": "operations (SC-54)",
+ "fixture": "fixture10",
+ "clean": "fixture10-clean",
+ "area": "operations",
+ "planted": [
+  {
+   "id": "O1",
+   "rule": "ops-log-secret",
+   "where": "app/auth.py:7",
+   "why": "the password is logged"
+  },
+  {
+   "id": "O2",
+   "rule": "ops-log-secret",
+   "where": "app/auth.py:15",
+   "why": "the token is printed"
+  },
+  {
+   "id": "O3",
+   "rule": "ops-debug-on",
+   "where": "app/settings/production.py:1",
+   "why": "DEBUG on in production settings"
+  },
+  {
+   "id": "O4",
+   "rule": "ops-alert-no-runbook",
+   "where": "monitoring/alerts.yml:4",
+   "why": "an alert with no runbook"
+  },
+  {
+   "id": "O5",
+   "rule": "ops-runbook-missing",
+   "where": "monitoring/alerts.yml:11",
+   "why": "a runbook link to a file that doesn't exist"
+  },
+  {
+   "id": "O6",
+   "rule": "ops-log-secret",
+   "where": "web/client.js:3",
+   "why": "the API key is logged"
+  }
+ ],
+ "decoy_files": [
+  "app/report.py",
+  "app/settings/development.py",
+  "deploy/web.yaml"
+ ],
+ "decoys": [
+  {
+   "where": "app/report.py",
+   "why": "token_count and password_policy are not secrets; a secret-looking word inside a string; bool() of a value"
+  },
+  {
+   "where": "app/settings/development.py",
+   "why": "DEBUG on in development settings"
+  },
+  {
+   "where": "deploy/web.yaml",
+   "why": "a container with a probe and limits"
+  },
+  {
+   "where": "web/client.js:4",
+   "why": "apiKey tested with ? :, not logged (precision covers it)"
+  },
+  {
+   "where": "monitoring/alerts.yml (DiskFull, PaymentsDown)",
+   "why": "a runbook that exists, and a URL that is never fetched"
+  }
+ ],
+ "note": "Kubernetes probe and limit rows are pedantic."
+}
