@@ -1,0 +1,15 @@
+{
+  "name": "curmudgeon",
+  "owner": { "name": "Ryan", "url": "https://github.com/truerevelationR2D2" },
+  "metadata": { "description": "Curmudgeon: an evidence-first review plugin for Claude Code." },
+  "plugins": [
+    {
+      "name": "curmudgeon",
+      "source": "./plugin",
+      "description": "A grumpy, evidence-first reviewer: blind reviewers sized to the risk, script-counted votes, blind verification, measured false alarms, and a security scan.",
+      "version": "5.2.5",
+      "license": "MIT",
+      "category": "development"
+    }
+  ]
+}

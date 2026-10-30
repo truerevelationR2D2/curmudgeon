@@ -1,0 +1,108 @@
+{
+ "lens": "tests of the tests (SC-48)",
+ "fixture": "fixture5",
+ "clean": "fixture5-clean",
+ "area": "tests",
+ "planted": [
+  {
+   "id": "T1",
+   "rule": "test-no-assert",
+   "where": "tests/test_cart.py:6",
+   "why": "calls the code and checks nothing"
+  },
+  {
+   "id": "T2",
+   "rule": "test-const-assert",
+   "where": "tests/test_cart.py:11",
+   "why": "a tuple is always true"
+  },
+  {
+   "id": "T3",
+   "rule": "test-duplicate-name",
+   "where": "tests/test_cart.py:18",
+   "why": "the second test_discount replaces the first"
+  },
+  {
+   "id": "T4",
+   "rule": "test-swallowed-error",
+   "where": "tests/test_cart.py:25",
+   "why": "the AssertionError is caught and ignored"
+  },
+  {
+   "id": "T5",
+   "rule": "test-skip-no-reason",
+   "where": "tests/test_cart.py:30",
+   "why": "skipped with no reason"
+  },
+  {
+   "id": "T6",
+   "rule": "test-const-assert",
+   "where": "tests/test_cart.py:37",
+   "why": "assertTrue of a non-empty tuple is always true"
+  },
+  {
+   "id": "T7",
+   "rule": "test-swallowed-error",
+   "where": "tests/test_cart.py:42",
+   "why": "a bare except swallows the failed assertion"
+  }
+ ],
+ "decoys": [
+  {
+   "where": "tests/test_helpers_ok.py:13-14",
+   "why": "checks through a helper named assert_total"
+  },
+  {
+   "where": "tests/test_helpers_ok.py:17-19",
+   "why": "pytest.raises is the check"
+  },
+  {
+   "where": "tests/test_helpers_ok.py:22-29",
+   "why": "the same name in two classes is two tests"
+  },
+  {
+   "where": "tests/test_helpers_ok.py:32-37",
+   "why": "a specific error caught, then a real assert"
+  },
+  {
+   "where": "tests/test_helpers_ok.py:40-42",
+   "why": "skipped with a reason"
+  },
+  {
+   "where": "tests/test_helpers_ok.py:45-46",
+   "why": "assert x, 'msg' is the correct form"
+  },
+  {
+   "where": "tests/test_helpers_ok.py:49-52",
+   "why": "a mock's assert_called_once_with is the check"
+  },
+  {
+   "where": "tests/test_helpers_ok.py:55-59",
+   "why": "the broad catch fails the test with pytest.fail"
+  },
+  {
+   "where": "tests/test_helpers_ok.py:63-68",
+   "why": "unittest assertions and assertRaises"
+  },
+  {
+   "where": "tests/test_helpers_ok.py:71-73",
+   "why": "an explicit raise is the check"
+  },
+  {
+   "where": "tests/test_helpers_ok.py:76-78",
+   "why": "a tuple variable compared, not a tuple literal asserted"
+  },
+  {
+   "where": "tests/test_helpers_ok.py:81-83",
+   "why": "pytest.skip with a reason"
+  },
+  {
+   "where": "tests/test_helpers_ok.py:86-89",
+   "why": "a decorator factory named test returns a value: a helper, not a test"
+  }
+ ],
+ "decoy_files": [
+  "tests/test_helpers_ok.py"
+ ],
+ "note": "A decoy file must have no regular row from this lens anywhere in it; pedantic rows are counted apart. The clean twin must have no regular row from this lens at all."
+}

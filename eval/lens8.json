@@ -1,0 +1,70 @@
+{
+ "lens": "release and rollback (SC-53)",
+ "fixture": "fixture8",
+ "clean": "fixture8-clean",
+ "area": "release",
+ "planted": [
+  {
+   "id": "R1",
+   "rule": "mig-not-null-no-default",
+   "where": "db/migrations/0002_orders.sql:2",
+   "why": "NOT NULL with no default on an existing table"
+  },
+  {
+   "id": "R2",
+   "rule": "mig-index-blocking",
+   "where": "db/migrations/0002_orders.sql:4",
+   "why": "CREATE INDEX without CONCURRENTLY"
+  },
+  {
+   "id": "R3",
+   "rule": "mig-constraint-validate",
+   "where": "db/migrations/0002_orders.sql:6",
+   "why": "a foreign key added without NOT VALID"
+  },
+  {
+   "id": "R4",
+   "rule": "mig-index-blocking",
+   "where": "alembic/versions/3b1f_add_refunds.py:12",
+   "why": "op.execute CREATE INDEX on an existing table"
+  },
+  {
+   "id": "R5",
+   "rule": "mig-irreversible",
+   "where": "alembic/versions/3b1f_add_refunds.py:16",
+   "why": "downgrade() does nothing"
+  },
+  {
+   "id": "R6",
+   "rule": "mig-irreversible",
+   "where": "shop/migrations/0007_backfill.py:14",
+   "why": "RunPython with no reverse_code"
+  },
+  {
+   "id": "R7",
+   "rule": "mig-irreversible",
+   "where": "shop/migrations/0007_backfill.py:15",
+   "why": "RunSQL with no reverse_sql"
+  }
+ ],
+ "decoy_files": [
+  "db/migrations/0001_safe.sql",
+  "alembic/versions/2a0e_safe.py",
+  "shop/migrations/0006_safe.py"
+ ],
+ "decoys": [
+  {
+   "where": "db/migrations/0001_safe.sql",
+   "why": "an index on a table the same file creates; NOT NULL with a default; CONCURRENTLY; a nullable column; a CHECK added NOT VALID then validated; risky words inside a comment string"
+  },
+  {
+   "where": "alembic/versions/2a0e_safe.py",
+   "why": "an index on a table the same migration creates, and a real downgrade"
+  },
+  {
+   "where": "shop/migrations/0006_safe.py",
+   "why": "RunPython and RunSQL with noop reverses"
+  }
+ ],
+ "note": "DROP and RENAME are pedantic rows (counted apart)."
+}

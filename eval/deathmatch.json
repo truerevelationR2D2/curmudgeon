@@ -1,0 +1,269 @@
+{
+ "note": "The death match is a development benchmark (rulings §5.8, §5.20, §5.22). Every arm runs the same tasks on the same model and is scored by deathmatch.py.",
+ "arms": [
+  {
+   "id": "curmudgeon",
+   "plugin": true,
+   "prompt": "/curmudgeon:review deep . (review only; change no files)",
+   "tools": [
+    "Read",
+    "Grep",
+    "Glob",
+    "Agent",
+    "Task",
+    "Write",
+    "Edit",
+    "LSP",
+    "Bash(python3:*)",
+    "Bash(cd:*)",
+    "Bash(git -C:*)",
+    "Bash(git:*)"
+   ]
+  },
+  {
+   "id": "curmudgeon-lite",
+   "plugin": true,
+   "prompt": "/curmudgeon:review . (review only; change no files; use the lite tier: critic_run.py begin --tier lite)",
+   "tools": [
+    "Read",
+    "Grep",
+    "Glob",
+    "Agent",
+    "Task",
+    "Write",
+    "Edit",
+    "LSP",
+    "Bash(python3:*)",
+    "Bash(cd:*)",
+    "Bash(git -C:*)",
+    "Bash(git:*)"
+   ],
+   "note": "Curmudgeon's lite tier: one blind reviewer, with Critical and High findings verified (ruling §5.53)."
+  },
+  {
+   "id": "plain-claude",
+   "prompt": "Review the code in this folder for bugs. For each bug give the file:line, what is wrong, and a concrete input or sequence that makes it fail. Change no files.",
+   "tools": [
+    "Read",
+    "Grep",
+    "Glob"
+   ]
+  },
+  {
+   "id": "plain-claude-rubric",
+   "prompt": "Review the code in this folder for bugs. For each bug give the file:line, what is wrong, and a concrete input or sequence that makes it fail. Change no files. Before you start, read rubrics.md and sandbox.md in {plugin}/skills/review/references and use them as your checklist.",
+   "tools": [
+    "Read",
+    "Grep",
+    "Glob"
+   ],
+   "add_dirs": [
+    "{plugin}/skills/review/references"
+   ],
+   "note": "Plain Claude given Curmudgeon's rubric and sandbox scenarios, nothing else: separates the checklist's effect from the blind panel, voting and verification (ruling §5.56 item 20)."
+  },
+  {
+   "id": "plain-claude-quote",
+   "prompt": "Review the code in this folder for bugs. Change no files. Reply with only a JSON list, one object per bug: {\"file\": path, \"line\": number, \"quote\": the code at that line copied exactly, \"title\": what is wrong, \"failing_case\": a concrete input or sequence that makes it fail}.",
+   "tools": [
+    "Read",
+    "Grep",
+    "Glob"
+   ],
+   "quote_check": true,
+   "note": "Plain Claude whose findings must pass Curmudgeon's quote check before they are scored (ruling §5.56 item 20)."
+  },
+  {
+   "id": "code-review",
+   "prompt": "/code-review:code-review the change on this branch. There is no GitHub pull request: the change is `git diff main...HEAD` in this folder, so read it with git instead of gh, and print your final review comment here instead of posting it. Change no files.",
+   "tools": [
+    "Read",
+    "Grep",
+    "Glob",
+    "Agent",
+    "Task",
+    "Bash(git:*)"
+   ],
+   "plugin_enable": [
+    "code-review-anthropics@anthropic-plugin-directory"
+   ],
+   "pr": true,
+   "note": "Anthropic's official code-review plugin (code-review-anthropics in the Anthropic directory). It reviews GitHub pull requests; here the task is committed as a branch over an empty base, and the prompt says to read the local diff and print the comment."
+  },
+  {
+   "id": "code-review-best",
+   "prompt": "/code-review:code-review Treat this local change as the pull request to review. There is no GitHub pull request, so wherever your steps say to use gh, use git instead: the pull request's diff is `git diff main...HEAD` in this folder. For step 1: the pull request is open, is not a draft, needs review, and has no earlier Claude comment, so continue. Its title is \"Add the app\" and its description is \"Adds this application's code.\" Then follow steps 2 to 7 exactly as written, launching every agent each step names, and print the step 7 summary here. Post nothing. Change no files.",
+   "tools": [
+    "Read",
+    "Grep",
+    "Glob",
+    "Agent",
+    "Task",
+    "Bash(git:*)"
+   ],
+   "plugin_enable": [
+    "code-review-anthropics@anthropic-plugin-directory"
+   ],
+   "pr": true,
+   "note": "The code-review plugin's best effort (ruling §5.53): the same tools, with the pull-request facts its step 1 checks given in the prompt and an explicit instruction to run every step and launch every agent. Each run's agents_launched shows whether it did."
+  },
+  {
+   "id": "cc-code-review",
+   "prompt": "/code-review",
+   "tools": [
+    "Read",
+    "Grep",
+    "Glob",
+    "Agent",
+    "Task",
+    "Bash(git:*)"
+   ],
+   "note": "Claude Code's built-in /code-review command (no plugin). It reviews the working folder and replies with a JSON list of findings, which deathmatch.py reads like any other arm's."
+  },
+  {
+   "id": "semgrep",
+   "requires": "semgrep",
+   "command": "semgrep scan --metrics=off --disable-version-check --config \"$SEMGREP_RULES\" --json . | python3 \"$DM_EVAL/semgrep_md.py\"",
+   "note": "Only with local rules in $SEMGREP_RULES, never the registry (it would send data out). The 24 Oct 2026 run used Semgrep's own published javascript/ and html/ rules (semgrep/semgrep-rules, Semgrep Rules License v1.0), kept outside this repository."
+  },
+  {
+   "id": "orchestrator-rbenzing",
+   "plugin_dirs": [
+    "$DM_ORCH_RBENZING/plugins/orchestrator",
+    "$DM_ORCH_RBENZING/plugins/windows-dev-toolkit"
+   ],
+   "prompt": "Use the code-reviewer agent (orchestrator:code-reviewer) to review the code in this folder for defects, and print its review here: each defect with the file:line, what is wrong, and an input or sequence that makes it fail. Change no files.",
+   "tools": [
+    "Read",
+    "Grep",
+    "Glob",
+    "Agent",
+    "Task",
+    "Bash(git:*)"
+   ],
+   "note": "rbenzing/Orchestrator (Apache-2.0), a multi-agent build pipeline; its Code Reviewer agent is the part that reviews, so the arm calls it directly. Its scripts are PowerShell; the 27 Oct 2026 run had no PowerShell in the workspace, so any script step it tried failed. Clone it outside this repository and set DM_ORCH_RBENZING to the clone."
+  },
+  {
+   "id": "orchestrator-bvarvill",
+   "plugin_dirs": [
+    "$DM_ORCH_BVARVILL"
+   ],
+   "pr": true,
+   "prompt": "Use the reviewer agent (orchestrator-agent-plugin:reviewer) to review the change on this branch before merge. There is no GitHub pull request and no order file: the change is `git diff main...HEAD` in this folder, read it with git instead of gh, and the intent is a working app with no bugs. Print its review here, with each problem's file:line. Change no files.",
+   "tools": [
+    "Read",
+    "Grep",
+    "Glob",
+    "Agent",
+    "Task",
+    "Bash(git:*)"
+   ],
+   "note": "BVarvill/orchestrator-agent-plugin (MIT); its reviewer agent does the cold pre-merge review, so the arm calls it on the task committed as a branch. Clone it outside this repository and set DM_ORCH_BVARVILL to the clone."
+  },
+  {
+   "id": "orchestrator-rbenzing-pwsh",
+   "plugin_dirs": [
+    "$DM_ORCH_RBENZING/plugins/orchestrator",
+    "$DM_ORCH_RBENZING/plugins/windows-dev-toolkit"
+   ],
+   "prompt": "Use the code-reviewer agent (orchestrator:code-reviewer) to review the code in this folder for defects, and print its review here: each defect with the file:line, what is wrong, and an input or sequence that makes it fail. Change no files.",
+   "tools": [
+    "Read",
+    "Grep",
+    "Glob",
+    "Agent",
+    "Task",
+    "Bash(git:*)",
+    "Bash(pwsh:*)",
+    "Bash(powershell.exe:*)",
+    "Bash(powershell:*)"
+   ],
+   "note": "The same arm with PowerShell 7.5.4 installed in the workspace (pwsh, also linked as powershell.exe) and allowed for its scripts (27 Oct 2026, Ryan's yes). Its agents ask for a launch-process tool that the plugin does not define (an outside Windows tool), so they fall back to Bash."
+  }
+ ],
+ "tasks": [
+  {
+   "id": "suite1",
+   "fixture": "fixture",
+   "key": "answer_key.json"
+  },
+  {
+   "id": "suite1-clean",
+   "fixture": "fixture-clean",
+   "clean": true
+  },
+  {
+   "id": "suite2",
+   "fixture": "fixture2",
+   "key": "answer_key2.json"
+  },
+  {
+   "id": "suite2-clean",
+   "fixture": "fixture2-clean",
+   "clean": true
+  },
+  {
+   "id": "suite3",
+   "fixture": "fixture3",
+   "key": "answer_key3.json"
+  },
+  {
+   "id": "suite4",
+   "fixture": "fixture4",
+   "key": "answer_key4.json"
+  },
+  {
+   "id": "suite4-clean",
+   "fixture": "fixture4-clean",
+   "clean": true
+  },
+  {
+   "id": "lens5-clean",
+   "fixture": "fixture5-clean",
+   "clean": true,
+   "note": "a scripted lens's clean twin: nothing planted (ruling §5.53, a larger false-alarm sample)"
+  },
+  {
+   "id": "lens6-clean",
+   "fixture": "fixture6-clean",
+   "clean": true,
+   "note": "a scripted lens's clean twin: nothing planted (ruling §5.53, a larger false-alarm sample)"
+  },
+  {
+   "id": "lens7-clean",
+   "fixture": "fixture7-clean",
+   "clean": true,
+   "note": "a scripted lens's clean twin: nothing planted (ruling §5.53, a larger false-alarm sample)"
+  },
+  {
+   "id": "lens8-clean",
+   "fixture": "fixture8-clean",
+   "clean": true,
+   "note": "a scripted lens's clean twin: nothing planted (ruling §5.53, a larger false-alarm sample)"
+  },
+  {
+   "id": "lens9-clean",
+   "fixture": "fixture9-clean",
+   "clean": true,
+   "note": "a scripted lens's clean twin: nothing planted (ruling §5.53, a larger false-alarm sample)"
+  },
+  {
+   "id": "lens10-clean",
+   "fixture": "fixture10-clean",
+   "clean": true,
+   "note": "a scripted lens's clean twin: nothing planted (ruling §5.53, a larger false-alarm sample)"
+  },
+  {
+   "id": "lens11-clean",
+   "fixture": "fixture11-clean",
+   "clean": true,
+   "note": "a scripted lens's clean twin: nothing planted (ruling §5.53, a larger false-alarm sample)"
+  },
+  {
+   "id": "lens12-clean",
+   "fixture": "fixture12-clean",
+   "clean": true,
+   "note": "a scripted lens's clean twin: nothing planted (ruling §5.53, a larger false-alarm sample)"
+  }
+ ]
+}

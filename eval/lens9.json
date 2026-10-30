@@ -1,0 +1,40 @@
+{
+ "lens": "requirements and intent (SC-55)",
+ "fixture": "fixture9",
+ "clean": "fixture9-clean",
+ "area": "requirements",
+ "planted": [
+  {
+   "id": "Q1",
+   "rule": "req-undefined",
+   "where": "tests/test_cart.py:12",
+   "why": "cites REQ-33, which nobody defined (a typo for REQ-3)"
+  },
+  {
+   "id": "Q2",
+   "rule": "req-undefined",
+   "where": "tests/test_cart.py:16",
+   "why": "cites REQ-9, which was dropped: mentioned in prose, not defined"
+  },
+  {
+   "id": "Q3",
+   "rule": "req-untested",
+   "where": "docs/requirements.md:5",
+   "why": "REQ-3 has no test"
+  },
+  {
+   "id": "Q4",
+   "rule": "req-untested",
+   "where": "docs/requirements.md:9",
+   "why": "REQ-4 (in a table) has no test"
+  }
+ ],
+ "decoy_files": [],
+ "decoys": [
+  {
+   "where": "docs/requirements.md:11",
+   "why": "REQ-9 mentioned in a sentence is not a definition (precision covers it: a row there would be false)"
+  }
+ ],
+ "note": "The requirement-to-test table is written to .critic/scan/requirements.md."
+}
