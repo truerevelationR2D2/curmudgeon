@@ -476,6 +476,9 @@ def _(d):
     assert ": verify" in st and ids[1] in st and ids[0] not in st, "half the verdicts is not done: " + st
     write(d, ".critic/verdicts/2.json", json.dumps([{"id": ids[1], "verdict": "unclear", "reproduced": "no"}]))
     out = run(S / "critic_run.py", "next", cwd=d).stdout
+    assert "critic_variants.py find" in out and "9.json" not in out, out  # two likely Highs: the full tier's variant hunt comes first (ultimate audit Q07)
+    run(S / "critic_variants.py", "find", cwd=d)
+    out = run(S / "critic_run.py", "next", cwd=d).stdout
     assert "write the teardown" in out and "9.json" not in out, out
     run(S / "critic_ledger.py", "start", "review", "--tier", "full", cwd=d)
     assert not (d / ".critic/verdicts").exists() and list((d / ".critic/history").glob("run-*/verdicts/1.json")), "a new run starts with no verdicts; the old ones are archived"
