@@ -15,15 +15,14 @@ OWN_TOOLS_HIDDEN = [d for d in os.environ.get("PATH", "").split(os.pathsep) if d
 HERE = pathlib.Path(__file__).resolve().parent
 SCAN = HERE.parent / "plugin" / "skills" / "review" / "scripts" / "critic_scan.py"
 FIXTURES = ["fixture", "fixture-clean", "fixture2", "fixture2-clean", "fixture3", "fixture4", "fixture4-clean"]
-PLANT = ("__PLANTED_STRIPE_KEY__", "sk_" + "live_51HxQ2bOrderDeskSecretKey9f8e7d")
+sys.path.insert(0, str(HERE))
+import plant_keys  # the planted key, filled in on the copy (03 §5.56 item 19)
 
 def snapshot(name):
     with tempfile.TemporaryDirectory() as t:
         dst = pathlib.Path(t) / name
         shutil.copytree(HERE / name, dst, ignore=shutil.ignore_patterns(".critic"))
-        for p in dst.rglob("*.js"):
-            s = p.read_text(encoding="utf-8")
-            if PLANT[0] in s: p.write_text(s.replace(*PLANT), encoding="utf-8")
+        plant_keys.fill(dst)
         env = dict(os.environ, PYTHONDONTWRITEBYTECODE="1", PATH=os.pathsep.join(OWN_TOOLS_HIDDEN))  # the golden output can't depend on what this machine has installed
         subprocess.run([sys.executable, "-I", str(SCAN), ".", "--root", ".", "--no-project-rules"], cwd=dst, capture_output=True, timeout=300, env=env)
         rep = json.loads((dst / ".critic" / "scan" / "report.json").read_text())

@@ -25,6 +25,8 @@ Curmudgeon makes no network call unless you switch on one of these features:
 
 Each of these is described in the README, under "What it runs, reads and sends" and "Security scan".
 
+**Where the real boundary is.** Curmudgeon's reviewers and verifiers are Claude agents that can run commands in their private copy of your project. Curmudgeon refuses the obvious network and install commands for them (`curl`, `wget`, `ssh`, `git fetch`/`push`, `npm install`, `pip install`, and Python or Node code that opens a connection), and a live site or a write to your local server needs your consent recorded for that run. That is a tripwire, not a sandbox: a program determined to reach the network can find a way the check doesn't recognise. What actually limits any command is Claude Code's permission mode and the allow-list you set, so keep network commands on "ask" if that matters to you.
+
 ## Retention
 
 Curmudgeon keeps nothing anywhere but your computer. Files in `.critic/`, the restore copies, the security database and its settings stay until you delete them. Uninstalling the plugin removes its data folder (settings included) unless you choose to keep it; the database in the folder you picked is yours to delete.

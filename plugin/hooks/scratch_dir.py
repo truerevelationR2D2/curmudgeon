@@ -29,7 +29,7 @@ def main():
         if rec:
             q = shlex.quote(rec["payload"])
             msg = (f"Your workspace is {rec['payload']}: a private frozen copy of the project made for you (the project's .critic/ is left out). "
-                   + ("It is its own git repository sharing the project's history, so git commands there (log, blame, diff, even stash or reset) never touch the real project. " if rec.get("git") == "clone" else "")
+                   + ("It is its own git repository: one commit holding the project's last commit, with no history or authors (you review the code, not who wrote it); git diff shows the uncommitted edits, and git commands there never touch the real project. " if rec.get("git") == "base" else "")
                    + f"Read and search files there. Start every Bash command with `cd {q} && `; commands that don't are refused. For git, use `git -C {q} <command>` on its own (Claude Code asks the user before a cd followed by git). "
                    f"Cite files by their path relative to the workspace, which is the same as in the project (src/app.js:12, never the full path). "
                    f"Put notes, probes and test scripts in {rec['notes']}; they are kept after you finish, and the copy is deleted. "
@@ -39,6 +39,7 @@ def main():
             if rec.get("deps_not_linked"): msg += f" Dependency folders left out, so tests that need them won't run here: {', '.join(rec['deps_not_linked'][:5])}."
             if rec.get("nested"): msg += f" Copied as plain files, without their git history: {', '.join(rec['nested'][:10])}."
             if rec.get("links_skipped"): msg += f" Links the system wouldn't let us make were left out: {', '.join(rec['links_skipped'][:10])}."
+            if rec.get("git") == "empty": msg += " The copy is a git repository with no commits yet (the project has none), so git status shows every file as new."
             if rec.get("git") in ("stub", "stub-failed", "none"): msg += " Git history isn't available in the copy (git will say there is no repository); read the code as it is."
             if rec.get("skipped_large"): msg += f" Files over 5 MB were not copied: {', '.join(rec['skipped_large'][:10])}."
         else:

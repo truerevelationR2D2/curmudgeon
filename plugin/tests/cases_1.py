@@ -285,6 +285,8 @@ def _(d):
 def _(d):
     write(d, ".critic/rules.md", "## Scripted checks\n- marker: touch ran.txt\n"); write(d, "a.py", "x = 1\n")
     run(S / "critic_scan.py", ".", "--root", ".", cwd=d); assert not (d / "ran.txt").exists()
+    run(S / "critic_scan.py", ".", "--root", ".", "--project-checks", cwd=d); assert not (d / "ran.txt").exists(), "§5.56 item 9: not before the owner approved this rules.md"
+    run(S / "critic_ledger.py", "approve", "rules.md", cwd=d)
     run(S / "critic_scan.py", ".", "--root", ".", "--project-checks", cwd=d); assert (d / "ran.txt").exists()
 
 @test("round 2 N5: token, role and security code is the full tier")
@@ -832,8 +834,9 @@ def _(d):
     assert not marker.exists(), "the rules.md test command ran without consent"
     rep = json.loads((d / ".critic/scan/report.json").read_text())
     assert rep["checks"]["mutation"]["state"] == "blocked" and "--project-checks" in rep["checks"]["mutation"]["note"], rep["checks"]["mutation"]
+    run(S / "critic_ledger.py", "approve", "rules.md", cwd=d)  # §5.56 item 9: the owner approved this exact rules.md
     run(S / "critic_scan.py", ".", "--root", ".", "--mutate", "m.js", "--project-checks", cwd=d)
-    assert marker.exists(), "with --project-checks (the user approved rules.md) the command should run"
+    assert marker.exists(), "with --project-checks and the approved rules.md the command should run"
     marker.unlink(); write(d, ".critic/rules.md", "# Rules\n")
     run(S / "critic_scan.py", ".", "--root", ".", "--mutate", "m.js", "--test-cmd", f"touch {marker}", cwd=d)
     assert marker.exists(), "a command the user typed with --test-cmd should run"

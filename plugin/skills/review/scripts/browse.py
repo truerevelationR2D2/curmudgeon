@@ -382,6 +382,8 @@ def check(page, allow_live, allow_writes):
         if not ok: return False, None, why
     elif not pathlib.Path(page).is_file(): return False, None, f"{page} is not a file or an http(s) URL"
     if allow_writes and live: return False, None, "--allow-writes is for the page's own loopback server, never a live site"
+    from critic_findings import consent_given
+    if allow_writes and not consent_given(ROOT, "writes"): return False, None, "--allow-writes needs the owner's consent on file for this run: after they say yes, run critic_ledger.py consent writes"
     return True, live, ""
 
 def safe_web_hp(page):
@@ -395,13 +397,14 @@ def main(argv):
     a = ap.parse_args(argv)
     sp = pathlib.Path(a.session)
     if sp.is_symlink(): sys.exit("browse: the session file is a link; refusing")
-    try: import playwright  # noqa: F401
-    except ImportError: print("unavailable: Playwright is not installed (Curmudgeon never installs it); mark browser findings traced"); return 3
-    if a.cmd == "start":
+    if a.cmd == "start":  # permissions first (scope, typed host, the owner's consent): a refusal never depends on what is installed
         if not a.rest: sys.exit("browse: start PAGE --session FILE")
         page = a.rest[0]
         ok, live, why = check(page, a.allow_live, a.allow_writes)
         if not ok: print(f"refused: {why}"); return 2
+    try: import playwright  # noqa: F401
+    except ImportError: print("unavailable: Playwright is not installed (Curmudgeon never installs it); mark browser findings traced"); return 3
+    if a.cmd == "start":
         sess = {"page": page if re.match(r"^https?://", page) else str(pathlib.Path(page).resolve()), "steps": [], "allow_writes": a.allow_writes, "live_target": live,
                 "confirmed_host": a.allow_live, "requests_total": 0, "started": time.strftime("%Y-%m-%d %H:%M:%S")}
         sp.parent.mkdir(parents=True, exist_ok=True)

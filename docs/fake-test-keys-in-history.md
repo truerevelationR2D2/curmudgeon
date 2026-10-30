@@ -8,7 +8,7 @@ they were never valid with any provider.
 
 They were removed in the next commit, `1bc3d14` (4.0.1). Since then the tests build their fake credentials at run time
 from obviously fake parts (`EXAMPLE`), so no key-shaped text ships in the repository, and the eval kit's planted key is a
-placeholder filled in by `eval/plant_keys.py` after cloning.
+placeholder that the harnesses fill in on their own copies of the fixture (`eval/plant_keys.py`), so the repository never holds the key and the placeholder's name never reaches a reviewer.
 
 The old commit was left in place rather than rewriting history, because a rewrite would break every existing clone
 and the marketplace install path.

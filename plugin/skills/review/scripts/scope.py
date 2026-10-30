@@ -37,6 +37,9 @@ def load(root):
     or the reason the file was refused. No file gives ([], None)."""
     p = pathlib.Path(root) / ".critic" / "scope.json"
     if not p.exists() and not p.is_symlink(): return [], None
+    from critic_findings import state_trusted
+    if p.is_file() and not p.is_symlink() and not state_trusted(root, "scope.json"):
+        return [], "scope.json may have come with the code (git tracks it, or the folder isn't a git work tree): the owner approves it with critic_ledger.py approve scope.json (03 §5.56 item 9)"
     if p.is_symlink() or not p.is_file(): return [], "scope.json is a link or not a plain file; it is never read through a link"
     if p.stat().st_size > MAX_BYTES: return [], f"scope.json is over {MAX_BYTES // 1024} KB; a scope file is a short list"
     try: j = json.loads(p.read_text(encoding="utf-8"))
@@ -75,4 +78,7 @@ def decide(url, root, confirmed_host, is_local):
     if not t: return False, None, f"live URL refused: {o[1]} is not a target in .critic/scope.json"
     if (confirmed_host or "").strip().lower() != t["host"]:
         return False, None, f"live URL refused: this run needs the owner's typed confirmation, --allow-live {t['host']}"
+    from critic_findings import consent_given
+    if not consent_given(root, "live", t["host"]):  # 03 §5.56 item 12: the flag alone could be passed by any agent
+        return False, None, f"live URL refused: the owner's consent isn't on file for this run: after they type the host, run critic_ledger.py consent live {t['host']}"
     return True, t, ""

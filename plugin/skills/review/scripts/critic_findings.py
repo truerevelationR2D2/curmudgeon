@@ -297,8 +297,9 @@ def state_links(root):
                     for nm in ds + fs:
                         q = pathlib.Path(dp) / nm
                         if q.is_symlink():
-                            t = os.path.realpath(q)
-                            if t != top and not t.startswith(top + os.sep): bad.append(str(q.relative_to(root)))
+                            t = os.path.realpath(q); proj = os.path.realpath(root); crit = os.path.realpath(d)
+                            dep = (t == proj or t.startswith(proj + os.sep)) and not (t == crit or t.startswith(crit + os.sep))  # a copy's node_modules link to the project's own (workspace.py): no script writes through it
+                            if t != top and not t.startswith(top + os.sep) and not dep: bad.append(str(q.relative_to(root)))
                     if len(bad) >= 5: break
             dirs[:] = []; continue
         dirs[:] = [x for x in dirs if not (here / x).is_symlink()]
@@ -540,6 +541,102 @@ def git_tracked(root, rel):
             _TRACKED[key] = r.returncode == 0
         except (OSError, subprocess.TimeoutExpired): _TRACKED[key] = False
     return _TRACKED[key]
+
+APPROVABLE = ("rules.md", "scope.json")  # the owner's files that can make Curmudgeon run commands, drop findings or load live sites
+
+def _sha(p):
+    try: return hashlib.sha256(pathlib.Path(p).read_bytes()).hexdigest()
+    except OSError: return None
+
+def owner_state(root, kind):
+    """The owner's own record for this project, kept outside it in ~/.curmudgeon (CURMUDGEON_STATE_DIR overrides), one
+    file per project path: a repository can't ship it, whatever it commits (03 §5.56 batch 2 review: an approval kept in
+    .critic/ could be committed along with the files it approved). Not CLAUDE_PLUGIN_DATA: the hooks may have it and
+    the lead's shell may not, and both must read the same record."""
+    base = owner_state_base()
+    key = hashlib.sha256(str(pathlib.Path(root).resolve()).encode()).hexdigest()[:16]
+    return base / kind / f"{key}.json"
+
+def owner_state_base():
+    return pathlib.Path(os.environ.get("CURMUDGEON_STATE_DIR") or pathlib.Path.home() / ".curmudgeon")
+
+def read_owner_state(root, kind):
+    f = owner_state(root, kind)
+    if not f.is_file() or f.is_symlink(): return {}
+    try: j = json.loads(f.read_text(encoding="utf-8"))
+    except (OSError, ValueError): return {}
+    return j if isinstance(j, dict) and j.get("root") == str(pathlib.Path(root).resolve()) else {}
+
+def write_owner_state(root, kind, data):
+    f = owner_state(root, kind)
+    if f.is_symlink() or f.parent.is_symlink(): raise OSError(f"{f} is a link; refusing")
+    f.parent.mkdir(parents=True, exist_ok=True)
+    fd = os.open(str(f), os.O_WRONLY | os.O_CREAT | os.O_TRUNC | getattr(os, "O_NOFOLLOW", 0), 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as fh: fh.write(json.dumps(dict(data, root=str(pathlib.Path(root).resolve())), indent=1) + "\n")
+
+def approved_state(root, rel):
+    """True when the owner approved this exact .critic/<rel> (its sha256 in their own record outside the project,
+    written by critic_ledger.py approve after they saw what it does). 03 §5.56 item 9."""
+    p = pathlib.Path(root) / ".critic" / rel
+    if not p.is_file() or p.is_symlink(): return False
+    return (read_owner_state(root, "approvals").get("files") or {}).get(rel) == _sha(p)
+
+def is_git_work_tree(root):
+    try: return subprocess.run(["git", "rev-parse", "--is-inside-work-tree"], cwd=root, capture_output=True, text=True, timeout=5).stdout.strip() == "true"
+    except (OSError, subprocess.SubprocessError): return False
+
+def state_trusted(root, rel):
+    """A .critic/<rel> that git tracks could have come with a clone, and in a folder that isn't a git work tree (a
+    downloaded zip) nothing tells the owner's file from a shipped one: either way it counts only once approved. An
+    untracked file in a git work tree is the owner's own (03 §5.56 item 9)."""
+    if approved_state(root, rel): return True
+    return owner_untracked(root, rel)
+
+def owner_untracked(root, rel):
+    """True only when this project is a git work tree's top folder, .critic is a plain folder (not a link, not a
+    submodule), and git tracks nothing at .critic/<rel> under any spelling of its case (03 §5.56 batch 2 round 2: a zip
+    unpacked inside another repository, a submodule or tracked link at .critic, and .critic/Rules.md on a case-blind
+    disk each passed the old test)."""
+    r = pathlib.Path(root); c = r / ".critic"
+    if c.is_symlink() or not c.is_dir() or (c / ".git").exists(): return False
+    try:
+        top = subprocess.run(["git", "rev-parse", "--show-toplevel"], cwd=r, capture_output=True, text=True, timeout=5)
+        if top.returncode or os.path.normcase(os.path.realpath(top.stdout.strip())) != os.path.normcase(os.path.realpath(r)): return False
+        ls = subprocess.run(["git", "ls-files", "-z", "-s", "--", ":(icase).critic"], cwd=r, capture_output=True, text=True, timeout=10)
+        if ls.returncode: return False
+    except (OSError, subprocess.SubprocessError): return False
+    want = f".critic/{rel}".casefold()
+    for rec in ls.stdout.split("\0"):
+        if not rec: continue
+        meta, _, path = rec.partition("\t")
+        if path.casefold() in (want, ".critic") or meta.startswith("160000"): return False  # the pathspec ignores case too: a tracked .CRITIC/ is the same folder on a case-blind disk
+    return True
+
+def consent_given(root, kind, host=None):
+    """True when the owner's consent for this run is on file (03 §5.56 item 12): kind "live" with the host they typed,
+    or "writes". Written by critic_ledger.py consent, which the lead runs after the owner says yes, into the owner's
+    own record outside the project; a flag on its own is never consent."""
+    j = read_owner_state(root, "consent")
+    try: led = json.loads((pathlib.Path(root) / ".critic" / "ledger.json").read_text())
+    except (OSError, ValueError): return False
+    if not j or j.get("run") != led.get("run") or j.get("started_at") != led.get("started_at") or not led.get("started_at"): return False  # consent is per run (and round)
+    if kind == "writes": return j.get("writes") is True
+    return kind == "live" and str(host or "").strip().lower() in [str(x).lower() for x in j.get("live") or []]
+
+RULES_SECTION = re.compile(r"(?im)^##[ \t]+(.+?)[ \t]*$")
+def rules_sections(text, name):
+    """Every '## <name>' section of a rules.md (any case), as one text: the scan, the test command and approve all read
+    the file the same way, so what approve shows is what runs (03 §5.56 batch 2 review)."""
+    parts = RULES_SECTION.split(text or "")
+    return "\n".join(parts[i + 1] for i in range(1, len(parts) - 1, 2) if parts[i].strip().lower() == name.lower())
+
+def rules_commands(text):
+    """[(name, command)] under every '## Scripted checks' section of a rules.md."""
+    return [(m.group(1).strip(), m.group(2).strip()) for m in re.finditer(r"(?m)^\s*-\s*([\w .-]+?)\s*:\s*`?(.+?)`?\s*$", rules_sections(text, "Scripted checks"))]
+
+def rules_test_command(text):
+    m = re.search(r"(?im)^\s*test command\s*:\s*(.+)$", text or "")
+    return m.group(1).strip().strip("`") if m else None
 
 def ledger_shipped(root):
     """True when git tracks .critic/ledger.json: then a cloned repository could have written it, so its rulings and

@@ -160,9 +160,13 @@ def human(n):
 
 def pick_folder():
     """A native folder window: AppleScript on macOS, PowerShell on Windows, zenity or kdialog on Linux when one is already
-    installed and a display is present. Nothing is installed. Returns (path, how), or (None, why)."""
+    installed and a display is present. Nothing is installed. Returns (path, how), or (None, why). With no one at the
+    screen (CI, a session over SSH, or CURMUDGEON_NO_WINDOW set), no window opens: on macOS and Windows a dialog there
+    would wait unanswered for ten minutes, so the caller asks for the path instead."""
     title = "Choose a folder for Curmudgeon's local security database"
     sysname = platform.system()
+    if os.environ.get("CURMUDGEON_NO_WINDOW") or os.environ.get("CI") or os.environ.get("SSH_CONNECTION") or os.environ.get("SSH_TTY"):
+        return None, "no folder window can open here (no one at the screen: CI or a remote session)"
     try:
         if sysname == "Darwin" and shutil.which("osascript"):
             r = subprocess.run(["osascript", "-e", f'POSIX path of (choose folder with prompt "{title}")'], capture_output=True, text=True, timeout=600)

@@ -15,6 +15,16 @@ def run(script, *a, cwd, stdin=None, env=None):
     e = dict(os.environ, CRITIC_ROOT=str(cwd), TMPDIR=TMP, CURMUDGEON_FEED_DIR=os.path.join(TMP, "no-feed"), CURMUDGEON_STATE_DIR=os.path.join(TMP, "state")); e.update(env or {})  # a user's own feed or state never changes a test
     return subprocess.run([sys.executable, str(script), *a], cwd=cwd, capture_output=True, text=True, input=stdin, env=e, timeout=300)
 
+def run_c(script, *a, cwd, **k):
+    """run(), after recording the owner's consent for the flags the run carries (03 §5.56 item 12): a test stands in
+    for the owner who said yes."""
+    if "--allow-writes" in a or "--allow-live" in a:
+        led = pathlib.Path(cwd) / ".critic/ledger.json"
+        if not led.exists() or not json.loads(led.read_text()).get("started_at"): run(S / "critic_ledger.py", "start", "review", cwd=cwd)
+        if "--allow-writes" in a: run(S / "critic_ledger.py", "consent", "writes", cwd=cwd)
+        if "--allow-live" in a: run(S / "critic_ledger.py", "consent", "live", a[a.index("--allow-live") + 1], cwd=cwd)
+    return run(script, *a, cwd=cwd, **k)
+
 ONLY = os.environ.get("CRITIC_TEST_ONLY", "")  # run only the tests whose name contains this text
 
 class Skip(Exception):
@@ -70,7 +80,7 @@ def finding(**k):
             "evidence": "src/app.js:2", "failing_case": "a title with <img onerror> runs script", "verified": "traced", "remediation": "textContent"}
     base.update(k); return base
 
-# The tests themselves live in cases_1.py to cases_3.py (split so no file passes the plugin directory's 256 KiB limit).
+# The tests themselves live in the cases_*.py parts (split so no file passes the plugin directory's 256 KiB limit).
 # Each part runs here, in this module's namespace, so the helpers above and the @test decorator are shared and every
 # result lands in RESULTS. A failure names the part's own file and line.
 for _part in sorted(pathlib.Path(__file__).resolve().parent.glob("cases_*.py")):

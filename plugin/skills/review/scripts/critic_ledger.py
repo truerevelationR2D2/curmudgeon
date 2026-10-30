@@ -19,6 +19,11 @@ usage (run from the project root, or set CRITIC_ROOT):
   memories [--retire N]                  list learned memories (retire one by number)
   examples                               print up to 5 recent false positives as few-shot examples for reviewers
   acted                                  for findings open last run: check whether the quoted code is gone (acted on)
+  consent live HOST | consent writes     the owner's consent for this run (after they typed the host or said yes):
+                                         browse.py and the scan's live checks refuse without it (03 §5.56 item 12)
+  approve rules.md|scope.json [--show]   the owner approves that exact file (it shows the commands, test command,
+                                         Not findings or live targets first; --show only shows). Project commands
+                                         run, and a file git tracks is used, only while it matches (03 §5.56 item 9)
   decision "text" [SOURCE] | override "what" "who" "why"   recorded choices; overrides can't be by "author"
   score NAME VALUE MAX | cost SECONDS [NOTE] | tokens [--all] | integrity | fresh [ID...]   (fresh: findings whose code changed since the review; tokens: what each agent role cost this run; integrity: outputs edited since the last apply)
   stamp [--add] PATH... | stale | round [--reset]   (--add keeps earlier stamps: use it for /curmudgeon:fix iterate)
@@ -290,7 +295,8 @@ def main(a):
             imp = RANK.get(str(r.get("impact", "Medium")).title(), 2)
             if fid not in L["findings"]:  # the same code under another category is the same finding: keep its history
                 same = by_fp2.get(fp2_(r) or "")
-                if same and imp >= RANK.get(L["findings"][same].get("score"), 2): L.setdefault("aliases", {})[fid] = same; fid = same  # never alias across a rise in impact: a new Critical on a dismissed Low's line is new
+                fp_ids = {x.get("id") for x in L.get("false_positives", [])}
+                if same and same not in fp_ids and imp >= RANK.get(L["findings"][same].get("score"), 2): L.setdefault("aliases", {})[fid] = same; fid = same  # never alias across a rise in impact: a new Critical on a dismissed Low's line is new; never onto a finding the owner ruled false (an alias would make that ruling hide this one, 03 §5.56 item 14)
             seen_now.add(fid)
             ex = L["findings"].get(fid)
             if ex is None and L["round"] >= 3 and r.get("confidence") != "confirmed":
@@ -466,6 +472,45 @@ def main(a):
             msg = "stop checks off, and the while-you-work scan"
         else: die("gate on|async|off")
         print(msg); return 0
+    elif cmd == "approve":  # 03 §5.56 item 9: the owner approves the exact rules.md or scope.json (run only after they said yes to what it shows)
+        need(rest, 1, "approve rules.md|scope.json [--show]")
+        import critic_findings as cf_, hashlib as hl_
+        which = rest[0]
+        if which not in cf_.APPROVABLE: die(f"approve takes one of: {', '.join(cf_.APPROVABLE)}")
+        p = D / which
+        if not p.is_file() or p.is_symlink(): die(f".critic/{which} is missing, or a link")
+        raw = p.read_bytes(); text = raw.decode("utf-8", errors="replace"); sha = hl_.sha256(raw).hexdigest()  # what is shown is what is hashed
+        print(f".critic/{which} ({'tracked by git' if cf_.git_tracked(ROOT, '.critic/' + which) else 'not tracked'}), sha256 {sha[:16]}. Approving it approves the whole file: reviewers are given all of it, so the owner reads all of it.")
+        print("----- the file -----\n" + text.rstrip("\n") + "\n----- end of the file -----\nWhat Curmudgeon itself does with it:")
+        if which == "rules.md":  # the same parsers the scan, the mutation test and the brief use, so what is shown is what runs
+            cmds = cf_.rules_commands(text); tc = cf_.rules_test_command(text)
+            nf = [x.strip().lstrip("-*+ ").strip() for x in cf_.rules_sections(text, "Not findings").splitlines() if x.strip()]
+            bd = [x.strip() for x in cf_.rules_sections(text, "Boundaries").splitlines() if x.strip()]
+            print("  commands it runs with --project-checks: " + ("; ".join(f"{n}: {c}" for n, c in cmds) or "none"))
+            print("  test command (mutation testing runs it): " + (tc or "none"))
+            print("  'Not findings' (reviewers are told to skip these): " + ("; ".join(nf) or "none"))
+            print("  layer rules for the scan: " + ("; ".join(bd) or "none"))
+        else:
+            try: tg = json.loads(text).get("targets") or []
+            except (ValueError, AttributeError): tg = None
+            print("  live targets it allows: " + ("(not valid JSON: it will be refused whole)" if tg is None else ", ".join(str(t.get("origin") if isinstance(t, dict) else t) for t in tg) or "none"))
+        if "--show" in rest: return 0
+        files = dict(cf_.read_owner_state(ROOT, "approvals").get("files") or {}); files[which] = sha
+        try: cf_.write_owner_state(ROOT, "approvals", {"files": files})
+        except OSError as e: die(str(e))
+        msg = f"approved .critic/{which} as it is now (any change needs approving again); the approval is kept outside the project, where a repository can't ship one"
+    elif cmd == "consent":  # 03 §5.56 item 12: run by the lead only after the owner said yes (live: they typed the host)
+        need(rest, 1, "consent live HOST | consent writes")
+        import critic_findings as cf_
+        if not L.get("started_at"): die("start a run first: consent is recorded for one run")
+        cur = cf_.read_owner_state(ROOT, "consent")
+        if cur.get("run") != L.get("run") or cur.get("started_at") != L.get("started_at"): cur = {}  # a new run starts with no consent
+        cur.pop("root", None); cur.update(run=L.get("run"), started_at=L.get("started_at"))
+        if rest[0] == "writes": cur["writes"] = True; msg = "recorded the owner's consent to send writes to their own loopback server, for this run"
+        elif rest[0] == "live" and len(rest) > 1 and re.fullmatch(r"[A-Za-z0-9.-]+", rest[1]): cur["live"] = sorted(set(cur.get("live") or []) | {rest[1].lower()}); msg = f"recorded the owner's consent to load {rest[1].lower()}, for this run"
+        else: die("consent live HOST | consent writes")
+        try: cf_.write_owner_state(ROOT, "consent", cur)
+        except OSError as e: die(str(e))
     elif cmd == "decision":
         need(rest, 1, "decision \"text\" [SOURCE]"); L["decisions"].append({"text": rest[0], "source": rest[1] if len(rest) > 1 else ""})
     elif cmd == "override":

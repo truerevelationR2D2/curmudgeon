@@ -5,8 +5,13 @@ failed on the code before the fix."""
 def _guard(p, cwd, tool, role="reviewer", aid="r1", **ti):
     return "deny" in run(H / "read_guard.py", cwd=p, stdin=json.dumps({"tool_name": tool, "tool_input": ti, "cwd": str(cwd), "agent_type": f"curmudgeon:curmudgeon-{role}", "agent_id": aid})).stdout
 
+def _blind(d, letters="ABC"):
+    """What the SubagentStop hook records for a reviewer that worked in its private copy (§5.56 item 15)."""
+    for L_ in letters: write(d, f".critic/stops/agent-{L_}.json", json.dumps({"review": f"review-{L_}.json", "workspace": True, "at": time.time()}))
+
 def _tally3(d, a, b, c, *extra):
     for L_, rows in zip("ABC", (a, b, c)): write(d, f".critic/reviews/review-{L_}.json", json.dumps(rows))
+    _blind(d)
     r = run(S / "critic_merge.py", "tally", *[f".critic/reviews/review-{x}.json" for x in "ABC"], *extra, cwd=d)
     assert r.returncode == 0, r.stdout + r.stderr
     return json.loads((d / ".critic/tally.json").read_text())
@@ -116,7 +121,7 @@ def _(d):
 @test("§5.56 item 7: the tier's verification policy is enforced: not-in-tier is labelled, a missing required verdict marks the run DEGRADED, and only script-matched all-Low agreement skips verification")
 def _(d):
     write(d, "src/app.js", APP); run(S / "critic_ledger.py", "start", "review", "--tier", "lite", cwd=d)
-    write(d, ".critic/reviews/review-A.json", json.dumps([finding(category="domain", impact="Medium", line=4, quote="const price = total * 1.0825;", title="Tax rule in render code", verified="executed")]))
+    write(d, ".critic/reviews/review-A.json", json.dumps([finding(category="domain", impact="Medium", line=4, quote="const price = total * 1.0825;", title="Tax rule in render code", verified="executed")])); _blind(d, "A")
     run(S / "critic_merge.py", "tally", ".critic/reviews/review-A.json", cwd=d); write(d, "v.json", "[]"); run(S / "critic_merge.py", "apply", "v.json", cwd=d)
     f = [json.loads(x) for x in (d / ".critic/findings.jsonl").read_text().splitlines() if x.strip()]
     c = (d / ".critic/counts.md").read_text()
