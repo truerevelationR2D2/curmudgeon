@@ -11,6 +11,7 @@ plus verification of Critical/High; full = three blind reviewers, verification a
 import json, os, pathlib, re, subprocess, sys
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 from critic_findings import log_run, refuse_linked_state, one_line
+import safegit  # git without the repository's own commands (03 §5.57 review)
 
 ROOT = pathlib.Path(os.environ.get("CRITIC_ROOT") or re.sub(r"[\\/]\.critic[\\/]scratch(?:[\\/].*)?$", "", os.getcwd()) or os.getcwd()).resolve(); D = ROOT / ".critic"
 # whole words only ("author" is not "auth"); paths may also match folder-style names
@@ -22,7 +23,7 @@ DEF = re.compile(r"^\s*(?:export\s+)?(?:async\s+)?(?:function\*?\s+([A-Za-z_$][\
 
 def git(*a):
     log_run(ROOT, "command", "git " + " ".join(a))
-    try: return subprocess.run(["git", "-c", "core.quotepath=off", *a], cwd=ROOT, capture_output=True, text=True, timeout=20).stdout
+    try: return safegit.run(["-c", "core.quotepath=off", *a], cwd=ROOT, capture_output=True, text=True, timeout=20).stdout
     except Exception: return ""
 
 READ_CAP = 20_000  # characters read from one file for the sensitivity check; nothing is ever read whole

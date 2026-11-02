@@ -22,6 +22,7 @@ Then: critic_merge.py tally <our reviews> --outside .critic/outside/outside-revi
 import json, os, pathlib, re, subprocess, sys, urllib.parse
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 from critic_findings import IMPACTS, log_run, redact_secrets, refuse_linked_state
+import safegit  # git without the repository's own commands (03 §5.57 review)
 
 ROOT = pathlib.Path(os.environ.get("CRITIC_ROOT") or re.sub(r"[\\/]\.critic[\\/]scratch(?:[\\/].*)?$", "", os.getcwd()) or os.getcwd()).resolve(); D = ROOT / ".critic"; OUT = D / "outside"
 MAX_BYTES, MAX_FINDINGS = 1_000_000, 200
@@ -33,7 +34,7 @@ def git_rc(*a):
     """(exit code, stdout unstripped). Logged like every outside command."""
     log_run(ROOT, "command", "git " + " ".join(a))
     try:
-        r = subprocess.run(["git", *a], cwd=ROOT, capture_output=True, text=True, timeout=20)
+        r = safegit.run([*a], cwd=ROOT, capture_output=True, text=True, timeout=20)
         return r.returncode, r.stdout
     except (OSError, subprocess.TimeoutExpired): return 1, ""
 

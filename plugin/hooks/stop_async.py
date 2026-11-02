@@ -9,6 +9,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import workspace
 DEADLINE = 300  # seconds for the whole check, well inside the 600 s the hook declares
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent / "skills" / "review" / "scripts"))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "skills", "review", "scripts")); import safegit  # git without the repository's own commands (03 §5.57 review)
 try: from critic_findings import log_run
 except Exception:
     def log_run(*a, **k): pass
@@ -31,7 +32,7 @@ def main():
     if True:  # new or changed files outside the stamps count too
         log_run(root, "command", "background stop check: git diff --name-only HEAD and git ls-files --others")
         def git(*args):
-            try: return subprocess.run(["git", *args], cwd=root, capture_output=True, text=True, timeout=10).stdout.split("\0")
+            try: return safegit.run([*args], cwd=root, capture_output=True, text=True, timeout=10).stdout.split("\0")
             except (OSError, subprocess.TimeoutExpired): return []
         out = git("diff", "--name-only", "-z", "HEAD") + git("ls-files", "--others", "--exclude-standard", "-z")
         out = [x for x in out if x]

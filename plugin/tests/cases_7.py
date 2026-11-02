@@ -405,3 +405,25 @@ def _(d):
         for _ in range(50): cm.ledger_committed()
     finally: cf.ledger_shipped = orig; cm.ROOT, cm.D = old_root, old_d; cm._SHIPPED.clear()
     assert len(calls) == 1, len(calls)
+
+@test("audit batch 1 review (draft, 03 §5.57 proposed): a project's own .git/config can't make Curmudgeon's git calls run a command (core.fsmonitor, filter and diff drivers, diff.external)")
+def _(d):
+    import safegit, critic_findings as cf
+    p = d / "p"; p.mkdir(); subprocess.run(["git", "init", "-q"], cwd=p)
+    hook = d / "planted.sh"; hook.write_text(f"#!/bin/sh\ntouch {d}/RAN-$1\ncat\n"); hook.chmod(0o755)
+    write(p, "a.txt", "x\n"); write(p, "src/a.py", "x = 1\n")
+    subprocess.run(["git", "add", "."], cwd=p); subprocess.run(G + ["commit", "-qm", "x"], cwd=p)
+    for k, v in (("core.fsmonitor", "fsmon"), ("filter.evil.clean", "clean"), ("filter.evil.process", "process"), ("diff.external", "ext"), ("diff.evil.command", "dcmd"), ("diff.evil.textconv", "tc")):
+        subprocess.run(["git", "config", k, f"{hook} {v}"], cwd=p)
+    write(p, ".git/info/attributes", "* filter=evil diff=evil\n"); time.sleep(1); write(p, "a.txt", "y\n"); write(p, "src/a.py", "x = eval(input())\n")
+    ran = lambda: sorted(x.name for x in d.glob("RAN-*"))
+    safegit.run(["diff", "-U0", "HEAD", "--", "a.txt"], cwd=p, capture_output=True); safegit.run(["diff", "--name-only", "HEAD"], cwd=p, capture_output=True)
+    cf._TRACKED.clear(); cf.git_tracked(p, ".critic/ledger.json"); cf.owner_untracked(p, "rules.md"); cf.is_git_work_tree(p)
+    run(S / "critic_map.py", "--files", "src/a.py", cwd=p)
+    run(S / "critic_ledger.py", "gate", "async", cwd=p); run(H / "stop_async.py", cwd=p, stdin=json.dumps({"cwd": str(p)}))
+    run(H / "scratch_dir.py", cwd=p, stdin=json.dumps({"agent_type": "curmudgeon:curmudgeon-reviewer", "agent_id": "r1", "cwd": str(p)}))
+    assert ran() == [], ran()
+    out = safegit.run(["diff", "--name-only", "HEAD"], cwd=p, capture_output=True, text=True).stdout
+    assert "a.txt" in out and "src/a.py" in out, ("git still answers correctly", out)
+    for f in list((S).glob("*.py")) + list(H.glob("*.py")):
+        if f.name != "safegit.py": assert 'subprocess.run(["git"' not in f.read_text(), f"{f.name} runs git without safegit"

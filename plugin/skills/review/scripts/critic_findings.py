@@ -6,6 +6,7 @@ A finding is a dict:
   or text the finding is about), title, evidence, failing_case, verified (executed|traced|inferred), remediation,
   source (reviewer name, "scan", or a tool), votes (filled by the tally)."""
 import hashlib, json, pathlib, re, subprocess, time, os, sys
+import safegit  # git without the repository's own commands (03 §5.57 review)
 
 IMPACTS = ("Critical", "High", "Medium", "Low")  # the counted levels: the verdict, the ledger and SARIF use only these
 NIT = "Nit"  # SC-79: below Low; listed under Nits, never counted, never verified, never blocking
@@ -563,7 +564,7 @@ def git_tracked(root, rel):
     key = (str(root), rel)
     if key not in _TRACKED:
         try:
-            r = subprocess.run(["git", "ls-files", "--error-unmatch", "--", rel], cwd=root, capture_output=True, timeout=5)
+            r = safegit.run(["ls-files", "--error-unmatch", "--", rel], cwd=root, capture_output=True, timeout=5)
             _TRACKED[key] = r.returncode == 0
         except (OSError, subprocess.TimeoutExpired): _TRACKED[key] = False
     return _TRACKED[key]
@@ -608,7 +609,7 @@ def approved_state(root, rel):
     return (read_owner_state(root, "approvals").get("files") or {}).get(rel) == _sha(p)
 
 def is_git_work_tree(root):
-    try: return subprocess.run(["git", "rev-parse", "--is-inside-work-tree"], cwd=root, capture_output=True, text=True, timeout=5).stdout.strip() == "true"
+    try: return safegit.run(["rev-parse", "--is-inside-work-tree"], cwd=root, capture_output=True, text=True, timeout=5).stdout.strip() == "true"
     except (OSError, subprocess.SubprocessError): return False
 
 def state_trusted(root, rel):
@@ -626,9 +627,9 @@ def owner_untracked(root, rel):
     r = pathlib.Path(root); c = r / ".critic"
     if c.is_symlink() or not c.is_dir() or (c / ".git").exists(): return False
     try:
-        top = subprocess.run(["git", "rev-parse", "--show-toplevel"], cwd=r, capture_output=True, text=True, timeout=5)
+        top = safegit.run(["rev-parse", "--show-toplevel"], cwd=r, capture_output=True, text=True, timeout=5)
         if top.returncode or os.path.normcase(os.path.realpath(top.stdout.strip())) != os.path.normcase(os.path.realpath(r)): return False
-        ls = subprocess.run(["git", "ls-files", "-z", "-s", "--", ":(icase).critic"], cwd=r, capture_output=True, text=True, timeout=10)
+        ls = safegit.run(["ls-files", "-z", "-s", "--", ":(icase).critic"], cwd=r, capture_output=True, text=True, timeout=10)
         if ls.returncode: return False
     except (OSError, subprocess.SubprocessError): return False
     want = f".critic/{rel}".casefold()
@@ -746,7 +747,7 @@ def warn_tracked_state(root):
     if ("tracked-state", str(root)) in _TRACKED: return
     _TRACKED[("tracked-state", str(root))] = True
     try:
-        r = subprocess.run(["git", "ls-files", "-z", "--", ".critic"], cwd=root, capture_output=True, timeout=5)
+        r = safegit.run(["ls-files", "-z", "--", ".critic"], cwd=root, capture_output=True, timeout=5)
     except (OSError, subprocess.TimeoutExpired): return
     if r.returncode != 0: return
     tracked = [f for f in r.stdout.decode("utf-8", "replace").split("\0") if f and f != ".critic/runlog.jsonl"]  # runlog_tracked names that one

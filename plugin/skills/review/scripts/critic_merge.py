@@ -44,6 +44,7 @@ apply:
 import hashlib, json, math, os, pathlib, re, subprocess, sys, time
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 from critic_findings import verdict_required, NIT, IMPACTS, extract_findings, norm_code, relocate_quote, fingerprint, quote_check, read_jsonl, refutation_problem, downgrade_problem, confirmation_problem, security_refutation_problem, similar, log_run, append_line, refuse_linked_state, to_sarif, validate, write_jsonl, tokens, scrub, redact_finding_text, write_manifest, strip_workspace_path, _cites_real_line
+import safegit  # git without the repository's own commands (03 §5.57 review)
 
 ROOT = pathlib.Path(os.environ.get("CRITIC_ROOT") or re.sub(r"[\\/]\.critic[\\/]scratch(?:[\\/].*)?$", "", os.getcwd()) or os.getcwd()).resolve(); D = ROOT / ".critic"
 
@@ -464,7 +465,7 @@ def revision_stamp(final):
     """What these findings were reviewed against (SC-38): the git commit, whether the working tree had uncommitted
     changes, and a sha256 of the cited files' contents."""
     def git(*a):
-        try: return subprocess.run(["git", *a], cwd=ROOT, capture_output=True, text=True, timeout=10).stdout.strip()
+        try: return safegit.run([*a], cwd=ROOT, capture_output=True, text=True, timeout=10).stdout.strip()
         except (OSError, subprocess.TimeoutExpired): return ""
     h = hashlib.sha256()
     for f in sorted({str(x.get("file") or "") for x in final}):

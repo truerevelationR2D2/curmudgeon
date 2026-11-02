@@ -23,6 +23,7 @@ usage:
 Steps it never takes: starting agents (only the lead can), writing a review or a verdict, or deciding anything a model
 decides. Each script it runs is logged in .critic/runlog.jsonl like any other."""
 import json, os, pathlib, subprocess, sys, re, time
+import safegit  # git without the repository's own commands (03 §5.57 review)
 
 HERE = pathlib.Path(__file__).resolve().parent
 ROOT = pathlib.Path(os.environ.get("CRITIC_ROOT") or re.sub(r"[\\/]\.critic[\\/]scratch(?:[\\/].*)?$", "", os.getcwd()) or os.getcwd()).resolve(); D = ROOT / ".critic"
@@ -192,7 +193,7 @@ def main(a):
         if audit:
             tier = "full"
             mine = D / "audit-owner.json"  # written by an earlier begin --audit here: that ledger is ours, unless the repository shipped the marker
-            shipped = subprocess.run(["git", "ls-files", "--error-unmatch", ".critic/audit-owner.json"], cwd=ROOT, capture_output=True).returncode == 0
+            shipped = safegit.run(["ls-files", "--error-unmatch", ".critic/audit-owner.json"], cwd=ROOT, capture_output=True).returncode == 0
             ours = mine.is_file() and not mine.is_symlink() and not shipped
             foreign = [n for n in ("ledger.json", "ledger.md", "decisions.md", "scope.json") if (D / n).is_file()] if not ours else []
             if foreign:  # the audited repository's own records are its owner's, not the auditor's: never their decisions, rulings or scope
