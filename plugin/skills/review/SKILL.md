@@ -74,7 +74,7 @@ Reviewers from one model family share blind spots: in two double-blind tests, an
    - hides only what the owner ruled a false positive by its exact id (`fp <id>`), and lists those under "Hidden by your rulings"; learned memories never hide anything: a finding that looks like past dismissals stays in, counted, with a note (never on a Critical or High), listed under "Looks like your past dismissals";
    - clusters the same issue across reviewers;
    - keeps 2-of-3 votes, single votes with an executed case, and scanner FAILs (an outside reviewer's agreement counts as one more vote); when reviewers disagree on a finding's impact it is filed at the highest and always verified, and one reviewer's two findings are never merged into one;
-   - sends single Critical/High traced votes, and any Critical/High/Medium finding with nothing the script could check (no confirmed quote, not executed, one vote), to verification as contested;
+   - sends single Critical/High traced votes, a Medium only one of several reviewers raised without a run (kept only if the verifier confirms it, 03 §5.57.6), and any Critical/High/Medium finding with nothing the script could check (no confirmed quote, not executed, one vote), to verification as contested;
    - drops the rest, with reasons kept for audit.
 
    Reviewers rarely word the same issue alike, so the first tally also writes `.critic/dedup-candidates.json`: every finding not already merged, listed by file, with no reviewer names or votes. Start the `curmudgeon-dedup` agent on it, then run the tally again with `--groups .critic/groups.json` so votes count on merged issues.

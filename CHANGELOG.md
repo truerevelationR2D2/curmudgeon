@@ -28,6 +28,8 @@ The full audit of 5.2.5 (six blind lenses, Curmudgeon's own full-tier review, th
 - Every finding at a line of a text file needs its quote (not only a list of code extensions), and a Low needs its failing case.
 - A false-positive ruling hides nothing when it has no rule id (scan rows) or when its id was never scored (a Critical or High).
 - The tally refuses to count when the ledger can't be read.
+- A Medium only one reviewer raised, without a run, now goes to a blind verifier and is kept only if confirmed (before, it was dropped; the self-review lost a real High this way). A single-vote Critical or High was already verified, never dropped (03 §5.57.6).
+- Every git command runs without the project's own commands from `.git/config` (`core.fsmonitor`, filter and diff drivers): a project that arrives with its own `.git` could otherwise make git run a program (03 §5.57.6).
 
 **Privacy**
 - `--online` sends package names only after you agree on that run (`critic_ledger.py consent online`); without it the lookup runs offline and the report says so.

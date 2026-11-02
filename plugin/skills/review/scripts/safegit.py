@@ -1,4 +1,4 @@
-"""Running git in a project Curmudgeon didn't write (a draft of the fix proposed after batch 1's review, 03 §5.57).
+"""Running git in a project Curmudgeon didn't write (03 §5.57.6, found in batch 1's review of the full audit).
 
 A project that arrives with its own .git (an archive, not a clone: a clone writes a fresh config) can put commands in
 .git/config that git runs on its own: core.fsmonitor on almost any command that reads the index, a filter driver's

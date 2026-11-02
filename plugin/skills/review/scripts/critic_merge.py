@@ -422,6 +422,8 @@ def tally(paths):
         if unanchored and not executed and len(c["reviewers"]) < 2 and f["impact"] in ("Critical", "High", "Medium"): out["contested"].append(f)  # an outside vote never stands in for a check  # nothing the script could check: verify it, even on one reviewer
         elif votes >= need or executed: out["kept"].append(f)
         elif f["impact"] in ("Critical", "High"): out["contested"].append(f)
+        elif f["impact"] == "Medium" and n > 1:  # 03 §5.57.6: one reviewer's Medium goes to a blind verifier and is kept only if confirmed (the self-review lost a real High this way)
+            f["single_vote"] = True; out["contested"].append(f)
         else: out["dropped"].append({"finding": f, "why": f"raised by {votes} of {n} reviewers, not executed"})
     vd = D / "verify"; vd.mkdir(parents=True, exist_ok=True)
     for old in vd.glob("*.json"): old.unlink()
@@ -530,6 +532,8 @@ def apply(paths):
                 unverified.append(f); notes.append(f"{f['id']}: outside-only finding with no verdict; left out of the findings until a verifier judges it")
                 if (D / "verify" / f"{f['id']}.json").exists(): missing.append(f["id"])  # every tier verifies these (verdict_required): its absence marks the run DEGRADED
                 continue
+            if f.get("single_vote"):  # 03 §5.57.6: one reviewer's Medium stands only on a verifier's confirmation
+                notes.append(f"{f['id']}: one reviewer's Medium with no verdict; dropped"); missing.append(f["id"]); continue
             if (D / "verify" / f"{f['id']}.json").exists():
                 if verdict_required(tier, f, f["id"] in contested):  # §5.56: the tier needed this verdict, and it never came
                     notes.append(f"{f['id']}: no verdict returned, and the {tier} tier verifies this finding; kept, confidence lowered"); f["verifier"] = "missing"; missing.append(f["id"])
@@ -552,6 +556,8 @@ def apply(paths):
                 VERIFIER_LOG.append(("downgraded", dict(f), f"{f['impact']} to {new}: {redact_finding_text(str(v.get('note') or '')) or why}", v.get("reproduced")))
                 f["impact_before"] = f["impact"]; f["impact"] = new
             else: notes.append(f"{f['id']}: downgrade to {new or '?'} ignored ({dp}); kept at {f['impact']}"); kind = "unclear"
+        if f.get("single_vote") and kind not in ("confirmed", "downgrade"):  # 03 §5.57.6: kept only on a verifier's confirmation
+            notes.append(f"{f['id']}: one reviewer's Medium the verifier didn't confirm ({kind}); dropped"); continue
         if f.get("outside_only") and kind not in ("confirmed", "downgrade"):  # nobody of ours saw it and no verifier confirmed it
             unverified.append(f); notes.append(f"{f['id']}: outside-only finding the verifier couldn't confirm ({kind}); left out of the findings"); continue
         f["verifier"] = kind

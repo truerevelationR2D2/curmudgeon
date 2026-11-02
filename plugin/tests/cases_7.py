@@ -406,7 +406,7 @@ def _(d):
     finally: cf.ledger_shipped = orig; cm.ROOT, cm.D = old_root, old_d; cm._SHIPPED.clear()
     assert len(calls) == 1, len(calls)
 
-@test("audit batch 1 review (draft, 03 §5.57 proposed): a project's own .git/config can't make Curmudgeon's git calls run a command (core.fsmonitor, filter and diff drivers, diff.external)")
+@test("audit 03 §5.57.6: a project's own .git/config can't make Curmudgeon's git calls run a command (core.fsmonitor, filter and diff drivers, diff.external)")
 def _(d):
     import safegit, critic_findings as cf
     p = d / "p"; p.mkdir(); subprocess.run(["git", "init", "-q"], cwd=p)
@@ -427,3 +427,20 @@ def _(d):
     assert "a.txt" in out and "src/a.py" in out, ("git still answers correctly", out)
     for f in list((S).glob("*.py")) + list(H.glob("*.py")):
         if f.name != "safegit.py": assert 'subprocess.run(["git"' not in f.read_text(), f"{f.name} runs git without safegit"
+
+@test("audit 03 §5.57.6: a Medium raised by one reviewer, with no run, goes to a blind verifier and is kept only if it confirms")
+def _(d):
+    def one(e, verdict):
+        write(e, "src/app.js", APP); run(S / "critic_ledger.py", "start", "review", "--tier", "full", cwd=e)
+        m = finding(category="domain", impact="Medium", line=4, quote="const price = total * 1.0825;", title="Tax rule in render code")
+        write(e, ".critic/reviews/review-A.json", json.dumps([m])); write(e, ".critic/reviews/review-B.json", "[]"); write(e, ".critic/reviews/review-C.json", "[]")
+        run(S / "critic_merge.py", "tally", *[f".critic/reviews/review-{L}.json" for L in "ABC"], cwd=e)
+        t = json.loads((e / ".critic/tally.json").read_text())
+        assert not t["dropped"] and len(t["contested"]) == 1 and (e / ".critic/verify" / f"{t['contested'][0]['id']}.json").exists(), t
+        rows = [dict(verdict, id=t["contested"][0]["id"])] if verdict else []
+        vp = hook_verdicts(e, rows); run(S / "critic_merge.py", "apply", str(vp), cwd=e)
+        return [json.loads(x) for x in (e / ".critic/findings.jsonl").read_text().splitlines() if x.strip()]
+    good = {"verdict": "confirmed", "reproduced": "traced", "entry": "render() runs on every update", "path": ["src/app.js:4 multiplies by the tax rate inside render"]}
+    assert len(one(d / "a", good)) == 1, "confirmed: kept"
+    assert one(d / "b", {"verdict": "unclear", "reproduced": "no"}) == [], "unclear: dropped"
+    assert one(d / "c", None) == [], "no verdict: dropped"
