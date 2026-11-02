@@ -106,10 +106,10 @@ def _(d):
     secret = d / "home" / ".aws"; secret.mkdir(parents=True); (secret / "credentials").write_text("PRIVATE\n")
     proj = d / "proj"; proj.mkdir(); os.symlink(secret / "credentials", proj / "page.html")
     r = run(S / "browse.py", "start", str(proj / "page.html"), "--session", str(d / "s.json"), cwd=proj)
-    assert r.returncode != 0 and "outside the project" in (r.stdout + r.stderr), r.stdout + r.stderr
+    assert r.returncode != 0 and "is a link" in (r.stdout + r.stderr), r.stdout + r.stderr
     out = d / "out"; run(S / "critic_scan.py", "page.html", "--root", ".", "--page", "page.html", "--out", str(out), "--no-interact", cwd=proj)
     rep = (out / "report.md").read_text() if (out / "report.md").exists() else ""
-    assert "PRIVATE" not in rep and "outside the project" in rep, rep[:2000]
+    assert "PRIVATE" not in rep and "is a link" in rep, rep[:2000]
     import critic_scan, inspect
     assert "is_relative_to" in inspect.getsource(critic_scan.runtime), "the page folder test compares paths, not string prefixes"
     other = d / "outside2"; other.mkdir(); (other / "index.html").write_text("<p>OUTSIDE-PAGE</p>"); os.symlink(other, proj / "site")
@@ -397,6 +397,7 @@ def _(d):
     assert "DEGRADED" in md and "v.json" in md, md
     assert "V-abcdef-1 Critical" in md, ("a Critical lowered with no cited reason keeps its impact", md)
     row = json.loads((d / ".critic/variants.jsonl").read_text().splitlines()[0])
+    assert "V-abcdef-1 Critical src/app.js:2: Possible variant (likely)" in md and "1 of them likely" in md, md
     assert row["confidence"] == "likely" and "downgrade" in md.lower() and "ignored" in md, ("an ignored downgrade is not a clean confirmation, as in critic_merge.py apply (round 2, reviewer 4)", row, md)
     import critic_ledger as cl, importlib; importlib.reload(cl)
     cl.D = d / ".critic"; led = json.loads((d / ".critic/ledger.json").read_text())
@@ -517,3 +518,86 @@ def _(d):
     for want in ("core.fsmonitor=false", "log.showSignature=false", "diff.ignoreSubmodules=all", "filter.evil.clean=", "filter.evil.required=false"):
         assert want in flags, (want, argv)
     assert "GIT_CONFIG_KEY_0" not in env or env.get("GIT_CONFIG_KEY_0") != "core.fsmonitor", "no reliance on GIT_CONFIG_COUNT"
+
+def _sg_repo(d, name):
+    import subprocess as sp
+    r_ = d / name; r_.mkdir(); sp.run(["git", "init", "-q"], cwd=r_)
+    for k, v in (("user.email", "t@example.invalid"), ("user.name", "t"), ("commit.gpgsign", "false")): sp.run(["git", "config", k, v], cwd=r_)
+    return r_
+
+def _sg_fresh():
+    import safegit; safegit._ENV.clear(); return safegit
+
+@test("audit batch 1 review round 3 (reviewers 7 and 9): a project filter whose name contains '=' is emptied too, never run")
+def _(d):
+    import subprocess as sp
+    sg = _sg_fresh(); r_ = _sg_repo(d, "eq"); mark = d / "PWNED_EQ"
+    write(r_, ".gitattributes", "a.txt filter=x=y\n"); write(r_, "a.txt", "one\n")
+    sp.run(["git", "add", "-A"], cwd=r_); sp.run(["git", "commit", "-qm", "c"], cwd=r_)  # before the filter exists: -c can't name it either
+    sp.run(["git", "config", "filter.x=y.clean", f"sh -c 'touch {mark}; cat'"], cwd=r_)
+    write(r_, "a.txt", "two\n")
+    for args in (["status", "--porcelain"], ["diff", "--stat"], ["diff"], ["diff", "HEAD"]):
+        sg.run(args, cwd=r_, capture_output=True, text=True)
+    assert not mark.exists(), "the filter named x=y ran"
+
+@test("audit batch 1 review round 3 (reviewers 7 and 9): a .gitmodules ignore=none plus diff.submodule=diff does not turn recursion back on, so a submodule's own filter never runs")
+def _(d):
+    import subprocess as sp
+    sg = _sg_fresh(); sub = _sg_repo(d, "subsrc"); write(sub, "s.txt", "a\n"); sp.run(["git", "add", "-A"], cwd=sub); sp.run(["git", "commit", "-qm", "s"], cwd=sub)
+    top = _sg_repo(d, "top"); write(top, "t.txt", "t\n")
+    sp.run(["git", "-c", "protocol.file.allow=always", "submodule", "add", "-q", str(sub), "sub"], cwd=top, capture_output=True)
+    sp.run(["git", "add", "-A"], cwd=top); sp.run(["git", "commit", "-qm", "top"], cwd=top)
+    mark = d / "PWNED_SUB"; mod = top / ".git/modules/sub"
+    sp.run(["git", "config", "--file", str(mod / "config"), "filter.ev.clean", f"sh -c 'touch {mark}; cat'"])
+    write(top / "sub", ".gitattributes", "s.txt filter=ev\n"); write(top / "sub", "s.txt", "changed\n")
+    sp.run(["git", "config", "--file", ".gitmodules", "submodule.sub.ignore", "none"], cwd=top); sp.run(["git", "config", "diff.submodule", "diff"], cwd=top)
+    for args in (["status", "--porcelain"], ["diff"], ["diff", "-U0", "--no-renames", "--relative", "HEAD", "--", "."], ["diff", "--name-only", "HEAD"]):
+        sg.run(args, cwd=top, capture_output=True, text=True)
+    assert not mark.exists(), "the submodule's filter ran"
+
+@test("audit batch 1 review round 3 (reviewers 7 and 9): when git can't list config scopes (git before 2.26), the project's own filters are still found and emptied")
+def _(d):
+    import subprocess as sp, shutil, stat
+    real = shutil.which("git"); fake = d / "bin"; fake.mkdir()
+    (fake / "git").write_text(f'#!/bin/sh\nfor a in "$@"; do [ "$a" = "--show-scope" ] && {{ echo "error: unknown option" >&2; exit 129; }}; done\nexec {real} "$@"\n')
+    (fake / "git").chmod(0o755)
+    sg = _sg_fresh(); r_ = _sg_repo(d, "old"); mark = d / "PWNED_OLD"
+    sp.run(["git", "config", "filter.evil.clean", f"sh -c 'touch {mark}; cat'"], cwd=r_)
+    write(r_, ".gitattributes", "a.txt filter=evil\n"); write(r_, "a.txt", "one\n")
+    sp.run(["git", "-c", "filter.evil.clean=cat", "add", "-A"], cwd=r_); sp.run(["git", "-c", "filter.evil.clean=cat", "commit", "-qm", "c"], cwd=r_)
+    write(r_, "a.txt", "two\n")
+    env = dict(os.environ, PATH=f"{fake}{os.pathsep}{os.environ.get('PATH', '')}")
+    old = os.environ["PATH"]; os.environ["PATH"] = env["PATH"]
+    try:
+        for args in (["status", "--porcelain"], ["diff"]): sg.run(args, cwd=r_, capture_output=True, text=True)
+    finally: os.environ["PATH"] = old
+    assert not mark.exists(), "the filter ran when --show-scope was unavailable"
+
+@test("audit batch 1 review round 3 (reviewers 7 and 9): the security-feed reader exemption refuses a second command on a new line and readers that can run programs")
+def _(d):
+    (d / ".critic/scratch/me").mkdir(parents=True)
+    bad = (f"cat README.md\npython3 {S}/security_feed.py update", f"cat README.md\rpython3 {S}/security_feed.py update",
+           f"sed -n '1e python3 {S}/security_feed.py update' README.md", f"rg --pre=python3 x README.md # security_feed update",
+           f"sort --compress-program=sh f security_feed update")
+    for cmd in bad:
+        r = run(H / "pre_tool.py", cwd=d, stdin=json.dumps({"tool_name": "Bash", "tool_input": {"command": cmd}, "cwd": str(d), "agent_type": "curmudgeon:curmudgeon-detector", "agent_id": "me"}))
+        assert "deny" in r.stdout, (cmd, r.stdout)
+
+@test("audit batch 1 review round 3 (reviewer 9, R5): an in-project link to an in-project page is refused as a link, not as outside the project")
+def _(d):
+    write(d, "real.html", "<p>x</p>"); (d / "page.html").symlink_to(d / "real.html")
+    r = run(S / "browse.py", "start", str(d / "page.html"), "--session", str(d / "s.json"), cwd=d)
+    out = r.stdout + r.stderr
+    assert "is a link" in out and "outside the project" not in out, out
+
+@test("audit batch 1 review round 3: on git before 2.31, a repository with a filter named with '=' gets no git command at all")
+def _(d):
+    import subprocess as sp, shutil
+    real = shutil.which("git"); fake = d / "bin"; fake.mkdir()
+    (fake / "git").write_text(f'#!/bin/sh\n[ "$1" = "--version" ] && {{ echo "git version 2.25.1"; exit 0; }}\nexec {real} "$@"\n'); (fake / "git").chmod(0o755)
+    import safegit; safegit._ENV.clear(); safegit._VER.clear()
+    r_ = _sg_repo(d, "old"); sp.run(["git", "config", "filter.x=y.clean", "true"], cwd=r_)
+    old = os.environ["PATH"]; os.environ["PATH"] = f"{fake}{os.pathsep}{old}"
+    try: r = safegit.run(["status", "--porcelain"], cwd=r_, capture_output=True, text=True)
+    finally: os.environ["PATH"] = old; safegit._ENV.clear(); safegit._VER.clear()
+    assert r.returncode == 128 and "won't run git" in r.stderr, (r.returncode, r.stderr)

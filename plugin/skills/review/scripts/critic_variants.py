@@ -119,8 +119,8 @@ def apply(paths):
     (D / "variants.jsonl").write_text("".join(json.dumps(scrub(x), ensure_ascii=False) + "\n" for x in kept))
     md = ["# Variants (the variant hunt; listed apart, never in the main counts)", ""]
     if by_hand: md += [f"DEGRADED: verdicts not saved by the verifier's stop hook (written or edited outside .critic/verdicts-variants/): {', '.join(by_hand[:8])}", ""]
-    md += [f"Confirmed by blind verification: {len(kept)}"]
-    md += [f"- {x['id']} {x['impact']} {x['file']}:{x['line']}: {x['title']}" for x in kept]
+    md += [f"Confirmed by blind verification: {len(kept)}" + (f" ({sum(x['confidence'] == 'likely' for x in kept)} of them likely: a downgrade was ignored)" if any(x["confidence"] == "likely" for x in kept) else "")]
+    md += [f"- {x['id']} {x['impact']} {x['file']}:{x['line']}: {x['title']}" + (" (likely)" if x["confidence"] == "likely" else "") for x in kept]
     md += [f"  (note) {x}" for x in ignored]
     md += ["", f"Not verified (no verdict or unclear; not findings): {len(open_)}"] + [f"- {f['id']} {f['file']}:{f['line']} ({why})" for f, why in open_]
     md += ["", f"Refuted: {len(refuted)}"] + [f"- {f['id']} {f['file']}:{f['line']}: {why[:160]}" for f, why in refuted]

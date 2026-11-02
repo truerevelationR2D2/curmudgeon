@@ -105,7 +105,7 @@ def run_active(root):
 
 # A command that only reads files: each part of a pipeline starts with a reader and holds no command substitution,
 # variable expansion into a command, or redirect into a file.
-READ_ONLY_CMD = re.compile(r"(?:\s*(?:cat|grep|egrep|fgrep|rg|head|tail|less|more|wc|sed\s+-n|nl|sort|uniq|cut)\b[^;&|`$<>]*)(?:\|\s*(?:cat|grep|egrep|fgrep|rg|head|tail|less|more|wc|sed\s+-n|nl|sort|uniq|cut)\b[^;&|`$<>]*)*")
+READ_ONLY_CMD = re.compile(r"(?:[ \t]*(?:cat|grep|egrep|fgrep|head|tail|wc|nl|uniq|cut)\b[^;&|`$<>\n\r]*)(?:\|[ \t]*(?:cat|grep|egrep|fgrep|head|tail|wc|nl|uniq|cut)\b[^;&|`$<>\n\r]*)*")  # one line of plain readers; sed, sort, rg, less and more can run programs (round 3)
 
 def owner_problem(cmd, detector):
     """A tripwire for the owner's consent and approvals (03 §5.56 items 9 and 12), in any Curmudgeon agent's command:

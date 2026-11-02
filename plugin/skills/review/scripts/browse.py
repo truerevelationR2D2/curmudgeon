@@ -372,6 +372,11 @@ def show(ev):
     print(f"network: {len(ev.get('network', []))} request(s)" + ("\n  " + "\n  ".join(ev["network"][-10:]) if ev.get("network") else ""))
     if ev.get("screenshot"): print(f"screenshot: {ev['screenshot']}")
 
+def page_refusal(page, root):
+    """Why a local page is refused: it is a link, or it lies outside the project (round 3: one message said both)."""
+    if pathlib.Path(page).is_symlink(): return f"{page} is a link: a page is never served through a link, since its real folder would become the server's root (ultimate audit Q18). Pass the real file instead"
+    return f"{page} is outside the project ({root}), or a linked folder takes it there: a page is served only from inside the project (ultimate audit Q18). Copy it into the project, or run from its folder"
+
 def check(page, allow_live, allow_writes):
     """(ok, live_target, why) for loading page with these permissions; run at start and again before every step."""
     live = None
@@ -381,7 +386,7 @@ def check(page, allow_live, allow_writes):
         ok, live, why = scope_file.decide(page, ROOT, allow_live, is_local_url(page))
         if not ok: return False, None, why
     elif pathlib.Path(page).is_symlink() or not pathlib.Path(page).resolve().is_relative_to(ROOT):  # a linked page, or one a linked folder takes outside the project (batch 1 review)
-        return False, None, f"{page} is outside the project ({ROOT}), directly or through a link: a page is served only from inside the project, since its real folder becomes the server's root (ultimate audit Q18). Copy it into the project, or run from its folder"
+        return False, None, page_refusal(page, ROOT)
     elif not pathlib.Path(page).is_file(): return False, None, f"{page} is not a file or an http(s) URL"
     if allow_writes and live: return False, None, "--allow-writes is for the page's own loopback server, never a live site"
     from critic_findings import consent_given

@@ -29,7 +29,7 @@ The full audit of 5.2.5 (six blind lenses, Curmudgeon's own full-tier review, th
 - A false-positive ruling hides nothing when it has no rule id (scan rows) or when its id was never scored (a Critical or High).
 - The tally refuses to count when the ledger can't be read.
 - A Medium only one reviewer raised, without a run, now goes to a blind verifier and is kept only if confirmed (before, it was dropped; the self-review lost a real High this way). A single-vote Critical or High was already verified, never dropped (03 §5.57.6).
-- Every git command runs without the project's own commands from `.git` (`core.fsmonitor`, its own filter and diff drivers, hooks, `gpg.program` through `log.showSignature`, and the same inside submodules), passed as `git -c` overrides that every git version honours: a project that arrives with its own `.git` could otherwise make git run a program (03 §5.57.6). The owner's global filters, such as git-lfs, keep working.
+- Every git command runs without the project's own commands from `.git` (`core.fsmonitor`, its own filter and diff drivers, hooks, `gpg.program` through `log.showSignature`, and the same inside submodules), passed as `git -c` overrides (or, for a filter whose name contains `=`, through `GIT_CONFIG_COUNT`, with git refused below 2.31 in that case), and with `--ignore-submodules=all` on diff, log, show and status so a submodule's own `ignore` setting can't turn recursion back on: a project that arrives with its own `.git` could otherwise make git run a program (03 §5.57.6). The owner's global filters, such as git-lfs, keep working.
 
 **Privacy**
 - `--online` sends package names only after you agree on that run (`critic_ledger.py consent online`); without it the lookup runs offline and the report says so.
