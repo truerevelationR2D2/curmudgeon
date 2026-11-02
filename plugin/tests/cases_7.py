@@ -396,6 +396,8 @@ def _(d):
     md = (d / ".critic/variants.md").read_text()
     assert "DEGRADED" in md and "v.json" in md, md
     assert "V-abcdef-1 Critical" in md, ("a Critical lowered with no cited reason keeps its impact", md)
+    row = json.loads((d / ".critic/variants.jsonl").read_text().splitlines()[0])
+    assert row["confidence"] == "likely" and "downgrade" in md.lower() and "ignored" in md, ("an ignored downgrade is not a clean confirmation, as in critic_merge.py apply (round 2, reviewer 4)", row, md)
     import critic_ledger as cl, importlib; importlib.reload(cl)
     cl.D = d / ".critic"; led = json.loads((d / ".critic/ledger.json").read_text())
     write(d, ".critic/counts.md", "# Curmudgeon merged findings\n\nCounts for the VERDICT (copy exactly): Critical 0 · High 0 · Medium 0 · Low 0 · total 0\n"); time.sleep(0.02)
@@ -496,3 +498,22 @@ def _(d):
     run(S / "critic_merge.py", "tally", *[f".critic/reviews/review-{L}.json" for L in "ABC"], cwd=g)
     t = json.loads((g / ".critic/tally.json").read_text())
     assert t["contested"] and t["contested"][0].get("single_vote"), ("an unquoted one-reviewer Medium is held to the same rule (round 2)", t)
+
+@test("audit batch 1 review round 2 (reviewer 4, R7): safegit passes its overrides as -c arguments, which every git version honours, not only through GIT_CONFIG_COUNT (git 2.31 and later)")
+def _(d):
+    import safegit, subprocess as sp
+    r_ = d / "r"; r_.mkdir(); sp.run(["git", "init", "-q"], cwd=r_)
+    sp.run(["git", "config", "filter.evil.clean", "/bin/false"], cwd=r_)
+    seen = []; real = safegit.subprocess.run
+    def spy(argv, **kw):
+        if argv[:1] == ["git"] and "config" not in argv: seen.append((argv, kw.get("env") or {}))
+        return real(argv, **kw)
+    safegit.subprocess.run = spy
+    try: safegit.run(["status", "--porcelain"], cwd=r_, capture_output=True, text=True)
+    finally: safegit.subprocess.run = real
+    argv, env = seen[-1]
+    sub = argv.index("status")
+    flags = [argv[i + 1] for i in range(sub) if argv[i] == "-c"]
+    for want in ("core.fsmonitor=false", "log.showSignature=false", "diff.ignoreSubmodules=all", "filter.evil.clean=", "filter.evil.required=false"):
+        assert want in flags, (want, argv)
+    assert "GIT_CONFIG_KEY_0" not in env or env.get("GIT_CONFIG_KEY_0") != "core.fsmonitor", "no reliance on GIT_CONFIG_COUNT"

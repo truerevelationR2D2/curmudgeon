@@ -98,7 +98,7 @@ def apply(paths):
         if pathlib.Path(p).resolve().parent != (D / "verdicts-variants").resolve(): by_hand.append(pathlib.Path(p).name)  # not saved by the verifier's stop hook (batch 1 review, as critic_merge.py apply)
         for v in rows if isinstance(rows, list) else [rows]:
             if isinstance(v, dict) and v.get("id") in packets: verdicts[v["id"]] = v
-    kept, refuted, open_ = [], [], []
+    kept, refuted, open_, ignored = [], [], [], []
     for vid, f in packets.items():
         v = verdicts.get(vid)
         if not v: open_.append((f, "no verdict")); continue
@@ -110,14 +110,18 @@ def apply(paths):
         if kind == "downgrade":  # a lower impact is a judgement, not evidence: a variant needs the confirmation's evidence too
             kind = "confirmed" if not confirmation_problem(v, root=ROOT) else "unclear"
             new_ = str(v.get("impact_after", "")).title()  # the same downgrade rule as the main findings (03 §5.57.2); without it the variant keeps its impact
-            if kind == "confirmed" and new_ in IMP and not downgrade_problem(f["impact"], new_, v.get("reproduced"), str(v.get("note") or raw), root=ROOT): f = dict(f, impact=new_)
-        if kind == "confirmed": kept.append(dict(f, confidence="confirmed", source="variant", verifier_note=redact_finding_text(str(v.get("note") or ""))[:300]))
+            if kind == "confirmed" and new_ in IMP:
+                dp = downgrade_problem(f["impact"], new_, v.get("reproduced"), str(v.get("note") or raw), root=ROOT)
+                if not dp: f = dict(f, impact=new_)
+                else: f = dict(f, confidence="likely"); ignored.append(f"{vid}: downgrade to {new_} ignored ({dp}); kept at {f['impact']}")  # as critic_merge.py apply: not a clean confirmation
+        if kind == "confirmed": kept.append(dict(f, confidence=f.get("confidence", "confirmed"), source="variant", verifier_note=redact_finding_text(str(v.get("note") or ""))[:300]))
         else: open_.append((f, "unclear"))
     (D / "variants.jsonl").write_text("".join(json.dumps(scrub(x), ensure_ascii=False) + "\n" for x in kept))
     md = ["# Variants (the variant hunt; listed apart, never in the main counts)", ""]
     if by_hand: md += [f"DEGRADED: verdicts not saved by the verifier's stop hook (written or edited outside .critic/verdicts-variants/): {', '.join(by_hand[:8])}", ""]
     md += [f"Confirmed by blind verification: {len(kept)}"]
     md += [f"- {x['id']} {x['impact']} {x['file']}:{x['line']}: {x['title']}" for x in kept]
+    md += [f"  (note) {x}" for x in ignored]
     md += ["", f"Not verified (no verdict or unclear; not findings): {len(open_)}"] + [f"- {f['id']} {f['file']}:{f['line']} ({why})" for f, why in open_]
     md += ["", f"Refuted: {len(refuted)}"] + [f"- {f['id']} {f['file']}:{f['line']}: {why[:160]}" for f, why in refuted]
     (D / "variants.md").write_text("\n".join(md) + "\n", encoding="utf-8")
