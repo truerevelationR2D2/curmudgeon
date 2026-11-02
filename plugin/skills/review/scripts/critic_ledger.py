@@ -261,7 +261,8 @@ def teardown_problems(L):
     vm = D / "variants.md"  # the variant hunt's own DEGRADED line is enforced the same way (batch 1 review round 2)
     if vm.is_file() and not vm.is_symlink() and vm.stat().st_mtime >= started:
         vdeg = next((x.strip() for x in vm.read_text(encoding="utf-8", errors="replace").splitlines() if x.startswith("DEGRADED:")), None)
-        if vdeg and vdeg[len("DEGRADED:"):].strip()[:60] not in " ".join(plain(x) for x in lines):
+        vstart = next((i for i, x in enumerate(lines) if (x.startswith("#") and "variant" in x.lower()) or re.match(r"variants\b", plain(x).lstrip("-* "), re.I)), None)  # the whole line, in or after the Variants part: the main banner shares its first words (round 3)
+        if vdeg and (vstart is None or not any(plain(vdeg) in plain(x) for x in lines[vstart:])):
             probs.append("variants.md says its verdicts weren't all saved by the stop hook (" + vdeg[9:80].strip() + "), but the teardown's Variants section doesn't carry that DEGRADED line")
     first = next((x for x in lines if not plain(x).startswith(("DEGRADED", "BLOCKED"))), "")
     word = re.search(r"\*\*(BLOCK|CONCERNS|CLEAN)\*\*", first); got = teardown_counts(first)

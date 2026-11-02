@@ -404,6 +404,14 @@ def _(d):
     write(d, ".critic/counts.md", "# Curmudgeon merged findings\n\nCounts for the VERDICT (copy exactly): Critical 0 · High 0 · Medium 0 · Low 0 · total 0\n"); time.sleep(0.02)
     write(d, ".critic/last-review.md", "**CLEAN** · Counts: Critical 0 · High 0 · Medium 0 · Low 0 · total 0\n\n#### 5. VERDICT\n- **CLEAN**\n- Counts: Critical 0 · High 0 · Medium 0 · Low 0 · total 0\n")
     assert any("Variants section" in p_ for p_ in cl.teardown_problems(led)), "stamp refuses a teardown that drops the variants' DEGRADED line (round 2)"
+    main_deg = "DEGRADED: verdicts not saved by the verifier's stop hook (written or edited outside .critic/verdicts/): v.json"
+    write(d, ".critic/last-review.md", main_deg + "\n**CLEAN** · Counts: Critical 0 · High 0 · Medium 0 · Low 0 · total 0\n\n#### Variants\n- none listed\n")
+    assert any("Variants section" in p_ for p_ in cl.teardown_problems(led)), "the main DEGRADED banner doesn't stand in for the variants' own line (round 3, reviewer 8)"
+    vline = next(x for x in md.splitlines() if x.startswith("DEGRADED:"))
+    write(d, ".critic/last-review.md", "**CLEAN** · Counts: Critical 0 · High 0 · Medium 0 · Low 0 · total 0\n\n#### Variants\n" + vline + "\n")
+    assert not any("Variants section" in p_ for p_ in cl.teardown_problems(led)), "the whole line under a Variants heading passes"
+    write(d, ".critic/last-review.md", "**CLEAN** · Counts: Critical 0 · High 0 · Medium 0 · Low 0 · total 0\n\n- **Variants:** none confirmed. " + vline + "\n")
+    assert not any("Variants section" in p_ for p_ in cl.teardown_problems(led)), "or on the contract's Variants: line"
 
 @test("audit batch 1 review (cost): the tally asks whether the ledger is the owner's once per ledger state, not once per finding")
 def _(d):
@@ -492,6 +500,8 @@ def _(d):
     assert one(d / "b", {"verdict": "unclear", "reproduced": "no"}) == [], "unclear: dropped"
     assert one(d / "c", None) == [], "no verdict: dropped"
     assert one(d / "e", {"verdict": "downgrade", "impact_after": "Low"}) == [], "a bare downgrade with no evidence: dropped (round 2)"
+    rf = d / "e/.critic/refutations.jsonl"
+    assert not rf.exists() or "downgraded" not in rf.read_text(), ("the verifier log never records a downgrade of a finding that was dropped (round 3, reviewer 8)", rf.read_text())
     assert len(one(d / "f", dict(good, verdict="downgrade", impact_after="Low"))) == 1, "a downgrade with the confirmation's evidence: kept, as a Low"
     g = d / "g"; write(g, "src/app.js", APP); run(S / "critic_ledger.py", "start", "review", "--tier", "full", cwd=g)
     m = finding(category="domain", impact="Medium", line=0, quote="", title="Tax rule in render code")  # no quote: nothing the script can check

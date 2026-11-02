@@ -551,6 +551,7 @@ def apply(paths):
             if not prob:
                 refuted.append({"finding": f, "why": why}); VERIFIER_LOG.append(("refuted", f, why, v.get("reproduced"))); continue
             kind = "unclear"; notes.append(f"{f['id']}: refutation not concrete enough to drop it ({prob}); kept")
+        if f.get("single_vote") and kind == "downgrade" and confirmation_problem(v, root=ROOT): kind = "unclear"  # a downgrade keeps it only with the confirmation's evidence, as critic_variants.py asks; decided first, so the verifier log never records a downgrade of a finding that is then dropped (round 3)
         if kind == "downgrade":
             new = str(v.get("impact_after", "")).title()
             dp = downgrade_problem(f["impact"], new, v.get("reproduced"), str(v.get("note") or raw), root=ROOT)  # 03 §5.57.2
@@ -558,7 +559,6 @@ def apply(paths):
                 VERIFIER_LOG.append(("downgraded", dict(f), f"{f['impact']} to {new}: {redact_finding_text(str(v.get('note') or '')) or why}", v.get("reproduced")))
                 f["impact_before"] = f["impact"]; f["impact"] = new
             else: notes.append(f"{f['id']}: downgrade to {new or '?'} ignored ({dp}); kept at {f['impact']}"); kind = "unclear"
-        if f.get("single_vote") and kind == "downgrade" and confirmation_problem(v, root=ROOT): kind = "unclear"  # a downgrade keeps it only with the confirmation's evidence, as critic_variants.py asks
         if f.get("single_vote") and kind not in ("confirmed", "downgrade"):  # 03 §5.57.6: kept only on a verifier's confirmation
             notes.append(f"{f['id']}: one reviewer's Medium the verifier didn't confirm ({kind}); dropped"); continue
         if f.get("outside_only") and kind not in ("confirmed", "downgrade"):  # nobody of ours saw it and no verifier confirmed it
