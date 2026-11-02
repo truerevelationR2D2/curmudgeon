@@ -1,6 +1,6 @@
 """Curmudgeon's script tests, part 1 of 3. Run plugin/tests/run_tests.py, which defines the helpers and runs every part
 (the tests were split so no file passes the plugin directory's 256 KiB limit). Not runnable on its own."""
-@test("merge: 2 of 3 votes kept, single traced Medium dropped, contract breaches rejected, bad quotes retracted")
+@test("merge: 2 of 3 votes kept, single traced Medium sent to one verifier (03 §5.57.6), contract breaches rejected, bad quotes retracted")
 def _(d):
     write(d, "src/app.js", APP); run(S / "critic_ledger.py", "start", "full", cwd=d)
     write(d, "a.json", json.dumps([finding(), finding(category="domain", impact="Medium", line=4, quote="const price = total * 1.0825;", title="Tax rule in render code")]))
@@ -9,7 +9,7 @@ def _(d):
     r = run(S / "critic_merge.py", "tally", "a.json", "b.json", "c.json", cwd=d); assert r.returncode == 0, r.stderr
     t = json.loads((d / ".critic/tally.json").read_text())
     assert [f["title"] for f in t["kept"]] == ["Title rendered as HTML"] and t["kept"][0]["votes"] == 2, t["kept"]
-    assert any(x["finding"]["title"] == "Tax rule in render code" for x in t["dropped"])
+    assert any(f["title"] == "Tax rule in render code" and f.get("single_vote") for f in t["contested"]), "one reviewer's Medium goes to a verifier, kept only if confirmed (03 §5.57.6)"
     assert any(x["finding"]["title"] == "eval of input" for x in t["retracted"])
     assert any(x["finding"]["title"] == "no case" for x in t["rejected"])
 
