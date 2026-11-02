@@ -29,7 +29,7 @@ HERE = pathlib.Path(__file__).resolve().parent
 ROOT = pathlib.Path(os.environ.get("CRITIC_ROOT") or re.sub(r"[\\/]\.critic[\\/]scratch(?:[\\/].*)?$", "", os.getcwd()) or os.getcwd()).resolve(); D = ROOT / ".critic"
 REVIEWERS = {"trivial": ["A"], "lite": ["A"], "full": ["A", "B", "C"]}
 VERIFY_BATCH = 5  # packets per verifier agent; 10 (SC-78) was measured and reverted: no saving, quality worse (03 §5.37)
-FORCE = False  # next --apply-now: apply with the verdicts there are (a finding with no verdict stays, at lower confidence)
+FORCE = False  # next --apply-now: apply with the verdicts there are (a finding with no verdict stays at lower confidence, except single-vote Mediums and outside-only findings, which are left out)
 
 def sh(script, *a):
     r = subprocess.run([sys.executable, str(HERE / script), *a], cwd=ROOT, capture_output=True, text=True)
@@ -161,7 +161,7 @@ def say_next(st, tier, items):
     elif st == "verify":
         batches = verifier_batches(items, tier)
         print(f"next: start {len(batches)} curmudgeon:curmudgeon-verifier agent(s), blind, on these packets without a verdict yet (each verifier's ```json verdict list is saved in .critic/verdicts/ by the stop hook, unchanged; don't copy verdicts yourself); "
-              "then critic_run.py next. If a verifier can't answer, critic_run.py next --apply-now applies what there is (a finding with no verdict stays, at lower confidence):")
+              "then critic_run.py next. If a verifier can't answer, critic_run.py next --apply-now applies what there is (a finding with no verdict stays at lower confidence, except one reviewer's Medium and an outside-only finding, which are left out):")
         for i, b in enumerate(batches, 1): print(f"  verifier {i}: " + " ".join(rel(p) for p in b))
     elif st == "variants-find":
         print("next: the full tier's variant hunt (SKILL.md step 4.5): run critic_variants.py find, then critic_run.py next.")

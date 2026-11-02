@@ -540,7 +540,7 @@ def runtime(page, src, root, out, axe_arg, interact, allow_live, baseline=None, 
     if re.match(r"^https?://", page): url = page; origin = re.match(r"^(https?://[^/]+)", page).group(1); allowed = [safe_web.host_port(page)]
     else:
         if pathlib.Path(page).is_symlink() or not pathlib.Path(page).resolve().is_relative_to(pathlib.Path(root).resolve()):
-            raise ValueError(f"{page} is a link, or a link takes it outside the project: such a page is never served (ultimate audit Q18)")
+            raise ValueError(f"{page} is outside the project, directly or through a link: a page is served only from inside the project (ultimate audit Q18)")
         pp = pathlib.Path(page).resolve(); base = src if src.is_dir() and pp.is_relative_to(src.resolve()) else pp.parent  # a path test, not a string prefix (V44)
         if any(safe_web.hidden(x) for x in pp.relative_to(base).parts[:-1]): base = pp.parent  # a page under a dot folder (.vitepress/dist) is served from its own folder: the server never serves dot paths
         # served from this computer only (loopback), never a file whose real path leaves the folder, never a listing

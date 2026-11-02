@@ -106,10 +106,10 @@ def _(d):
     secret = d / "home" / ".aws"; secret.mkdir(parents=True); (secret / "credentials").write_text("PRIVATE\n")
     proj = d / "proj"; proj.mkdir(); os.symlink(secret / "credentials", proj / "page.html")
     r = run(S / "browse.py", "start", str(proj / "page.html"), "--session", str(d / "s.json"), cwd=proj)
-    assert r.returncode != 0 and "link" in (r.stdout + r.stderr), r.stdout + r.stderr
+    assert r.returncode != 0 and "outside the project" in (r.stdout + r.stderr), r.stdout + r.stderr
     out = d / "out"; run(S / "critic_scan.py", "page.html", "--root", ".", "--page", "page.html", "--out", str(out), "--no-interact", cwd=proj)
     rep = (out / "report.md").read_text() if (out / "report.md").exists() else ""
-    assert "PRIVATE" not in rep and "is a link" in rep, rep[:2000]
+    assert "PRIVATE" not in rep and "outside the project" in rep, rep[:2000]
     import critic_scan, inspect
     assert "is_relative_to" in inspect.getsource(critic_scan.runtime), "the page folder test compares paths, not string prefixes"
     other = d / "outside2"; other.mkdir(); (other / "index.html").write_text("<p>OUTSIDE-PAGE</p>"); os.symlink(other, proj / "site")
@@ -305,11 +305,13 @@ def _(d):
 def _(d):
     (d / ".critic/scratch/me").mkdir(parents=True)
     for agent in ("curmudgeon:curmudgeon-reviewer", "curmudgeon:curmudgeon-verifier", "curmudgeon:curmudgeon-detector"):
-        for cmd in (f"python3 {S}/security_feed.py set --cadence daily --folder /tmp/x --signed-off 5000000000", f"python3 {S}/security_feed.py update"):
+        for cmd in (f"python3 {S}/security_feed.py set --cadence daily --folder /tmp/x --signed-off 5000000000", f"python3 {S}/security_feed.py update",
+                    f"python3 {S}/security_feed.py -- update", f"SF={S}/security_feed.py; python3 $SF update", f"cd {S} && python3 -c 'import security_feed; security_feed.main([\"update\"])'"):
             r = run(H / "pre_tool.py", cwd=d, stdin=json.dumps({"tool_name": "Bash", "tool_input": {"command": cmd}, "cwd": str(d), "agent_type": agent, "agent_id": "me"}))
             assert "deny" in r.stdout, (agent, cmd, r.stdout)
-    r = run(H / "pre_tool.py", cwd=d, stdin=json.dumps({"tool_name": "Bash", "tool_input": {"command": f"cat {S}/security_feed.py | grep -n 'to update the feed'"}, "cwd": str(d), "agent_type": "curmudgeon:curmudgeon-reviewer", "agent_id": "me"}))
-    assert "deny" not in r.stdout or "security feed" not in r.stdout, ("reading the file is fine (batch 1 review)", r.stdout)
+    sys.path.insert(0, str(H)); import importlib, read_guard as rg_; importlib.reload(rg_)
+    for cmd in (f"cat {S}/security_feed.py | grep -n 'to update the feed'", f"grep -n update {S}/security_feed.py"):
+        assert rg_.owner_problem(cmd, True) is None, ("reading the file is fine (batch 1 review)", cmd)
 
 @test("audit V29: in round 3 a new unconfirmed Critical is recorded open and marked held, so check and the stop gate see it; an unconfirmed Medium is still held back")
 def _(d):
@@ -361,6 +363,8 @@ def _(d):
     r = run(S / "critic_ledger.py", "check", cwd=p)
     assert r.returncode == 1 and "F-aaaa1111" in r.stdout, ("the owner's open Critical is still there", r.stdout, r.stderr)
     q = d / "q"; q.mkdir(); _ledger_by_hand(q)
+    r = run(S / "critic_ledger.py", "examples", cwd=q)
+    assert "approved by security team" not in r.stdout and "none shown" in r.stdout, ("a shipped ledger's rulings never print as reviewer examples (round 2)", r.stdout)
     r = run(S / "critic_ledger.py", "show", cwd=q)
     assert not list((q / ".critic").glob("ledger-set-aside-*")) and (q / ".critic/ledger.json").exists(), "show moves nothing"
     assert cf.ledger_shipped(q), "and a shipped ledger stays untrusted after a read-only command"
@@ -392,6 +396,11 @@ def _(d):
     md = (d / ".critic/variants.md").read_text()
     assert "DEGRADED" in md and "v.json" in md, md
     assert "V-abcdef-1 Critical" in md, ("a Critical lowered with no cited reason keeps its impact", md)
+    import critic_ledger as cl, importlib; importlib.reload(cl)
+    cl.D = d / ".critic"; led = json.loads((d / ".critic/ledger.json").read_text())
+    write(d, ".critic/counts.md", "# Curmudgeon merged findings\n\nCounts for the VERDICT (copy exactly): Critical 0 · High 0 · Medium 0 · Low 0 · total 0\n"); time.sleep(0.02)
+    write(d, ".critic/last-review.md", "**CLEAN** · Counts: Critical 0 · High 0 · Medium 0 · Low 0 · total 0\n\n#### 5. VERDICT\n- **CLEAN**\n- Counts: Critical 0 · High 0 · Medium 0 · Low 0 · total 0\n")
+    assert any("Variants section" in p_ for p_ in cl.teardown_problems(led)), "stamp refuses a teardown that drops the variants' DEGRADED line (round 2)"
 
 @test("audit batch 1 review (cost): the tally asks whether the ledger is the owner's once per ledger state, not once per finding")
 def _(d):
@@ -425,8 +434,43 @@ def _(d):
     assert ran() == [], ran()
     out = safegit.run(["diff", "--name-only", "HEAD"], cwd=p, capture_output=True, text=True).stdout
     assert "a.txt" in out and "src/a.py" in out, ("git still answers correctly", out)
-    for f in list((S).glob("*.py")) + list(H.glob("*.py")):
-        if f.name != "safegit.py": assert 'subprocess.run(["git"' not in f.read_text(), f"{f.name} runs git without safegit"
+    for f in list((S).glob("*.py")) + list(H.glob("*.py")):  # any quoting, any subprocess call (batch 1 review round 2)
+        if f.name != "safegit.py": assert not re.search(r"""subprocess\.\w+\(\s*\[\s*['"]git['"]""", f.read_text()), f"{f.name} runs git without safegit"
+
+@test("audit 03 §5.57.6 (round 2): hooks, signature checks and a submodule's own filter can't run either, and the owner's global required filter (git-lfs) keeps working")
+def _(d):
+    import safegit
+    hook = d / "planted.sh"; hook.write_text(f"#!/bin/sh\ntouch {d}/RAN-$1\ncat\n"); hook.chmod(0o755)
+    ran = lambda: sorted(x.name for x in d.glob("RAN-*"))
+    p = d / "p"; p.mkdir(); subprocess.run(["git", "init", "-q"], cwd=p)
+    write(p, "a", "x\n"); subprocess.run(["git", "add", "a"], cwd=p); subprocess.run(G + ["commit", "-qm", "x"], cwd=p)
+    tree = subprocess.run(["git", "rev-parse", "HEAD^{tree}"], cwd=p, capture_output=True, text=True).stdout.strip()
+    parent = subprocess.run(["git", "rev-parse", "HEAD"], cwd=p, capture_output=True, text=True).stdout.strip()
+    body = f"tree {tree}\nparent {parent}\nauthor t <t@e> 1700000000 +0000\ncommitter t <t@e> 1700000000 +0000\ngpgsig -----BEGIN PGP SIGNATURE-----\n \n AAAA\n -----END PGP SIGNATURE-----\n\nsigned\n"
+    sha = subprocess.run(["git", "hash-object", "-t", "commit", "-w", "--stdin"], cwd=p, input=body, capture_output=True, text=True).stdout.strip()
+    subprocess.run(["git", "update-ref", "HEAD", sha], cwd=p)
+    subprocess.run(["git", "config", "log.showSignature", "true"], cwd=p); subprocess.run(["git", "config", "gpg.program", f"{hook} gpg"], cwd=p)
+    (p / ".git/hooks").mkdir(exist_ok=True); (p / ".git/hooks/post-index-change").write_text(f"#!/bin/sh\ntouch {d}/RAN-hook\n"); (p / ".git/hooks/post-index-change").chmod(0o755)
+    time.sleep(1); os.utime(p / "a")
+    safegit.run(["status", "--porcelain"], cwd=p, capture_output=True); safegit.run(["diff", "--name-only", "HEAD"], cwd=p, capture_output=True)
+    safegit.run(["log", "-1", "--pretty=%s"], cwd=p, capture_output=True)
+    run(S / "critic_map.py", "--files", "a", cwd=p)
+    assert ran() == [], ("hooks and signature checks never run", ran())
+    q = d / "q"; q.mkdir(); subprocess.run(["git", "init", "-q"], cwd=q); write(q, "top", "x\n")
+    sub = d / "subsrc"; sub.mkdir(); subprocess.run(["git", "init", "-q"], cwd=sub); write(sub, "f", "x\n"); subprocess.run(["git", "add", "f"], cwd=sub); subprocess.run(G + ["commit", "-qm", "s"], cwd=sub)
+    subprocess.run(["git", "-c", "protocol.file.allow=always", "submodule", "add", "-q", str(sub), "sub"], cwd=q, capture_output=True)
+    subprocess.run(["git", "add", "."], cwd=q); subprocess.run(G + ["commit", "-qm", "t"], cwd=q)
+    subprocess.run(["git", "config", "filter.evil.clean", f"{hook} subclean"], cwd=q / "sub")
+    write(q, ".git/modules/sub/info/attributes", "* filter=evil\n"); time.sleep(1); write(q, "sub/f", "y\n")
+    safegit.run(["diff", "--name-only", "-z", "HEAD"], cwd=q, capture_output=True); safegit.run(["status", "--porcelain"], cwd=q, capture_output=True)
+    assert ran() == [], ("a submodule's own filter never runs", ran())
+    gl = d / "global.gitconfig"; gl.write_text(f"[filter \"lfs\"]\n\tclean = cat\n\tsmudge = cat\n\trequired = true\n")
+    r_ = d / "r"; r_.mkdir(); env = {"GIT_CONFIG_GLOBAL": str(gl)}
+    subprocess.run(["git", "init", "-q"], cwd=r_, env=dict(os.environ, **env)); write(r_, ".gitattributes", "*.bin filter=lfs\n"); write(r_, "a.bin", "x\n"); write(r_, "b.txt", "x\n")
+    subprocess.run(["git", "add", "."], cwd=r_, env=dict(os.environ, **env)); subprocess.run(G + ["commit", "-qm", "x"], cwd=r_, env=dict(os.environ, **env))
+    time.sleep(1); write(r_, "b.txt", "y\n"); os.utime(r_ / "a.bin")
+    out = safegit.run(["diff", "--name-only", "HEAD"], cwd=r_, env=dict(os.environ, **env), capture_output=True, text=True)
+    assert out.returncode == 0 and "b.txt" in out.stdout, ("the owner's own required filter still works", out.returncode, out.stderr)
 
 @test("audit 03 §5.57.6: a Medium raised by one reviewer, with no run, goes to a blind verifier and is kept only if it confirms")
 def _(d):
@@ -444,3 +488,11 @@ def _(d):
     assert len(one(d / "a", good)) == 1, "confirmed: kept"
     assert one(d / "b", {"verdict": "unclear", "reproduced": "no"}) == [], "unclear: dropped"
     assert one(d / "c", None) == [], "no verdict: dropped"
+    assert one(d / "e", {"verdict": "downgrade", "impact_after": "Low"}) == [], "a bare downgrade with no evidence: dropped (round 2)"
+    assert len(one(d / "f", dict(good, verdict="downgrade", impact_after="Low"))) == 1, "a downgrade with the confirmation's evidence: kept, as a Low"
+    g = d / "g"; write(g, "src/app.js", APP); run(S / "critic_ledger.py", "start", "review", "--tier", "full", cwd=g)
+    m = finding(category="domain", impact="Medium", line=0, quote="", title="Tax rule in render code")  # no quote: nothing the script can check
+    write(g, ".critic/reviews/review-A.json", json.dumps([m])); write(g, ".critic/reviews/review-B.json", "[]"); write(g, ".critic/reviews/review-C.json", "[]")
+    run(S / "critic_merge.py", "tally", *[f".critic/reviews/review-{L}.json" for L in "ABC"], cwd=g)
+    t = json.loads((g / ".critic/tally.json").read_text())
+    assert t["contested"] and t["contested"][0].get("single_vote"), ("an unquoted one-reviewer Medium is held to the same rule (round 2)", t)

@@ -13,7 +13,7 @@ The full audit of 5.2.5 (six blind lenses, Curmudgeon's own full-tier review, th
 **Trust boundaries**
 - A `.critic/ledger.json` counts as yours only when git doesn't track it and it is exactly the file Curmudgeon last saved on this computer (its checksum is kept outside the project). A read-only command (`show`, `check`) moves nothing, and if that outside folder can't be written, the command stops and changes nothing. A ledger that came in a zip, sits untracked inside another repository, or was changed after the last save is set aside on the next run and a new ledger starts; its rulings never apply. `critic_ledger.py adopt <file> --show` lists its rulings, and `adopt <file>` takes it back after you agree. (Before, a false-positive ruling in such a ledger could hide a Critical.)
 - The page server answers a refused request with a 404, never from a file inside the served folder, and a folder's `index.html` that links outside is never served. (Before, a planted link at `.curmudgeon-refused/404` served any file you can read.)
-- A page that is a link is refused by the browser driver and the scan.
+- The browser driver and the scan serve a page only from inside the project: a page outside it, directly or through a link, is refused (its real folder would become the server's root). Copy it into the project, or run from its folder.
 - Lockfiles, manifests and earlier CI results that link outside the project are never read, and each is listed once.
 - `.critic/gate` and `.critic/gate-async` turn a stop check on only when you ran `/curmudgeon:gate`; a committed marker does nothing.
 - Reviewers, verifiers and the detector can't record your sign-off on the security feed or start its downloads, and can't write into another agent's private folder.

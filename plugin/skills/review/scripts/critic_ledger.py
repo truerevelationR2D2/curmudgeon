@@ -258,6 +258,11 @@ def teardown_problems(L):
     probs = []
     if deg is not None and not (lines and plain(lines[0]).startswith("DEGRADED") and deg in plain(lines[0])):
         probs.append("counts.md says the run is DEGRADED (" + deg[:80] + "), but the teardown's first line doesn't carry that reason")
+    vm = D / "variants.md"  # the variant hunt's own DEGRADED line is enforced the same way (batch 1 review round 2)
+    if vm.is_file() and not vm.is_symlink() and vm.stat().st_mtime >= started:
+        vdeg = next((x.strip() for x in vm.read_text(encoding="utf-8", errors="replace").splitlines() if x.startswith("DEGRADED:")), None)
+        if vdeg and vdeg[len("DEGRADED:"):].strip()[:60] not in " ".join(plain(x) for x in lines):
+            probs.append("variants.md says its verdicts weren't all saved by the stop hook (" + vdeg[9:80].strip() + "), but the teardown's Variants section doesn't carry that DEGRADED line")
     first = next((x for x in lines if not plain(x).startswith(("DEGRADED", "BLOCKED"))), "")
     word = re.search(r"\*\*(BLOCK|CONCERNS|CLEAN)\*\*", first); got = teardown_counts(first)
     if not word or not got: probs.append("the first line after any banner must be the verdict in bold and the counts (**BLOCK** · Counts: 1 Critical, 2 High, 0 Medium, 3 Low)")
@@ -281,6 +286,8 @@ def teardown_problems(L):
 def main(a):
     if not a or any(x in ("-h", "--help") for x in a): print(__doc__); return 0  # help never changes the ledger
     cmd, rest = a[0], a[1:]; L = load(read_only=cmd in READ_ONLY and not (cmd == "memories" and rest)); msg = "ok"
+    if LOADED_SHIPPED and cmd in ("examples", "memories"):  # a shipped ledger's rulings never reach reviewers, by this path either (batch 1 review round 2)
+        print(f"none shown: .critic/ledger.json may have come with the code, so its rulings and memories are not used (run any other critic_ledger.py command to set it aside)"); return 0
     if cmd not in ("show", "check", "stale", "tokens", "integrity", "fresh"): refuse_linked_state(ROOT); log_run(ROOT, "script", "critic_ledger.py " + " ".join(a))
     if cmd in ("fixed", "claim", "restore") and L.get("mode") == "audit":
         die("this run is an audit of someone else's system: it changes nothing, so nothing is fixed, claimed or restored here (start a review of your own code to fix)")

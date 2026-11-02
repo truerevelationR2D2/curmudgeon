@@ -419,7 +419,9 @@ def tally(paths):
         else: f.pop("memory_note", None)
         executed = any(x["verified"] == "executed" for x in m) or bool(c.get("scan"))
         unanchored = not any(x.get("quote_checked") for x in m if x.get("source") != "outside") and not c.get("scan")
-        if unanchored and not executed and len(c["reviewers"]) < 2 and f["impact"] in ("Critical", "High", "Medium"): out["contested"].append(f)  # an outside vote never stands in for a check  # nothing the script could check: verify it, even on one reviewer
+        if unanchored and not executed and len(c["reviewers"]) < 2 and f["impact"] in ("Critical", "High", "Medium"):
+            if f["impact"] == "Medium" and n > 1: f["single_vote"] = True  # 03 §5.57.6 holds without a quote too (batch 1 review round 2)
+            out["contested"].append(f)  # an outside vote never stands in for a check  # nothing the script could check: verify it, even on one reviewer
         elif votes >= need or executed: out["kept"].append(f)
         elif f["impact"] in ("Critical", "High"): out["contested"].append(f)
         elif f["impact"] == "Medium" and n > 1:  # 03 §5.57.6: one reviewer's Medium goes to a blind verifier and is kept only if confirmed (the self-review lost a real High this way)
@@ -556,6 +558,7 @@ def apply(paths):
                 VERIFIER_LOG.append(("downgraded", dict(f), f"{f['impact']} to {new}: {redact_finding_text(str(v.get('note') or '')) or why}", v.get("reproduced")))
                 f["impact_before"] = f["impact"]; f["impact"] = new
             else: notes.append(f"{f['id']}: downgrade to {new or '?'} ignored ({dp}); kept at {f['impact']}"); kind = "unclear"
+        if f.get("single_vote") and kind == "downgrade" and confirmation_problem(v, root=ROOT): kind = "unclear"  # a downgrade keeps it only with the confirmation's evidence, as critic_variants.py asks
         if f.get("single_vote") and kind not in ("confirmed", "downgrade"):  # 03 §5.57.6: kept only on a verifier's confirmation
             notes.append(f"{f['id']}: one reviewer's Medium the verifier didn't confirm ({kind}); dropped"); continue
         if f.get("outside_only") and kind not in ("confirmed", "downgrade"):  # nobody of ours saw it and no verifier confirmed it
