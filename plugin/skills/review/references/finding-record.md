@@ -23,6 +23,7 @@ A review file is `{"findings": [ ...finding records... ], "set_aside": [ {"file"
 | `failing_case` | The concrete input or sequence, and the wrong result. Required for Critical, High, Medium and Low (not Nit) |
 | `verified` | `executed` (you ran it and saw it fail), `traced` (followed the code path), or `inferred` |
 | `remediation` | The structural fix, in one or two sentences |
+| `security` | Optional. `true` when the finding is a security problem whatever its words (tenant isolation, access control). It only ever adds the security rules: refuting it, or taking it below High, then needs `attacker`, `gain` and a listed `reason` (03 §5.57.8). Findings whose category or title name a security problem get those rules anyway |
 | `requirement` | Optional. What the finding rests on when it is about intent or behaviour: `{"basis": "stated", "where": "docs/spec.md:12"}` when a document says it (the script checks the line exists), or `{"basis": "inferred", "why": "what you inferred it from"}`. A finding that rests on an inferred requirement is capped at Medium by the script: inferred is never presented as stated |
 | `difficulty`, `exploit_scenario`, `fix_short`, `fix_long` | Audit mode (after Trail of Bits' report format): how hard the failure is to trigger (Low, Medium or High), who could trigger it and how, the quick fix, and the lasting fix (often a rule file or a test that keeps the bug class out). Optional elsewhere |
 

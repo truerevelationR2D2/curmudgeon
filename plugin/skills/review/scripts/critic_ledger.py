@@ -654,7 +654,11 @@ def main(a):
         need(rest, 1, "stamp [--add] PATH...")
         add = rest[0] == "--add"; rest = rest[1:] if add else rest
         need(rest, 1, "stamp [--add] PATH...")
-        new = {k: v for k, v in L["stamps"].items() if (ROOT / k).exists()} if add else {}  # a deleted file leaves the stamps when the review that covered it is stamped (batch 3 review)
+        from critic_findings import observe_deletions
+        rv = D / "last-review.md"; rt = rv.stat().st_mtime if rv.is_file() else 0
+        gone = observe_deletions(ROOT, L["stamps"])  # a deleted file leaves the stamps only once a review saved after it covers it (Qodo on #17)
+        kept_gone = {k: L["stamps"][k] for k, t in gone.items() if t > rt}
+        new = dict({k: v for k, v in L["stamps"].items() if (ROOT / k).exists()} if add else {}, **kept_gone)
         for a_ in rest:
             p = pathlib.Path(a_)
             if not p.exists(): die(f"{a_} does not exist; nothing was stamped")

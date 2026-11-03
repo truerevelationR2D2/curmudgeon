@@ -2,6 +2,28 @@
 
 Every release of Curmudgeon, newest first. The repository's history starts at 4.2.1; earlier versions are summarised from the project's own build and review records. Numbers are the ones measured at the time; the README's Benchmarks section has the current ones and how they were measured.
 
+## Unreleased: the collected round after batches 2 and 3 (Qodo on #15, #16 and #17, and the batch 3 review)
+
+Twenty findings, gathered and fixed together as ruled (03 §5.57.7). Each fix has a test that fails on the code before it (`plugin/tests/cases_8.py`).
+- **Deletions in a review (Qodo on #17).** A deleted file's removed lines reach the brief with secrets masked, each line behind a bar so no removed line can close a fence or start a heading. They count toward the tier. A function moved to another file no longer lists its new callers as broken. A finding at a caller the deletion broke counts as introduced, not as already there. A deletion-only run scans the callers instead of reusing an earlier run's file list.
+- **Deletions and the stop gate (Qodo on #17, batch 3 review).** Each missing stamped file is recorded with when the gate first saw it go (`.critic/gate-deleted.json`). So later activity in its folder doesn't re-open a reviewed deletion, deleting it again starts a new batch, and `stamp` keeps it until a review saved after it covers it.
+- **What the stop gate watches (Qodo on #17, batch 3 review).** In git, the gate watches what git doesn't ignore, so a project's own `.gitignore` decides what is generated. Outside git, it skips known generated dot-folders. Hand-written code under `.vitepress`, `.buildkite` and the like counts again, and Claude Code's worktrees (`.claude/worktrees/`) and other nested checkouts never do.
+- **The background check (Qodo on #17).** It sees staged files in a repository with no commit yet, starts each stop with the part the last one had no time for, and has no cap that leaves files out for good. An interrupted move of the feed's settings never leaves them unreadable.
+- **The integrity lens (Qodo on #16).**
+  - Adopting a recorded copy takes two steps: `--integrity-adopt` shows every host, how many there are and a code, and `--integrity-adopt --confirm CODE` trusts exactly those bytes. A copy whose pages have no own-site list is refused (record it again).
+  - The recorded copy is checked and parsed from one read.
+  - A Latin name with a Han or kana sign standing in for a letter (`paypa丨`, `facebロロk`, `paypalーー`) is a look-alike, while real names mixing romaji and kana (`toyotaトヨタ`, `sonyストアー`) are not.
+  - A scheme-relative `<base>` takes the page's own scheme from its canonical or `og:url` address.
+- **Security findings (Qodo on #15).** Phrases such as tenant isolation, access control, privilege escalation and session fixation make a finding a security one (bare words like "session" or "isolation" don't, so ordinary findings keep ordinary rules), and a reviewer can mark one `"security": true`. Taking one below High, or refuting it, then needs attacker, gain and a listed reason (03 §5.57.8). A reviewer's flag carries through when findings are merged, and the verifier is told when the security rules apply.
+- **From this round's blind review (3 reviewers).**
+  - The gate skips tools' folders in git too.
+  - When git lists nothing for the project (an enclosing repository that ignores it), the gate falls back to a walk, so it is never silently off. Outside git, it watches only known code dot-folders and dot-folders holding a stamped file.
+  - Deleted text is masked line by line before it is cut, so a secret at the cut is never half-masked.
+  - A caller still importing a deleted module stays in the blast radius, whatever else defines the same name, and a deleted file's bare name no longer marks old findings as introduced.
+  - A stroke look-alike (丨 亅 匚 凵) next to a Latin letter is flagged even when a real kana word follows.
+  - The background check orders files by a per-file record of what it has scanned, so a new edit never sends it back to the start, and a part that ran out of time goes after the files not reached yet. Its walk outside git stops after 500,000 entries, which bounds the hook's time; files beyond that in walk order are not seen.
+  - The adopt code is 32 characters (128 bits), and the gate checks each folder for a nested checkout once.
+
 ## Unreleased: fixes from the full audit, batch 3 of 5 (the stop gates and the change map)
 
 Each fix has a test that fails on the code before it (`plugin/tests/cases_8.py`).

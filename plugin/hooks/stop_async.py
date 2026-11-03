@@ -4,7 +4,7 @@ changed since the last review, in the background, without blocking. Only when it
 does it wake Claude (exit 2 with asyncRewake), and each problem wakes it once. At most 3 wakes per batch of edits.
 Claude Code doesn't enforce a timeout on async hooks, so this script keeps its own: every git call has a 10 s limit,
 and the whole check, one scan per 200 changed files (every changed file, never only the first 200), stops by DEADLINE
-seconds; files it had no time for are checked at the next stop."""
+seconds; the next stop starts with the part it had no time for."""
 import hashlib, json, os, pathlib, subprocess, sys, time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import workspace
@@ -18,18 +18,32 @@ except Exception:
 CHUNK = 200  # files per scan process
 SKIP_WALK = {".git", ".critic", "node_modules", "__pycache__", ".venv", "venv", "dist", "build", ".tox", ".mypy_cache", ".pytest_cache", ".cache"}
 
-def walk_changed(root, since, cap=20000):
-    """Outside git: the files under root changed since the last review, by their own times (audit O3)."""
-    out = []
+def walk_changed(root, since, limit=500_000):
+    """Outside git: every file under root changed since the last review, by its own time (audit O3). No cap on what is
+    found (Qodo on #17). The walk itself stops after `limit` entries, so in a tree larger than that, files late in walk
+    order are never seen: a bound on the hook's time, stated here and in the changelog (collected round review)."""
+    out, n = [], 0
     for dp, dns, fns in os.walk(root):
         dns[:] = [d for d in dns if d not in SKIP_WALK]
         for fn in fns:
+            n += 1
             p = pathlib.Path(dp) / fn
             try:
-                if not p.is_symlink() and p.stat().st_mtime > since: out.append(str(p.relative_to(root)).replace(os.sep, "/"))
+                if not p.is_symlink() and (m := p.stat().st_mtime) > since: out.append((m, str(p.relative_to(root)).replace(os.sep, "/")))
             except OSError: continue
-            if len(out) >= cap: return out
-    return out
+        if n >= limit: break
+    return [x for _, x in out]
+
+def scan_order(changed, record, mtime):
+    """Changed files in the order this stop scans them: first those never scanned or changed since their last scan,
+    then those whose part ran out of time, then those already scanned as they are. A record per file, not a part
+    index, so a new edit never sends the scan back to the start, and a slow part can't keep the rest waiting (Qodo on
+    #17; collected round review)."""
+    def rank(p):
+        r = record.get(p)
+        if not isinstance(r, list) or len(r) != 2 or (mtime(p) or 0) > r[0]: return 0
+        return 1 if r[1] == "timeout" else 2
+    return sorted(changed, key=rank)
 
 def main():
     try: data = json.load(sys.stdin)
@@ -53,7 +67,8 @@ def main():
         return r.stdout.split("\0") if r.returncode == 0 else None
     # --relative: in a project that is a subfolder of a repository, paths come relative to the project (audit V47)
     diff, others = git("diff", "--name-only", "--relative", "-z", "HEAD"), git("ls-files", "--others", "--exclude-standard", "-z")
-    if diff is None and others is None: out = walk_changed(root, since)  # not a git work tree (or no commit yet): look at the files themselves (audit O3)
+    if diff is None and others is not None: diff = git("ls-files", "-z")  # a repository with no commit yet: what is staged is the change (Qodo on #17)
+    if diff is None and others is None: out = walk_changed(root, since)  # not a git work tree: look at the files themselves (audit O3)
     else: out = [x for x in (diff or []) + (others or []) if x]
     changed = sorted(set(changed) | {x for x in out if (root / x).is_file() and not x.startswith(".critic/") and (root / x).stat().st_mtime > since})
     if not changed: return 0
@@ -61,20 +76,33 @@ def main():
     outdir = c / "scan-async"
     t0 = time.time(); listed = changed  # every changed file, in parts of CHUNK; never the first 200 only (audit Q09)
     (c / "scan-async-files.txt").write_text("\n".join(listed) + "\n", encoding="utf-8")
-    reports, scanned = [], set()
-    for i in range(0, len(listed), CHUNK):  # one scan per part, not one process per file
-        part = listed[i:i + CHUNK]; lst = c / f"scan-async-part-{i // CHUNK}.txt"; lst.write_text("\n".join(part) + "\n", encoding="utf-8")
-        left = DEADLINE - (time.time() - t0)
-        if left < 10: break  # out of time: the rest wait for the next stop (they stay changed, so they are listed again)
-        try: subprocess.run([sys.executable, str(scan), str(root), "--root", str(root), "--out", str(outdir / f"part-{i // CHUNK}"), "--no-project-rules",
-                             "--only", str(lst)], capture_output=True, timeout=left)
-        except subprocess.TimeoutExpired: break
-        reports.append(outdir / f"part-{i // CHUNK}" / "report.json"); scanned |= set(part)
     shown_f = c / "async-shown.json"
     try: shown = json.loads(shown_f.read_text())
     except Exception: shown = {"batch": "", "wakes": 0, "ids": []}
     batch = hashlib.sha1("|".join(sorted(changed)).encode()).hexdigest()[:10]
     if shown.get("batch") != batch: shown = {"batch": batch, "wakes": 0, "ids": shown.get("ids", [])}
+    rec_f = c / "async-scanned.json"
+    try: record = json.loads(rec_f.read_text()) if rec_f.is_file() and not rec_f.is_symlink() else {}
+    except (OSError, ValueError): record = {}
+    record = {k: v for k, v in (record if isinstance(record, dict) else {}).items() if k in set(changed)}
+    def mt(p):
+        try: return (root / p).stat().st_mtime
+        except OSError: return 0
+    order = scan_order(listed, record, mt)
+    reports, scanned = [], set()
+    for k in range(0, len(order), CHUNK):  # one scan per part, not one process per file
+        part = order[k:k + CHUNK]; n_ = k // CHUNK; lst = c / f"scan-async-part-{n_}.txt"; lst.write_text("\n".join(part) + "\n", encoding="utf-8")
+        left = DEADLINE - (time.time() - t0)
+        if left < 10: break  # out of time: the files not reached rank first at the next stop
+        try: subprocess.run([sys.executable, str(scan), str(root), "--root", str(root), "--out", str(outdir / f"part-{n_}"), "--no-project-rules",
+                             "--only", str(lst)], capture_output=True, timeout=left)
+        except subprocess.TimeoutExpired:
+            for p in part: record[p] = [mt(p), "timeout"]  # after the files not reached yet, next time
+            break
+        reports.append(outdir / f"part-{n_}" / "report.json"); scanned |= set(part)
+        for p in part: record[p] = [mt(p), "ok"]
+    try: rec_f.write_text(json.dumps(record)) if not rec_f.is_symlink() else None
+    except OSError: pass
     new = []
     mine = scanned
     for rep in reports:

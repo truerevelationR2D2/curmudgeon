@@ -56,10 +56,10 @@ def data_dir():
             d.parent.mkdir(parents=True, exist_ok=True)
             if not d.exists(): shutil.move(str(old), str(d))
             else:  # the new folder is already there (a log, say): move each item in, never nest the old folder inside it (batch 3 review)
-                for item in old.iterdir():
+                for item in sorted(old.iterdir(), key=lambda q: q.name == "feed.json"):  # the settings last: until they move, the old folder stays the one in use (Qodo on #17)
                     if not (d / item.name).exists(): shutil.move(str(item), str(d / item.name))
                 if not any(old.iterdir()): old.rmdir()
-        except OSError: return old  # couldn't move it: keep using it rather than lose the owner's settings
+        except OSError: return old if (old / "feed.json").is_file() else d  # interrupted: whichever folder holds the settings; the next call finishes the move
     return d
 
 def load_cfg(d=None):
