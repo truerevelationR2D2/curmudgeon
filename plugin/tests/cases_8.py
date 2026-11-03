@@ -1149,3 +1149,15 @@ def _(d):
     import ast as _ast
     keys = {n.value for n in _ast.walk(_ast.parse((HERE.parent / "eval" / "behaviour1.py").read_text())) if isinstance(n, _ast.Constant) and isinstance(n.value, str)}
     assert "no page errors" in keys
+
+@test("batch 6 (03 §5.57.5): the optional modules have their own files, the review skill points at each, and the consent steps they moved still say ask, type the host and never fill it in")
+def _(d):
+    md = HERE / "skills" / "review" / "references" / "modules"; sk = (HERE / "skills" / "review" / "SKILL.md").read_text()
+    for n in ("browser-checks.md", "mutation.md", "live-sites.md", "security-feed.md"):
+        assert (md / n).is_file() and n in sk, n
+    live = (md / "live-sites.md").read_text()
+    assert "--allow-live HOST" in live and "never fill it in yourself" in live and "consent live HOST" in live and "consent\nwrites" in live.replace("consent writes", "consent\nwrites")
+    assert "consent online" in sk and "approve rules.md --show" in sk, "what stays in the skill"
+    feed = (md / "security-feed.md").read_text(); assert "Never ask in an unattended session" in feed and "--signed-off" in feed
+    assert "axe-core" not in sk and "security_feed.py pick-folder" not in sk, "moved, not copied"
+    r = (HERE.parent / "README.md").read_text(); assert "## Optional modules" in r and r == (HERE / "README.md").read_text()

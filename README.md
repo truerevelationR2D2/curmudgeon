@@ -192,6 +192,20 @@ Where the data comes from (every user downloads the same files; nothing about yo
 
 Neither source signs its files, so each download is checked before the new database replaces the old one: HTTPS only, a size limit, the zip's own checksum test, every record must parse and have an id, and a new copy may not lose more than half the records of the last one. The SHA-256 of every download is kept in the database and in `feed-log.jsonl`. The new database is built beside the old one and swapped in only when every check passes; it is only ever read, never run. Your settings (the folder, the schedule, the signed-off size) are kept in `~/.curmudgeon/feed`, outside every project, where the skill and the background check both find them (`CURMUDGEON_FEED_DIR` overrides). Settings from an older version kept in the plugin's data folder are moved there once.
 
+## Optional modules
+
+Five features stay off until you ask for them. The review skill reads the instructions for the first four only on a run that uses them (`plugin/skills/review/references/modules/`); the fifth belongs to the gate skill.
+
+| Module | Turn it on | What it needs |
+|---|---|---|
+| Browser checks | give the scan a page (`--page dist/index.html`) | Playwright with Chromium, which you install yourself |
+| Live sites | a page that isn't on this computer, listed in `.critic/scope.json` | your approval of that file and the host typed on each run |
+| Mutation testing | `--mutate <files>` | a test command (`--test-cmd`, or an approved `rules.md`) |
+| Local security database | security mode, then your yes | a folder you pick and a size you sign off on |
+| Background stop check | `/curmudgeon:gate async` | nothing more |
+
+Without them, a review runs only Curmudgeon's own scripts and agents, on this computer.
+
 ## Add your own checks
 
 Drop a JSON file of rules into your project's `.critic/rules/` (or, to contribute one for everyone, into `plugin/skills/review/rules/`). Each rule is an id, a severity, an area, a regular expression matched line by line, a message, and optional file patterns; see `plugin/skills/review/rules/README.md`. Rules are data, never code, and their rows are reported as `rule-<id>`, so they can't pose as built-in checks. A project's rule files must be plain files (at most 256 KB each, 50 files and 2,000 rules in all); they run in a separate process with a 20-second limit and at most 50 matches per rule, and they can warn but never fail, so a slow, greedy or hostile rule file can't hang a review or flood it with findings. The background stop check skips them.
@@ -266,7 +280,7 @@ Scripted lenses, measured without a model (`python3 eval/lens.py eval/lensN.json
 
 The strict YAML reader was compared with PyYAML on 6,191 files and 75,000 generated documents: 0 read differently. The local security database was built for real on Windows from the full OSV and CISA feeds (about 245 MB downloaded, a 73.5 MB database in 30 seconds: 230,123 npm and 26,063 PyPI advisories, 1,760 CVEs CISA lists as exploited) and found a known-vulnerable lodash in a sample project.
 
-Budgets, measured with `claude plugin details` on 3 November 2026 (5.2.6 and the unreleased fixes): about 864 tokens added to every session (5.2.1: about 862; 4.2.1: about 1,516); the review skill about 8.8k tokens when it runs (5.2.1: about 7.8k; 5.0.0: about 7.1k; 4.2.1: about 5.6k).
+Budgets, measured with `claude plugin details` on 3 November 2026 (5.2.6 and the unreleased fixes): about 864 tokens added to every session (5.2.1: about 862; 4.2.1: about 1,516); the review skill about 8.5k tokens when it runs, after the optional modules moved out of it (before: about 8.8k; 5.2.1: about 7.8k; 5.0.0: about 7.1k; 4.2.1: about 5.6k).
 
 **Earlier measurements, for the record.** Measured on 24 October 2026: version 5.0.0 against 4.2.2, three review runs of each on every test, Sonnet 5.5, three blind reviewers per run, with the eval kit in `eval/`. Every finding that matched no planted bug was labelled by independent models that read and ran the code, saw no answer keys and were not told which version wrote it (none was labelled wrong; the rest were real bugs nobody planted, or true but trivial). A finding counts only when it points at the planted bug's lines. One 4.2.2 run of the invoices test fell back to a single context and is left out. All numbers are recorded in `eval/baseline.json` (5.0.0, now the baseline) and `eval/labels-2026-10-24.json`.
 
