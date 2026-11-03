@@ -113,11 +113,11 @@ def owner_problem(cmd, detector):
     project), the run's ledger script at all. Quotes and backslashes are removed first, so con""sent reads as consent."""
     flat = re.sub(r"[\\'\"]", "", cmd)
     base = os.path.realpath(os.environ.get("CURMUDGEON_STATE_DIR") or os.path.expanduser("~/.curmudgeon"))
-    if re.search(r"(?:write_owner_state|record_baseline|record_ledger)\s*\(|(?:~|\$HOME|\$\{HOME\})/\.curmudgeon\b", flat) or base in flat:  # writing it, or naming its folder; mentioning the words (a grep) is fine
+    if re.search(r"(?:write_owner_state|record_baseline|record_ledger|integrity_adopt|integrity_record)\b|(?:~|\$HOME|\$\{HOME\})/\.curmudgeon\b", flat) or base in flat:  # writing it, or naming its folder; mentioning the words (a grep) is fine
         return "the owner's own record of approvals and consent is theirs to write, through the lead"
     if detector and "critic_ledger" in flat: return "the detector runs the scripted checks; the run's ledger (consent and approvals among it) is the lead's"
     if re.search(r"critic_ledger(?:\.py)?\b.*\b(?:consent|approve|adopt)\b", flat): return "only the owner gives consent, approves a file or adopts a set-aside ledger, through the lead"
-    if re.search(r"critic_scan(?:\.py)?\b.*--integ", flat): return "only the owner records or adopts the trusted copy of the pages, through the lead (audit Q04)"
+    if re.search(r"--inte(?:g|[$`{])|--inte\S*(?:adopt|rec)", flat): return "only the owner records or adopts the trusted copy of the pages, through the lead (audit Q04)"
     if re.search(r"security_feed(?:\.py)?\b.*\b(?:set|update|pick-folder)\b", flat) and not READ_ONLY_CMD.fullmatch(flat.strip()):  # the owner's sign-off on the downloads, and the downloads themselves (ultimate audit V13); only plain reading of the file passes (batch 1 review rounds 1 and 2: a narrow match let "-- update", a variable or python -c through)
         return "the security feed's settings, sign-off and downloads are the owner's, through the lead"
     return None

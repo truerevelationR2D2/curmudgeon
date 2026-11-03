@@ -118,6 +118,7 @@ def mixed(label):
     han = any(n.startswith("CJK") for n in names); syll = any(n.startswith("HANGUL SYLLABLE") for n in names)
     kana = sum(n.startswith(("HIRAGANA", "KATAKANA", "HALFWIDTH KATAKANA")) for n in names)
     if "HANGUL" in s and not syll: return True
+    if "IDEOGRAPHIC" in s and not han: return True  # 々 and 〆 go with Han, never alone beside Latin
     if "BOPOMOFO" in s and not han: return True
     if s & {"HIRAGANA", "KATAKANA", "KATAKANA-HIRAGANA"} and not han and kana < 2: return True
     return False
@@ -128,6 +129,7 @@ def lookalike(host):
     if not host: return False
     u = unicode_host(host)
     if u is None: return True
+    u = unicodedata.normalize("NFKC", u)  # as a browser maps a host (IDNA): halfwidth ﾛ and ￜ become the letters they stand for (batch 2 review round 2)
     return any(mixed(label) for label in u.split("."))
 
 WATCHED_ATTRS = {"href", "src", "action", "formaction", "integrity"}
@@ -138,15 +140,20 @@ class Page(HTMLParser):
     def __init__(self):
         super().__init__(convert_charrefs=True)
         self.links, self.forms, self.scripts, self.frames, self.csp, self.own = [], [], [], [], [], set()
-        self._a = None; self.dupes = []; self.base = None; self.claims = []  # claims: (site, line) the page says it is
+        self._a = None; self.dupes = []; self.base = None; self._base_seen = False; self.claims = []  # claims: (site, line) the page says it is
     def resolve(self, url):
         """The address a browser would use: a relative one is read against the first <base href> that names a host."""
-        if not self.base or host_of(self.base) is None or host_of(url) is not None: return url  # a relative base: targets stay on this site
+        if not self.base or host_of(self.base) is None: return url  # no base, or a relative or empty one: targets stay on this site
         u = clean_url(url)
         if not u or re.match(r"(?i)^[a-z][a-z0-9+.-]*:", u) and not re.match(r"(?i)^https?:", u): return url  # mailto:, javascript:, data:
         b = clean_url(self.base); m = re.match(r"(?i)^(https?:)/*(?=[^/])", b)
         if m: b = m.group(1) + "//" + b[m.end():]  # http:host and http:/host name a host, as host_of reads them (batch 2 review)
         elif b.startswith("//"): b = "https:" + b
+        bs = b.split(":", 1)[0].lower()
+        if host_of(u, bs) is not None:  # absolute as the browser reads it against this base's scheme (batch 2 review round 2)
+            if u.startswith("//"): return bs + ":" + u  # scheme-relative: takes the base's scheme
+            m = re.match(r"(?i)^(https?:)/*(?=[^/])", u)
+            return m.group(1) + "//" + u[m.end():] if m else u  # https:evil.host under an http base names evil.host
         try: return urllib.parse.urljoin(b, u)
         except ValueError: return url
     def host(self, url): return host_of(self.resolve(url))
@@ -170,7 +177,7 @@ class Page(HTMLParser):
         elif tag == "meta" and a.get("http-equiv", "").lower() == "content-security-policy": self.csp.append((a.get("content", ""), ln))
         elif tag == "meta" and a.get("property", "").lower() == "og:url" and host_of(a.get("content", "")): self._claim(host_of(a["content"]), ln)
         elif tag == "link" and "canonical" in a.get("rel", "").lower() and host_of(a.get("href", "")): self._claim(host_of(a["href"]), ln)
-        if tag == "base" and self.base is None and a.get("href"): self.base = a["href"]  # the first base with an href wins, as in a browser (batch 2 review); it is where relative targets go, never the page's own site (audit F-5a56b49c)
+        if tag == "base" and not self._base_seen and "href" in a: self._base_seen = True; self.base = a["href"]  # the first base with an href wins, as in a browser (batch 2 review); it is where relative targets go, never the page's own site (audit F-5a56b49c)
     def _claim(self, h, ln): self.own.add(site(h)); self.claims.append((site(h), ln))
     def handle_data(self, data):
         if self._a is not None: self._a["text"] += data
@@ -238,7 +245,6 @@ def load_baseline(root):
     from critic_findings import baseline_shipped
     why = baseline_shipped(root)
     if why: return None, why  # a recorded copy can come with the code, like a ledger: then it decides nothing (audit Q04)
-    if bp.stat().st_size > BASELINE_MAX: return None, f"it is over {BASELINE_MAX // 1_000_000} MB"
     try: j = json.loads(bp.read_text(encoding="utf-8"))
     except (OSError, ValueError) as e: return None, f"it is not valid JSON ({type(e).__name__})"
     if not (isinstance(j, dict) and isinstance(j.get("files"), dict)): return None, "it has no files table"

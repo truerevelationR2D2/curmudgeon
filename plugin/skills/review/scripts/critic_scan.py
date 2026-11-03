@@ -797,6 +797,9 @@ SECURITY_RULES = {"ops-log-secret", "ops-debug-on"}  # security rows filed under
 
 def integrity_record(src, root, excludes):
     """Write the recorded copy the integrity lens compares against: hosts only, one entry per page."""
+    from critic_findings import git_tracked
+    if git_tracked(root, ".critic/integrity-baseline.json"):  # a tracked copy is never trusted: recording it would change nothing (batch 2 review round 2)
+        print("critic_scan: git tracks .critic/integrity-baseline.json, so the scan never trusts it. Untrack it first (git rm --cached .critic/integrity-baseline.json) and add it to .critic/.gitignore", file=sys.stderr); return 2
     files = {}
     for p in walk(src, excludes):
         try: rel = str(p.resolve().relative_to(root)).replace("\\", "/")
@@ -824,8 +827,11 @@ def integrity_adopt(root):
     raw = bp.read_bytes()  # read once: what is shown is what is hashed (batch 2 review)
     try: files = json.loads(raw.decode("utf-8"))["files"]; assert isinstance(files, dict)
     except Exception as e: print(f"critic_scan: {bp} isn't a recorded copy ({type(e).__name__})", file=sys.stderr); return 2
-    strings = [str(k) for k in files] + [str(v) for x in files.values() if isinstance(x, dict) for k_ in ("own", "links", "forms", "origins") for v in (x.get(k_) or [])]
-    bad = [s for s in strings if re.search(r"[\x00-\x08\x0b-\x1f\x7f-\x9f]", s)]  # a tab separates a link label from its host; anything else invisible could hide a host on a terminal
+    shape = all(isinstance(k, str) and isinstance(x, dict) and all(isinstance(x.get(k_, []), list) and all(isinstance(v, str) for v in x.get(k_, [])) for k_ in ("own", "links", "forms", "origins")) for k, x in files.items())
+    if not shape: print(f"critic_scan: {bp} has a page entry that isn't lists of text; refusing to adopt it", file=sys.stderr); return 2
+    INVIS = r"[\x00-\x08\x0a-\x1f\x7f-\x9f\u200b-\u200f\u2028-\u202e\u2060-\u2069\ufeff]"  # line breaks, bidi and zero-width marks could hide or reorder a host on a terminal (batch 2 review round 2)
+    bad = [s for k, x in files.items() for s in [k] + [v for k_ in ("own", "forms", "origins") for v in x.get(k_, [])] if re.search(INVIS + "|\t", s)]
+    bad += [v for x in files.values() for v in x.get("links", []) if re.search(INVIS, v) or v.count("\t") != 1]  # a link entry is label TAB host
     if bad: print(f"critic_scan: {bp} holds {len(bad)} entr{'y' if len(bad) == 1 else 'ies'} with control characters (first: {bad[0]!r:.80}), which could hide a host from you; refusing to adopt it", file=sys.stderr); return 2
     from critic_findings import git_tracked
     if git_tracked(root, ".critic/integrity-baseline.json"):  # never trusted while tracked, so adopting it would change nothing (batch 2 review)
