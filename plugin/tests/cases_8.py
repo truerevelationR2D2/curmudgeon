@@ -14,7 +14,7 @@ SRI8 = 'integrity="sha384-Zm9vYmFyYmF6Zm9vYmFyYmF6Zm9vYmFy"'
 def _adopt(d):
     """The owner's two steps: show (prints the hosts and a confirmation code), then confirm with that code."""
     r = run(S / "critic_scan.py", ".", "--root", ".", "--integrity-adopt", cwd=d)
-    m = re.search(r"--confirm ([0-9a-f]{24})", r.stdout)
+    m = re.search(r"--confirm ([0-9a-f]{32})", r.stdout)
     return run(S / "critic_scan.py", ".", "--root", ".", "--integrity-adopt", "--confirm", m.group(1), cwd=d) if m else r
 
 
@@ -488,7 +488,7 @@ def _(d):
     assert r.returncode == 0 and "evil.example.net" in r.stdout and "1 distinct host" in r.stdout and "adopted" not in r.stdout, r.stdout
     import scan_integrity as si
     assert si.load_baseline(d)[0] is None, "shown, not yet trusted"
-    r = run(S / "critic_scan.py", ".", "--root", ".", "--integrity-adopt", "--confirm", "0" * 24, cwd=d); assert r.returncode == 2, r.stdout
+    r = run(S / "critic_scan.py", ".", "--root", ".", "--integrity-adopt", "--confirm", "0" * 32, cwd=d); assert r.returncode == 2, r.stdout
     r = _adopt(d); assert r.returncode == 0 and "adopted" in r.stdout, r.stdout + r.stderr
     write(d, ".critic/integrity-baseline.json", json.dumps({"files": {"b.html": {"links": [], "forms": [], "origins": []}}}))
     r = run(S / "critic_scan.py", ".", "--root", ".", "--integrity-adopt", cwd=d)
@@ -575,7 +575,7 @@ def _(d):
     assert k and all(x.get("security") is True for x in k), k
     pk = json.loads((d / ".critic/verify" / f"{k[0]['id']}.json").read_text()); assert pk.get("security") is True, pk
 
-@test("collected round review: the background check orders files by what it hasn't scanned yet (never by a part index a new edit resets), moves past a part that timed out, and the adopt code is 24 characters")
+@test("collected round review: the background check orders files by what it hasn't scanned yet (never by a part index a new edit resets), moves past a part that timed out, the adopt code is 32 characters, and the gate checks each folder once")
 def _(d):
     import importlib.util
     spec = importlib.util.spec_from_file_location("sa9", H / "stop_async.py"); sa = importlib.util.module_from_spec(spec); spec.loader.exec_module(sa)
@@ -584,4 +584,11 @@ def _(d):
     assert sa.scan_order(["a.py", "b.py", "c.py", "d.py"], rec, mt.get) == ["c.py", "d.py", "b.py", "a.py"], "changed since scanned or never scanned first, then timed out, then scanned"
     write(d, "site/index.html", "<p>x</p>\n")
     write(d, ".critic/integrity-baseline.json", json.dumps({"files": {"a.html": {"own": [], "links": [], "forms": [], "origins": []}}}))
-    r = run(S / "critic_scan.py", ".", "--root", ".", "--integrity-adopt", cwd=d); assert re.search(r"--confirm [0-9a-f]{24}\b", r.stdout), r.stdout
+    r = run(S / "critic_scan.py", ".", "--root", ".", "--integrity-adopt", cwd=d); assert re.search(r"--confirm [0-9a-f]{32}\b", r.stdout), r.stdout
+    spec = importlib.util.spec_from_file_location("sg9", H / "stop_gate.py"); sg = importlib.util.module_from_spec(spec); sys.path.insert(0, str(H)); spec.loader.exec_module(sg)
+    g = d / "g"; subprocess.run(["git", "init", "-q"], cwd=g) if g.mkdir() is None else None
+    for i in range(20): write(g, f"a/b/c/f{i}.py", "x\n")
+    calls = []; real = sg.nested_checkout; sg.nested_checkout = lambda p: calls.append(p) or real(p)
+    try: sg.candidates(g)
+    finally: sg.nested_checkout = real
+    assert len(calls) <= 3, ("each folder checked once, not once per file", len(calls))

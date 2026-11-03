@@ -844,7 +844,7 @@ def integrity_adopt(root, confirm=None):
     from critic_findings import git_tracked
     if git_tracked(root, ".critic/integrity-baseline.json"):  # never trusted while tracked, so adopting it would change nothing (batch 2 review)
         print("critic_scan: git tracks .critic/integrity-baseline.json, so it could have come with the code and is never trusted. Untrack it (git rm --cached .critic/integrity-baseline.json), check it, then adopt it", file=sys.stderr); return 2
-    sha = hashlib.sha256(raw).hexdigest(); code = sha[:24]  # 96 bits: a planted pair sharing a code is out of reach (collected round review)
+    sha = hashlib.sha256(raw).hexdigest(); code = sha[:32]  # 128 bits: no planted pair can share a code (collected round review)
     if confirm is None:
         hosts = sorted({h for x in files.values() for k_ in ("own", "forms", "origins") for h in x.get(k_, [])} | {l.split("\t")[1] for x in files.values() for l in x.get("links", [])})
         print(f"{bp}: adopting it would make every host below count as already there when pages are compared. Nothing is trusted yet.")

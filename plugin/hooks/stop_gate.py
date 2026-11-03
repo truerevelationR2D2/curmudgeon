@@ -47,7 +47,9 @@ def candidates(root, stamps=()):
                 if not rel or pathlib.PurePosixPath(rel).suffix not in CODE or rel.startswith(".critic/") or "/.claude/worktrees/" in "/" + rel: continue
                 parts = pathlib.PurePosixPath(rel).parts[:-1]
                 if any(skipped(x) for x in parts): continue
-                if any(seen.setdefault(parts[:i], nested_checkout(root.joinpath(*parts[:i]))) for i in range(1, len(parts) + 1)): continue
+                for i in range(1, len(parts) + 1):
+                    if parts[:i] not in seen: seen[parts[:i]] = nested_checkout(root.joinpath(*parts[:i]))  # once per folder (collected round review)
+                if any(seen[parts[:i]] for i in range(1, len(parts) + 1)): continue
                 out.append(root / rel)
             if out: return out
     except Exception: pass

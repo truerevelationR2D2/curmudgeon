@@ -22,7 +22,7 @@ Twenty findings, gathered and fixed together as ruled (03 §5.57.7). Each fix ha
   - A caller still importing a deleted module stays in the blast radius, whatever else defines the same name, and a deleted file's bare name no longer marks old findings as introduced.
   - A stroke look-alike (丨 亅 匚 凵) next to a Latin letter is flagged even when a real kana word follows.
   - The background check orders files by a per-file record of what it has scanned, so a new edit never sends it back to the start, and a part that ran out of time goes after the files not reached yet. Its walk outside git stops after 500,000 entries, which bounds the hook's time; files beyond that in walk order are not seen.
-  - The adopt code is 24 characters.
+  - The adopt code is 32 characters (128 bits), and the gate checks each folder for a nested checkout once.
 
 ## Unreleased: fixes from the full audit, batch 3 of 5 (the stop gates and the change map)
 
