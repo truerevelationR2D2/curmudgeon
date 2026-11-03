@@ -95,7 +95,7 @@ def main():
     since = review.stat().st_mtime if review.exists() else None
     from critic_findings import observe_deletions
     seen = observe_deletions(root, L.get("stamps") or {})  # each missing stamped file, with when it went (first seen by the gate; Qodo on #17)
-    gone = sorted(k for k, t in seen.items() if since is not None and t > since)  # a stamped file deleted after the review: a change too (audit O1)
+    gone = sorted(k for k, t in seen.items() if since is None or t > since)  # a stamped file deleted after the review, or with no review saved yet: a change too (audit O1; Qodo on #20)
     parts, keys = [], []
     if gone:  # alongside the edit check, never instead of it, so a new edit always starts a new batch (batch 3 review)
         keys.append("deleted:" + hashlib.sha1("|".join(f"{k}@{seen[k]}" for k in gone).encode()).hexdigest()[:12])  # when, too: a re-deletion is a new batch (Qodo on #17)
