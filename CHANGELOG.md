@@ -2,6 +2,18 @@
 
 Every release of Curmudgeon, newest first. The repository's history starts at 4.2.1; earlier versions are summarised from the project's own build and review records. Numbers are the ones measured at the time; the README's Benchmarks section has the current ones and how they were measured.
 
+## Unreleased: fixes from the full audit, batch 3 of 5 (the stop gates and the change map)
+
+Each fix has a test that fails on the code before it (`plugin/tests/cases_8.py`).
+- Deleting a file the last review stamped now counts as an edit, so the stop gate asks for a review (audit O1).
+- New code under a dot-folder (`.claude/hooks`, `.github/scripts`, `.husky`) counts for the stop gate; tool folders such as `.git`, `.venv` and `.cache` still don't (audit O2).
+- In a project that is a subfolder of a repository, the background check sees tracked edits (`git diff --relative`; audit V47).
+- Outside git, the background check finds changed files by their own times (audit O3).
+- The background check scans every changed file, in parts of 200, instead of silently dropping everything past the first 200 (audit Q09).
+- The security feed's settings live in `~/.curmudgeon/feed` (or `CURMUDGEON_FEED_DIR`), so the skill and the background check see the same feed. A feed set up under the plugin's data folder is moved there once (audit V46).
+- The change map counts deleted files: their names and removed lines are sized and checked for sensitive words, so deleting `auth.py` with a one-line README edit is no longer trivial (audit V30).
+- A changed file with a space or a quote in its name gets its hunks and touched text, and a new one is marked new (audit F-a9c4ecf9).
+
 ## Unreleased: fixes from the full audit, batch 2 of 5 (the browser integrity lens)
 
 Each fix has a test that fails on 5.2.6 (`plugin/tests/cases_8.py`), and the lens fixture (`eval/lens12.json`) gains three plants, a clean-twin page and three decoy pages: 13 of 13 found, 0 wrong rows, nothing on the decoys or the clean twin (5.2.6 on the same fixture: 7 of 13 found, 5 wrong rows on the decoys and 5 on the clean twin).

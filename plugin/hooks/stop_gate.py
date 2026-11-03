@@ -13,14 +13,15 @@ import hashlib, json, os, pathlib, sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import workspace
 
-SKIP = {".git", "node_modules", "dist", "build", ".critic", "__pycache__", ".next", "coverage", "vendor", ".venv", "venv"}
+SKIP = {".git", "node_modules", "dist", "build", ".critic", "__pycache__", ".next", "coverage", "vendor", ".venv", "venv",
+        ".tox", ".nox", ".mypy_cache", ".pytest_cache", ".ruff_cache", ".cache", ".gradle", ".idea", ".svn", ".hg"}  # tools' own folders; any other dot-folder (.claude, .github, .husky) can hold code (audit O2)
 CODE = {".js", ".mjs", ".cjs", ".ts", ".jsx", ".tsx", ".py", ".css", ".scss", ".html", ".vue", ".svelte", ".go", ".rs", ".java", ".rb", ".php", ".cs", ".swift", ".kt"}
 
 def newest(root, stamps):
     best = (0.0, None)
     paths = [root / k for k in stamps]
     for dp, dns, fns in os.walk(root):
-        dns[:] = [d for d in dns if d not in SKIP and not d.startswith(".")]
+        dns[:] = [d for d in dns if d not in SKIP]
         paths += [pathlib.Path(dp) / fn for fn in fns if pathlib.Path(fn).suffix in CODE]
     for p in paths:
         try: m = p.stat().st_mtime
@@ -50,7 +51,12 @@ def main():
     review = c / "last-review.md"
     m, p = newest(root, L.get("stamps") or {})
     reason, batch = None, ""
-    if p is not None and not (review.exists() and review.stat().st_mtime >= m):
+    gone = sorted(k for k in (L.get("stamps") or {}) if not (root / k).exists() and not (root / k).is_symlink())  # a stamped file deleted since: a change too (audit O1)
+    if gone and review.exists():
+        batch = "deleted:" + hashlib.sha1("|".join(gone).encode()).hexdigest()[:12]
+        reason = (f"{', '.join(gone[:5])}{' and more' if len(gone) > 5 else ''} {'was' if len(gone) == 1 else 'were'} deleted after the last Curmudgeon review."
+                  " Run /curmudgeon:review review on the change (a deletion can remove a check), save the teardown to .critic/last-review.md, and stamp what it covered.")
+    elif p is not None and not (review.exists() and review.stat().st_mtime >= m):
         batch = hashlib.sha1(f"{p}:{m}".encode()).hexdigest()[:12]
         where = p.relative_to(root) if str(p).startswith(str(root)) else p
         reason = ("No Curmudgeon review exists yet for this project's edits." if not review.exists() else f"{where} was edited after the last Curmudgeon review.") + \

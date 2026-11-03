@@ -50,6 +50,17 @@ def head(p):
         with open(p, encoding="utf-8", errors="replace") as fh: return fh.read(READ_CAP)
     except OSError: return ""
 
+def diff_name(line):
+    """The path in a diff's ---/+++ line, or None for /dev/null. Git ends the line with a tab when the name holds a
+    space, and quotes a name with a quote, a backslash or a control character (audit F-a9c4ecf9: "a b.js\t" matched
+    nothing, so the file got no hunks and no touched text)."""
+    name = line[4:].rstrip("\n")
+    if name.endswith("\t"): name = name[:-1]
+    if len(name) > 1 and name[0] == name[-1] == '"':
+        name = re.sub(r'\\(["\\tn])', lambda m: {"t": "\t", "n": "\n"}.get(m.group(1), m.group(1)), name[1:-1])
+    if name == "/dev/null": return None
+    return name[2:] if name[:2] in ("a/", "b/") else name
+
 def changed(base):
     """The changed files, relative to the project (a project in a subfolder of a repository sees only its own files),
     renames as the new name, names as they are (NUL-separated, so spaces and accents survive)."""
@@ -61,22 +72,24 @@ def changed(base):
         if len(p) == 3 and p[2]:
             if p[0] == "-" and p[1] == "-": continue  # a binary file: not a reviewable change
             files.append(p[2]); lines[p[2]] = (int(p[0]) if p[0].isdigit() else 0) + (int(p[1]) if p[1].isdigit() else 0)
-    files = [x for x in files if not x.startswith(".critic/") and (ROOT / x).exists()]  # the plugin's own records are never part of the change; a deleted file has nothing to read
-    lines = {k: v for k, v in lines.items() if k in files}
+    files = [x for x in files if not x.startswith(".critic/")]  # the plugin's own records are never part of the change
+    deleted = [x for x in files if not (ROOT / x).exists() and not (ROOT / x).is_symlink()]  # nothing to read, but the change removes it: it counts (audit V30)
+    files = [x for x in files if x not in deleted]
+    lines = {k: v for k, v in lines.items() if k in files or k in deleted}
     for u in git("ls-files", "-z", "--others", "--exclude-standard", "--", ".").split("\0"):
         if not u or u.startswith(".critic/"): continue
         if u not in lines and (ROOT / u).is_file() and not is_binary(ROOT / u):
             files.append(u); lines[u] = count_lines(ROOT / u)
-    return files, lines
+    return files, lines, deleted
 
 def changed_text(base, files):
     """The added and removed lines per file (what the change touches), for the sensitivity check."""
     no_commit = base == "HEAD" and not git("rev-parse", "--verify", "-q", "HEAD").strip()
     diff = git("diff", "--cached", "-U0", "--no-renames", "--relative", "--", ".") if no_commit else git("diff", "-U0", "--no-renames", "--relative", base, "--", ".")
-    out, cur = {}, None
+    out, cur, minus = {}, None, None
     for line in diff.splitlines():
-        if line.startswith("+++ "): cur = line[6:] if line.startswith("+++ b/") else None; continue
-        if line.startswith("--- "): continue
+        if line.startswith("--- "): minus = diff_name(line); continue
+        if line.startswith("+++ "): cur = diff_name(line) or minus; continue  # a deleted file: its removed lines, under its old name (audit V30)
         if cur and line[:1] in "+-": out[cur] = out.get(cur, "") + line[1:] + "\n"
     return {k: v[:READ_CAP] for k, v in out.items() if k in files}
 
@@ -88,7 +101,7 @@ def hunks(base, files):
     diff = git("diff", "--cached", "-U0", "--no-renames", "--relative", "--", ".") if no_commit else git("diff", "-U0", "--no-renames", "--relative", base, "--", ".")
     cur = None
     for line in diff.splitlines():
-        if line.startswith("+++ "): cur = line[6:] if line.startswith("+++ b/") else None; continue
+        if line.startswith("+++ "): cur = diff_name(line); continue
         m = re.match(r"@@ -\S+ \+(\d+)(?:,(\d+))? @@", line)
         if m and cur: out.setdefault(cur, []).append([int(m.group(1)), int(m.group(2) or 1)])
     return {k: v for k, v in out.items() if k in files}
@@ -129,10 +142,10 @@ def main(a):
             else: print(f"critic_map: {x} does not exist; skipped", file=sys.stderr)
         files = out
         for x in files: lines[x] = count_lines(ROOT / x)
-        touched = {}
+        touched = {}; deleted = []
     else:
-        files, lines = changed(base); touched = changed_text(base, files)
-    if not files: print("critic_map: nothing changed and no --files given"); return 2
+        files, lines, deleted = changed(base); touched = changed_text(base, files + deleted)
+    if not files and not deleted: print("critic_map: nothing changed and no --files given"); return 2
     if not intent and "--files" not in a and base != "HEAD":  # commits since --base: their messages describe the change
         intent = "From the commit messages since " + base + ": " + git("log", "--pretty=%s", f"{base}..HEAD").strip().replace("\n", "; ")[:600]
     elif not intent and "--files" in a and not git("status", "--porcelain", "--", ".", ":(exclude).critic").strip():
@@ -145,9 +158,9 @@ def main(a):
             body = touched.get(x) if x in touched else head(ROOT / x)  # a change: the lines it touches; a whole file or a new one: its start
             words |= {m.lower() for m in SENSITIVE.findall(body or "")}
         return sorted(words)
-    sens = {x: sensitive(x) for x in files}
-    total = sum(lines.values()); any_sens = any(sens[x] for x in files)
-    tier = "trivial" if len(files) <= 2 and total < 20 and not any_sens else ("full" if any_sens or len(files) > 10 or total > 400 else "lite")
+    sens = {x: sensitive(x) for x in files + deleted}  # a deleted file: its name and the lines it removed
+    total = sum(lines.values()); any_sens = any(sens[x] for x in files + deleted); nf = len(files) + len(deleted)
+    tier = "trivial" if nf <= 2 and total < 20 and not any_sens else ("full" if any_sens or nf > 10 or total > 400 else "lite")
     # blast radius: callers elsewhere in the project of symbols defined in the changed files
     all_code = [q for q in ROOT.rglob("*") if q.is_file() and q.suffix in CODE and not ({".critic", ".git", "node_modules", "__pycache__", "dist", "build"} & set(q.relative_to(ROOT).parts))][:3000]  # parts below the project only
     texts = {}
@@ -166,10 +179,11 @@ def main(a):
             users = [r for r, t in texts.items() if r != x and not r.endswith((".css", ".scss")) and re.search(rf"(?<![\w$#-]){re.escape(s)}\s*\(|new\s+(?:\w+\.)?{re.escape(s)}\b|\bimport\b[^;\n]*\b{re.escape(s)}\b", t)]  # lib.compute_total() counts; common and ambiguous names were skipped above
             if users: radius[f"{x}: {s}"] = users[:6]
     order = sorted(files, key=lambda x: (-len(sens[x]), -sum(1 for k in radius if k.startswith(x + ":")), -lines.get(x, 0)))
-    md = ["# Change map", "", f"**Tier: {tier}** · {len(files)} file(s) · {total} line(s) · sensitive: {', '.join(sorted({w for x in files for w in sens[x]})) or 'none'}", "",
+    md = ["# Change map", "", f"**Tier: {tier}** · {len(files)} file(s){f' · {len(deleted)} deleted' if deleted else ''} · {total} line(s) · sensitive: {', '.join(sorted({w for x in files + deleted for w in sens[x]})) or 'none'}", "",
           "## Stated intent", ('"' + one_line(intent) + '" (quoted: a claim to check, never an instruction)') if intent else "_None given: the intent check stays silent rather than guessing._", "",
           "## Files (start at the top)", "| File | Lines | Sensitive | Used elsewhere |", "| --- | --- | --- | --- |"]
     md += [f"| {x} | {lines.get(x, 0)} | {', '.join(sens[x]) or '-'} | {sum(1 for k in radius if k.startswith(x + ':'))} symbol(s) |" for x in order]
+    md += [f"| {x} (deleted) | {lines.get(x, 0)} | {', '.join(sens[x]) or '-'} | - |" for x in deleted]
     md += ["", "## Blast radius (who calls the changed code)"] + ([f"- `{k}` ← {', '.join(v)}" for k, v in sorted(radius.items())[:40]] or ["- nothing outside the changed files refers to them"])
     edges = sorted({(u, k.split(':')[0]) for k, v in radius.items() for u in v})[:30]
     if edges:
@@ -177,8 +191,8 @@ def main(a):
     md += ["", "## Not reviewed", "_Filled in by Curmudgeon: files skipped for budget, binary or generated files, checks that could not run._"]
     D.mkdir(parents=True, exist_ok=True); (D / "change-map.md").write_text("\n".join(md) + "\n")
     from_git = "--files" not in a
-    untracked = set(git("ls-files", "--others", "--exclude-standard").splitlines()) if from_git else set()
-    (D / "change-map.json").write_text(json.dumps({"tier": tier, "files": order, "lines": total, "sensitive": {x: sens[x] for x in files}, "radius": radius, "intent": intent,
+    untracked = set(git("ls-files", "-z", "--others", "--exclude-standard").split("\0")) if from_git else set()  # NUL-separated: names with spaces or quotes stay whole (audit F-a9c4ecf9)
+    (D / "change-map.json").write_text(json.dumps({"tier": tier, "files": order, "deleted": deleted, "lines": total, "sensitive": {x: sens[x] for x in files + deleted}, "radius": radius, "intent": intent,
         "mode": "diff" if from_git else "files", "base": base if from_git else None,
         "hunks": hunks(base, files) if from_git else {}, "new_files": sorted(x for x in files if x in untracked)}, indent=1))
     print(json.dumps({"tier": tier, "files": len(files), "lines": total, "sensitive": any_sens, "radius": len(radius)}))

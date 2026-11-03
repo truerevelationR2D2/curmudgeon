@@ -201,3 +201,106 @@ def _(d):
         write(d, ".critic/integrity-baseline.json", json.dumps({"files": {"a.html": {"own": [], "links": [], "forms": [], "origins": pad}}}))
         r = run(S / "critic_scan.py", ".", "--root", ".", "--integrity-adopt", cwd=d)
         assert r.returncode == 2 and "adopted" not in r.stdout, (pad[0][:20], r.stdout[-200:])
+
+# ---- batch 3: the stop gates and the change map ----
+
+def _gate(d, mode="on"):
+    run(S / "critic_ledger.py", "init", cwd=d); run(S / "critic_ledger.py", "gate", mode, cwd=d)
+
+def _review_now(d):
+    time.sleep(0.05); write(d, ".critic/last-review.md", "**CLEAN** · Counts: Critical 0 · High 0 · Medium 0 · Low 0 · total 0\n"); time.sleep(0.05)
+
+@test("audit O1: deleting a file the last review stamped counts as an edit, so the stop gate asks for a review")
+def _(d):
+    write(d, "src/auth.py", "def check(p):\n    return p == 'x'\n"); _gate(d)
+    led = json.loads((d / ".critic/ledger.json").read_text()); led["stamps"] = {"src/auth.py": "0" * 16}
+    write(d, ".critic/ledger.json", json.dumps(led)); run(S / "critic_ledger.py", "show", cwd=d)
+    _review_now(d); (d / "src/auth.py").unlink()
+    r = run(H / "stop_gate.py", cwd=d, stdin=json.dumps({"cwd": str(d)}))
+    assert '"block"' in r.stdout and "src/auth.py" in r.stdout and "deleted" in r.stdout, r.stdout
+
+@test("audit O2: new code under a dot-folder (.claude/hooks, .github/scripts) counts for the stop gate; .git and .venv still don't")
+def _(d):
+    write(d, "a.py", "x = 1\n"); _gate(d); _review_now(d)
+    write(d, ".venv/lib/x.py", "y = 2\n"); write(d, ".git/hooks/x.py", "y = 2\n")
+    r = run(H / "stop_gate.py", cwd=d, stdin=json.dumps({"cwd": str(d)})); assert '"block"' not in r.stdout, ("tool folders stay out", r.stdout)
+    write(d, ".claude/hooks/guard.py", "import os\nos.system(input())\n")
+    r = run(H / "stop_gate.py", cwd=d, stdin=json.dumps({"cwd": str(d)}))
+    assert '"block"' in r.stdout and ".claude/hooks/guard.py" in r.stdout, r.stdout
+
+def _async(d):
+    r = run(H / "stop_async.py", cwd=d, stdin=json.dumps({"cwd": str(d)}))
+    lst = (d / ".critic/scan-async-files.txt").read_text().split() if (d / ".critic/scan-async-files.txt").exists() else []
+    return r, lst
+
+@test("audit V47: in a project that is a subfolder of a repository, the background check sees tracked edits")
+def _(d):
+    subprocess.run(["git", "init", "-q"], cwd=d); proj = d / "proj"; write(proj, "b.py", "x = 1\n"); write(d, "top.txt", "t\n")
+    subprocess.run(["git", "add", "-A"], cwd=d); subprocess.run(G8 + ["commit", "-qm", "c"], cwd=d)
+    _gate(proj, "async"); _review_now(proj); write(proj, "b.py", "x = eval(input())\n")
+    r, lst = _async(proj)
+    assert "b.py" in lst, (lst, r.stderr)
+
+@test("audit O3: outside git, the background check still finds files changed since the last review")
+def _(d):
+    write(d, "a.py", "x = 1\n"); _gate(d, "async"); _review_now(d); write(d, "c.py", "x = eval(input())\n")
+    r, lst = _async(d)
+    assert "c.py" in lst, (lst, r.stderr)
+
+@test("audit Q09: the background check never drops changed files past the first 200")
+def _(d):
+    subprocess.run(["git", "init", "-q"], cwd=d); write(d, "a.py", "x = 1\n"); subprocess.run(["git", "add", "-A"], cwd=d); subprocess.run(G8 + ["commit", "-qm", "c"], cwd=d)
+    _gate(d, "async"); _review_now(d)
+    for i in range(205): write(d, f"f{i:03d}.py", "x = 1\n")
+    write(d, "f204.py", "x = eval(input())\n")
+    r, lst = _async(d)
+    assert "f204.py" in lst and r.returncode == 2 and "f204.py" in r.stderr, (len(lst), r.returncode, r.stderr[-400:])
+
+@test("audit V46: the security feed's settings folder doesn't depend on CLAUDE_PLUGIN_DATA, so the skill and the hooks see the same feed")
+def _(d):
+    import security_feed as sf, critic_findings as cf
+    old = {k: os.environ.get(k) for k in ("CLAUDE_PLUGIN_DATA", "CURMUDGEON_FEED_DIR")}
+    try:
+        os.environ.pop("CURMUDGEON_FEED_DIR", None)
+        os.environ["CLAUDE_PLUGIN_DATA"] = str(d / "plugin-data"); with_data = sf.data_dir()
+        os.environ.pop("CLAUDE_PLUGIN_DATA"); without = sf.data_dir()
+    finally:
+        for k, v in old.items():
+            if v is None: os.environ.pop(k, None)
+            else: os.environ[k] = v
+    assert with_data == without == cf.owner_state_base() / "feed", (with_data, without)
+
+@test("audit V30: deleting a file counts in the change map: deleting auth.py with a one-line README edit is not sized trivial")
+def _(d):
+    subprocess.run(["git", "init", "-q"], cwd=d); write(d, "auth.py", "".join(f"def check{i}(p):\n    return p\n" for i in range(20))); write(d, "README.md", "hello\n")
+    subprocess.run(["git", "add", "-A"], cwd=d); subprocess.run(G8 + ["commit", "-qm", "c"], cwd=d)
+    (d / "auth.py").unlink(); write(d, "README.md", "hello world\n")
+    run(S / "critic_map.py", cwd=d)
+    cm = json.loads((d / ".critic/change-map.json").read_text())
+    assert cm["tier"] != "trivial" and "auth.py" in cm.get("deleted", []) and cm["lines"] >= 40, cm
+    assert "auth.py" in (d / ".critic/change-map.md").read_text()
+
+@test("audit F-a9c4ecf9: a changed file with a space in its name gets its hunks and touched text, and a new one is marked new")
+def _(d):
+    subprocess.run(["git", "init", "-q"], cwd=d); write(d, "src/a b.js", "let a = 1;\nlet b = 2;\n")
+    subprocess.run(["git", "add", "-A"], cwd=d); subprocess.run(G8 + ["commit", "-qm", "c"], cwd=d)
+    write(d, "src/a b.js", "let a = 1;\nlet password = input();\n"); write(d, "src/c d.js", "let c = 3;\n")
+    run(S / "critic_map.py", cwd=d)
+    cm = json.loads((d / ".critic/change-map.json").read_text())
+    assert cm["hunks"].get("src/a b.js") == [[2, 1]], cm["hunks"]
+    assert "password" in cm["sensitive"]["src/a b.js"], cm["sensitive"]
+    assert "src/c d.js" in cm["new_files"], cm["new_files"]
+
+@test("audit V46 (upgrade): a feed set up under the old CLAUDE_PLUGIN_DATA folder is moved once to the owner's folder, settings intact")
+def _(d):
+    import security_feed as sf
+    old = {k: os.environ.get(k) for k in ("CLAUDE_PLUGIN_DATA", "CURMUDGEON_FEED_DIR", "CURMUDGEON_STATE_DIR")}
+    try:
+        os.environ.pop("CURMUDGEON_FEED_DIR", None); os.environ["CURMUDGEON_STATE_DIR"] = str(d / "state"); os.environ["CLAUDE_PLUGIN_DATA"] = str(d / "pd")
+        write(d, "pd/feed/feed.json", json.dumps({"cadence": "weekly", "consent": "yes"}))
+        got = sf.data_dir()
+    finally:
+        for k, v in old.items():
+            if v is None: os.environ.pop(k, None)
+            else: os.environ[k] = v
+    assert got == d / "state" / "feed" and json.loads((got / "feed.json").read_text())["cadence"] == "weekly" and not (d / "pd/feed").exists(), got
