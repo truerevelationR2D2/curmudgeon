@@ -554,7 +554,7 @@ def apply(paths):
         if f.get("single_vote") and kind == "downgrade" and confirmation_problem(v, root=ROOT): kind = "unclear"  # a downgrade keeps it only with the confirmation's evidence, as critic_variants.py asks; decided first, so the verifier log never records a downgrade of a finding that is then dropped (round 3)
         if kind == "downgrade":
             new = str(v.get("impact_after", "")).title()
-            dp = downgrade_problem(f["impact"], new, v.get("reproduced"), str(v.get("note") or raw), root=ROOT)  # 03 §5.57.2
+            dp = downgrade_problem(f["impact"], new, v.get("reproduced"), str(v.get("note") or raw), root=ROOT, finding=f, verdict=v)  # 03 §5.57.2 and .8
             if not dp:
                 VERIFIER_LOG.append(("downgraded", dict(f), f"{f['impact']} to {new}: {redact_finding_text(str(v.get('note') or '')) or why}", v.get("reproduced")))
                 f["impact_before"] = f["impact"]; f["impact"] = new

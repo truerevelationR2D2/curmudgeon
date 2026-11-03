@@ -71,8 +71,8 @@ def _(d):
     assert re.search(r"Critical\D{0,6}1", counts), ("Critical to Medium with no cited guard stays Critical", counts)
     g = d / "g"; g.mkdir()
     good = "The title is escaped before insertion by the template helper at src/app.js:2, so only a Low cosmetic issue remains here."
-    r, counts = _one_finding_run(g, finding(), {"verdict": "downgrade", "impact_after": "Medium", "reproduced": "traced", "note": good})
-    assert re.search(r"Medium\D{0,6}1", counts) and not re.search(r"Critical\D{0,6}1", counts), ("a downgrade with a trace and a real file:line still applies", counts)
+    r, counts = _one_finding_run(g, finding(), {"verdict": "downgrade", "impact_after": "Medium", "reproduced": "executed", "note": good, "attacker": "a user who edits a title", "gain": "nothing: the helper escapes it", "reason": "guard_blocks"})
+    assert re.search(r"Medium\D{0,6}1", counts) and not re.search(r"Critical\D{0,6}1", counts), ("a downgrade with a run, a real file:line and the security fields still applies (03 §5.57.8: below High needs a refutation's evidence)", counts)
     h = d / "h"; h.mkdir()
     r, counts = _one_finding_run(h, finding(impact="Low"), {"verdict": "downgrade", "impact_after": "Nit", "reproduced": "no", "note": "cosmetic only"})
     assert "Nits (1" in counts, ("a Low to a Nit, one step, needs no proof (SC-79)", counts)
@@ -658,3 +658,25 @@ def _(d):
     lines = [x for x in out.splitlines() if x.strip().startswith("verifier ")]
     assert len(lines) >= 2 and all(len(x.split(":", 1)[1].split()) == 1 for x in lines), ("each Critical variant gets its own verifier", out)
     assert "def verifier_batches" not in (S / "critic_run.py").read_text() and "def verifier_batches" in (S / "critic_findings.py").read_text(), "one shared rule, not two copies"
+
+@test("03 §5.57.8 (Qodo on PR #14, #3): taking a Critical or High below High needs a refutation's evidence: a run for a Critical, and attacker, gain and reason for a security finding")
+def _(d):
+    import critic_findings as cf
+    g = d / "g"; write(g, "src/app.js", APP)
+    good = "The title is escaped before insertion by the template helper at src/app.js:2, so only a Low cosmetic issue remains here."
+    logic = {"category": "logic", "title": "Total rounds wrong"}; sec = {"category": "xss", "title": "Title rendered as HTML"}
+    sec_ok = {"attacker": "a logged-in user who edits a title", "gain": "nothing: the helper escapes it", "reason": "guard_blocks"}
+    assert cf.downgrade_problem("Critical", "Low", "traced", good, root=g, finding=logic, verdict={}), "a traced Critical can't fall below High"
+    assert cf.downgrade_problem("Critical", "Medium", "executed", good, root=g, finding=logic, verdict={}) is None, "with a run it can"
+    assert cf.downgrade_problem("High", "Low", "traced", good, root=g, finding=sec, verdict={}), "a security High below High names attacker, gain and reason"
+    assert cf.downgrade_problem("High", "Low", "traced", good, root=g, finding=sec, verdict=sec_ok) is None
+    assert cf.downgrade_problem("Critical", "Low", "executed", good, root=g, finding=sec, verdict={}), "a security Critical needs both"
+    assert cf.downgrade_problem("Critical", "Low", "executed", good, root=g, finding=sec, verdict=sec_ok) is None
+    assert cf.downgrade_problem("Critical", "High", "traced", good, root=g, finding=sec, verdict={}) is None, "staying at High or above is unchanged"
+    assert cf.downgrade_problem("Critical", "Low", "traced", good, root=g), "no finding given: held to the Critical rule anyway"
+    for f_ in ("critic_merge.py", "critic_variants.py"):
+        assert re.search(r"downgrade_problem\([^\n]*finding=", (S / f_).read_text()), f"{f_} passes the finding"
+    assert re.search(r"downgrade_problem\([^\n]*finding=", (H / "check_contract.py").read_text()), "the verifier's stop check passes the packet"
+    e = d / "e"; e.mkdir()
+    r, counts = _one_finding_run(e, finding(), {"verdict": "downgrade", "impact_after": "Low", "reproduced": "traced", "note": good})
+    assert re.search(r"Critical\D{0,6}1", counts), ("end to end: a traced Critical-to-Low downgrade is ignored", counts)

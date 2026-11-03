@@ -4,7 +4,8 @@ Every release of Curmudgeon, newest first. The repository's history starts at 4.
 
 ## Unreleased: fixes from Qodo's review of PR #14
 
-Qodo reviewed the batch 1 pull request and raised three Mediums and one Low. Each was checked against the code; the three below are fixed, each with a test that fails on 5.2.6 (`plugin/tests/cases_7.py`).
+Qodo reviewed the batch 1 pull request and raised three Mediums and one Low. Each was checked against the code, and all four are fixed, each with a test that fails on 5.2.6 (`plugin/tests/cases_7.py`).
+- Taking a Critical or a High below High now needs what refuting it would: an executed run for a Critical, and the attacker, the gain and a listed reason for a security finding (03 §5.57.8). Before, a trace was enough to lower a Critical to Low and lift its BLOCK, on less evidence than a refutation needs.
 - `critic_ledger.py adopt --show` prints every ruling in full and every finding that isn't open. It used to cut each ruling at 300 characters and list only 40 findings, so an owner could adopt rulings they hadn't seen.
 - When the owner's gate record can't be checked, the stop gate and the background check stay off and say why. Before, an error there fell through to the project's own marker, which a repository can commit.
 - The variant hunt prints the same verifier batches as `critic_run.py next`, giving each Critical variant its own verifier in the full tier. Both now use one shared `verifier_batches`.

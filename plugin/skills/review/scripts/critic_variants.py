@@ -113,7 +113,7 @@ def apply(paths):
             kind = "confirmed" if not confirmation_problem(v, root=ROOT) else "unclear"
             new_ = str(v.get("impact_after", "")).title()  # the same downgrade rule as the main findings (03 §5.57.2); without it the variant keeps its impact
             if kind == "confirmed" and new_ in IMP:
-                dp = downgrade_problem(f["impact"], new_, v.get("reproduced"), str(v.get("note") or raw), root=ROOT)
+                dp = downgrade_problem(f["impact"], new_, v.get("reproduced"), str(v.get("note") or raw), root=ROOT, finding=f, verdict=v)
                 if not dp: f = dict(f, impact=new_)
                 else: f = dict(f, confidence="likely"); ignored.append(f"{vid}: downgrade to {new_} ignored ({dp}); kept at {f['impact']}")  # as critic_merge.py apply: not a clean confirmation
         if kind == "confirmed": kept.append(dict(f, confidence=f.get("confidence", "confirmed"), source="variant", verifier_note=redact_finding_text(str(v.get("note") or ""))[:300]))

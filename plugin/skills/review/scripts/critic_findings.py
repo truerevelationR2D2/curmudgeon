@@ -266,12 +266,14 @@ def _cited_problem(why, root):
     return None
 
 DOWN_ORDER = ("Critical", "High", "Medium", "Low", "Nit")
-def downgrade_problem(old, new, reproduced, note, root=None):
+def downgrade_problem(old, new, reproduced, note, root=None, finding=None, verdict=None):
     """One rule for what may lower a finding, shared by the verifier's stop check and apply (ultimate audit H2, 03
     §5.57.2: a downgrade to Nit used to need nothing at all, so it could erase a Critical that a refutation could not).
     A Nit comes only from a Low. A downgrade of two or more steps, or any downgrade from a Critical or a High, needs a
     run or a trace and a note of at least 60 characters that cites the reason as a file:line that exists. Lowering a
-    Medium to a Low, or a Low to a Nit, needs no proof. Returns None when the downgrade may apply."""
+    Medium to a Low, or a Low to a Nit, needs no proof. Taking a Critical or a High below High clears its BLOCK, so it
+    needs what refuting it would (03 §5.57.8, Qodo on PR #14): a run for a Critical, and for a security finding the
+    attacker, the gain and a listed reason (security_refutation_problem). Returns None when the downgrade may apply."""
     old, new = str(old or "").title(), str(new or "").title()
     if old not in DOWN_ORDER or new not in DOWN_ORDER or DOWN_ORDER.index(new) <= DOWN_ORDER.index(old): return "a verifier may lower an impact, never raise or keep it"
     if new == "Nit" and old != "Low": return "only a Low may become a Nit"
@@ -280,6 +282,10 @@ def downgrade_problem(old, new, reproduced, note, root=None):
     if str(reproduced or "") not in ("executed", "traced"): return f"lowering a {old} to a {new} needs a run or a trace (reproduced: executed or traced)"
     if len(note) < 60: return "the note is too short (at least 60 characters, naming why it is less severe)"
     if HEDGE.search(note): return "hedged (state why it is less severe as fact, or return unclear)"
+    if old in ("Critical", "High") and new not in ("Critical", "High"):  # out of the blocking levels: a refutation's evidence (03 §5.57.8)
+        if old == "Critical" and str(reproduced) != "executed": return f"taking a Critical below High needs a run (reproduced: executed), as refuting it would"
+        sp = security_refutation_problem(verdict or {}, finding or {}) if finding is not None else None
+        if sp: return sp.replace("a security refutation", f"taking a security {old} below High")
     return _cited_problem(note, root)
 
 SARIF_LEVEL = {"Critical": "error", "High": "error", "Medium": "warning", "Low": "note"}
