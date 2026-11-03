@@ -588,7 +588,7 @@ def _(d):
     write(d, "src/app.js", APP); run(S / "critic_ledger.py", "start", "full", cwd=d)
     write(d, "a.json", json.dumps([finding(impact="High", verified="executed")])); run(S / "critic_merge.py", "tally", "a.json", cwd=d)
     fid = json.loads((d / ".critic/tally.json").read_text())["kept"][0]["id"]
-    write(d, "v.json", json.dumps([{"id": fid, "verdict": "downgrade", "impact_after": "Low", "reproduced": "traced", "note": "The title passes through the escaping helper called at src/app.js:2, so the remaining risk is bounded to markup."}]))
+    write(d, "v.json", json.dumps([{"id": fid, "verdict": "downgrade", "impact_after": "Low", "reproduced": "traced", "note": "The title passes through the escaping helper called at src/app.js:2, so the remaining risk is bounded to markup.", "attacker": "a user who edits a title", "gain": "markup only, no script", "reason": "guard_blocks"}]))
     run(S / "critic_merge.py", "apply", "v.json", cwd=d)
     out = run(S / "critic_ledger.py", "spotcheck", cwd=d).stdout; assert "1 item(s)" in out, out
     assert "downgraded" in (d / ".critic/spotcheck.md").read_text()
@@ -711,7 +711,7 @@ def _(d):
     write(d, "src/app.js", APP); run(S / "critic_ledger.py", "start", "full", cwd=d)
     write(d, "a.json", json.dumps([finding(impact="High", verified="executed")])); run(S / "critic_merge.py", "tally", "a.json", cwd=d)
     fid = json.loads((d / ".critic/tally.json").read_text())["kept"][0]["id"]
-    write(d, "v.json", json.dumps([{"id": fid, "verdict": "downgrade", "impact_after": "Medium", "reproduced": "traced", "note": "The title passes through the escaping helper called at src/app.js:2, so the remaining risk is bounded to markup."}]))
+    write(d, "v.json", json.dumps([{"id": fid, "verdict": "downgrade", "impact_after": "Medium", "reproduced": "traced", "note": "The title passes through the escaping helper called at src/app.js:2, so the remaining risk is bounded to markup.", "attacker": "a user who edits a title", "gain": "markup only, no script", "reason": "guard_blocks"}]))
     run(S / "critic_merge.py", "apply", "v.json", cwd=d)
     for _ in range(5):  # the downgraded finding is still Medium: it must never be listed twice
         run(S / "critic_ledger.py", "spotcheck", cwd=d)
@@ -1132,7 +1132,7 @@ def _(d):
     r = subprocess.run([sys.executable, str(H / "stop_async.py")], input=json.dumps({"cwd": str(d)}), capture_output=True, text=True, cwd=d)
     assert r.returncode == 2 and "src/a.js" in r.stderr and "untouched.js" not in r.stderr, (r.returncode, r.stderr)
     dirs = sorted(p.name for p in (d / ".critic/scan-async").iterdir())
-    assert dirs == ["all"], f"expected one scan for all changed files, got {dirs}"
+    assert dirs == ["part-0"], f"expected one scan for all changed files (up to 200 per part, audit Q09), got {dirs}"
     src = (H / "stop_async.py").read_text()
     assert "timeout=10" in src and "DEADLINE" in src, "git calls and the whole check must be time-limited"
     hooks = json.loads((H / "hooks.json").read_text())["hooks"]

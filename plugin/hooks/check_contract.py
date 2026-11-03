@@ -87,7 +87,7 @@ def problems_verdict(msg, root=None):
             prob = refutation_problem(v.get("refutation") or v.get("reason"), imp, v.get("reproduced"), root=root) or security_refutation_problem(v, packet)
             if prob: errs.append(f"{v.get('id')}: this refutation would be ignored by the merge: {prob}")
         if v.get("verdict") == "downgrade":  # 03 §5.57.2: the same rule apply uses, so the verifier hears it before stopping
-            dp = downgrade_problem(packet.get("impact") or "Critical", v.get("impact_after"), v.get("reproduced"), v.get("note") or v.get("refutation") or v.get("reason"), root=root)  # the fields apply reads
+            dp = downgrade_problem(packet.get("impact") or "Critical", v.get("impact_after"), v.get("reproduced"), v.get("note") or v.get("refutation") or v.get("reason"), root=root, finding=packet, verdict=v)  # the fields apply reads
             if dp: errs.append(f"{v.get('id')}: this downgrade would be ignored by the merge: {dp}")
     return errs[:8]
 

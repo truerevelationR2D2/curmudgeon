@@ -3,7 +3,8 @@
 changed since the last review, in the background, without blocking. Only when it finds a new FAIL-level problem
 does it wake Claude (exit 2 with asyncRewake), and each problem wakes it once. At most 3 wakes per batch of edits.
 Claude Code doesn't enforce a timeout on async hooks, so this script keeps its own: every git call has a 10 s limit,
-and the whole check, one scan over every changed file, stops by DEADLINE seconds."""
+and the whole check, one scan per 200 changed files (every changed file, never only the first 200), stops by DEADLINE
+seconds; the next stop starts with the part it had no time for."""
 import hashlib, json, os, pathlib, subprocess, sys, time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import workspace
@@ -13,6 +14,36 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(
 try: from critic_findings import log_run
 except Exception:
     def log_run(*a, **k): pass
+
+CHUNK = 200  # files per scan process
+SKIP_WALK = {".git", ".critic", "node_modules", "__pycache__", ".venv", "venv", "dist", "build", ".tox", ".mypy_cache", ".pytest_cache", ".cache"}
+
+def walk_changed(root, since, limit=500_000):
+    """Outside git: every file under root changed since the last review, by its own time (audit O3). No cap on what is
+    found (Qodo on #17). The walk itself stops after `limit` entries, so in a tree larger than that, files late in walk
+    order are never seen: a bound on the hook's time, stated here and in the changelog (collected round review)."""
+    out, n = [], 0
+    for dp, dns, fns in os.walk(root):
+        dns[:] = [d for d in dns if d not in SKIP_WALK]
+        for fn in fns:
+            n += 1
+            p = pathlib.Path(dp) / fn
+            try:
+                if not p.is_symlink() and (m := p.stat().st_mtime) > since: out.append((m, str(p.relative_to(root)).replace(os.sep, "/")))
+            except OSError: continue
+        if n >= limit: break
+    return [x for _, x in out]
+
+def scan_order(changed, record, mtime):
+    """Changed files in the order this stop scans them: first those never scanned or changed since their last scan,
+    then those whose part ran out of time, then those already scanned as they are. A record per file, not a part
+    index, so a new edit never sends the scan back to the start, and a slow part can't keep the rest waiting (Qodo on
+    #17; collected round review)."""
+    def rank(p):
+        r = record.get(p)
+        if not isinstance(r, list) or len(r) != 2 or (mtime(p) or 0) > r[0]: return 0
+        return 1 if r[1] == "timeout" else 2
+    return sorted(changed, key=rank)
 
 def main():
     try: data = json.load(sys.stdin)
@@ -24,36 +55,58 @@ def main():
     try:
         from critic_findings import gate_owned
         if not gate_owned(root, "async"): return 0  # a committed marker turns nothing on (ultimate audit V12)
-    except Exception: pass
+    except Exception: return 0  # the owner's record can't be checked: off, never on the project's marker alone (Qodo on PR #14)
     try: stamps = json.loads((c / "ledger.json").read_text()).get("stamps", {})
     except Exception: stamps = {}
     review = c / "last-review.md"; since = review.stat().st_mtime if review.exists() else 0
     changed = [k for k in stamps if (root / k).exists() and (root / k).stat().st_mtime > since]
-    if True:  # new or changed files outside the stamps count too
-        log_run(root, "command", "background stop check: git diff --name-only HEAD and git ls-files --others")
-        def git(*args):
-            try: return safegit.run([*args], cwd=root, capture_output=True, text=True, timeout=10).stdout.split("\0")
-            except (OSError, subprocess.TimeoutExpired): return []
-        out = git("diff", "--name-only", "-z", "HEAD") + git("ls-files", "--others", "--exclude-standard", "-z")
-        out = [x for x in out if x]
-        changed = sorted(set(changed) | {x for x in out if (root / x).is_file() and not x.startswith(".critic/") and (root / x).stat().st_mtime > since})
+    log_run(root, "command", "background stop check: git diff --name-only --relative HEAD and git ls-files --others")
+    def git(*args):
+        try: r = safegit.run([*args], cwd=root, capture_output=True, text=True, timeout=10)
+        except (OSError, subprocess.TimeoutExpired): return None
+        return r.stdout.split("\0") if r.returncode == 0 else None
+    # --relative: in a project that is a subfolder of a repository, paths come relative to the project (audit V47)
+    diff, others = git("diff", "--name-only", "--relative", "-z", "HEAD"), git("ls-files", "--others", "--exclude-standard", "-z")
+    if diff is None and others is not None: diff = git("ls-files", "-z")  # a repository with no commit yet: what is staged is the change (Qodo on #17)
+    if diff is None and others is None: out = walk_changed(root, since)  # not a git work tree: look at the files themselves (audit O3)
+    else: out = [x for x in (diff or []) + (others or []) if x]
+    changed = sorted(set(changed) | {x for x in out if (root / x).is_file() and not x.startswith(".critic/") and (root / x).stat().st_mtime > since})
     if not changed: return 0
     scan = pathlib.Path(__file__).resolve().parent.parent / "skills" / "review" / "scripts" / "critic_scan.py"
     outdir = c / "scan-async"
-    t0 = time.time(); listed = changed[:200]
+    t0 = time.time(); listed = changed  # every changed file, in parts of CHUNK; never the first 200 only (audit Q09)
     (c / "scan-async-files.txt").write_text("\n".join(listed) + "\n", encoding="utf-8")
-    try:  # one scan for every changed file, not one process per file
-        subprocess.run([sys.executable, str(scan), str(root), "--root", str(root), "--out", str(outdir / "all"), "--no-project-rules",
-                        "--only", str(c / "scan-async-files.txt")], capture_output=True, timeout=max(10, DEADLINE - (time.time() - t0)))
-    except subprocess.TimeoutExpired: return 0  # out of time: say nothing rather than half a result
     shown_f = c / "async-shown.json"
     try: shown = json.loads(shown_f.read_text())
     except Exception: shown = {"batch": "", "wakes": 0, "ids": []}
     batch = hashlib.sha1("|".join(sorted(changed)).encode()).hexdigest()[:10]
     if shown.get("batch") != batch: shown = {"batch": batch, "wakes": 0, "ids": shown.get("ids", [])}
+    rec_f = c / "async-scanned.json"
+    try: record = json.loads(rec_f.read_text()) if rec_f.is_file() and not rec_f.is_symlink() else {}
+    except (OSError, ValueError): record = {}
+    record = {k: v for k, v in (record if isinstance(record, dict) else {}).items() if k in set(changed)}
+    def mt(p):
+        try: return (root / p).stat().st_mtime
+        except OSError: return 0
+    order = scan_order(listed, record, mt)
+    reports, scanned = [], set()
+    for k in range(0, len(order), CHUNK):  # one scan per part, not one process per file
+        part = order[k:k + CHUNK]; n_ = k // CHUNK; lst = c / f"scan-async-part-{n_}.txt"; lst.write_text("\n".join(part) + "\n", encoding="utf-8")
+        left = DEADLINE - (time.time() - t0)
+        if left < 10: break  # out of time: the files not reached rank first at the next stop
+        before = {p: mt(p) for p in part}  # the times the scanner reads: an edit during the scan is newer, so it ranks first next time (Qodo on #18)
+        try: subprocess.run([sys.executable, str(scan), str(root), "--root", str(root), "--out", str(outdir / f"part-{n_}"), "--no-project-rules",
+                             "--only", str(lst)], capture_output=True, timeout=left)
+        except subprocess.TimeoutExpired:
+            for p in part: record[p] = [before[p], "timeout"]  # after the files not reached yet, next time
+            break
+        reports.append(outdir / f"part-{n_}" / "report.json"); scanned |= set(part)
+        for p in part: record[p] = [before[p], "ok"]
+    try: rec_f.write_text(json.dumps(record)) if not rec_f.is_symlink() else None
+    except OSError: pass
     new = []
-    mine = set(listed)
-    for rep in [outdir / "all" / "report.json"]:
+    mine = scanned
+    for rep in reports:
         if not rep.exists(): continue
         for r in json.loads(rep.read_text()).get("findings", []):
             key = f"{r['rule']}|{r['where']}"

@@ -23,12 +23,13 @@ usage:
 Steps it never takes: starting agents (only the lead can), writing a review or a verdict, or deciding anything a model
 decides. Each script it runs is logged in .critic/runlog.jsonl like any other."""
 import json, os, pathlib, subprocess, sys, re, time
+from critic_findings import verifier_batches  # one rule for critic_run next and the variant hunt (Qodo on PR #14)
 import safegit  # git without the repository's own commands (03 §5.57 review)
 
 HERE = pathlib.Path(__file__).resolve().parent
 ROOT = pathlib.Path(os.environ.get("CRITIC_ROOT") or re.sub(r"[\\/]\.critic[\\/]scratch(?:[\\/].*)?$", "", os.getcwd()) or os.getcwd()).resolve(); D = ROOT / ".critic"
 REVIEWERS = {"trivial": ["A"], "lite": ["A"], "full": ["A", "B", "C"]}
-VERIFY_BATCH = 5  # packets per verifier agent; 10 (SC-78) was measured and reverted: no saving, quality worse (03 §5.37)
+from critic_findings import VERIFY_BATCH  # packets per verifier agent (03 §5.37); defined once, beside verifier_batches
 FORCE = False  # next --apply-now: apply with the verdicts there are (a finding with no verdict stays at lower confidence, except single-vote Mediums and outside-only findings, which are left out)
 
 def sh(script, *a):
@@ -120,16 +121,6 @@ def state():
             if vpk and mtime(D / "variants.md") < max([mtime(found_mark)] + [mtime(v) for v in vv]): return "variants-apply", L, tier, vv
     return "teardown", L, tier, []
 
-def verifier_batches(items, tier):
-    """Packets in groups of VERIFY_BATCH for the verifiers, except that in the full tier each Critical gets a verifier
-    of its own (SKILL.md step 4.2; ultimate audit Q08: they used to share a batch of five)."""
-    def impact(p):
-        try: return json.loads(p.read_text()).get("impact")
-        except (OSError, ValueError, AttributeError): return None
-    crit = [p for p in items if tier == "full" and impact(p) == "Critical"]
-    rest = [p for p in items if p not in crit]
-    return [[p] for p in crit] + [rest[i:i + VERIFY_BATCH] for i in range(0, len(rest), VERIFY_BATCH)]
-
 def early(force=False):
     """The scan's FAIL rows, once per scan report (SC-80). Returns True when it printed something."""
     rp = D / "scan" / "report.json"; mark = D / "early-shown"
@@ -216,10 +207,16 @@ def main(a):
             except (OSError, ValueError): tier = "full"
         sh("critic_ledger.py", "start", "audit" if audit else ("full" if fix else "review"), "--tier", tier)
         sh("critic_brief.py", "--letters", ",".join(REVIEWERS.get(tier, REVIEWERS["full"])))
-        files = [str(f) for f in (json.loads((D / "change-map.json").read_text()).get("files") or [])] if (D / "change-map.json").exists() else []
+        cmj = json.loads((D / "change-map.json").read_text()) if (D / "change-map.json").exists() else {}
+        files = [str(f) for f in (cmj.get("files") or [])]
+        if not files and cmj.get("deleted"):  # a deletion-only change: scan the callers it may have broken (Qodo on #17)
+            files = sorted({u for k, v in (cmj.get("radius") or {}).items() if k.partition(": ")[0] in cmj["deleted"] for u in v})
         only = ""
         if files and not (D / "scan-only.txt").is_symlink():
             (D / "scan-only.txt").write_text("\n".join(files) + "\n", encoding="utf-8"); only = " --only .critic/scan-only.txt"
+        elif not (D / "scan-only.txt").is_symlink():
+            if cmj.get("deleted") and not cmj.get("files"): (D / "scan-only.txt").write_text("", encoding="utf-8"); only = " --only .critic/scan-only.txt"  # a deletion nothing calls: scan nothing, never the whole project (Qodo on #18)
+            else: (D / "scan-only.txt").unlink(missing_ok=True)  # never an earlier run's list
         if security:
             r = subprocess.run([sys.executable, str(HERE / "security_feed.py"), "status"], capture_output=True, text=True)
             print(r.stdout.strip().splitlines()[0] if r.stdout.strip() else "security feed: status unreadable")

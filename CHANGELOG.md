@@ -2,6 +2,78 @@
 
 Every release of Curmudgeon, newest first. The repository's history starts at 4.2.1; earlier versions are summarised from the project's own build and review records. Numbers are the ones measured at the time; the README's Benchmarks section has the current ones and how they were measured.
 
+## Unreleased: Qodo on #19
+
+Five findings, each with a test that fails on the code before it (`plugin/tests/cases_8.py`).
+- The gate's suggested `stamp --add` command quotes each deleted path, so a file name is never shell syntax to copy.
+- Tenant-boundary phrases ("tenant scoping", "tenant context", "tenant boundary") make a finding a security one; a plain "tenant" still doesn't.
+- A deleted package `__init__.py` counts as the provider for `from . import name`, so its callers are listed and scanned.
+- A relative import must resolve to the deleted file's exact path; only non-relative imports may leave out a source root. A same-named module elsewhere no longer joins a deletion's callers.
+- A deletion nothing calls reports the static check as not applicable, not as blocked, so the review isn't marked as degraded.
+
+## Unreleased: the next collected round (Qodo on #18)
+
+Six findings, each with a test that fails on the code before it (`plugin/tests/cases_8.py`).
+- A deletion's time is only a best guess (a file created beside it after the review looks the same as a deletion after the review). So when the last review did cover a deletion, stamp the deleted path (`critic_ledger.py stamp --add src/auth.py`) and the gate stops asking; its message says so.
+- The background check records the time a file had when its scan started, so an edit made during the scan ranks first at the next stop.
+- A deletion nothing calls scans nothing, instead of the whole project.
+- A deleted module's callers are found through relative imports (`'./utils'`, `from .mod import f`) and imports that leave out a source root such as `src/`.
+- A bare "tenant" in a title no longer makes a finding a security one; phrases such as "cross-tenant" and "tenant isolation" still do.
+- A deleted file whose first line is longer than the brief's limit (minified code) shows that line's masked start, not "no removed lines".
+
+## Unreleased: the collected round after batches 2 and 3 (Qodo on #15, #16 and #17, and the batch 3 review)
+
+Twenty findings, gathered and fixed together as ruled (03 §5.57.7). Each fix has a test that fails on the code before it (`plugin/tests/cases_8.py`).
+- **Deletions in a review (Qodo on #17).** A deleted file's removed lines reach the brief with secrets masked, each line behind a bar so no removed line can close a fence or start a heading. They count toward the tier. A function moved to another file no longer lists its new callers as broken. A finding at a caller the deletion broke counts as introduced, not as already there. A deletion-only run scans the callers instead of reusing an earlier run's file list.
+- **Deletions and the stop gate (Qodo on #17, batch 3 review).** Each missing stamped file is recorded with when the gate first saw it go (`.critic/gate-deleted.json`). So later activity in its folder doesn't re-open a reviewed deletion, deleting it again starts a new batch, and `stamp` keeps it until a review saved after it covers it.
+- **What the stop gate watches (Qodo on #17, batch 3 review).** In git, the gate watches what git doesn't ignore, so a project's own `.gitignore` decides what is generated. Outside git, it skips known generated dot-folders. Hand-written code under `.vitepress`, `.buildkite` and the like counts again, and Claude Code's worktrees (`.claude/worktrees/`) and other nested checkouts never do.
+- **The background check (Qodo on #17).** It sees staged files in a repository with no commit yet, starts each stop with the part the last one had no time for, and has no cap that leaves files out for good. An interrupted move of the feed's settings never leaves them unreadable.
+- **The integrity lens (Qodo on #16).**
+  - Adopting a recorded copy takes two steps: `--integrity-adopt` shows every host, how many there are and a code, and `--integrity-adopt --confirm CODE` trusts exactly those bytes. A copy whose pages have no own-site list is refused (record it again).
+  - The recorded copy is checked and parsed from one read.
+  - A Latin name with a Han or kana sign standing in for a letter (`paypa丨`, `facebロロk`, `paypalーー`) is a look-alike, while real names mixing romaji and kana (`toyotaトヨタ`, `sonyストアー`) are not.
+  - A scheme-relative `<base>` takes the page's own scheme from its canonical or `og:url` address.
+- **Security findings (Qodo on #15).** Phrases such as tenant isolation, access control, privilege escalation and session fixation make a finding a security one (bare words like "session" or "isolation" don't, so ordinary findings keep ordinary rules), and a reviewer can mark one `"security": true`. Taking one below High, or refuting it, then needs attacker, gain and a listed reason (03 §5.57.8). A reviewer's flag carries through when findings are merged, and the verifier is told when the security rules apply.
+- **From this round's blind review (3 reviewers).**
+  - The gate skips tools' folders in git too.
+  - When git lists nothing for the project (an enclosing repository that ignores it), the gate falls back to a walk, so it is never silently off. Outside git, it watches only known code dot-folders and dot-folders holding a stamped file.
+  - Deleted text is masked line by line before it is cut, so a secret at the cut is never half-masked.
+  - A caller still importing a deleted module stays in the blast radius, whatever else defines the same name, and a deleted file's bare name no longer marks old findings as introduced.
+  - A stroke look-alike (丨 亅 匚 凵) next to a Latin letter is flagged even when a real kana word follows.
+  - The background check orders files by a per-file record of what it has scanned, so a new edit never sends it back to the start, and a part that ran out of time goes after the files not reached yet. Its walk outside git stops after 500,000 entries, which bounds the hook's time; files beyond that in walk order are not seen.
+  - The adopt code is 32 characters (128 bits), and the gate checks each folder for a nested checkout once.
+
+## Unreleased: fixes from the full audit, batch 3 of 5 (the stop gates and the change map)
+
+Each fix has a test that fails on the code before it (`plugin/tests/cases_8.py`).
+- Deleting a file the last review stamped now counts as an edit, so the stop gate asks for a review, alongside any other edit, so a new edit always starts a new batch; a review saved after the deletion covers it, and `stamp --add` drops deleted files (audit O1).
+- New code under the dot-folders people write code in (`.claude`, `.github`, `.husky`, `.devcontainer` and a few more) counts for the stop gate; other dot-folders (`.env`, `.svelte-kit`, `.yarn`, `.terraform`) hold generated or downloaded files and still don't (audit O2).
+- In a project that is a subfolder of a repository, the background check sees tracked edits (`git diff --relative`; audit V47).
+- Outside git, the background check finds changed files by their own times (audit O3).
+- The background check scans every changed file, in parts of 200, instead of silently dropping everything past the first 200 (audit Q09).
+- The security feed's settings live in `~/.curmudgeon/feed` (or `CURMUDGEON_FEED_DIR`), so the skill and the background check see the same feed. A feed set up under the plugin's data folder is moved there once (audit V46).
+- The change map counts deleted files: their names and removed lines are sized and checked for sensitive words, so deleting `auth.py` with a one-line README edit is no longer trivial. The deleted file's callers join the blast radius, and the reviewers' brief shows its removed lines and who still refers to it (audit V30).
+- A changed file with a space or a quote in its name gets its hunks and touched text, and a new one is marked new (audit F-a9c4ecf9).
+
+## Unreleased: fixes from the full audit, batch 2 of 5 (the browser integrity lens)
+
+Each fix has a test that fails on 5.2.6 (`plugin/tests/cases_8.py`), and the lens fixture (`eval/lens12.json`) gains three plants, a clean-twin page and three decoy pages: 13 of 13 found, 0 wrong rows, nothing on the decoys or the clean twin (5.2.6 on the same fixture: 7 of 13 found, 5 wrong rows on the decoys and 5 on the clean twin).
+- A page that names a new site as its own (canonical, `og:url`) no longer makes that site's forms, scripts and links count as unchanged. The recorded copy keeps the sites each page said it was, and a page that now claims another one fails `integrity-changed` (audit F-9c12cea5, High).
+- `<base href>` is not the page's own site. Relative form, script and link targets are resolved against it, so a base on another site shows up against the recorded copy as a changed form, link or a new origin, and, on a page that names its own site (canonical or `og:url`), as an off-site form or an unpinned script. On a page that names no site and has no recorded copy, a relative script sent off-site by a base raises nothing: the lens can't tell the page's own host from another (audit F-5a56b49c, High).
+- The recorded copy is trusted only when the owner recorded it, or adopted it with the new `--integrity-adopt` after seeing every host it lists, on this machine, and git doesn't track it. A copy that came with the code is ignored with a note, and agents can't record or adopt one (audit Q04).
+- A Japanese, Chinese or Korean host that mixes its own scripts (Han with Hiragana or Katakana, Han with Hangul, the repeat mark 々) is no longer a look-alike. Latin with Cyrillic still is, and so is a Latin name with a lone Hangul letter, Bopomofo or kana standing in for a Latin letter (audit F-e55d7809).
+- From the blind review of this batch: `critic_scan.py` refuses shortened flags (`--integrity-adop`), and the agents' guard refuses recording or adopting the trusted copy in the plain and the usual hidden forms (a shortened, split or variable flag, a decoder, `python -c`, the helper functions). Like every check on command text, it is a tripwire, not a wall: an agent determined to hide the flag could still do it, so the owner's permission settings stay the real boundary. Plain reading (`grep`) and other programs' own flags (`pytest --integration`, `yarn check --integrity`) still pass. The recorded copy is kept out of git, and adopting a tracked one fails with how to untrack it. Adopting refuses a copy with control characters, which could hide a host on a terminal, and trusts exactly the bytes it showed. `<base>` is read as a browser reads it: the first with an href wins (an empty one keeps targets on the page), `http:host` and `https:///host` name a host, `https:host` under an http base names a host, and an http base makes a relative or scheme-relative form insecure. Look-alike hosts are judged after the same folding a browser applies: halfwidth forms don't slip past, the ideographic full stops (。 ｡) split labels, and 〇 counts as ideographic. Link labels drop invisible marks (`&rlm;` on right-to-left pages) when recorded, so such copies can be adopted, and adopting refuses hosts that hold spaces of any kind or run past 253 characters. Adopting refuses line breaks, bidi and zero-width marks and malformed entries, and recording refuses a copy git tracks.
+
+**After upgrading:** run `critic_scan.py . --integrity-record` again on a version you trust. A copy recorded before this change has no own-site list and isn't noted as yours, so it is ignored until you record it again.
+
+## Unreleased: fixes from Qodo's review of PR #14
+
+Qodo reviewed the batch 1 pull request and raised three Mediums and one Low. Each was checked against the code, and all four are fixed, each with a test that fails on 5.2.6 (`plugin/tests/cases_7.py`).
+- Taking a Critical or a High below High now needs what refuting it would: an executed run for a Critical, and the attacker, the gain and a listed reason for a security finding (03 §5.57.8). Before, a trace was enough to lower a Critical to Low and lift its BLOCK, on less evidence than a refutation needs.
+- `critic_ledger.py adopt --show` prints every ruling in full and every finding that isn't open. It used to cut each ruling at 300 characters and list only 40 findings, so an owner could adopt rulings they hadn't seen.
+- When the owner's gate record can't be checked, the stop gate and the background check stay off and say why. Before, an error there fell through to the project's own marker, which a repository can commit.
+- The variant hunt prints the same verifier batches as `critic_run.py next`, giving each Critical variant its own verifier in the full tier. Both now use one shared `verifier_batches`.
+
 ## 5.2.6 (unreleased): fixes from the full audit, batch 1 of 5
 
 The full audit of 5.2.5 (six blind lenses, Curmudgeon's own full-tier review, three outside reviewers and mutation testing) confirmed 89 findings: 5 High, 27 Medium, 51 Low, 5 Nit. Batch 1 fixes the trust and evidence rules. Each fix has a test that fails on 5.2.5 (`plugin/tests/cases_7.py`).

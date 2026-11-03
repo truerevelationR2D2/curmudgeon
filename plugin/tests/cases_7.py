@@ -71,8 +71,8 @@ def _(d):
     assert re.search(r"Critical\D{0,6}1", counts), ("Critical to Medium with no cited guard stays Critical", counts)
     g = d / "g"; g.mkdir()
     good = "The title is escaped before insertion by the template helper at src/app.js:2, so only a Low cosmetic issue remains here."
-    r, counts = _one_finding_run(g, finding(), {"verdict": "downgrade", "impact_after": "Medium", "reproduced": "traced", "note": good})
-    assert re.search(r"Medium\D{0,6}1", counts) and not re.search(r"Critical\D{0,6}1", counts), ("a downgrade with a trace and a real file:line still applies", counts)
+    r, counts = _one_finding_run(g, finding(), {"verdict": "downgrade", "impact_after": "Medium", "reproduced": "executed", "note": good, "attacker": "a user who edits a title", "gain": "nothing: the helper escapes it", "reason": "guard_blocks"})
+    assert re.search(r"Medium\D{0,6}1", counts) and not re.search(r"Critical\D{0,6}1", counts), ("a downgrade with a run, a real file:line and the security fields still applies (03 §5.57.8: below High needs a refutation's evidence)", counts)
     h = d / "h"; h.mkdir()
     r, counts = _one_finding_run(h, finding(impact="Low"), {"verdict": "downgrade", "impact_after": "Nit", "reproduced": "no", "note": "cosmetic only"})
     assert "Nits (1" in counts, ("a Low to a Nit, one step, needs no proof (SC-79)", counts)
@@ -611,3 +611,72 @@ def _(d):
     try: r = safegit.run(["status", "--porcelain"], cwd=r_, capture_output=True, text=True)
     finally: os.environ["PATH"] = old; safegit._ENV.clear(); safegit._VER.clear()
     assert r.returncode == 128 and "won't run git" in r.stderr, (r.returncode, r.stderr)
+
+@test("Qodo on PR #14 (2): when the owner's gate record can't be checked, the stop checks stay off; a committed marker alone never turns them on")
+def _(d):
+    import io, contextlib, importlib.util, critic_findings as cf
+    subprocess.run(["git", "init", "-q"], cwd=d); write(d, "a.py", "x = 1\n"); write(d, ".critic/gate", ""); write(d, ".critic/gate-async", "on\n")
+    subprocess.run(["git", "add", "-f", "a.py", ".critic/gate", ".critic/gate-async"], cwd=d); subprocess.run(G + ["commit", "-qm", "ship gate markers"], cwd=d)
+    write(d, "b.py", "eval(input())\n")
+    def call(name):
+        spec = importlib.util.spec_from_file_location(name + "_q", H / f"{name}.py"); m = importlib.util.module_from_spec(spec)
+        sys.path.insert(0, str(H)); spec.loader.exec_module(m)
+        buf = io.StringIO(); old_in, old_cwd = sys.stdin, os.getcwd()
+        sys.stdin = io.StringIO(json.dumps({"cwd": str(d)})); os.chdir(d)
+        try:
+            with contextlib.redirect_stdout(buf): m.main()
+        finally: sys.stdin = old_in; os.chdir(old_cwd)
+        return buf.getvalue()
+    real = cf.gate_owned
+    def broken(root, mode): raise RuntimeError("owner record unreadable")
+    cf.gate_owned = broken
+    try:
+        o = call("stop_gate"); a = call("stop_async")
+    finally: cf.gate_owned = real
+    assert '"block"' not in o and "couldn't" in o.lower(), o
+    assert not (d / ".critic/scan-async-files.txt").exists(), a
+
+@test("Qodo on PR #14 (1): adopt --show prints every ruling in full and every finding that isn't open, so nothing is restored unseen")
+def _(d):
+    run(S / "critic_ledger.py", "init", cwd=d)
+    long_note = "keep this decision: " + "x" * 400 + " END-OF-RULING"
+    led = {"decisions": [{"id": "D1", "note": long_note}], "findings": {f"F-{i:08x}": {"status": "refuted"} for i in range(45)}}
+    write(d, ".critic/ledger-set-aside-q1.json", json.dumps(led))
+    r = run(S / "critic_ledger.py", "adopt", "ledger-set-aside-q1.json", "--show", cwd=d)
+    assert "END-OF-RULING" in r.stdout, r.stdout[-600:]
+    assert all(f"F-{i:08x}" in r.stdout for i in range(45)), r.stdout[-600:]
+
+@test("Qodo on PR #14 (4): the variant hunt prints the same verifier batches as critic_run.py next, with each Critical variant alone in the full tier")
+def _(d):
+    body = "".join(f"function f{i}(el, name) {{\n  el.innerHTML = '<b>' + name + '</b>';\n}}\n" for i in range(7))
+    write(d, "src/a.js", "function show(el, name) {\n  el.innerHTML = '<b>' + name + '</b>';\n}\n"); write(d, "src/b.js", body)
+    run(S / "critic_ledger.py", "start", "review", "--tier", "full", cwd=d)
+    f = {"id": "F-abcdef12", "category": "xss", "impact": "Critical", "confidence": "confirmed", "file": "src/a.js", "line": 2, "quote": "el.innerHTML = '<b>' + name + '</b>';",
+         "title": "Name rendered as HTML", "failing_case": "name = <img src=x onerror=alert(1)> runs script"}
+    write(d, ".critic/findings.jsonl", json.dumps(f) + "\n")
+    out = run(S / "critic_variants.py", "find", cwd=d).stdout
+    lines = [x for x in out.splitlines() if x.strip().startswith("verifier ")]
+    assert len(lines) >= 2 and all(len(x.split(":", 1)[1].split()) == 1 for x in lines), ("each Critical variant gets its own verifier", out)
+    assert "def verifier_batches" not in (S / "critic_run.py").read_text() and "def verifier_batches" in (S / "critic_findings.py").read_text(), "one shared rule, not two copies"
+
+@test("03 §5.57.8 (Qodo on PR #14, #3): taking a Critical or High below High needs a refutation's evidence: a run for a Critical, and attacker, gain and reason for a security finding")
+def _(d):
+    import critic_findings as cf
+    g = d / "g"; write(g, "src/app.js", APP)
+    good = "The title is escaped before insertion by the template helper at src/app.js:2, so only a Low cosmetic issue remains here."
+    logic = {"category": "logic", "title": "Total rounds wrong"}; sec = {"category": "xss", "title": "Title rendered as HTML"}
+    sec_ok = {"attacker": "a logged-in user who edits a title", "gain": "nothing: the helper escapes it", "reason": "guard_blocks"}
+    assert cf.downgrade_problem("Critical", "Low", "traced", good, root=g, finding=logic, verdict={}), "a traced Critical can't fall below High"
+    assert cf.downgrade_problem("Critical", "Medium", "executed", good, root=g, finding=logic, verdict={}) is None, "with a run it can"
+    assert cf.downgrade_problem("High", "Low", "traced", good, root=g, finding=sec, verdict={}), "a security High below High names attacker, gain and reason"
+    assert cf.downgrade_problem("High", "Low", "traced", good, root=g, finding=sec, verdict=sec_ok) is None
+    assert cf.downgrade_problem("Critical", "Low", "executed", good, root=g, finding=sec, verdict={}), "a security Critical needs both"
+    assert cf.downgrade_problem("Critical", "Low", "executed", good, root=g, finding=sec, verdict=sec_ok) is None
+    assert cf.downgrade_problem("Critical", "High", "traced", good, root=g, finding=sec, verdict={}) is None, "staying at High or above is unchanged"
+    assert cf.downgrade_problem("Critical", "Low", "traced", good, root=g), "no finding given: held to the Critical rule anyway"
+    for f_ in ("critic_merge.py", "critic_variants.py"):
+        assert re.search(r"downgrade_problem\([^\n]*finding=", (S / f_).read_text()), f"{f_} passes the finding"
+    assert re.search(r"downgrade_problem\([^\n]*finding=", (H / "check_contract.py").read_text()), "the verifier's stop check passes the packet"
+    e = d / "e"; e.mkdir()
+    r, counts = _one_finding_run(e, finding(), {"verdict": "downgrade", "impact_after": "Low", "reproduced": "traced", "note": good})
+    assert re.search(r"Critical\D{0,6}1", counts), ("end to end: a traced Critical-to-Low downgrade is ignored", counts)

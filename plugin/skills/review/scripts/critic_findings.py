@@ -216,7 +216,10 @@ def _cites_real_line(text, root):
         except (OSError, ValueError): continue
     return False
 
-SECURITY = re.compile(r"(?i)\b(?:xss|inject\w*|secrets?|credentials?|auth\w*|csrf|ssrf|traversal|deserial\w*|eval|rce|privileges?|tokens?|passwords?|crypto\w*|sanitiz\w*|leak\w*|exposure|security)\b")
+SECURITY = re.compile(r"(?i)\b(?:xss|inject\w*|secrets?|credentials?|auth\w*|csrf|ssrf|traversal|deserial\w*|eval|rce|privileges?|tokens?|passwords?|crypto\w*|sanitiz\w*|leak\w*|exposure|security"
+                      r"|(?:tenant|data|cross[- ]tenant|multi[- ]tenant) isolation|cross[- ]tenant|tenant (?:scop\w*|context|boundar(?:y|ies)|separation|filter\w*|check\w*|leak\w*)|idor|access[- ]control|permission (?:check|bypass)|unauthori[sz]ed|disclos\w*|exfiltrat\w*|spoof\w*|impersonat\w*"
+                      r"|privilege escalat\w*|escalat\w* (?:of )?privileges?|account takeover|session (?:fixation|hijack\w*|token)|(?:auth|session) cookies?|cors|xxe|sqli|open[- ]redirect|clickjack\w*"
+                      r"|another (?:user|tenant|customer|account)'s|other (?:users|tenants|customers|accounts)' (?:data|records|files|rows))\b")  # tenant isolation and access control are security too (Qodo on #15), in phrases that don't catch ordinary words (collected round review)
 SECURITY_REASONS = ("no_untrusted_input", "guard_blocks", "not_reachable", "no_privilege_gain", "already_public", "platform_escapes")
 def confirmation_problem(v, root=None):
     """A `confirmed` verdict must show its evidence (SC-42, SC-44): the entry point and the path to the failing line, at
@@ -228,10 +231,14 @@ def confirmation_problem(v, root=None):
     if not _cites_real_line(text, root): return "a confirmed verdict must cite the failing path as file:line that exists"
     return None
 
+def is_security(finding):
+    """A security finding: a reviewer marked it, or its category or title names a security problem."""
+    return finding.get("security") is True or bool(SECURITY.search(f"{finding.get('category', '')} {finding.get('title', '')}"))
+
 def security_refutation_problem(v, finding):
     """Refuting a security finding also names who the attacker is, what they would gain, and one reason from a fixed list
     (SC-44, after claude-security's structured answers; our own wording)."""
-    if not SECURITY.search(f"{finding.get('category', '')} {finding.get('title', '')}"): return None
+    if not is_security(finding): return None  # a reviewer's "security": true only ever adds the check
     missing = [k for k in ("attacker", "gain") if not str(v.get(k) or "").strip()]
     if missing: return f"a security refutation must name the {' and the '.join(missing)}"
     if v.get("reason") not in SECURITY_REASONS: return "a security refutation's reason must be one of " + ", ".join(SECURITY_REASONS)
@@ -266,12 +273,14 @@ def _cited_problem(why, root):
     return None
 
 DOWN_ORDER = ("Critical", "High", "Medium", "Low", "Nit")
-def downgrade_problem(old, new, reproduced, note, root=None):
+def downgrade_problem(old, new, reproduced, note, root=None, finding=None, verdict=None):
     """One rule for what may lower a finding, shared by the verifier's stop check and apply (ultimate audit H2, 03
     §5.57.2: a downgrade to Nit used to need nothing at all, so it could erase a Critical that a refutation could not).
     A Nit comes only from a Low. A downgrade of two or more steps, or any downgrade from a Critical or a High, needs a
     run or a trace and a note of at least 60 characters that cites the reason as a file:line that exists. Lowering a
-    Medium to a Low, or a Low to a Nit, needs no proof. Returns None when the downgrade may apply."""
+    Medium to a Low, or a Low to a Nit, needs no proof. Taking a Critical or a High below High clears its BLOCK, so it
+    needs what refuting it would (03 §5.57.8, Qodo on PR #14): a run for a Critical, and for a security finding the
+    attacker, the gain and a listed reason (security_refutation_problem). Returns None when the downgrade may apply."""
     old, new = str(old or "").title(), str(new or "").title()
     if old not in DOWN_ORDER or new not in DOWN_ORDER or DOWN_ORDER.index(new) <= DOWN_ORDER.index(old): return "a verifier may lower an impact, never raise or keep it"
     if new == "Nit" and old != "Low": return "only a Low may become a Nit"
@@ -280,6 +289,10 @@ def downgrade_problem(old, new, reproduced, note, root=None):
     if str(reproduced or "") not in ("executed", "traced"): return f"lowering a {old} to a {new} needs a run or a trace (reproduced: executed or traced)"
     if len(note) < 60: return "the note is too short (at least 60 characters, naming why it is less severe)"
     if HEDGE.search(note): return "hedged (state why it is less severe as fact, or return unclear)"
+    if old in ("Critical", "High") and new not in ("Critical", "High"):  # out of the blocking levels: a refutation's evidence (03 §5.57.8)
+        if old == "Critical" and str(reproduced) != "executed": return f"taking a Critical below High needs a run (reproduced: executed), as refuting it would"
+        sp = security_refutation_problem(verdict or {}, finding or {}) if finding is not None else None
+        if sp: return sp.replace("a security refutation", f"taking a security {old} below High")
     return _cited_problem(note, root)
 
 SARIF_LEVEL = {"Critical": "error", "High": "error", "Medium": "warning", "Low": "note"}
@@ -556,7 +569,8 @@ RUNLOG_MAX = 1_000_000
 # Local state that must never be committed: logs, restore copies, and the files that hold reviewers' raw quotes (a
 # quote can contain a secret from the code under review; the outputs Curmudgeon writes itself are masked by scrub()).
 IGNORED = ("runlog.jsonl", "refutations.jsonl", "cost.jsonl", "scratch/", "manifest.json", "spotcheck.md", "restore/", "reviews/", "history/", "outside/", "verify/",
-           "tally.json", "dedup-candidates.json", "findings-import.jsonl", "briefs/", "scan-only.txt", "verdicts/", "verdicts-variants/", "verify-variants/", "variants.jsonl", "variants-found.json", "scan-skipped")
+           "tally.json", "dedup-candidates.json", "findings-import.jsonl", "briefs/", "scan-only.txt", "verdicts/", "verdicts-variants/", "verify-variants/", "variants.jsonl", "variants-found.json", "scan-skipped",
+           "integrity-baseline.json")  # the owner's recorded copy: a tracked one is never trusted (audit Q04), so it stays out of commits
 _TRACKED = {}
 def git_tracked(root, rel):
     """True when the repository tracks this file: ignore rules don't apply to a tracked file, so anything written to
@@ -680,6 +694,41 @@ def ledger_shipped(root):
     if git_tracked(root, ".critic/ledger.json"): return True
     return read_owner_state(root, "ledger").get("sha") != _sha(p)  # not owner_untracked: a shipped archive can carry its own .git (batch 1 review)
 
+def baseline_shipped(root, sha=None):
+    """Why .critic/integrity-baseline.json can't be trusted, or None when it is the owner's: exactly the file recorded
+    (critic_scan.py --integrity-record) or adopted (--integrity-adopt) on this machine, and not tracked by git. The same
+    rule as the ledger (ultimate audit Q04: a planted copy listing an attacker's hosts hid the change)."""
+    p = pathlib.Path(root) / ".critic" / "integrity-baseline.json"
+    if git_tracked(root, ".critic/integrity-baseline.json"): return "git tracks it, so it could have come with the code"
+    if read_owner_state(root, "integrity").get("sha") != (sha or _sha(p)): return "it wasn't recorded or adopted by the owner on this machine, or it changed since; record it again (--integrity-record) or adopt it after checking it (--integrity-adopt)"
+    return None
+
+def _deleted_seen(p):
+    """When a deleted file went, as best known now: its folder's (or the nearest folder left's) last change."""
+    q = p.parent
+    while not q.exists() and q != q.parent: q = q.parent
+    try: return q.stat().st_mtime
+    except OSError: return time.time()
+
+def observe_deletions(root, stamps):
+    """{path: when it went} for each stamped file that is missing, kept in .critic/gate-deleted.json from the first
+    time anything looked. Later changes to the folder never move the time, and a file that comes back leaves the
+    record, so a later deletion of it is a new event (Qodo on #17: the folder's own time moved with any sibling)."""
+    root = pathlib.Path(root); f = root / ".critic" / "gate-deleted.json"
+    try: old = json.loads(f.read_text(encoding="utf-8")) if f.is_file() and not f.is_symlink() else {}
+    except (OSError, ValueError): old = {}
+    old = old if isinstance(old, dict) else {}
+    now = {k: (old[k] if isinstance(old.get(k), (int, float)) else _deleted_seen(root / k)) for k in stamps if not (root / k).exists() and not (root / k).is_symlink()}
+    if now != old and (root / ".critic").is_dir() and not (root / ".critic").is_symlink() and not f.is_symlink():
+        try: tmp = f.with_name(f.name + ".tmp"); tmp.write_text(json.dumps(now), encoding="utf-8"); os.replace(tmp, f)
+        except OSError: pass
+    return now
+
+def record_baseline(root, sha=None):
+    """Note the sha256 of the recorded copy just written or adopted, in the owner's record outside the project. sha:
+    the hash of the bytes the owner was shown, so a file swapped after the showing is never trusted (batch 2 review)."""
+    write_owner_state(root, "integrity", {"sha": sha or _sha(pathlib.Path(root) / ".critic" / "integrity-baseline.json")})
+
 LEDGER_RULINGS = ("false_positives", "dismissals", "memories", "decisions", "overrides")  # what a ledger can use to hide or steer
 
 def record_ledger(root):
@@ -779,3 +828,17 @@ def log_run(root, what, detail=""):
         append_line(p, line)
     except Exception: pass
 
+
+
+VERIFY_BATCH = 5  # packets per verifier agent; 10 (SC-78) was measured and reverted: no saving, quality worse (03 §5.37)
+
+def verifier_batches(items, tier, size=VERIFY_BATCH):
+    """Packets in groups of `size` for the verifiers, except that in the full tier each Critical gets a verifier of its
+    own (SKILL.md step 4.2; ultimate audit Q08: they used to share a batch of five). Shared by critic_run.py next and
+    critic_variants.py find, so the two never print different batches (Qodo on PR #14)."""
+    def impact(p):
+        try: return json.loads(pathlib.Path(p).read_text()).get("impact")
+        except (OSError, ValueError, AttributeError): return None
+    crit = [p for p in items if tier == "full" and impact(p) == "Critical"]
+    rest = [p for p in items if p not in crit]
+    return [[p] for p in crit] + [rest[i:i + size] for i in range(0, len(rest), size)]

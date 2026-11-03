@@ -44,8 +44,23 @@ def ecosystems():
 def norm(eco, name): return re.sub(r"[-_.]+", "-", name.lower()) if eco == "PyPI" else name  # PEP 503 names for PyPI
 
 def data_dir():
-    d = os.environ.get("CURMUDGEON_FEED_DIR") or (os.path.join(os.environ["CLAUDE_PLUGIN_DATA"], "feed") if os.environ.get("CLAUDE_PLUGIN_DATA") else os.path.expanduser("~/.curmudgeon/feed"))
-    return pathlib.Path(d)
+    """The feed's settings folder: CURMUDGEON_FEED_DIR, else feed/ in the owner's folder outside every project
+    (~/.curmudgeon, or CURMUDGEON_STATE_DIR). Never CLAUDE_PLUGIN_DATA: the skill's shell has it and the hooks may not,
+    so a feed switched on from the skill was invisible to the background stop check (audit V46). A feed set up under
+    the old folder is moved once, the first time a process that still sees CLAUDE_PLUGIN_DATA asks."""
+    if os.environ.get("CURMUDGEON_FEED_DIR"): return pathlib.Path(os.environ["CURMUDGEON_FEED_DIR"])
+    d = pathlib.Path(os.environ.get("CURMUDGEON_STATE_DIR") or pathlib.Path.home() / ".curmudgeon") / "feed"
+    old = pathlib.Path(os.environ["CLAUDE_PLUGIN_DATA"]) / "feed" if os.environ.get("CLAUDE_PLUGIN_DATA") else None
+    if old and old != d and (old / "feed.json").is_file() and not old.is_symlink() and not (d / "feed.json").exists():
+        try:
+            d.parent.mkdir(parents=True, exist_ok=True)
+            if not d.exists(): shutil.move(str(old), str(d))
+            else:  # the new folder is already there (a log, say): move each item in, never nest the old folder inside it (batch 3 review)
+                for item in sorted(old.iterdir(), key=lambda q: q.name == "feed.json"):  # the settings last: until they move, the old folder stays the one in use (Qodo on #17)
+                    if not (d / item.name).exists(): shutil.move(str(item), str(d / item.name))
+                if not any(old.iterdir()): old.rmdir()
+        except OSError: return old if (old / "feed.json").is_file() else d  # interrupted: whichever folder holds the settings; the next call finishes the move
+    return d
 
 def load_cfg(d=None):
     p = (d or data_dir()) / "feed.json"
