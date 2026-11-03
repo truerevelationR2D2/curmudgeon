@@ -678,7 +678,7 @@ def _(d):
 @test("5.2 SC-74: the integrity lens finds every planted look-alike link, punycode host, http form, off-site form, unpinned script and weak CSP, with no row on decoys or the clean twin")
 def _(d):
     r = run(HERE.parent / "eval" / "lens.py", str(HERE.parent / "eval" / "lens12.json"), "--json", cwd=d); out = json.loads(r.stdout)
-    assert r.returncode == 0 and out["recall"] == "10 of 10" and out["precision"] == "10 of 10" and not out["decoy_rows"] and not out["clean_twin_rows"], out
+    assert r.returncode == 0 and out["recall"] == "13 of 13" and out["precision"] == "13 of 13" and not out["decoy_rows"] and not out["clean_twin_rows"], out
 
 @test("5.2 SC-74: --integrity-record writes hosts only, and a later swap of a link target, a form action or a new script origin fails against it")
 def _(d):
