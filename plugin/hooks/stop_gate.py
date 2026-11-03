@@ -15,30 +15,46 @@ import workspace
 
 SKIP = {".git", "node_modules", "dist", "build", ".critic", "__pycache__", ".next", "coverage", "vendor", ".venv", "venv",
         ".tox", ".nox", ".mypy_cache", ".pytest_cache", ".ruff_cache", ".cache", ".gradle", ".idea", ".svn", ".hg"}
-# dot-folders that hold code people write (audit O2); every other dot-folder is a tool's (.env, .svelte-kit, .yarn,
-# .terraform: generated or downloaded, and would block for files nobody wrote; batch 3 review)
-CODE_DOTDIRS = {".claude", ".github", ".husky", ".devcontainer", ".circleci", ".gitlab", ".storybook", ".githooks", ".config"}
+# Outside git, dot-folders known to hold generated or downloaded files (a git project uses its own ignore rules instead;
+# Qodo on #17 and the batch 3 review: a name list of code folders missed .vitepress and .buildkite)
+GENERATED_DOTDIRS = {".env", ".svelte-kit", ".nuxt", ".output", ".angular", ".turbo", ".parcel-cache", ".vercel", ".netlify",
+                     ".yarn", ".pnpm-store", ".terraform", ".direnv", ".conda", ".serverless", ".docusaurus", ".expo", ".dart_tool"}
 CODE = {".js", ".mjs", ".cjs", ".ts", ".jsx", ".tsx", ".py", ".css", ".scss", ".html", ".vue", ".svelte", ".go", ".rs", ".java", ".rb", ".php", ".cs", ".swift", ".kt"}
+
+def nested_checkout(d):
+    """A folder that is its own checkout (a .git file or folder): Claude Code's worktrees under .claude/worktrees, a
+    submodule, a vendored repository. Its edits are another session's, never this project's (Qodo on #17)."""
+    return (d / ".git").exists()
+
+def candidates(root):
+    """The code files the gate watches. In git: tracked and untracked files git doesn't ignore, so a project's own
+    .gitignore decides what is generated. Outside git: a walk that skips tools' folders."""
+    sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent / "skills" / "review" / "scripts"))
+    try:
+        import safegit
+        r = safegit.run(["ls-files", "-z", "-co", "--exclude-standard"], cwd=root, capture_output=True, text=True, timeout=10)
+        if r.returncode == 0:
+            out, seen = [], {}
+            for rel in r.stdout.split("\0"):
+                if not rel or pathlib.PurePosixPath(rel).suffix not in CODE or rel.startswith(".critic/") or "/.claude/worktrees/" in "/" + rel: continue
+                parts = pathlib.PurePosixPath(rel).parts[:-1]
+                if any(seen.setdefault(parts[:i], nested_checkout(root.joinpath(*parts[:i]))) for i in range(1, len(parts) + 1)): continue
+                out.append(root / rel)
+            return out
+    except Exception: pass
+    out = []
+    for dp, dns, fns in os.walk(root):
+        dns[:] = [d for d in dns if d not in SKIP and d not in GENERATED_DOTDIRS and not (pathlib.Path(dp).name == ".claude" and d == "worktrees") and not nested_checkout(pathlib.Path(dp) / d)]
+        out += [pathlib.Path(dp) / fn for fn in fns if pathlib.Path(fn).suffix in CODE]
+    return out
 
 def newest(root, stamps):
     best = (0.0, None)
-    paths = [root / k for k in stamps]
-    for dp, dns, fns in os.walk(root):
-        dns[:] = [d for d in dns if d not in SKIP and (not d.startswith(".") or d in CODE_DOTDIRS)]
-        paths += [pathlib.Path(dp) / fn for fn in fns if pathlib.Path(fn).suffix in CODE]
-    for p in paths:
+    for p in [root / k for k in stamps] + candidates(root):
         try: m = p.stat().st_mtime
         except OSError: continue  # deleted files and broken links are skipped, not fatal
         if m > best[0]: best = (m, p)
     return best
-
-def deleted_after(p, since):
-    """Whether a deleted file went after the review: its folder (or the nearest one left) changed after it. A review
-    saved after the deletion covers it (batch 3 review)."""
-    q = p.parent
-    while not q.exists() and q != q.parent: q = q.parent
-    try: return q.stat().st_mtime > since
-    except OSError: return True
 
 def out(obj): print(json.dumps(obj)); return 0
 
@@ -63,10 +79,12 @@ def main():
     m, p = newest(root, L.get("stamps") or {})
     reason, batch = None, ""
     since = review.stat().st_mtime if review.exists() else None
-    gone = sorted(k for k in (L.get("stamps") or {}) if since is not None and not (root / k).exists() and not (root / k).is_symlink() and deleted_after(root / k, since))  # a stamped file deleted since the review: a change too (audit O1)
+    from critic_findings import observe_deletions
+    seen = observe_deletions(root, L.get("stamps") or {})  # each missing stamped file, with when it went (first seen by the gate; Qodo on #17)
+    gone = sorted(k for k, t in seen.items() if since is not None and t > since)  # a stamped file deleted after the review: a change too (audit O1)
     parts, keys = [], []
     if gone:  # alongside the edit check, never instead of it, so a new edit always starts a new batch (batch 3 review)
-        keys.append("deleted:" + hashlib.sha1("|".join(gone).encode()).hexdigest()[:12])
+        keys.append("deleted:" + hashlib.sha1("|".join(f"{k}@{seen[k]}" for k in gone).encode()).hexdigest()[:12])  # when, too: a re-deletion is a new batch (Qodo on #17)
         parts.append(f"{', '.join(gone[:5])}{' and more' if len(gone) > 5 else ''} {'was' if len(gone) == 1 else 'were'} deleted after the last Curmudgeon review.")
     if p is not None and not (review.exists() and review.stat().st_mtime >= m):
         keys.append(hashlib.sha1(f"{p}:{m}".encode()).hexdigest()[:12])

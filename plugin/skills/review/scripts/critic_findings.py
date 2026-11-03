@@ -216,7 +216,9 @@ def _cites_real_line(text, root):
         except (OSError, ValueError): continue
     return False
 
-SECURITY = re.compile(r"(?i)\b(?:xss|inject\w*|secrets?|credentials?|auth\w*|csrf|ssrf|traversal|deserial\w*|eval|rce|privileges?|tokens?|passwords?|crypto\w*|sanitiz\w*|leak\w*|exposure|security)\b")
+SECURITY = re.compile(r"(?i)\b(?:xss|inject\w*|secrets?|credentials?|auth\w*|csrf|ssrf|traversal|deserial\w*|eval|rce|privileges?|tokens?|passwords?|crypto\w*|sanitiz\w*|leak\w*|exposure|security"
+                      r"|tenants?|isolation|idor|access[- ]control|permissions?|unauthori[sz]ed|disclos\w*|exfiltrat\w*|spoof\w*|impersonat\w*|escalat\w*|takeover"
+                      r"|session|cookies?|cors|xxe|sqli|open[- ]redirect|clickjack\w*|another (?:user|tenant|customer|account)|other (?:users|tenants|customers|accounts))\b")  # tenant isolation and access control are security too (Qodo on #15)
 SECURITY_REASONS = ("no_untrusted_input", "guard_blocks", "not_reachable", "no_privilege_gain", "already_public", "platform_escapes")
 def confirmation_problem(v, root=None):
     """A `confirmed` verdict must show its evidence (SC-42, SC-44): the entry point and the path to the failing line, at
@@ -231,7 +233,7 @@ def confirmation_problem(v, root=None):
 def security_refutation_problem(v, finding):
     """Refuting a security finding also names who the attacker is, what they would gain, and one reason from a fixed list
     (SC-44, after claude-security's structured answers; our own wording)."""
-    if not SECURITY.search(f"{finding.get('category', '')} {finding.get('title', '')}"): return None
+    if finding.get("security") is not True and not SECURITY.search(f"{finding.get('category', '')} {finding.get('title', '')}"): return None  # a reviewer's "security": true only ever adds the check
     missing = [k for k in ("attacker", "gain") if not str(v.get(k) or "").strip()]
     if missing: return f"a security refutation must name the {' and the '.join(missing)}"
     if v.get("reason") not in SECURITY_REASONS: return "a security refutation's reason must be one of " + ", ".join(SECURITY_REASONS)
@@ -687,14 +689,35 @@ def ledger_shipped(root):
     if git_tracked(root, ".critic/ledger.json"): return True
     return read_owner_state(root, "ledger").get("sha") != _sha(p)  # not owner_untracked: a shipped archive can carry its own .git (batch 1 review)
 
-def baseline_shipped(root):
+def baseline_shipped(root, sha=None):
     """Why .critic/integrity-baseline.json can't be trusted, or None when it is the owner's: exactly the file recorded
     (critic_scan.py --integrity-record) or adopted (--integrity-adopt) on this machine, and not tracked by git. The same
     rule as the ledger (ultimate audit Q04: a planted copy listing an attacker's hosts hid the change)."""
     p = pathlib.Path(root) / ".critic" / "integrity-baseline.json"
     if git_tracked(root, ".critic/integrity-baseline.json"): return "git tracks it, so it could have come with the code"
-    if read_owner_state(root, "integrity").get("sha") != _sha(p): return "it wasn't recorded or adopted by the owner on this machine, or it changed since; record it again (--integrity-record) or adopt it after checking it (--integrity-adopt)"
+    if read_owner_state(root, "integrity").get("sha") != (sha or _sha(p)): return "it wasn't recorded or adopted by the owner on this machine, or it changed since; record it again (--integrity-record) or adopt it after checking it (--integrity-adopt)"
     return None
+
+def _deleted_seen(p):
+    """When a deleted file went, as best known now: its folder's (or the nearest folder left's) last change."""
+    q = p.parent
+    while not q.exists() and q != q.parent: q = q.parent
+    try: return q.stat().st_mtime
+    except OSError: return time.time()
+
+def observe_deletions(root, stamps):
+    """{path: when it went} for each stamped file that is missing, kept in .critic/gate-deleted.json from the first
+    time anything looked. Later changes to the folder never move the time, and a file that comes back leaves the
+    record, so a later deletion of it is a new event (Qodo on #17: the folder's own time moved with any sibling)."""
+    root = pathlib.Path(root); f = root / ".critic" / "gate-deleted.json"
+    try: old = json.loads(f.read_text(encoding="utf-8")) if f.is_file() and not f.is_symlink() else {}
+    except (OSError, ValueError): old = {}
+    old = old if isinstance(old, dict) else {}
+    now = {k: (old[k] if isinstance(old.get(k), (int, float)) else _deleted_seen(root / k)) for k in stamps if not (root / k).exists() and not (root / k).is_symlink()}
+    if now != old and (root / ".critic").is_dir() and not (root / ".critic").is_symlink() and not f.is_symlink():
+        try: tmp = f.with_name(f.name + ".tmp"); tmp.write_text(json.dumps(now), encoding="utf-8"); os.replace(tmp, f)
+        except OSError: pass
+    return now
 
 def record_baseline(root, sha=None):
     """Note the sha256 of the recorded copy just written or adopted, in the owner's record outside the project. sha:

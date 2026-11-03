@@ -432,7 +432,7 @@ def tally(paths):
     for f in out["kept"] + out["contested"]:
         if f["impact"] == "Low" and not f.get("impact_split") and f.get("votes_matched", 0) >= need and not f.get("outside_only"): continue  # agreed Lows skip verification: only when every reviewer said Low and the script itself matched enough of them (a dedup group or an outside vote alone never skips it, §5.56)
         if f.get("raised_by") == ["scan"] and f.get("verified") == "executed" and MEASURED.match(str(f.get("category"))): continue  # a measurement, not an interpretation: nothing to reproduce
-        packet = {k: f.get(k) for k in ("id", "category", "impact", "file", "line", "quote", "title", "failing_case", "preconditions", "root_cause") if k in f}
+        packet = {k: f.get(k) for k in ("id", "category", "impact", "file", "line", "quote", "title", "failing_case", "preconditions", "root_cause", "security") if k in f}
         (vd / f"{f['id']}.json").write_text(json.dumps(scrub(packet), indent=1, ensure_ascii=False))
     (D / "tally.json").write_text(json.dumps(scrub(out), indent=1, ensure_ascii=False))
     if MEMORY_HITS and (D / "ledger.json").exists():  # keep memories that are in use from retiring
@@ -487,13 +487,21 @@ def mark_origin(final):
     except (OSError, ValueError): return
     if cm.get("mode") != "diff": return
     hk, new = cm.get("hunks") or {}, set(cm.get("new_files") or [])
+    gone = set(cm.get("deleted") or [])
+    broke = {}  # caller file -> the deleted files and symbols it used (from the blast radius)
+    for k, users in (cm.get("radius") or {}).items():
+        dfile, _, sym = k.partition(": ")
+        if dfile in gone:
+            for u in users: broke.setdefault(u, set()).update({sym, dfile, pathlib.PurePosixPath(dfile).stem})
     def touched(file, line):
         return file in new or any(a <= line < a + max(c, 1) for a, c in hk.get(file, []))
     for f in final:
         locs = [(str(f.get("file") or ""), safe_line(f.get("line")))]
         for text in (f.get("evidence"), f.get("failing_case"), " ".join(f.get("locations") or [])):
             locs += [(m.group(1), int(m.group(2))) for m in re.finditer(r"([\w./-]+\.\w+):(\d+)", str(text or ""))]
-        f["origin"] = "introduced" if any(touched(fl, ln) for fl, ln in locs if fl) else "pre-existing"
+        words = " ".join(str(f.get(k) or "") for k in ("title", "evidence", "failing_case"))
+        by_deletion = any(fl in broke and any(re.search(rf"(?<![\w$]){re.escape(w)}(?![\w$])", words) for w in broke[fl] if w) for fl, _ in locs)  # a caller the deletion broke, naming what was deleted (Qodo on #17)
+        f["origin"] = "introduced" if by_deletion or any(touched(fl, ln) for fl, ln in locs if fl) else "pre-existing"
 
 def safe_line(v):
     try: return int(v or 0)

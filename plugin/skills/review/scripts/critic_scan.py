@@ -818,9 +818,12 @@ def integrity_record(src, root, excludes):
     except OSError as e: print(f"critic_scan: wrote {bp}, but couldn't note it as the owner's ({e}); the scan won't compare against it", file=sys.stderr); return 2
     print(f"recorded {len(files)} pages to {bp}"); return 0
 
-def integrity_adopt(root):
-    """The owner takes an existing recorded copy as theirs (one that came with the code, or edited by hand): every host
-    it lists is printed first, since each one it lists counts as already there (audit Q04)."""
+def integrity_adopt(root, confirm=None):
+    """The owner takes an existing recorded copy as theirs (one that came with the code, or edited by hand), in two
+    steps: without --confirm it prints every host the copy lists, how many there are, and a code (the start of the
+    copy's sha256); nothing is trusted yet. With --confirm CODE it trusts the copy only if its bytes still give that
+    code, so what is trusted is exactly what was shown (audit Q04; Qodo on #16: one step trusted before the owner could
+    object)."""
     bp = root / ".critic" / "integrity-baseline.json"
     if bp.is_symlink() or not bp.is_file(): print(f"critic_scan: no recorded copy at {bp}", file=sys.stderr); return 2
     if bp.stat().st_size > scan_integrity.BASELINE_MAX: print(f"critic_scan: {bp} is over {scan_integrity.BASELINE_MAX // 1_000_000} MB", file=sys.stderr); return 2
@@ -829,6 +832,9 @@ def integrity_adopt(root):
     except Exception as e: print(f"critic_scan: {bp} isn't a recorded copy ({type(e).__name__})", file=sys.stderr); return 2
     shape = all(isinstance(k, str) and isinstance(x, dict) and all(isinstance(x.get(k_, []), list) and all(isinstance(v, str) for v in x.get(k_, [])) for k_ in ("own", "links", "forms", "origins")) for k, x in files.items())
     if not shape: print(f"critic_scan: {bp} has a page entry that isn't lists of text; refusing to adopt it", file=sys.stderr); return 2
+    old = sorted(k for k, x in files.items() if not isinstance(x.get("own"), list))
+    if old:  # without its own-site list, a page could name a new site as its own unnoticed (Qodo on #16)
+        print(f"critic_scan: {len(old)} page entr{'y' if len(old) == 1 else 'ies'} ({', '.join(old[:3])}) predate the own-site list, so adopting couldn't catch a page that names a new site as its own. Record the copy again on a version you trust (critic_scan.py . --integrity-record) instead of adopting it", file=sys.stderr); return 2
     INVIS = r"[\x00-\x08\x0a-\x1f\x7f-\x9f\u200b-\u200f\u2028-\u202e\u2060-\u2069\ufeff]"  # line breaks, bidi and zero-width marks could hide or reorder a host on a terminal (batch 2 review round 2)
     host = lambda h: h == scan_integrity.THIS_SITE or (bool(re.fullmatch(r"[^\s/\\]{1,253}", h)) and not re.search(INVIS, h))  # a host has no spaces of any kind and is short: padding can't push one off the screen (batch 2 review round 3)
     bad = [k for k in files if re.search(INVIS + "|\t", k) or len(k) > 1000]
@@ -838,14 +844,18 @@ def integrity_adopt(root):
     from critic_findings import git_tracked
     if git_tracked(root, ".critic/integrity-baseline.json"):  # never trusted while tracked, so adopting it would change nothing (batch 2 review)
         print("critic_scan: git tracks .critic/integrity-baseline.json, so it could have come with the code and is never trusted. Untrack it (git rm --cached .critic/integrity-baseline.json), check it, then adopt it", file=sys.stderr); return 2
-    print(f"{bp}: adopting it makes every host below count as already there when pages are compared:")
-    for rel, x in sorted(files.items()):
-        x = x if isinstance(x, dict) else {}
-        own = x.get("own")
-        print(f"  {rel}: own {'(not recorded)' if not isinstance(own, list) else (', '.join(map(str, own)) or 'none')}; links {', '.join(sorted({str(l).rpartition(chr(9))[2] for l in x.get('links') or []})) or 'none'}; "
-              f"forms {', '.join(map(str, x.get('forms') or [])) or 'none'}; scripts and frames {', '.join(map(str, x.get('origins') or [])) or 'none'}")
+    sha = hashlib.sha256(raw).hexdigest(); code = sha[:12]
+    if confirm is None:
+        hosts = sorted({h for x in files.values() for k_ in ("own", "forms", "origins") for h in x.get(k_, [])} | {l.split("\t")[1] for x in files.values() for l in x.get("links", [])})
+        print(f"{bp}: adopting it would make every host below count as already there when pages are compared. Nothing is trusted yet.")
+        print(f"{len(files)} page(s), {len(hosts)} distinct host(s): {', '.join(hosts) or 'none'}")
+        for rel, x in sorted(files.items()):
+            print(f"  {rel}: own {', '.join(x['own']) or 'none'}; links {', '.join(sorted({l.split(chr(9))[1] for l in x.get('links', [])})) or 'none'}; "
+                  f"forms {', '.join(x.get('forms', [])) or 'none'}; scripts and frames {', '.join(x.get('origins', [])) or 'none'}")
+        print(f"If every host above is yours or one you trust, adopt it with: critic_scan.py . --integrity-adopt --confirm {code}"); return 0
+    if confirm != code: print(f"critic_scan: the code doesn't match this copy (it is {code} now: the file changed, or the code was mistyped); run --integrity-adopt again and check the hosts", file=sys.stderr); return 2
     from critic_findings import record_baseline
-    try: record_baseline(root, hashlib.sha256(raw).hexdigest())
+    try: record_baseline(root, sha)
     except OSError as e: print(f"critic_scan: couldn't note it as the owner's ({e})", file=sys.stderr); return 2
     print("adopted"); return 0
 
@@ -858,7 +868,8 @@ def main(argv):
     ap.add_argument("--baseline", choices=("save", "compare")); ap.add_argument("--budget-kb", type=int, default=1500)
     ap.add_argument("--focus", choices=("security",), help="security: keep only the security areas' rows (the security scan mode)")
     ap.add_argument("--integrity-record", action="store_true", help="record the link, form and script hosts of every page as the trusted copy (.critic/integrity-baseline.json), then stop")
-    ap.add_argument("--integrity-adopt", action="store_true", help="take the existing .critic/integrity-baseline.json as the owner's trusted copy after printing every host it lists, then stop")
+    ap.add_argument("--integrity-adopt", action="store_true", help="show every host .critic/integrity-baseline.json lists and a code; with --confirm CODE, take it as the owner's trusted copy. Then stop")
+    ap.add_argument("--confirm", metavar="CODE", help="with --integrity-adopt: the code it printed, so what is trusted is exactly what was shown")
     a = ap.parse_args(argv)
     global NO_PROJECT_RULES, SCAN_ROOT, ONLY; NO_PROJECT_RULES = a.no_project_rules
     SCAN_ROOT = pathlib.Path(a.root or os.environ.get("CRITIC_ROOT") or os.getcwd()).resolve()
@@ -870,7 +881,7 @@ def main(argv):
     src = pathlib.Path(a.src).resolve()
     if not src.exists(): print(f"critic_scan: {a.src} does not exist", file=sys.stderr); return 2
     if a.integrity_record: return integrity_record(src, SCAN_ROOT, a.exclude)
-    if a.integrity_adopt: return integrity_adopt(SCAN_ROOT)
+    if a.integrity_adopt: return integrity_adopt(SCAN_ROOT, a.confirm)
     root = pathlib.Path(a.root or os.environ.get("CRITIC_ROOT") or os.getcwd()).resolve()
     out = pathlib.Path(a.out).resolve() if a.out else root / ".critic" / "scan"
     led = root / ".critic" / "ledger.json"

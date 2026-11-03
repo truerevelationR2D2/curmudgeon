@@ -207,10 +207,14 @@ def main(a):
             except (OSError, ValueError): tier = "full"
         sh("critic_ledger.py", "start", "audit" if audit else ("full" if fix else "review"), "--tier", tier)
         sh("critic_brief.py", "--letters", ",".join(REVIEWERS.get(tier, REVIEWERS["full"])))
-        files = [str(f) for f in (json.loads((D / "change-map.json").read_text()).get("files") or [])] if (D / "change-map.json").exists() else []
+        cmj = json.loads((D / "change-map.json").read_text()) if (D / "change-map.json").exists() else {}
+        files = [str(f) for f in (cmj.get("files") or [])]
+        if not files and cmj.get("deleted"):  # a deletion-only change: scan the callers it may have broken (Qodo on #17)
+            files = sorted({u for k, v in (cmj.get("radius") or {}).items() if k.partition(": ")[0] in cmj["deleted"] for u in v})
         only = ""
         if files and not (D / "scan-only.txt").is_symlink():
             (D / "scan-only.txt").write_text("\n".join(files) + "\n", encoding="utf-8"); only = " --only .critic/scan-only.txt"
+        elif not (D / "scan-only.txt").is_symlink(): (D / "scan-only.txt").unlink(missing_ok=True)  # never an earlier run's list
         if security:
             r = subprocess.run([sys.executable, str(HERE / "security_feed.py"), "status"], capture_output=True, text=True)
             print(r.stdout.strip().splitlines()[0] if r.stdout.strip() else "security feed: status unreadable")

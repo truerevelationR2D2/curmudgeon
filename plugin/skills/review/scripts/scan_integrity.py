@@ -34,7 +34,7 @@ the file the owner recorded, or adopted with `--integrity-adopt` after seeing it
 track it: one that came with the code could list an attacker's hosts as already there (audit Q04). A <base href>
 decides where relative targets go and is never the page's own site (audit F-5a56b49c). The page's own site counts as "(this site)" in it, so writing a relative address
 out in full is not a change. Without one, the comparison rules stay silent."""
-import json, pathlib, re, unicodedata, urllib.parse
+import hashlib, json, pathlib, re, unicodedata, urllib.parse
 from html.parser import HTMLParser
 
 MARKUP = {".html", ".htm", ".jsx", ".tsx", ".vue", ".svelte", ".php", ".erb", ".hbs", ".njk", ".astro"}
@@ -106,6 +106,27 @@ def scripts(label):
 CJK_SETS = ({"LATIN", "CJK", "IDEOGRAPHIC", "HIRAGANA", "KATAKANA", "KATAKANA-HIRAGANA", "HALFWIDTH"}, {"LATIN", "CJK", "IDEOGRAPHIC", "BOPOMOFO"},
             {"LATIN", "CJK", "IDEOGRAPHIC", "HANGUL", "HALFWIDTH"})  # IDEOGRAPHIC: 々 and 〆, which go with Han (batch 2 review)
 
+# CJK signs that read as Latin letters or marks (our own short list from the shapes; no confusables data copied):
+# 丨 丶 丿 一 口 工 (l . / - o I), ー エ ロ ニ ノ ト ヘ ㇿ (- I o = / t ^ o), and their halfwidth or radical forms after NFKC.
+LATIN_LOOKALIKE = set("丨丶丿一口工ーエロニノトヘㇿ⼁⼂⼃⼀⼝⼯")
+
+def lookalike_run(label):
+    """Look-alike signs used as Latin letters: a run of them with Latin letters on both sides (facebロロk, g口口gle), or
+    a Latin name whose only other letters are look-alikes (paypa丨, amazonエ, paypalーー). Inside a real word
+    (mobileニュース, toyotaトヨタ, sonyストアー) they read as what they are."""
+    lat = lambda ch: ch.isascii() and ch.isalpha()
+    others = [ch for ch in label if not lat(ch) and (ch.isalpha() or ch in LATIN_LOOKALIKE)]
+    if any(lat(ch) for ch in label) and others and all(ch in LATIN_LOOKALIKE for ch in others): return True
+    for i, c in enumerate(label):
+        if c not in LATIN_LOOKALIKE: continue
+        sides = []
+        for step in (-1, 1):
+            j = i + step
+            while 0 <= j < len(label) and label[j] in LATIN_LOOKALIKE: j += step
+            sides.append(0 <= j < len(label) and lat(label[j]))
+        if all(sides): return True
+    return False
+
 def mixed(label):
     s = scripts(label)
     if len(s) <= 1: return False
@@ -119,6 +140,7 @@ def mixed(label):
     kana = sum(n.startswith(("HIRAGANA", "KATAKANA", "HALFWIDTH KATAKANA")) for n in names)
     if "HANGUL" in s and not syll: return True
     if "IDEOGRAPHIC" in s and not han: return True  # 々 and 〆 go with Han, never alone beside Latin
+    if lookalike_run(label): return True  # a Han or kana sign that reads as a Latin letter, standing among Latin letters (Qodo on #16)
     if "BOPOMOFO" in s and not han: return True
     if s & {"HIRAGANA", "KATAKANA", "KATAKANA-HIRAGANA"} and not han and kana < 2: return True
     return False
@@ -141,14 +163,16 @@ class Page(HTMLParser):
         super().__init__(convert_charrefs=True)
         self.links, self.forms, self.scripts, self.frames, self.csp, self.own = [], [], [], [], [], set()
         self._a = None; self.dupes = []; self.base = None; self._base_seen = False; self.claims = []  # claims: (site, line) the page says it is
+        self.scheme = None  # the page's own scheme, from its canonical or og:url address (Qodo on #16); unknown otherwise
     def resolve(self, url):
         """The address a browser would use: a relative one is read against the first <base href> that names a host."""
-        if not self.base or host_of(self.base) is None: return url  # no base, or a relative or empty one: targets stay on this site
+        ps = self.scheme or "https"  # unknown: https, the scheme a page claiming no address is most likely served over
+        if not self.base or host_of(self.base, ps) is None: return url  # no base, or a relative or empty one: targets stay on this site
         u = clean_url(url)
         if not u or re.match(r"(?i)^[a-z][a-z0-9+.-]*:", u) and not re.match(r"(?i)^https?:", u): return url  # mailto:, javascript:, data:
         b = clean_url(self.base); m = re.match(r"(?i)^(https?:)/*(?=[^/])", b)
         if m: b = m.group(1) + "//" + b[m.end():]  # http:host and http:/host name a host, as host_of reads them (batch 2 review)
-        elif b.startswith("//"): b = "https:" + b
+        elif b.startswith("//"): b = ps + ":" + b  # a scheme-relative base takes the page's own scheme (Qodo on #16)
         bs = b.split(":", 1)[0].lower()
         if host_of(u, bs) is not None:  # absolute as the browser reads it against this base's scheme (batch 2 review round 2)
             if u.startswith("//"): return bs + ":" + u  # scheme-relative: takes the base's scheme
@@ -175,10 +199,13 @@ class Page(HTMLParser):
         elif tag == "script" and a.get("src"): self.scripts.append({"src": a["src"], "sri": bool(SRI.match(a.get("integrity", ""))), "line": ln})
         elif tag == "iframe" and a.get("src"): self.frames.append({"src": a["src"], "line": ln})
         elif tag == "meta" and a.get("http-equiv", "").lower() == "content-security-policy": self.csp.append((a.get("content", ""), ln))
-        elif tag == "meta" and a.get("property", "").lower() == "og:url" and host_of(a.get("content", "")): self._claim(host_of(a["content"]), ln)
-        elif tag == "link" and "canonical" in a.get("rel", "").lower() and host_of(a.get("href", "")): self._claim(host_of(a["href"]), ln)
+        elif tag == "meta" and a.get("property", "").lower() == "og:url" and host_of(a.get("content", "")): self._claim(host_of(a["content"]), ln, a["content"])
+        elif tag == "link" and "canonical" in a.get("rel", "").lower() and host_of(a.get("href", "")): self._claim(host_of(a["href"]), ln, a["href"])
         if tag == "base" and not self._base_seen and "href" in a: self._base_seen = True; self.base = a["href"]  # the first base with an href wins, as in a browser (batch 2 review); it is where relative targets go, never the page's own site (audit F-5a56b49c)
-    def _claim(self, h, ln): self.own.add(site(h)); self.claims.append((site(h), ln))
+    def _claim(self, h, ln, url=""):
+        self.own.add(site(h)); self.claims.append((site(h), ln))
+        m = re.match(r"(?i)^\s*(https?):", url or "")
+        if m and self.scheme is None: self.scheme = m.group(1).lower()
     def handle_data(self, data):
         if self._a is not None: self._a["text"] += data
     def handle_endtag(self, tag):
@@ -248,11 +275,14 @@ def load_baseline(root):
     if not bp.exists() and not bp.is_symlink(): return None, None
     if bp.is_symlink() or not bp.is_file(): return None, "it is a link or not a file"
     if bp.stat().st_size > BASELINE_MAX: return None, f"it is over {BASELINE_MAX // 1_000_000} MB"  # before hashing it (batch 2 review)
+    try: raw = bp.read_bytes()  # one read: the bytes checked against the owner's record are the bytes parsed (Qodo on #16)
+    except OSError as e: return None, f"it can't be read ({type(e).__name__})"
+    if len(raw) > BASELINE_MAX: return None, f"it is over {BASELINE_MAX // 1_000_000} MB"
     from critic_findings import baseline_shipped
-    why = baseline_shipped(root)
+    why = baseline_shipped(root, hashlib.sha256(raw).hexdigest())
     if why: return None, why  # a recorded copy can come with the code, like a ledger: then it decides nothing (audit Q04)
-    try: j = json.loads(bp.read_text(encoding="utf-8"))
-    except (OSError, ValueError) as e: return None, f"it is not valid JSON ({type(e).__name__})"
+    try: j = json.loads(raw.decode("utf-8"))
+    except (UnicodeDecodeError, ValueError) as e: return None, f"it is not valid JSON ({type(e).__name__})"
     if not (isinstance(j, dict) and isinstance(j.get("files"), dict)): return None, "it has no files table"
     return j["files"], None
 
