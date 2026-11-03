@@ -659,12 +659,15 @@ def main(a):
         gone = observe_deletions(ROOT, L["stamps"])  # a deleted file leaves the stamps only once a review saved after it covers it (Qodo on #17)
         kept_gone = {k: L["stamps"][k] for k, t in gone.items() if t > rt}
         new = dict({k: v for k, v in L["stamps"].items() if (ROOT / k).exists()} if add else {}, **kept_gone)
+        acked = []
         for a_ in rest:
             p = pathlib.Path(a_)
+            if not p.exists() and not p.is_symlink() and rel(p) in L["stamps"]:  # a stamped file that is gone: the owner says the last review covered its deletion (Qodo on #18)
+                new.pop(rel(p), None); acked.append(rel(p)); continue
             if not p.exists(): die(f"{a_} does not exist; nothing was stamped")
             files = [p] if p.is_file() else [x for x in p.rglob("*") if x.is_file() and not ({".critic", ".git", "node_modules", "__pycache__"} & set(x.parts))]
             for q in files: new[rel(q)] = hashlib.sha256(q.read_bytes()).hexdigest()[:16]
-        L["stamps"] = new; msg = f"stamped {len(new)} file(s){' in total' if add else ''}"
+        L["stamps"] = new; msg = f"stamped {len(new)} file(s){' in total' if add else ''}" + (f"; the deletion of {', '.join(acked)} is covered by the last review" if acked else "")
     elif cmd == "stale":
         ch = [k for k, h in L["stamps"].items() if not (ROOT / k).exists() or hashlib.sha256((ROOT / k).read_bytes()).hexdigest()[:16] != h]
         print("\n".join(ch) if ch else ("nothing changed since the last stamp" if L["stamps"] else "nothing stamped yet")); return 1 if ch else 0

@@ -8,7 +8,7 @@ Without --files it uses `git diff --name-only` against --base (default HEAD), pl
 Tier: trivial (≤2 files, <20 changed lines, nothing sensitive), full (anything sensitive, >10 files or >400
 lines), else lite. The tier sets the review size: trivial = one reviewer and no verification; lite = one reviewer
 plus verification of Critical/High; full = three blind reviewers, verification and the full sandbox."""
-import json, os, pathlib, re, subprocess, sys
+import json, os, pathlib, posixpath, re, subprocess, sys
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 from critic_findings import log_run, refuse_linked_state, one_line, redact_finding_text
 import safegit  # git without the repository's own commands (03 §5.57 review)
@@ -61,13 +61,45 @@ def diff_name(line):
     if name == "/dev/null": return None
     return name[2:] if name[:2] in ("a/", "b/") else name
 
+JS_SPEC = re.compile(r"""(?:\bfrom\s+|\brequire\(\s*|\bimport\(\s*|^\s*import\s+)['"]([^'"]+)['"]""", re.M)
+PY_FROM = re.compile(r"^\s*from\s+(\.*)([\w.]*)\s+import\s+([^\n#]+)", re.M)
+PY_IMPORT = re.compile(r"^\s*import\s+([\w.]+)", re.M)
+
+def _noext(p):
+    p = re.sub(r"\.(?:[cm]?[jt]sx?|py|vue|svelte)$", "", p)
+    return re.sub(r"/(?:index|__init__)$", "", p)
+
+def imports_module(caller, text, target):
+    """Whether caller's imports name the module target (a project path): a relative specifier resolved against the
+    caller's folder ('./utils', '../lib/x', from .mod import f), or an absolute one that matches the target's path or
+    its end, so an import that leaves out a source root ('src/') still counts (Qodo on #18)."""
+    want = _noext(pathlib.PurePosixPath(target).as_posix()); here = pathlib.PurePosixPath(caller).parent.as_posix()
+    def hit(spec_path): return bool(spec_path) and (spec_path == want or want.endswith("/" + spec_path))
+    for m in JS_SPEC.finditer(text):
+        sp = m.group(1)
+        if sp.startswith("."): sp = posixpath.normpath(posixpath.join(here, sp))
+        else: sp = re.sub(r"^(?:@|~)/", "", sp)
+        if hit(_noext(sp)): return True
+    for m in PY_FROM.finditer(text):
+        dots, mod, names = m.group(1), m.group(2), m.group(3)
+        if dots:
+            base = here
+            for _ in range(len(dots) - 1): base = posixpath.dirname(base)
+            cands = [posixpath.join(base, mod.replace(".", "/"))] if mod else [posixpath.join(base, n.strip().split(" as ")[0].strip()) for n in names.strip("() ").split(",")]
+        else:
+            cands = [mod.replace(".", "/")] + [mod.replace(".", "/") + "/" + n.strip().split(" as ")[0].strip() for n in names.strip("() ").split(",")]
+        if any(hit(posixpath.normpath(c).lstrip("./")) for c in cands): return True
+    return any(hit(m.group(1).replace(".", "/")) for m in PY_IMPORT.finditer(text))
+
 def masked_head(text, cap=4000):
     """A deleted file's removed lines for the brief: each whole line masked first, then cut at a line boundary, so a
     secret that crosses the cap is never left half-masked (collected round review)."""
     out, n = [], 0
     for ln in (text or "").splitlines():
         m = redact_finding_text(ln)
-        if n + len(m) > cap: break
+        if n + len(m) > cap:
+            if not out: out.append(m[:cap])  # one long line (minified code): its masked start, never nothing (Qodo on #18)
+            break
         out.append(m); n += len(m) + 1
     return "\n".join(out)
 
@@ -186,9 +218,8 @@ def main(a):
         syms = {next(g for g in m.groups() if g) for m in DEF.finditer(texts.get(x, "") if x in files else touched.get(x, ""))}
         for s in syms:
             if len(s) < 4 or s.lower() in COMMON or (x not in deleted and len(defined_in.get(s, ())) > 1): continue  # common or ambiguous names link everything to everything
-            if x in deleted and defined_in.get(s):  # defined elsewhere too (moved, or an unrelated twin): only callers that still import the deleted module are broken (Qodo on #17; collected round review)
-                stem = re.escape(pathlib.PurePosixPath(x).with_suffix("").as_posix().replace("/", "."))
-                users = [r for r, t in texts.items() if r != x and re.search(rf"(?:\bfrom\s+\.?{stem}\s+import\b[^\n]*\b{re.escape(s)}\b|\bimport\s+{stem}\b|require\(\s*['\"][./]*{re.escape(pathlib.PurePosixPath(x).with_suffix('').as_posix())}(?:\.\w+)?['\"]\s*\)|from\s+['\"][./]*{re.escape(pathlib.PurePosixPath(x).with_suffix('').as_posix())}(?:\.\w+)?['\"])", t)]
+            if x in deleted and defined_in.get(s):  # defined elsewhere too (moved, or an unrelated twin): only callers that still import the deleted module are broken (Qodo on #17 and #18)
+                users = [r for r, t in texts.items() if r != x and imports_module(r, t, x) and re.search(rf"(?<![\w$]){re.escape(s)}(?![\w$])", t)]
                 if users: radius[f"{x}: {s}"] = users[:6]
                 continue
             users = [r for r, t in texts.items() if r != x and not r.endswith((".css", ".scss")) and re.search(rf"(?<![\w$#-]){re.escape(s)}\s*\(|new\s+(?:\w+\.)?{re.escape(s)}\b|\bimport\b[^;\n]*\b{re.escape(s)}\b", t)]  # lib.compute_total() counts; common and ambiguous names were skipped above

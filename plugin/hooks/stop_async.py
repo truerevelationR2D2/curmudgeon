@@ -94,13 +94,14 @@ def main():
         part = order[k:k + CHUNK]; n_ = k // CHUNK; lst = c / f"scan-async-part-{n_}.txt"; lst.write_text("\n".join(part) + "\n", encoding="utf-8")
         left = DEADLINE - (time.time() - t0)
         if left < 10: break  # out of time: the files not reached rank first at the next stop
+        before = {p: mt(p) for p in part}  # the times the scanner reads: an edit during the scan is newer, so it ranks first next time (Qodo on #18)
         try: subprocess.run([sys.executable, str(scan), str(root), "--root", str(root), "--out", str(outdir / f"part-{n_}"), "--no-project-rules",
                              "--only", str(lst)], capture_output=True, timeout=left)
         except subprocess.TimeoutExpired:
-            for p in part: record[p] = [mt(p), "timeout"]  # after the files not reached yet, next time
+            for p in part: record[p] = [before[p], "timeout"]  # after the files not reached yet, next time
             break
         reports.append(outdir / f"part-{n_}" / "report.json"); scanned |= set(part)
-        for p in part: record[p] = [mt(p), "ok"]
+        for p in part: record[p] = [before[p], "ok"]
     try: rec_f.write_text(json.dumps(record)) if not rec_f.is_symlink() else None
     except OSError: pass
     new = []

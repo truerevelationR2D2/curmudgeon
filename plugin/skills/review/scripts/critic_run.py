@@ -214,7 +214,9 @@ def main(a):
         only = ""
         if files and not (D / "scan-only.txt").is_symlink():
             (D / "scan-only.txt").write_text("\n".join(files) + "\n", encoding="utf-8"); only = " --only .critic/scan-only.txt"
-        elif not (D / "scan-only.txt").is_symlink(): (D / "scan-only.txt").unlink(missing_ok=True)  # never an earlier run's list
+        elif not (D / "scan-only.txt").is_symlink():
+            if cmj.get("deleted") and not cmj.get("files"): (D / "scan-only.txt").write_text("", encoding="utf-8"); only = " --only .critic/scan-only.txt"  # a deletion nothing calls: scan nothing, never the whole project (Qodo on #18)
+            else: (D / "scan-only.txt").unlink(missing_ok=True)  # never an earlier run's list
         if security:
             r = subprocess.run([sys.executable, str(HERE / "security_feed.py"), "status"], capture_output=True, text=True)
             print(r.stdout.strip().splitlines()[0] if r.stdout.strip() else "security feed: status unreadable")
