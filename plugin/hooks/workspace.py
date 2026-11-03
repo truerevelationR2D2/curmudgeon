@@ -41,7 +41,12 @@ LINK_DIRS = {"node_modules", ".venv", "venv"}
 # a reviewer can't anchor on old reviews or findings (audit V23). Only the owner's own settings in it stay (a ledger, a
 # recorded integrity copy, rules, a scope file): the eval fixtures carry theirs on purpose. An allow-list, so a run
 # output added later is left out too (batch 5 review: nits.jsonl and variants.md got through a deny-list).
-NESTED_KEEP = {"ledger.json", "integrity-baseline.json", "rules.md", "rules", "scope.json", "decisions.md", ".gitignore"}
+NESTED_KEEP = {"ledger.json", "integrity-baseline.json", "rules.md", "rules", "scope.json", ".gitignore"}  # a nested ledger is copied with its rulings only (nested_ledger below)
+def nested_ledger(rel):
+    """True for a nested .critic/ledger.json (not the project's own, which is never copied)."""
+    parts = pathlib.PurePosixPath(str(rel).replace(os.sep, "/")).parts
+    return len(parts) >= 3 and parts[-2] == ".critic" and parts[-1] == "ledger.json"
+
 def run_output(rel):
     """True for a path inside a nested .critic/ that isn't one of the owner's settings (NESTED_KEEP)."""
     parts = pathlib.PurePosixPath(str(rel).replace(os.sep, "/")).parts
@@ -167,7 +172,7 @@ def _own_repo(root, payload):
                 for rec in ls.stdout.split(b"\0") if ls.returncode == 0 else []:
                     if not rec: continue
                     meta, path = rec.split(b"\t", 1)
-                    if path == b".critic" or path.startswith(b".critic/") or run_output(os.fsdecode(path)): continue  # Curmudgeon's own records, and an earlier run's in a nested .critic, never reach a reviewer
+                    if path == b".critic" or path.startswith(b".critic/") or run_output(os.fsdecode(path)) or nested_ledger(os.fsdecode(path)): continue  # Curmudgeon's own records, and an earlier run's in a nested .critic, never reach a reviewer
                     mode, typ, sha = meta.split(b" ")
                     entries.append((mode, typ, sha, path))
                 if ls.returncode == 0:
@@ -222,6 +227,12 @@ def make(root, agent_id):
         """Copy one project file (or link) at rel. False once the budget is spent."""
         src = root / rel; dst = payload / rel
         if run_output(rel): return True
+        if nested_ledger(rel) and os.path.isfile(src) and not os.path.islink(src):  # the owner's rulings only: an earlier run's findings, dismissals and memories stay out (round 2 review)
+            try:
+                led = json.loads(open(src, encoding="utf-8").read())
+                keep = {k: led[k] for k in ("version", "decisions", "false_positives", "overrides") if isinstance(led, dict) and k in led}
+            except (OSError, ValueError): keep = {}
+            dst.parent.mkdir(parents=True, exist_ok=True); dst.write_text(json.dumps(keep, indent=1), encoding="utf-8"); return True
         if os.path.islink(src):
             t = _link_target(src, root)
             if t is None: return True

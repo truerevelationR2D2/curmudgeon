@@ -199,12 +199,12 @@ Five features stay off until you ask for them. The review skill reads the instru
 | Module | Turn it on | What it needs |
 |---|---|---|
 | Browser checks | give the scan a page (`--page dist/index.html`) | Playwright with Chromium, which you install yourself |
-| Live sites | a page that isn't on this computer, listed in `.critic/scope.json` | your approval of that file and the host typed on each run |
+| Live sites | a page that isn't on this computer, listed in `.critic/scope.json` | the host typed on each run (and your approval of the scope file, when git tracks it or it came in a download) |
 | Mutation testing | `--mutate <files>` | a test command (`--test-cmd`, or an approved `rules.md`) |
 | Local security database | security mode, then your yes | a folder you pick and a size you sign off on |
 | Background stop check | `/curmudgeon:gate async` | nothing more |
 
-Without them, a review runs only Curmudgeon's own scripts and agents, on this computer.
+Without them, and without `--online` (package names to the OSV database) or `--project-checks` (your approved project commands), a review runs only Curmudgeon's own scripts and agents, on this computer.
 
 ## Add your own checks
 

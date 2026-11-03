@@ -865,7 +865,7 @@ def _(d):
     assert "big.bin" not in st and " D gone.txt" in st, st
     assert not (ws / "pkg/.critic/reviews").exists() and (ws / "pkg/.critic/ledger.json").exists()
     tree = subprocess.run(["git", "ls-tree", "-r", "--name-only", "HEAD"], cwd=ws, capture_output=True, text=True).stdout
-    assert "pkg/.critic/reviews/review-A.json" not in tree and "pkg/.critic/ledger.json" in tree, tree
+    assert "pkg/.critic/reviews/review-A.json" not in tree and "pkg/.critic/ledger.json" not in tree, tree  # the ledger is in the copy with its rulings only, never as the original blob (round 2)
 
 @test("audit V45: the browser driver's press verb types nothing into a focused password, hidden or file field, and Tab still moves on")
 def _(d):
@@ -936,7 +936,7 @@ def _(d):
     _tally3(d, [finding(impact="High")], [finding(impact="High")], [])
     write(d, ".critic/reviews/review-C.json", json.dumps([finding(impact="Medium", title="a late addition")])); write(d, ".critic/groups.json", '{"groups": []}')
     r = run(S / "critic_merge.py", "tally", *[f".critic/reviews/review-{x}.json" for x in "ABC"], "--groups", ".critic/groups.json", cwd=d)
-    assert r.returncode == 2 and "review-C.json changed after the tally that listed the dedup candidates" in r.stderr, r.stderr
+    assert r.returncode == 2 and "review-C.json changed, appeared or went missing since the tally that listed the dedup candidates" in r.stderr, r.stderr
     r = run(S / "critic_merge.py", "tally", *[f".critic/reviews/review-{x}.json" for x in "ABC"], cwd=d); assert r.returncode == 0, r.stderr  # a fresh first tally lists them again
     r = run(S / "critic_merge.py", "tally", *[f".critic/reviews/review-{x}.json" for x in "ABC"], "--groups", ".critic/groups.json", cwd=d); assert r.returncode == 0, r.stderr
 
@@ -1161,3 +1161,67 @@ def _(d):
     feed = (md / "security-feed.md").read_text(); assert "Never ask in an unattended session" in feed and "--signed-off" in feed
     assert "axe-core" not in sk and "security_feed.py pick-folder" not in sk, "moved, not copied"
     r = (HERE.parent / "README.md").read_text(); assert "## Optional modules" in r and r == (HERE / "README.md").read_text()
+
+# ---- Batch 4-6 blind review, round 2 ----
+
+@test("batch 5 review round 2: /proc globs and climbs, the last of many values, ${Y:-path}, arrays, set --, read, printf -v, declare -x, Y=$X, Bash braces, $'..', piped heredocs, grep -T, ack -g, API climbs in inline code and brace-hidden Glob climbs are refused; cat <<EOF > f and tee f <<EOF are not")
+def _(d):
+    p = d / "proj"; write(p, "src/app.js", "x\n"); write(p, ".critic/reviews/review-B.json", '[{"title": "SECRET-B"}]')
+    run(H / "scratch_dir.py", cwd=p, stdin=json.dumps({"agent_type": "curmudgeon:curmudgeon-reviewer", "agent_id": "r1", "cwd": str(p)}))
+    ws = json.loads((p / ".critic/scratch/r1/workspace.json").read_text())["payload"]; R = "../../../reviews/review-B.json"; C = f"{p}/.cri"
+    bad = ["cat /proc/*/cmdline", "cat /proc/[0-9]*/cmdline", "head -c 300 /proc/*/environ", "cat " + "../" * 14 + "proc/1/cmdline",
+           "X=a; X=b; X=c; X=d; X=e; X=f; X=g; X=h; X=" + C + "; cat ${X}tic/reviews/review-B.json",
+           "for X in a b c d e f g h " + C + "; do cat ${X}tic/reviews/review-B.json; done",
+           f"cat ${{Y:-{p}/.critic/reviews/review-B.json}}", f"X=({C}); cat ${{X[0]}}tic/reviews/review-B.json", f"set -- {C}; cat ${{1}}tic/reviews/review-B.json",
+           f"read X <<< {C}; cat ${{X}}tic/reviews/review-B.json", f"printf -v X %s {C}; cat ${{X}}tic/reviews/review-B.json",
+           f"declare -x X={C}; cat ${{X}}tic/reviews/review-B.json", f"X={C}; Y=$X; cat ${{Y}}tic/reviews/review-B.json",
+           f"cat {p}/.{{critic,x}}/reviews/review-B.json", f"cat {p}/$'.critic'/reviews/review-B.json", f"cat {p}/$'\\x2e'critic/reviews/review-B.json",
+           "cat >/dev/stdout <<EOF | sh\ngrep -r SECRET /\nEOF", f"grep -T SECRET {R}", "ack -g json ../../..",
+           "python3 -c \"import pathlib; print((pathlib.Path.cwd().parents[3]/'.critic'/'reviews'/'review-B.json').read_text())\"",
+           "python3 -c \"import os; print(open(os.path.join(os.pardir, os.pardir, os.pardir, '.critic', 'reviews', 'review-B.json')).read())\""]
+    for c in bad: assert _guard(p, p, "Bash", command=f"cd {ws} && {c}"), c
+    for c in ("cat <<'EOF' > ../notes/t.py\nx = 6 / 3\nEOF", "tee ../notes/t.js <<'EOF' >/dev/null\nconst r = a / b;\nEOF", "grep -rn '<img src=/' src"):
+        assert not _guard(p, p, "Bash", command=f"cd {ws} && {c}"), c
+    pad = ",".join(f"x{k}" for k in range(70))
+    assert _guard(p, p, "Glob", pattern="{" + pad + f",{p}/.critic}}/reviews/*.json", path=ws)
+    assert _guard(p, p, "Glob", pattern="{" + pad + ",.{.,}/.{.,}/.{.,}}/reviews/*.json", path=ws)
+
+@test("batch 5 review round 2: a prompt holding several briefs is refused, a nested ledger keeps only its rulings, the snapshot is the latest ungrouped tally, base64 values with slashes are secrets, blogger is no logger")
+def _(d):
+    e = d / "b"; write(e, "src/app.js", APP); run(S / "critic_ledger.py", "start", "review", "--tier", "full", cwd=e)
+    for L_ in "AB": write(e, f".critic/briefs/brief-{L_}.md", f"# Brief {L_}\nRead in order {L_}.\n")
+    ask = lambda prompt: run(H / "pre_tool.py", cwd=e, stdin=json.dumps({"tool_name": "Agent", "tool_input": {"subagent_type": "curmudgeon:curmudgeon-reviewer", "prompt": prompt}, "cwd": str(e)})).stdout
+    assert "deny" in ask("# Brief A\nRead in order A.\n# Brief B\nRead in order B.\n")
+    p = d / "proj"; write(p, "src/a.py", "x = 1\n")
+    write(p, "pkg/.critic/ledger.json", json.dumps({"findings": {"F-1": {"summary": "OLD FINDING"}}, "decisions": ["keep the old API"], "memories": [{"note": "m"}]}))
+    run(H / "scratch_dir.py", cwd=p, stdin=json.dumps({"agent_type": "curmudgeon:curmudgeon-reviewer", "agent_id": "r9", "cwd": str(p)}))
+    ws = pathlib.Path(json.loads((p / ".critic/scratch/r9/workspace.json").read_text())["payload"])
+    led = (ws / "pkg/.critic/ledger.json").read_text(); assert "OLD FINDING" not in led and "keep the old API" in led and '"m"' not in led, led
+    f = d / "snap"; write(f, "src/app.js", APP); run(S / "critic_ledger.py", "start", "review", "--tier", "full", cwd=f)
+    for L_ in "ABC": write(f, f".critic/reviews/review-{L_}.json", json.dumps([finding(impact="High")]))
+    rv = lambda xs: [f".critic/reviews/review-{x}.json" for x in xs]
+    run(S / "critic_merge.py", "tally", *rv("ABC"), cwd=f); run(S / "critic_merge.py", "tally", *rv("AB"), cwd=f); write(f, ".critic/groups.json", '{"groups": []}')
+    r = run(S / "critic_merge.py", "tally", *rv("ABC"), "--groups", ".critic/groups.json", cwd=f); assert r.returncode == 2 and "review-C.json" in r.stderr, r.stderr
+    import scan_secrets as ss, scan_ops
+    for rel, line in ((".env", "AWS_SECRET_ACCESS_KEY=/k3J9vQ2m/Zx8LpR4tW7yB1nC6dF0gH5sA"), ("app.yaml", "jwt_secret: /k8JdQ2mZ9x/Lp4Rt7Vb3N+aQ")):
+        rows = []; ss.scan(rel, line + "\n", lambda *a: rows.append(a)); assert any(r[1] == "secret-generic" for r in rows), (rel, rows)
+    for rel, line in ((".env", "CERT_STORE=/etc/ssl/private/app"), (".env", "HOME_OF_SECRETS=/Users/ryan/.config/app")):
+        rows = []; ss.scan(rel, line + "\n", lambda *a: rows.append(a)); assert not rows, (rel, rows)
+    rows = []; scan_ops.scan("a.py", "blogger.info(password)\napplogger.info(password)\n", lambda *a: rows.append(a), d)
+    assert [int(r[3].split(":")[1]) for r in rows if r[1] == "ops-log-secret"] == [2], rows
+
+@test("batch 5 review round 2: ${X:+path}, ${X/a/b} and ${U:-path} are judged, a probe opened with timeout or VAR= before python keeps its division, and a grouped tally can't leave out a review")
+def _(d):
+    p = d / "proj"; write(p, "src/app.js", "x\n"); write(p, ".critic/reviews/review-B.json", '[{"title": "SECRET-B"}]')
+    run(H / "scratch_dir.py", cwd=p, stdin=json.dumps({"agent_type": "curmudgeon:curmudgeon-reviewer", "agent_id": "r1", "cwd": str(p)}))
+    ws = json.loads((p / ".critic/scratch/r1/workspace.json").read_text())["payload"]
+    for c in ("cat ${U:-../../../reviews}/review-B.json", "X=src; cat ${X:+../../../reviews}/review-B.json", "X=src; cat ${X/src/../../../reviews}/review-B.json",
+              "python3 -c \"import glob; print(glob.glob('/**/.critic/reviews/*', recursive=True))\""):
+        assert _guard(p, p, "Bash", command=f"cd {ws} && {c}"), c
+    for c in ("timeout 20 python3 - <<'EOF'\nprint(6 / 3)\nEOF", "PYTHONPATH=src python3 - <<'EOF'\nprint(6 / 3)\nEOF"):
+        assert not _guard(p, p, "Bash", command=f"cd {ws} && {c}"), c
+    f = d / "snap"; write(f, "src/app.js", APP); run(S / "critic_ledger.py", "start", "review", "--tier", "full", cwd=f)
+    for L_ in "ABC": write(f, f".critic/reviews/review-{L_}.json", json.dumps([finding(impact="High")]))
+    rv = lambda xs: [f".critic/reviews/review-{x}.json" for x in xs]
+    run(S / "critic_merge.py", "tally", *rv("ABC"), cwd=f); write(f, ".critic/groups.json", '{"groups": []}')
+    r = run(S / "critic_merge.py", "tally", *rv("AB"), "--groups", ".critic/groups.json", cwd=f); assert r.returncode == 2 and "review-C.json" in r.stderr, r.stderr

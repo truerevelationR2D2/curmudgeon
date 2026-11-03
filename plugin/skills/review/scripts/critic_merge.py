@@ -273,10 +273,10 @@ def tally(paths):
     except (OSError, ValueError): snap = {}
     if not isinstance(snap, dict) or snap.get("started") != started or not isinstance(snap.get("hashes"), dict): snap = {"started": started, "hashes": {}}
     now = {pathlib.Path(p).name: hashlib.sha256(pathlib.Path(p).read_bytes()).hexdigest() for p in paths if pathlib.Path(p).is_file()}
-    changed = sorted(k for k, h in now.items() if snap["hashes"].get(k) != h) if groups is not None and snap["hashes"] else []  # changed, or not in that tally at all (batch 5 review)
-    if changed: die(f"{', '.join(changed)} changed after the tally that listed the dedup candidates, so these groups no longer match it and every verifier would run twice. "
+    changed = sorted({k for k, h in now.items() if snap["hashes"].get(k) != h} | (set(snap["hashes"]) - set(now))) if groups is not None and snap["hashes"] else []  # changed, new, or left out since that tally (batch 5 review, round 2)
+    if changed: die(f"{', '.join(changed)} changed, appeared or went missing since the tally that listed the dedup candidates, so these groups no longer match the reviews and every verifier would run twice. "
                     "Tally again without --groups and redo the dedup step, or start the round again with critic_ledger.py round")
-    if groups is None: snap["hashes"].update(now)  # the tally that wrote dedup-candidates.json: the grouped tally must count the same reviews
+    if groups is None: snap["hashes"] = now  # the tally that wrote dedup-candidates.json: the grouped tally must count the same reviews
     try: put(snap_f, json.dumps(snap, indent=1))
     except OSError: pass
     reviews = [load_review(p) for p in paths]

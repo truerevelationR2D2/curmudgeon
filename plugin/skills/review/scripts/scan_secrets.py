@@ -85,7 +85,7 @@ def generic(chunk, bare=False):
     for rx in ((GENERIC, GENERIC_BARE, GENERIC_SPACED) + ((GENERIC_CMD,) if bare == "shell" else ()) if bare else (GENERIC,)):
         for m in rx.finditer(chunk):
             g = 3 if rx is GENERIC_SPACED else 2; v = m.group(g); name = m.group(1) or (m.group(2) if rx is GENERIC_SPACED else "")
-            if bare and (re.match(r"(?:~|\.{1,2})/|/[\w.-]+/", v) or re.search(r"(?i)[_.-](?:file|path|dir|url|type|mode)$", name)): continue  # a path, or a setting that names one, isn't a secret
+            if bare and (re.fullmatch(r"(?:~|\.{1,2})?(?:/[A-Za-z]?[a-z0-9_.@-]*)+/?", v) or re.search(r"(?i)[_.-](?:file|path|dir|url|type|mode)$", name)): continue  # a path, or a setting that names one, isn't a secret
             if not PLACEHOLDER.match(v) and entropy(v) >= 3.5 and not any(a <= m.start(g) < b for _n, _v, (a, b) in out): out.append((name, v, (m.start(g), m.end(g))))
     return out
 
