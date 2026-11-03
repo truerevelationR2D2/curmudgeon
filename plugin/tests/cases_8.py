@@ -592,3 +592,41 @@ def _(d):
     try: sg.candidates(g)
     finally: sg.nested_checkout = real
     assert len(calls) <= 3, ("each folder checked once, not once per file", len(calls))
+
+# ---- the next collected round: Qodo on #18 ----
+
+@test("Qodo on #18 (1): a reviewed deletion the gate first saw late can be cleared by stamping the deleted path, and the gate says how")
+def _(d):
+    write(d, "src/auth.py", "x = 1\n"); write(d, "src/b.py", "y = 1\n"); _gate(d)
+    run(S / "critic_ledger.py", "stamp", "src/auth.py", "src/b.py", cwd=d)
+    (d / "src/auth.py").unlink(); _review_now(d); write(d, "src/c.py", "z = 1\n")  # a sibling after the review, before the gate first looks
+    r = run(H / "stop_gate.py", cwd=d, stdin=json.dumps({"cwd": str(d)}))
+    assert "stamp --add src/auth.py" in r.stdout, r.stdout
+    _review_now(d); r = run(S / "critic_ledger.py", "stamp", "--add", "src/auth.py", cwd=d); assert r.returncode == 0, r.stdout + r.stderr
+    assert "src/auth.py" not in json.loads((d / ".critic/ledger.json").read_text())["stamps"]
+    r = run(H / "stop_gate.py", cwd=d, stdin=json.dumps({"cwd": str(d)})); assert '"block"' not in r.stdout or "src/auth.py" not in r.stdout, r.stdout
+    r = run(S / "critic_ledger.py", "stamp", "--add", "src/nope.py", cwd=d); assert r.returncode != 0, "a path that was never stamped still doesn't exist"
+
+@test("Qodo on #18 (2, 5, 6): the background check records the time a file had before its scan, a bare 'tenant' is not security, and a long first deleted line still shows")
+def _(d):
+    src = (H / "stop_async.py").read_text()
+    assert re.search(r"before\s*=\s*\{p:\s*mt\(p\)", src) and "record[p] = [before[p], \"ok\"]" in src, "the record holds the time the scanner read"
+    import critic_findings as cf, importlib.util
+    assert cf.security_refutation_problem({"verdict": "refuted"}, {"category": "ui", "title": "Tenant name truncated in header"}) is None
+    assert cf.security_refutation_problem({"verdict": "refuted"}, {"category": "logic", "title": "Cross-tenant isolation broken in reports"})
+    spec = importlib.util.spec_from_file_location("cm18", S / "critic_map.py"); cm = importlib.util.module_from_spec(spec); spec.loader.exec_module(cm)
+    out = cm.masked_head("var a=" + "1," * 3000 + "\nnext\n")
+    assert out.startswith("var a=1,") and len(out) <= 4000, out[:40]
+
+@test("Qodo on #18 (3, 4): a deletion with no callers scans nothing rather than the whole project, and relative imports of a deleted module count as its callers")
+def _(d):
+    _del_repo(d, {"lonely.py": "def solo(x):\n    return x\n", "other.py": "eval(input())\n"}, ["lonely.py"])
+    run(S / "critic_map.py", cwd=d); run(S / "critic_ledger.py", "init", cwd=d); run(S / "critic_run.py", "begin", "--tier", "full", cwd=d)
+    assert (d / ".critic/scan-only.txt").is_file() and (d / ".critic/scan-only.txt").read_text().strip() == "", "an empty list, not no list"
+    e = d / "e"; e.mkdir()
+    _del_repo(e, {"src/utils.js": "export function formatDate(d) { return d; }\n", "src/view.js": "import { formatDate } from './utils';\nformatDate(1);\n",
+                  "lib/dates.js": "export function formatDate(d) { return d; }\n", "pkg/__init__.py": "", "pkg/mod.py": "def compute_total(x):\n    return x\n",
+                  "pkg/use.py": "from .mod import compute_total\nprint(compute_total(1))\n", "other/totals.py": "def compute_total(x):\n    return x\n"}, ["src/utils.js", "pkg/mod.py"])
+    run(S / "critic_map.py", cwd=e)
+    rad = json.loads((e / ".critic/change-map.json").read_text())["radius"]
+    assert "src/view.js" in rad.get("src/utils.js: formatDate", []) and "pkg/use.py" in rad.get("pkg/mod.py: compute_total", []), rad

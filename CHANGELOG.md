@@ -2,6 +2,16 @@
 
 Every release of Curmudgeon, newest first. The repository's history starts at 4.2.1; earlier versions are summarised from the project's own build and review records. Numbers are the ones measured at the time; the README's Benchmarks section has the current ones and how they were measured.
 
+## Unreleased: the next collected round (Qodo on #18)
+
+Six findings, each with a test that fails on the code before it (`plugin/tests/cases_8.py`).
+- A deletion's time is only a best guess (a file created beside it after the review looks the same as a deletion after the review). So when the last review did cover a deletion, stamp the deleted path (`critic_ledger.py stamp --add src/auth.py`) and the gate stops asking; its message says so.
+- The background check records the time a file had when its scan started, so an edit made during the scan ranks first at the next stop.
+- A deletion nothing calls scans nothing, instead of the whole project.
+- A deleted module's callers are found through relative imports (`'./utils'`, `from .mod import f`) and imports that leave out a source root such as `src/`.
+- A bare "tenant" in a title no longer makes a finding a security one; phrases such as "cross-tenant" and "tenant isolation" still do.
+- A deleted file whose first line is longer than the brief's limit (minified code) shows that line's masked start, not "no removed lines".
+
 ## Unreleased: the collected round after batches 2 and 3 (Qodo on #15, #16 and #17, and the batch 3 review)
 
 Twenty findings, gathered and fixed together as ruled (03 §5.57.7). Each fix has a test that fails on the code before it (`plugin/tests/cases_8.py`).

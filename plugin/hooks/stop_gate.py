@@ -99,7 +99,8 @@ def main():
     parts, keys = [], []
     if gone:  # alongside the edit check, never instead of it, so a new edit always starts a new batch (batch 3 review)
         keys.append("deleted:" + hashlib.sha1("|".join(f"{k}@{seen[k]}" for k in gone).encode()).hexdigest()[:12])  # when, too: a re-deletion is a new batch (Qodo on #17)
-        parts.append(f"{', '.join(gone[:5])}{' and more' if len(gone) > 5 else ''} {'was' if len(gone) == 1 else 'were'} deleted after the last Curmudgeon review.")
+        parts.append(f"{', '.join(gone[:5])}{' and more' if len(gone) > 5 else ''} {'was' if len(gone) == 1 else 'were'} deleted after the last Curmudgeon review"
+                     f" (if the last review did cover it, say so: critic_ledger.py stamp --add {' '.join(gone[:5])}).")  # the time of a deletion is only a best guess (Qodo on #18)
     if p is not None and not (review.exists() and review.stat().st_mtime >= m):
         keys.append(hashlib.sha1(f"{p}:{m}".encode()).hexdigest()[:12])
         where = p.relative_to(root) if str(p).startswith(str(root)) else p
