@@ -534,9 +534,9 @@ def main(a):
         print(f".critic/{src.name}: adopting it makes its rulings apply again. Every one of them, as the reviews and the stop gate would use them:")
         for k in cf_.LEDGER_RULINGS:
             rows = A.get(k) or []
-            print(f"  {k} ({len(rows)}):" + ("".join(f"\n    - {json.dumps(r, ensure_ascii=False)[:300]}" for r in rows) if rows else " none"))
+            print(f"  {k} ({len(rows)}):" + ("".join(f"\n    - {json.dumps(r, ensure_ascii=False)}" for r in rows) if rows else " none"))  # in full: nothing restored unseen (Qodo on PR #14)
         closed = {i: x.get("status") for i, x in (A.get("findings") or {}).items() if isinstance(x, dict) and str(x.get("status", "open")).lower() != "open"}
-        print(f"  findings not open ({len(closed)}): " + (", ".join(f"{i} {s}" for i, s in list(closed.items())[:40]) or "none"))
+        print(f"  findings not open ({len(closed)}): " + (", ".join(f"{i} {s}" for i, s in closed.items()) or "none"))
         if "--show" in rest: return 0
         led = D / "ledger.json"
         if led.exists(): os.replace(led, D / f"ledger-replaced-{time.strftime('%Y%m%d-%H%M%S')}.json")

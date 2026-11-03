@@ -20,7 +20,7 @@ import json, os, pathlib, re, sys
 
 HERE = pathlib.Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
-from critic_findings import confirmation_problem, downgrade_problem, refutation_problem, security_refutation_problem, redact_finding_text, read_jsonl, log_run, refuse_linked_state, scrub
+from critic_findings import verifier_batches, confirmation_problem, downgrade_problem, refutation_problem, security_refutation_problem, redact_finding_text, read_jsonl, log_run, refuse_linked_state, scrub
 
 ROOT = pathlib.Path(os.environ.get("CRITIC_ROOT") or re.sub(r"[\\/]\.critic[\\/]scratch(?:[\\/].*)?$", "", os.getcwd()) or os.getcwd()).resolve(); D = ROOT / ".critic"
 SKIP = {"node_modules", "dist", "build", "vendor", ".git", "__pycache__", ".next", "coverage", ".critic", ".venv", "venv"}
@@ -85,7 +85,9 @@ def find():
     mark = D / "variants-found.json"  # critic_run.py next reads this: the hunt ran for these findings, even when it found nothing
     if not mark.is_symlink(): mark.write_text(json.dumps({"variants": n}) + "\n")
     print(f"variant hunt: {n} possible variant(s) in .critic/verify-variants")
-    for i in range(0, len(packets), 5): print(f"  verifier {i // 5 + 1}: " + " ".join(str(p.relative_to(ROOT)) for p in packets[i:i + 5]))
+    try: tier = json.loads((D / "ledger.json").read_text()).get("tier") or "full"
+    except (OSError, ValueError, AttributeError): tier = "full"  # as critic_run.py next: an unknown tier is treated as the full one
+    for i, b in enumerate(verifier_batches(packets, tier), 1): print(f"  verifier {i}: " + " ".join(str(p.relative_to(ROOT)) for p in b))
     if n: print("next: start curmudgeon:curmudgeon-verifier agents on these packets (blind, as in step 4); the stop hook saves each verifier's ```json list in .critic/verdicts-variants/ (never retype one), then critic_variants.py apply .critic/verdicts-variants/*.json")
     return 0
 

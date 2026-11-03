@@ -42,7 +42,7 @@ def main():
     try:
         from critic_findings import gate_owned
         if not gate_owned(root, "on"): return out({"systemMessage": "Curmudgeon stop gate skipped: .critic/gate is there, but the owner's record doesn't show it turned on here (a repository may have committed it). Run /curmudgeon:gate on to turn it on."})
-    except Exception: pass  # the scripts can't load: the gate's own checks below still run, as before
+    except Exception as e: return out({"systemMessage": f"Curmudgeon stop gate skipped: couldn't check the owner's record that the gate is on here ({type(e).__name__}: {e}). A marker in the project alone never turns it on (Qodo on PR #14)."})
     try: L = json.loads((c / "ledger.json").read_text())
     except FileNotFoundError: L = {}
     except Exception as e: return out({"systemMessage": f"Curmudgeon gate is off for this stop: the ledger can't be read ({e}). Fix .critic/ledger.json or run critic_ledger.py init."})

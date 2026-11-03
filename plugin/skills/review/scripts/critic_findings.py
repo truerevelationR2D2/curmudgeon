@@ -779,3 +779,17 @@ def log_run(root, what, detail=""):
         append_line(p, line)
     except Exception: pass
 
+
+
+VERIFY_BATCH = 5  # packets per verifier agent; 10 (SC-78) was measured and reverted: no saving, quality worse (03 §5.37)
+
+def verifier_batches(items, tier, size=VERIFY_BATCH):
+    """Packets in groups of `size` for the verifiers, except that in the full tier each Critical gets a verifier of its
+    own (SKILL.md step 4.2; ultimate audit Q08: they used to share a batch of five). Shared by critic_run.py next and
+    critic_variants.py find, so the two never print different batches (Qodo on PR #14)."""
+    def impact(p):
+        try: return json.loads(pathlib.Path(p).read_text()).get("impact")
+        except (OSError, ValueError, AttributeError): return None
+    crit = [p for p in items if tier == "full" and impact(p) == "Critical"]
+    rest = [p for p in items if p not in crit]
+    return [[p] for p in crit] + [rest[i:i + size] for i in range(0, len(rest), size)]

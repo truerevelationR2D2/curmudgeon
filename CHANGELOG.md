@@ -2,6 +2,13 @@
 
 Every release of Curmudgeon, newest first. The repository's history starts at 4.2.1; earlier versions are summarised from the project's own build and review records. Numbers are the ones measured at the time; the README's Benchmarks section has the current ones and how they were measured.
 
+## Unreleased: fixes from Qodo's review of PR #14
+
+Qodo reviewed the batch 1 pull request and raised three Mediums and one Low. Each was checked against the code; the three below are fixed, each with a test that fails on 5.2.6 (`plugin/tests/cases_7.py`).
+- `critic_ledger.py adopt --show` prints every ruling in full and every finding that isn't open. It used to cut each ruling at 300 characters and list only 40 findings, so an owner could adopt rulings they hadn't seen.
+- When the owner's gate record can't be checked, the stop gate and the background check stay off and say why. Before, an error there fell through to the project's own marker, which a repository can commit.
+- The variant hunt prints the same verifier batches as `critic_run.py next`, giving each Critical variant its own verifier in the full tier. Both now use one shared `verifier_batches`.
+
 ## 5.2.6 (unreleased): fixes from the full audit, batch 1 of 5
 
 The full audit of 5.2.5 (six blind lenses, Curmudgeon's own full-tier review, three outside reviewers and mutation testing) confirmed 89 findings: 5 High, 27 Medium, 51 Low, 5 Nit. Batch 1 fixes the trust and evidence rules. Each fix has a test that fails on 5.2.5 (`plugin/tests/cases_7.py`).

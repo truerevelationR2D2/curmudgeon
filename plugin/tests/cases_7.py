@@ -611,3 +611,51 @@ def _(d):
     try: r = safegit.run(["status", "--porcelain"], cwd=r_, capture_output=True, text=True)
     finally: os.environ["PATH"] = old; safegit._ENV.clear(); safegit._VER.clear()
     assert r.returncode == 128 and "won't run git" in r.stderr, (r.returncode, r.stderr)
+
+@test("Qodo on PR #14 (2): when the owner's gate record can't be checked, the stop checks stay off; a committed marker alone never turns them on")
+def _(d):
+    import io, contextlib, importlib.util, critic_findings as cf
+    subprocess.run(["git", "init", "-q"], cwd=d); write(d, "a.py", "x = 1\n"); write(d, ".critic/gate", ""); write(d, ".critic/gate-async", "on\n")
+    subprocess.run(["git", "add", "-f", "a.py", ".critic/gate", ".critic/gate-async"], cwd=d); subprocess.run(G + ["commit", "-qm", "ship gate markers"], cwd=d)
+    write(d, "b.py", "eval(input())\n")
+    def call(name):
+        spec = importlib.util.spec_from_file_location(name + "_q", H / f"{name}.py"); m = importlib.util.module_from_spec(spec)
+        sys.path.insert(0, str(H)); spec.loader.exec_module(m)
+        buf = io.StringIO(); old_in, old_cwd = sys.stdin, os.getcwd()
+        sys.stdin = io.StringIO(json.dumps({"cwd": str(d)})); os.chdir(d)
+        try:
+            with contextlib.redirect_stdout(buf): m.main()
+        finally: sys.stdin = old_in; os.chdir(old_cwd)
+        return buf.getvalue()
+    real = cf.gate_owned
+    def broken(root, mode): raise RuntimeError("owner record unreadable")
+    cf.gate_owned = broken
+    try:
+        o = call("stop_gate"); a = call("stop_async")
+    finally: cf.gate_owned = real
+    assert '"block"' not in o and "couldn't" in o.lower(), o
+    assert not (d / ".critic/scan-async-files.txt").exists(), a
+
+@test("Qodo on PR #14 (1): adopt --show prints every ruling in full and every finding that isn't open, so nothing is restored unseen")
+def _(d):
+    run(S / "critic_ledger.py", "init", cwd=d)
+    long_note = "keep this decision: " + "x" * 400 + " END-OF-RULING"
+    led = {"decisions": [{"id": "D1", "note": long_note}], "findings": {f"F-{i:08x}": {"status": "refuted"} for i in range(45)}}
+    write(d, ".critic/ledger-set-aside-q1.json", json.dumps(led))
+    r = run(S / "critic_ledger.py", "adopt", "ledger-set-aside-q1.json", "--show", cwd=d)
+    assert "END-OF-RULING" in r.stdout, r.stdout[-600:]
+    assert all(f"F-{i:08x}" in r.stdout for i in range(45)), r.stdout[-600:]
+
+@test("Qodo on PR #14 (4): the variant hunt prints the same verifier batches as critic_run.py next, with each Critical variant alone in the full tier")
+def _(d):
+    body = "".join(f"function f{i}(el, name) {{\n  el.innerHTML = '<b>' + name + '</b>';\n}}\n" for i in range(7))
+    write(d, "src/a.js", "function show(el, name) {\n  el.innerHTML = '<b>' + name + '</b>';\n}\n"); write(d, "src/b.js", body)
+    run(S / "critic_ledger.py", "start", "review", "--tier", "full", cwd=d)
+    f = {"id": "F-abcdef12", "category": "xss", "impact": "Critical", "confidence": "confirmed", "file": "src/a.js", "line": 2, "quote": "el.innerHTML = '<b>' + name + '</b>';",
+         "title": "Name rendered as HTML", "failing_case": "name = <img src=x onerror=alert(1)> runs script"}
+    write(d, ".critic/findings.jsonl", json.dumps(f) + "\n")
+    out = run(S / "critic_variants.py", "find", cwd=d).stdout
+    lines = [x for x in out.splitlines() if x.strip().startswith("verifier ")]
+    assert len(lines) >= 2 and all(len(x.split(":", 1)[1].split()) == 1 for x in lines), ("each Critical variant gets its own verifier", out)
+    import critic_run, critic_findings as cf
+    assert critic_run.verifier_batches is cf.verifier_batches, "one shared rule, not two copies"

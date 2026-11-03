@@ -24,7 +24,7 @@ def main():
     try:
         from critic_findings import gate_owned
         if not gate_owned(root, "async"): return 0  # a committed marker turns nothing on (ultimate audit V12)
-    except Exception: pass
+    except Exception: return 0  # the owner's record can't be checked: off, never on the project's marker alone (Qodo on PR #14)
     try: stamps = json.loads((c / "ledger.json").read_text()).get("stamps", {})
     except Exception: stamps = {}
     review = c / "last-review.md"; since = review.stat().st_mtime if review.exists() else 0

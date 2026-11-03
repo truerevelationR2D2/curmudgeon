@@ -23,12 +23,13 @@ usage:
 Steps it never takes: starting agents (only the lead can), writing a review or a verdict, or deciding anything a model
 decides. Each script it runs is logged in .critic/runlog.jsonl like any other."""
 import json, os, pathlib, subprocess, sys, re, time
+from critic_findings import verifier_batches  # one rule for critic_run next and the variant hunt (Qodo on PR #14)
 import safegit  # git without the repository's own commands (03 §5.57 review)
 
 HERE = pathlib.Path(__file__).resolve().parent
 ROOT = pathlib.Path(os.environ.get("CRITIC_ROOT") or re.sub(r"[\\/]\.critic[\\/]scratch(?:[\\/].*)?$", "", os.getcwd()) or os.getcwd()).resolve(); D = ROOT / ".critic"
 REVIEWERS = {"trivial": ["A"], "lite": ["A"], "full": ["A", "B", "C"]}
-VERIFY_BATCH = 5  # packets per verifier agent; 10 (SC-78) was measured and reverted: no saving, quality worse (03 §5.37)
+from critic_findings import VERIFY_BATCH  # packets per verifier agent (03 §5.37); defined once, beside verifier_batches
 FORCE = False  # next --apply-now: apply with the verdicts there are (a finding with no verdict stays at lower confidence, except single-vote Mediums and outside-only findings, which are left out)
 
 def sh(script, *a):
@@ -119,16 +120,6 @@ def state():
             if vmiss and not FORCE: return "variants-verify", L, tier, vmiss
             if vpk and mtime(D / "variants.md") < max([mtime(found_mark)] + [mtime(v) for v in vv]): return "variants-apply", L, tier, vv
     return "teardown", L, tier, []
-
-def verifier_batches(items, tier):
-    """Packets in groups of VERIFY_BATCH for the verifiers, except that in the full tier each Critical gets a verifier
-    of its own (SKILL.md step 4.2; ultimate audit Q08: they used to share a batch of five)."""
-    def impact(p):
-        try: return json.loads(p.read_text()).get("impact")
-        except (OSError, ValueError, AttributeError): return None
-    crit = [p for p in items if tier == "full" and impact(p) == "Critical"]
-    rest = [p for p in items if p not in crit]
-    return [[p] for p in crit] + [rest[i:i + VERIFY_BATCH] for i in range(0, len(rest), VERIFY_BATCH)]
 
 def early(force=False):
     """The scan's FAIL rows, once per scan report (SC-80). Returns True when it printed something."""
