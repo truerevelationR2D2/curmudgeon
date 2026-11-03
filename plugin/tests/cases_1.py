@@ -588,7 +588,7 @@ def _(d):
     write(d, "src/app.js", APP); run(S / "critic_ledger.py", "start", "full", cwd=d)
     write(d, "a.json", json.dumps([finding(impact="High", verified="executed")])); run(S / "critic_merge.py", "tally", "a.json", cwd=d)
     fid = json.loads((d / ".critic/tally.json").read_text())["kept"][0]["id"]
-    write(d, "v.json", json.dumps([{"id": fid, "verdict": "downgrade", "impact_after": "Low", "reproduced": "traced", "note": "The title passes through the escaping helper called at src/app.js:2, so the remaining risk is bounded to markup."}]))
+    write(d, "v.json", json.dumps([{"id": fid, "verdict": "downgrade", "impact_after": "Low", "reproduced": "traced", "note": "The title passes through the escaping helper called at src/app.js:2, so the remaining risk is bounded to markup.", "attacker": "a user who edits a title", "gain": "markup only, no script", "reason": "guard_blocks"}]))
     run(S / "critic_merge.py", "apply", "v.json", cwd=d)
     out = run(S / "critic_ledger.py", "spotcheck", cwd=d).stdout; assert "1 item(s)" in out, out
     assert "downgraded" in (d / ".critic/spotcheck.md").read_text()
@@ -711,7 +711,7 @@ def _(d):
     write(d, "src/app.js", APP); run(S / "critic_ledger.py", "start", "full", cwd=d)
     write(d, "a.json", json.dumps([finding(impact="High", verified="executed")])); run(S / "critic_merge.py", "tally", "a.json", cwd=d)
     fid = json.loads((d / ".critic/tally.json").read_text())["kept"][0]["id"]
-    write(d, "v.json", json.dumps([{"id": fid, "verdict": "downgrade", "impact_after": "Medium", "reproduced": "traced", "note": "The title passes through the escaping helper called at src/app.js:2, so the remaining risk is bounded to markup."}]))
+    write(d, "v.json", json.dumps([{"id": fid, "verdict": "downgrade", "impact_after": "Medium", "reproduced": "traced", "note": "The title passes through the escaping helper called at src/app.js:2, so the remaining risk is bounded to markup.", "attacker": "a user who edits a title", "gain": "markup only, no script", "reason": "guard_blocks"}]))
     run(S / "critic_merge.py", "apply", "v.json", cwd=d)
     for _ in range(5):  # the downgraded finding is still Medium: it must never be listed twice
         run(S / "critic_ledger.py", "spotcheck", cwd=d)
