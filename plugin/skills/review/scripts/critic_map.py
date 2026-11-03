@@ -61,6 +61,16 @@ def diff_name(line):
     if name == "/dev/null": return None
     return name[2:] if name[:2] in ("a/", "b/") else name
 
+def masked_head(text, cap=4000):
+    """A deleted file's removed lines for the brief: each whole line masked first, then cut at a line boundary, so a
+    secret that crosses the cap is never left half-masked (collected round review)."""
+    out, n = [], 0
+    for ln in (text or "").splitlines():
+        m = redact_finding_text(ln)
+        if n + len(m) > cap: break
+        out.append(m); n += len(m) + 1
+    return "\n".join(out)
+
 def changed(base):
     """The changed files, relative to the project (a project in a subfolder of a repository sees only its own files),
     renames as the new name, names as they are (NUL-separated, so spaces and accents survive)."""
@@ -175,7 +185,12 @@ def main(a):
     for x in files + deleted:  # a deleted file's callers are what its deletion breaks (batch 3 review)
         syms = {next(g for g in m.groups() if g) for m in DEF.finditer(texts.get(x, "") if x in files else touched.get(x, ""))}
         for s in syms:
-            if len(s) < 4 or s.lower() in COMMON or len(defined_in.get(s, ())) > (0 if x in deleted else 1): continue  # common or ambiguous names link everything to everything; a deleted file's symbol still defined elsewhere was moved, not removed (Qodo on #17)
+            if len(s) < 4 or s.lower() in COMMON or (x not in deleted and len(defined_in.get(s, ())) > 1): continue  # common or ambiguous names link everything to everything
+            if x in deleted and defined_in.get(s):  # defined elsewhere too (moved, or an unrelated twin): only callers that still import the deleted module are broken (Qodo on #17; collected round review)
+                stem = re.escape(pathlib.PurePosixPath(x).with_suffix("").as_posix().replace("/", "."))
+                users = [r for r, t in texts.items() if r != x and re.search(rf"(?:\bfrom\s+\.?{stem}\s+import\b[^\n]*\b{re.escape(s)}\b|\bimport\s+{stem}\b|require\(\s*['\"][./]*{re.escape(pathlib.PurePosixPath(x).with_suffix('').as_posix())}(?:\.\w+)?['\"]\s*\)|from\s+['\"][./]*{re.escape(pathlib.PurePosixPath(x).with_suffix('').as_posix())}(?:\.\w+)?['\"])", t)]
+                if users: radius[f"{x}: {s}"] = users[:6]
+                continue
             users = [r for r, t in texts.items() if r != x and not r.endswith((".css", ".scss")) and re.search(rf"(?<![\w$#-]){re.escape(s)}\s*\(|new\s+(?:\w+\.)?{re.escape(s)}\b|\bimport\b[^;\n]*\b{re.escape(s)}\b", t)]  # lib.compute_total() counts; common and ambiguous names were skipped above
             if users: radius[f"{x}: {s}"] = users[:6]
     order = sorted(files, key=lambda x: (-len(sens[x]), -sum(1 for k in radius if k.startswith(x + ":")), -lines.get(x, 0)))
@@ -193,7 +208,7 @@ def main(a):
     from_git = "--files" not in a
     untracked = set(git("ls-files", "-z", "--others", "--exclude-standard").split("\0")) if from_git else set()  # NUL-separated: names with spaces or quotes stay whole (audit F-a9c4ecf9)
     # deleted_text is masked: a deleted file can hold a secret (Qodo on #17)
-    (D / "change-map.json").write_text(json.dumps({"tier": tier, "files": order, "deleted": deleted, "deleted_text": {x: "\n".join(redact_finding_text(ln) for ln in touched.get(x, "")[:4000].splitlines()) for x in deleted}, "lines": total, "sensitive": {x: sens[x] for x in files + deleted}, "radius": radius, "intent": intent,
+    (D / "change-map.json").write_text(json.dumps({"tier": tier, "files": order, "deleted": deleted, "deleted_text": {x: masked_head(touched.get(x, "")) for x in deleted}, "lines": total, "sensitive": {x: sens[x] for x in files + deleted}, "radius": radius, "intent": intent,
         "mode": "diff" if from_git else "files", "base": base if from_git else None,
         "hunks": hunks(base, files) if from_git else {}, "new_files": sorted(x for x in files if x in untracked)}, indent=1))
     print(json.dumps({"tier": tier, "files": len(files), "lines": total, "sensitive": any_sens, "radius": len(radius)}))

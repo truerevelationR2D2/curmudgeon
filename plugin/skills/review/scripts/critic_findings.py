@@ -217,8 +217,9 @@ def _cites_real_line(text, root):
     return False
 
 SECURITY = re.compile(r"(?i)\b(?:xss|inject\w*|secrets?|credentials?|auth\w*|csrf|ssrf|traversal|deserial\w*|eval|rce|privileges?|tokens?|passwords?|crypto\w*|sanitiz\w*|leak\w*|exposure|security"
-                      r"|tenants?|isolation|idor|access[- ]control|permissions?|unauthori[sz]ed|disclos\w*|exfiltrat\w*|spoof\w*|impersonat\w*|escalat\w*|takeover"
-                      r"|session|cookies?|cors|xxe|sqli|open[- ]redirect|clickjack\w*|another (?:user|tenant|customer|account)|other (?:users|tenants|customers|accounts))\b")  # tenant isolation and access control are security too (Qodo on #15)
+                      r"|tenants?|(?:tenant|data|cross[- ]tenant|multi[- ]tenant) isolation|idor|access[- ]control|permission (?:check|bypass)|unauthori[sz]ed|disclos\w*|exfiltrat\w*|spoof\w*|impersonat\w*"
+                      r"|privilege escalat\w*|escalat\w* (?:of )?privileges?|account takeover|session (?:fixation|hijack\w*|token)|(?:auth|session) cookies?|cors|xxe|sqli|open[- ]redirect|clickjack\w*"
+                      r"|another (?:user|tenant|customer|account)'s|other (?:users|tenants|customers|accounts)' (?:data|records|files|rows))\b")  # tenant isolation and access control are security too (Qodo on #15), in phrases that don't catch ordinary words (collected round review)
 SECURITY_REASONS = ("no_untrusted_input", "guard_blocks", "not_reachable", "no_privilege_gain", "already_public", "platform_escapes")
 def confirmation_problem(v, root=None):
     """A `confirmed` verdict must show its evidence (SC-42, SC-44): the entry point and the path to the failing line, at
@@ -230,10 +231,14 @@ def confirmation_problem(v, root=None):
     if not _cites_real_line(text, root): return "a confirmed verdict must cite the failing path as file:line that exists"
     return None
 
+def is_security(finding):
+    """A security finding: a reviewer marked it, or its category or title names a security problem."""
+    return finding.get("security") is True or bool(SECURITY.search(f"{finding.get('category', '')} {finding.get('title', '')}"))
+
 def security_refutation_problem(v, finding):
     """Refuting a security finding also names who the attacker is, what they would gain, and one reason from a fixed list
     (SC-44, after claude-security's structured answers; our own wording)."""
-    if finding.get("security") is not True and not SECURITY.search(f"{finding.get('category', '')} {finding.get('title', '')}"): return None  # a reviewer's "security": true only ever adds the check
+    if not is_security(finding): return None  # a reviewer's "security": true only ever adds the check
     missing = [k for k in ("attacker", "gain") if not str(v.get(k) or "").strip()]
     if missing: return f"a security refutation must name the {' and the '.join(missing)}"
     if v.get("reason") not in SECURITY_REASONS: return "a security refutation's reason must be one of " + ", ".join(SECURITY_REASONS)

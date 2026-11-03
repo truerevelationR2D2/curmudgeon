@@ -14,7 +14,7 @@ SRI8 = 'integrity="sha384-Zm9vYmFyYmF6Zm9vYmFyYmF6Zm9vYmFy"'
 def _adopt(d):
     """The owner's two steps: show (prints the hosts and a confirmation code), then confirm with that code."""
     r = run(S / "critic_scan.py", ".", "--root", ".", "--integrity-adopt", cwd=d)
-    m = re.search(r"--confirm ([0-9a-f]{12})", r.stdout)
+    m = re.search(r"--confirm ([0-9a-f]{24})", r.stdout)
     return run(S / "critic_scan.py", ".", "--root", ".", "--integrity-adopt", "--confirm", m.group(1), cwd=d) if m else r
 
 
@@ -436,11 +436,10 @@ def _(d):
     subprocess.run(["git", "init", "-q"], cwd=d); _gate(d, "async"); _review_now(d)
     write(d, "s.py", "x = eval(input())\n"); subprocess.run(["git", "add", "s.py"], cwd=d)
     r, lst = _async(d); assert "s.py" in lst, (lst, r.stderr)
-    src = (H / "stop_async.py").read_text()
-    assert "cursor" in src and "if len(out) >= cap: return out" not in src, "a cursor carries the next part to the next stop; no hard cap drops files"
     import importlib.util
     spec = importlib.util.spec_from_file_location("sa8", H / "stop_async.py"); sa = importlib.util.module_from_spec(spec); spec.loader.exec_module(sa)
-    assert sa.part_order(5, 3) == [3, 4, 0, 1, 2] and sa.part_order(5, 0) == [0, 1, 2, 3, 4]
+    t = d / "big"; [write(t, f"f{i}.py", "x\n") for i in range(30)]
+    assert len(sa.walk_changed(t, 0)) == 30, "no cap on what is found"
 
 @test("collected round (Qodo #17 7, 8): a finding at a caller the deletion broke counts as introduced, and a deletion-only run doesn't reuse an old scan list")
 def _(d):
@@ -489,7 +488,7 @@ def _(d):
     assert r.returncode == 0 and "evil.example.net" in r.stdout and "1 distinct host" in r.stdout and "adopted" not in r.stdout, r.stdout
     import scan_integrity as si
     assert si.load_baseline(d)[0] is None, "shown, not yet trusted"
-    r = run(S / "critic_scan.py", ".", "--root", ".", "--integrity-adopt", "--confirm", "000000000000", cwd=d); assert r.returncode == 2, r.stdout
+    r = run(S / "critic_scan.py", ".", "--root", ".", "--integrity-adopt", "--confirm", "0" * 24, cwd=d); assert r.returncode == 2, r.stdout
     r = _adopt(d); assert r.returncode == 0 and "adopted" in r.stdout, r.stdout + r.stderr
     write(d, ".critic/integrity-baseline.json", json.dumps({"files": {"b.html": {"links": [], "forms": [], "origins": []}}}))
     r = run(S / "critic_scan.py", ".", "--root", ".", "--integrity-adopt", cwd=d)
@@ -518,3 +517,71 @@ def _(d):
               {"category": "access-control", "title": "Any user can open the admin page"}):
         assert cf.downgrade_problem("High", "Low", "traced", good, root=g, finding=f, verdict={}), f
     assert cf.downgrade_problem("High", "Low", "traced", good, root=g, finding={"category": "logic", "title": "Wrong total"}, verdict={}) is None
+
+# ---- collected round, review round 1 ----
+
+@test("collected round review: the gate applies its tool-folder skips in git too, falls back to a walk when git lists nothing for the project, and outside git watches only code dot-folders")
+def _(d):
+    subprocess.run(["git", "init", "-q"], cwd=d); write(d, "a.py", "x = 1\n"); subprocess.run(["git", "add", "-A"], cwd=d); subprocess.run(G8 + ["commit", "-qm", "c"], cwd=d)
+    _gate(d); _review_now(d)
+    for f in (".venv/lib/x.py", "node_modules/x/i.js", ".terraform/modules/x/main.py"): write(d, f, "y\n")
+    r = run(H / "stop_gate.py", cwd=d, stdin=json.dumps({"cwd": str(d)})); assert '"block"' not in r.stdout, ("unignored tool folders still skipped in git", r.stdout)
+    p = d / "home"; subprocess.run(["git", "init", "-q"], cwd=p) if p.mkdir() is None else None; write(p, ".gitignore", "*\n")
+    proj = p / "proj"; write(proj, "app.py", "x = 1\n"); _gate(proj); _review_now(proj); write(proj, "app.py", "x = eval(input())\n")
+    r = run(H / "stop_gate.py", cwd=proj, stdin=json.dumps({"cwd": str(proj)})); assert '"block"' in r.stdout and "app.py" in r.stdout, ("an enclosing repository that ignores the project never silences the gate", r.stdout)
+    n = d / "nogit"; write(n, "a.py", "x = 1\n"); _gate(n); _review_now(n)
+    for f in (".astro/types.d.ts", ".wrangler/tmp/bundle.js"): write(n, f, "y\n")
+    r = run(H / "stop_gate.py", cwd=n, stdin=json.dumps({"cwd": str(n)})); assert '"block"' not in r.stdout, ("outside git, unknown dot-folders are tools'", r.stdout)
+    write(n, ".vitepress/config.ts", "export default {}\n")
+    r = run(H / "stop_gate.py", cwd=n, stdin=json.dumps({"cwd": str(n)})); assert '"block"' in r.stdout, ("a known code dot-folder still counts", r.stdout)
+
+@test("collected round review: a secret crossing the cut is masked, a caller still importing the deleted module stays broken whatever else defines the name, and the deleted file's stem alone doesn't mark a finding introduced")
+def _(d):
+    import critic_merge as cm9
+    sec = "wJalrXUtnFEMI/K7MDENG/bPxRfiCYzEXAMPLEKEY"
+    body = "".join(f"# {'x' * 186}\n" for _ in range(21)) + f'AWS_SECRET_ACCESS_KEY = "{sec}"\n'
+    _del_repo(d, {"conf.py": body, "billing.py": "def compute_total(xs):\n    return sum(xs)\n", "report.py": "def compute_total(r):\n    return r\n",
+                  "app.py": "from billing import compute_total\nprint(compute_total([1]))\n", "db.py": "def fetch_rows(q):\n    return q\n",
+                  "svc.py": "from db import fetch_rows\n\ndef report(x):\n    return fetch_rows(x)\n"}, ["conf.py", "billing.py", "db.py"])
+    run(S / "critic_map.py", cwd=d)
+    cmj = json.loads((d / ".critic/change-map.json").read_text())
+    assert sec[:20] not in json.dumps(cmj), "masked before the cut"
+    assert "app.py" in cmj["radius"].get("billing.py: compute_total", []), cmj["radius"]
+    old_d = cm9.D; cm9.D = d / ".critic"
+    try:
+        f = {"file": "svc.py", "line": 4, "title": "SQL injection: report() builds the db query with an f-string", "evidence": "svc.py:4", "failing_case": "x = 1 OR 1=1"}
+        cm9.mark_origin([f])
+    finally: cm9.D = old_d
+    assert f["origin"] == "pre-existing", f
+
+@test("collected round review: a Latin name ending in a stroke look-alike is flagged even when a real kana word follows; ordinary words in titles don't make a finding security; a reviewer's security flag survives clustering")
+def _(d):
+    import scan_integrity as si, critic_findings as cf
+    for h in ("paypa丨ストア.com", "paypa丨ログイン.com", "fa匚ebook.com", "yo凵t凵be.com", "paypa亅.com"):
+        assert si.lookalike(h), h
+    for h in ("mobileニュース.jp", "toyotaトヨタ.jp", "sonyストアー.jp"):
+        assert not si.lookalike(h), h
+    for t in ("Tests lack isolation between cases", "Session summary drops the last turn", "Cookie banner overlaps footer", "Retry loop can escalate CPU use",
+              "README omits the permissions section", "Other users of the API get a 500 on empty input"):
+        assert cf.security_refutation_problem({"verdict": "refuted"}, {"category": "logic", "title": t}) is None, t
+    for t in ("A reader can see another tenant's records", "Privilege escalation through the role field", "Session fixation after login"):
+        assert cf.security_refutation_problem({"verdict": "refuted"}, {"category": "logic", "title": t}), t
+    write(d, "src/app.js", APP); run(S / "critic_ledger.py", "start", "review", "--tier", "full", cwd=d)
+    a = finding(category="logic", impact="High", title="Totals cross over", verified="traced", security=True)
+    b = finding(category="logic", impact="High", title="Totals cross over", verified="executed")
+    write(d, ".critic/reviews/review-A.json", json.dumps([a])); write(d, ".critic/reviews/review-B.json", json.dumps([b])); write(d, ".critic/reviews/review-C.json", "[]")
+    run(S / "critic_merge.py", "tally", *[f".critic/reviews/review-{L}.json" for L in "ABC"], cwd=d)
+    t = json.loads((d / ".critic/tally.json").read_text()); k = t["kept"] + t["contested"]
+    assert k and all(x.get("security") is True for x in k), k
+    pk = json.loads((d / ".critic/verify" / f"{k[0]['id']}.json").read_text()); assert pk.get("security") is True, pk
+
+@test("collected round review: the background check orders files by what it hasn't scanned yet (never by a part index a new edit resets), moves past a part that timed out, and the adopt code is 24 characters")
+def _(d):
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("sa9", H / "stop_async.py"); sa = importlib.util.module_from_spec(spec); spec.loader.exec_module(sa)
+    rec = {"a.py": [1.0, "ok"], "b.py": [1.0, "timeout"], "c.py": [0.5, "ok"]}
+    mt = {"a.py": 1.0, "b.py": 1.0, "c.py": 1.0, "d.py": 1.0}
+    assert sa.scan_order(["a.py", "b.py", "c.py", "d.py"], rec, mt.get) == ["c.py", "d.py", "b.py", "a.py"], "changed since scanned or never scanned first, then timed out, then scanned"
+    write(d, "site/index.html", "<p>x</p>\n")
+    write(d, ".critic/integrity-baseline.json", json.dumps({"files": {"a.html": {"own": [], "links": [], "forms": [], "origins": []}}}))
+    r = run(S / "critic_scan.py", ".", "--root", ".", "--integrity-adopt", cwd=d); assert re.search(r"--confirm [0-9a-f]{24}\b", r.stdout), r.stdout

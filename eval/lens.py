@@ -23,7 +23,7 @@ def rows(folder, area):
         env = dict(os.environ, CURMUDGEON_STATE_DIR=str(pathlib.Path(t) / "state"))  # the measurer's own record, never the user's
         if (dst / ".critic" / "integrity-baseline.json").is_file():  # a fixture's recorded copy came with the code: the measurer adopts it, as an owner would (audit Q04)
             shown = subprocess.run([sys.executable, str(SCAN), ".", "--root", ".", "--integrity-adopt"], cwd=dst, capture_output=True, text=True, timeout=60, env=env).stdout
-            code = re.search(r"--confirm ([0-9a-f]{12})", shown)  # the measurer checked the fixture's hosts when writing it: confirm the code shown
+            code = re.search(r"--confirm ([0-9a-f]{24})", shown)  # the measurer checked the fixture's hosts when writing it: confirm the code shown
             if code: subprocess.run([sys.executable, str(SCAN), ".", "--root", ".", "--integrity-adopt", "--confirm", code.group(1)], cwd=dst, capture_output=True, text=True, timeout=60, env=env)
         try: r = subprocess.run([sys.executable, str(SCAN), ".", "--root", ".", "--no-project-rules"], cwd=dst, capture_output=True, text=True, timeout=300, env=env)
         except subprocess.TimeoutExpired: sys.exit(f"lens: the scan of {folder} took over 300 s and was stopped; nothing measured")

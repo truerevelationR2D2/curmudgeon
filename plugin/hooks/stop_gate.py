@@ -15,10 +15,14 @@ import workspace
 
 SKIP = {".git", "node_modules", "dist", "build", ".critic", "__pycache__", ".next", "coverage", "vendor", ".venv", "venv",
         ".tox", ".nox", ".mypy_cache", ".pytest_cache", ".ruff_cache", ".cache", ".gradle", ".idea", ".svn", ".hg"}
-# Outside git, dot-folders known to hold generated or downloaded files (a git project uses its own ignore rules instead;
-# Qodo on #17 and the batch 3 review: a name list of code folders missed .vitepress and .buildkite)
+# Tools' generated or downloaded dot-folders, skipped everywhere (in git too, where a fresh repository may not ignore them).
 GENERATED_DOTDIRS = {".env", ".svelte-kit", ".nuxt", ".output", ".angular", ".turbo", ".parcel-cache", ".vercel", ".netlify",
-                     ".yarn", ".pnpm-store", ".terraform", ".direnv", ".conda", ".serverless", ".docusaurus", ".expo", ".dart_tool"}
+                     ".yarn", ".pnpm-store", ".terraform", ".direnv", ".conda", ".serverless", ".docusaurus", ".expo", ".dart_tool",
+                     ".astro", ".wrangler", ".react-router", ".eggs", ".cargo", ".local", ".npm", ".m2"}
+# Outside git, only these dot-folders are watched (plus any holding a stamped file): an unknown one is far more often a
+# tool's than code someone wrote (collected round review). In git, the project's own ignore rules decide instead.
+CODE_DOTDIRS = {".claude", ".github", ".husky", ".devcontainer", ".circleci", ".gitlab", ".storybook", ".githooks", ".config",
+                ".vitepress", ".vuepress", ".buildkite", ".gitea", ".forgejo", ".changeset"}
 CODE = {".js", ".mjs", ".cjs", ".ts", ".jsx", ".tsx", ".py", ".css", ".scss", ".html", ".vue", ".svelte", ".go", ".rs", ".java", ".rb", ".php", ".cs", ".swift", ".kt"}
 
 def nested_checkout(d):
@@ -26,9 +30,13 @@ def nested_checkout(d):
     submodule, a vendored repository. Its edits are another session's, never this project's (Qodo on #17)."""
     return (d / ".git").exists()
 
-def candidates(root):
+def skipped(name): return name in SKIP or name in GENERATED_DOTDIRS
+
+def candidates(root, stamps=()):
     """The code files the gate watches. In git: tracked and untracked files git doesn't ignore, so a project's own
-    .gitignore decides what is generated. Outside git: a walk that skips tools' folders."""
+    .gitignore decides what is generated, minus tools' folders a fresh repository may not ignore yet. When git lists
+    nothing for the project (an enclosing repository that ignores it, a dotfiles home repository) or can't answer,
+    the walk below decides, so the gate is never silently off (collected round review)."""
     sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent / "skills" / "review" / "scripts"))
     try:
         import safegit
@@ -38,19 +46,23 @@ def candidates(root):
             for rel in r.stdout.split("\0"):
                 if not rel or pathlib.PurePosixPath(rel).suffix not in CODE or rel.startswith(".critic/") or "/.claude/worktrees/" in "/" + rel: continue
                 parts = pathlib.PurePosixPath(rel).parts[:-1]
+                if any(skipped(x) for x in parts): continue
                 if any(seen.setdefault(parts[:i], nested_checkout(root.joinpath(*parts[:i]))) for i in range(1, len(parts) + 1)): continue
                 out.append(root / rel)
-            return out
+            if out: return out
     except Exception: pass
+    stamped_dirs = {pathlib.PurePosixPath(k).parts[0] for k in stamps if pathlib.PurePosixPath(k).parts}
     out = []
     for dp, dns, fns in os.walk(root):
-        dns[:] = [d for d in dns if d not in SKIP and d not in GENERATED_DOTDIRS and not (pathlib.Path(dp).name == ".claude" and d == "worktrees") and not nested_checkout(pathlib.Path(dp) / d)]
+        top = pathlib.Path(dp) == root
+        dns[:] = [d for d in dns if not skipped(d) and not (pathlib.Path(dp).name == ".claude" and d == "worktrees") and not nested_checkout(pathlib.Path(dp) / d)
+                  and (not d.startswith(".") or d in CODE_DOTDIRS or (top and d in stamped_dirs))]
         out += [pathlib.Path(dp) / fn for fn in fns if pathlib.Path(fn).suffix in CODE]
     return out
 
 def newest(root, stamps):
     best = (0.0, None)
-    for p in [root / k for k in stamps] + candidates(root):
+    for p in [root / k for k in stamps] + candidates(root, stamps):
         try: m = p.stat().st_mtime
         except OSError: continue  # deleted files and broken links are skipped, not fatal
         if m > best[0]: best = (m, p)

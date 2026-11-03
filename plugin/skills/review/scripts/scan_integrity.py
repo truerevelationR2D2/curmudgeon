@@ -108,13 +108,16 @@ CJK_SETS = ({"LATIN", "CJK", "IDEOGRAPHIC", "HIRAGANA", "KATAKANA", "KATAKANA-HI
 
 # CJK signs that read as Latin letters or marks (our own short list from the shapes; no confusables data copied):
 # 丨 丶 丿 一 口 工 (l . / - o I), ー エ ロ ニ ノ ト ヘ ㇿ (- I o = / t ^ o), and their halfwidth or radical forms after NFKC.
-LATIN_LOOKALIKE = set("丨丶丿一口工ーエロニノトヘㇿ⼁⼂⼃⼀⼝⼯")
+LATIN_LOOKALIKE = set("丨丶丿亅匚凵一口工ーエロニノㇿ⼁⼂⼃⼅⼕⼐⼀⼝⼯")
+# strokes and radicals that never stand alone in a real word: one Latin letter beside one is enough (paypa丨ストア)
+STROKES = set("丨丶丿亅匚凵⼁⼂⼃⼅⼕⼐")
 
 def lookalike_run(label):
     """Look-alike signs used as Latin letters: a run of them with Latin letters on both sides (facebロロk, g口口gle), or
     a Latin name whose only other letters are look-alikes (paypa丨, amazonエ, paypalーー). Inside a real word
     (mobileニュース, toyotaトヨタ, sonyストアー) they read as what they are."""
     lat = lambda ch: ch.isascii() and ch.isalpha()
+    if any(c in STROKES and ((i > 0 and lat(label[i - 1])) or (i + 1 < len(label) and lat(label[i + 1]))) for i, c in enumerate(label)): return True  # collected round review
     others = [ch for ch in label if not lat(ch) and (ch.isalpha() or ch in LATIN_LOOKALIKE)]
     if any(lat(ch) for ch in label) and others and all(ch in LATIN_LOOKALIKE for ch in others): return True
     for i, c in enumerate(label):

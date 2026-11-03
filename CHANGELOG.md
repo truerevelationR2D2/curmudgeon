@@ -14,7 +14,15 @@ Twenty findings, gathered and fixed together as ruled (03 §5.57.7). Each fix ha
   - The recorded copy is checked and parsed from one read.
   - A Latin name with a Han or kana sign standing in for a letter (`paypa丨`, `facebロロk`, `paypalーー`) is a look-alike, while real names mixing romaji and kana (`toyotaトヨタ`, `sonyストアー`) are not.
   - A scheme-relative `<base>` takes the page's own scheme from its canonical or `og:url` address.
-- **Security findings (Qodo on #15).** Tenant isolation, access control, disclosure and similar terms make a finding a security one, and a reviewer can mark one `"security": true`. Taking one below High, or refuting it, then needs attacker, gain and a listed reason (03 §5.57.8).
+- **Security findings (Qodo on #15).** Phrases such as tenant isolation, access control, privilege escalation and session fixation make a finding a security one (bare words like "session" or "isolation" don't, so ordinary findings keep ordinary rules), and a reviewer can mark one `"security": true`. Taking one below High, or refuting it, then needs attacker, gain and a listed reason (03 §5.57.8). A reviewer's flag carries through when findings are merged, and the verifier is told when the security rules apply.
+- **From this round's blind review (3 reviewers).**
+  - The gate skips tools' folders in git too.
+  - When git lists nothing for the project (an enclosing repository that ignores it), the gate falls back to a walk, so it is never silently off. Outside git, it watches only known code dot-folders and dot-folders holding a stamped file.
+  - Deleted text is masked line by line before it is cut, so a secret at the cut is never half-masked.
+  - A caller still importing a deleted module stays in the blast radius, whatever else defines the same name, and a deleted file's bare name no longer marks old findings as introduced.
+  - A stroke look-alike (丨 亅 匚 凵) next to a Latin letter is flagged even when a real kana word follows.
+  - The background check orders files by a per-file record of what it has scanned, so a new edit never sends it back to the start, and a part that ran out of time goes after the files not reached yet. Its walk outside git stops after 500,000 entries, which bounds the hook's time; files beyond that in walk order are not seen.
+  - The adopt code is 24 characters.
 
 ## Unreleased: fixes from the full audit, batch 3 of 5 (the stop gates and the change map)
 
