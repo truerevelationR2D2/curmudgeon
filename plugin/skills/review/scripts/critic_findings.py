@@ -696,9 +696,10 @@ def baseline_shipped(root):
     if read_owner_state(root, "integrity").get("sha") != _sha(p): return "it wasn't recorded or adopted by the owner on this machine, or it changed since; record it again (--integrity-record) or adopt it after checking it (--integrity-adopt)"
     return None
 
-def record_baseline(root):
-    """Note the sha256 of the recorded copy just written or adopted, in the owner's record outside the project."""
-    write_owner_state(root, "integrity", {"sha": _sha(pathlib.Path(root) / ".critic" / "integrity-baseline.json")})
+def record_baseline(root, sha=None):
+    """Note the sha256 of the recorded copy just written or adopted, in the owner's record outside the project. sha:
+    the hash of the bytes the owner was shown, so a file swapped after the showing is never trusted (batch 2 review)."""
+    write_owner_state(root, "integrity", {"sha": sha or _sha(pathlib.Path(root) / ".critic" / "integrity-baseline.json")})
 
 LEDGER_RULINGS = ("false_positives", "dismissals", "memories", "decisions", "overrides")  # what a ledger can use to hide or steer
 

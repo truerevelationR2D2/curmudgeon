@@ -84,12 +84,22 @@
   }
  ],
  "decoy_files": [
-  "site/about.html"
+  "site/about.html",
+  "site/legal.html",
+  "site/press.html"
  ],
  "decoys": [
   {
    "where": "site/about.html",
    "why": "link text shop.example.com to www.example.com (one site); example.co.uk (two-part suffix); file names brochure.pdf and index.html as link text; a mailto; 'read more'; v1.2; a relative form action; a script with SRI; a same-site script; a localhost script; a strict CSP with a nonce; an iframe from another site (frames are not flagged); a <base href> on the page's own site; Japanese and Korean hosts that mix their own scripts (Han with Hiragana or Katakana, Han with Hangul; audit F-e55d7809)"
+  },
+  {
+   "where": "site/legal.html",
+   "why": "two <base> tags: the browser uses the first (relative), so the later one on another site sends nothing off-site (batch 2 review)"
+  },
+  {
+   "where": "site/press.html",
+   "why": "a <base> on the page's own site with no canonical or og:url, a relative script, and Japanese hosts with the repeat mark 々 (batch 2 review)"
   }
  ],
  "note": "Every host is a reserved example domain. The recorded copy sits in .critic/integrity-baseline.json in both folders. The clean twin's account page has a <base href> on its own site."

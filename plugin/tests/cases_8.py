@@ -116,3 +116,21 @@ def _(d):
     write(d, ".critic/integrity-baseline.json", json.dumps({"files": {"a.html": {"own": [], "links": [], "forms": [], "origins": []}, "b.html": {"links": [], "forms": [], "origins": []}}}))
     r = run(S / "critic_scan.py", ".", "--root", ".", "--integrity-adopt", cwd=d)
     assert "a.html: own none" in r.stdout and "b.html: own (not recorded)" in r.stdout, r.stdout
+
+@test("batch 2 review (reviewers 1 and 3): agents can't call the record helpers directly, a three-slash base is a host, control characters in a copy stop adoption, a same-site base with no canonical raises nothing, and 々 is Japanese")
+def _(d):
+    sys.path.insert(0, str(H)); import importlib, read_guard as rg8; importlib.reload(rg8)
+    for cmd in ("python3 -c 'from critic_findings import record_baseline; record_baseline(\".\")'", "python3 -c 'import critic_findings as c; c.record_ledger(\".\")'"):
+        assert rg8.owner_problem(cmd, True), cmd
+    import scan_integrity as si
+    p = si.parse('<base href="https:///evil.example.net/">\n<script src="/localhost"></script>\n')
+    assert p.host("/localhost") == "evil.example.net", p.host("/localhost")
+    rows = []
+    def emit(sev, rule, area, where, what, ev=""): rows.append((rule, where))
+    si.scan("p.html", '<base href="https://shop.example.com/">\n<script src="/js/site.js"></script>\n', emit, d)
+    assert not rows, ("no canonical: a relative script is not judged off-site", rows)
+    assert not si.lookalike("佐々木.jp") and not si.lookalike("代々木.jp"), "々 belongs with Han"
+    write(d, "site/index.html", "<p>x</p>\n")
+    write(d, ".critic/integrity-baseline.json", json.dumps({"files": {"a.html": {"own": [], "links": [], "forms": [], "origins": ["\u001b[8m", "example.net", "\u001b[0m"]}}}))
+    r = run(S / "critic_scan.py", ".", "--root", ".", "--integrity-adopt", cwd=d)
+    assert r.returncode == 2 and "\u001b" not in r.stdout + r.stderr and "adopted" not in r.stdout, (r.returncode, repr(r.stdout[-200:]), repr(r.stderr[-200:]))

@@ -113,7 +113,7 @@ def owner_problem(cmd, detector):
     project), the run's ledger script at all. Quotes and backslashes are removed first, so con""sent reads as consent."""
     flat = re.sub(r"[\\'\"]", "", cmd)
     base = os.path.realpath(os.environ.get("CURMUDGEON_STATE_DIR") or os.path.expanduser("~/.curmudgeon"))
-    if re.search(r"write_owner_state\s*\(|(?:~|\$HOME|\$\{HOME\})/\.curmudgeon\b", flat) or base in flat:  # writing it, or naming its folder; mentioning the words (a grep) is fine
+    if re.search(r"(?:write_owner_state|record_baseline|record_ledger)\s*\(|(?:~|\$HOME|\$\{HOME\})/\.curmudgeon\b", flat) or base in flat:  # writing it, or naming its folder; mentioning the words (a grep) is fine
         return "the owner's own record of approvals and consent is theirs to write, through the lead"
     if detector and "critic_ledger" in flat: return "the detector runs the scripted checks; the run's ledger (consent and approvals among it) is the lead's"
     if re.search(r"critic_ledger(?:\.py)?\b.*\b(?:consent|approve|adopt)\b", flat): return "only the owner gives consent, approves a file or adopts a set-aside ledger, through the lead"

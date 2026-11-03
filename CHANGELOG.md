@@ -4,11 +4,12 @@ Every release of Curmudgeon, newest first. The repository's history starts at 4.
 
 ## Unreleased: fixes from the full audit, batch 2 of 5 (the browser integrity lens)
 
-Each fix has a test that fails on 5.2.6 (`plugin/tests/cases_8.py`), and the lens fixture (`eval/lens12.json`) gains three plants, a clean-twin page and decoys for them: 13 of 13 found, 0 wrong rows (5.2.6 on the same fixture: 7 of 13, 3 wrong rows on the decoys).
+Each fix has a test that fails on 5.2.6 (`plugin/tests/cases_8.py`), and the lens fixture (`eval/lens12.json`) gains three plants, a clean-twin page and three decoy pages: 13 of 13 found, 0 wrong rows, nothing on the decoys or the clean twin (5.2.6 on the same fixture: 7 of 13 found, 5 wrong rows on the decoys and 5 on the clean twin).
 - A page that names a new site as its own (canonical, `og:url`) no longer makes that site's forms, scripts and links count as unchanged. The recorded copy keeps the sites each page said it was, and a page that now claims another one fails `integrity-changed` (audit F-9c12cea5, High).
 - `<base href>` is not the page's own site. Relative form, script and link targets are resolved against it, so a base on another site shows up as an off-site form, an unpinned script, or a change against the recorded copy (audit F-5a56b49c, High).
 - The recorded copy is trusted only when the owner recorded it, or adopted it with the new `--integrity-adopt` after seeing every host it lists, on this machine, and git doesn't track it. A copy that came with the code is ignored with a note, and agents can't record or adopt one (audit Q04).
-- A Japanese, Chinese or Korean host that mixes its own scripts (Han with Hiragana or Katakana, Han with Hangul) is no longer a look-alike; Latin with Cyrillic still is (audit F-e55d7809).
+- A Japanese, Chinese or Korean host that mixes its own scripts (Han with Hiragana or Katakana, Han with Hangul, the repeat mark 々) is no longer a look-alike. Latin with Cyrillic still is, and so is a Latin name with a lone Hangul letter, Bopomofo or kana standing in for a Latin letter (audit F-e55d7809).
+- From the blind review of this batch: `critic_scan.py` refuses shortened flags (`--integrity-adop`), and agents can't record or adopt the trusted copy by flag or by calling the helpers. The recorded copy is kept out of git, and adopting a tracked one fails with how to untrack it. Adopting refuses a copy with control characters, which could hide a host on a terminal, and trusts exactly the bytes it showed. `<base>` is read as a browser reads it: the first with an href wins, `http:host` and `https:///host` name a host, an http base makes a relative form insecure, and with no canonical or `og:url` a relative script isn't judged off-site.
 
 **After upgrading:** run `critic_scan.py . --integrity-record` again on a version you trust. A copy recorded before this change has no own-site list and isn't noted as yours, so it is ignored until you record it again.
 

@@ -29,7 +29,7 @@ sent, and a running app is recorded once (GET only) and replayed offline for the
 reaches it. Pages that aren't
 on localhost or a file are refused unless .critic/scope.json lists the origin and the run carries --allow-live HOST
 (the owner's typed confirmation; scope.py), and then only GET, HEAD and OPTIONS, up to the target's request cap."""
-import argparse, fnmatch, json, os, pathlib, re, shutil, signal, subprocess, sys, time, urllib.parse
+import argparse, fnmatch, hashlib, json, os, pathlib, re, shutil, signal, subprocess, sys, time, urllib.parse
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import scan_secrets, scan_html, scan_graph, scan_deps, scan_rules_extra, scan_mutation, scan_ci, scan_agentcfg, scan_migrations, scan_reqs, scan_ops, scan_integrity
 import scope as scope_file
@@ -820,8 +820,13 @@ def integrity_adopt(root):
     it lists is printed first, since each one it lists counts as already there (audit Q04)."""
     bp = root / ".critic" / "integrity-baseline.json"
     if bp.is_symlink() or not bp.is_file(): print(f"critic_scan: no recorded copy at {bp}", file=sys.stderr); return 2
-    try: files = json.loads(bp.read_text(encoding="utf-8"))["files"]; assert isinstance(files, dict)
+    if bp.stat().st_size > scan_integrity.BASELINE_MAX: print(f"critic_scan: {bp} is over {scan_integrity.BASELINE_MAX // 1_000_000} MB", file=sys.stderr); return 2
+    raw = bp.read_bytes()  # read once: what is shown is what is hashed (batch 2 review)
+    try: files = json.loads(raw.decode("utf-8"))["files"]; assert isinstance(files, dict)
     except Exception as e: print(f"critic_scan: {bp} isn't a recorded copy ({type(e).__name__})", file=sys.stderr); return 2
+    strings = [str(k) for k in files] + [str(v) for x in files.values() if isinstance(x, dict) for k_ in ("own", "links", "forms", "origins") for v in (x.get(k_) or [])]
+    bad = [s for s in strings if re.search(r"[\x00-\x08\x0b-\x1f\x7f-\x9f]", s)]  # a tab separates a link label from its host; anything else invisible could hide a host on a terminal
+    if bad: print(f"critic_scan: {bp} holds {len(bad)} entr{'y' if len(bad) == 1 else 'ies'} with control characters (first: {bad[0]!r:.80}), which could hide a host from you; refusing to adopt it", file=sys.stderr); return 2
     from critic_findings import git_tracked
     if git_tracked(root, ".critic/integrity-baseline.json"):  # never trusted while tracked, so adopting it would change nothing (batch 2 review)
         print("critic_scan: git tracks .critic/integrity-baseline.json, so it could have come with the code and is never trusted. Untrack it (git rm --cached .critic/integrity-baseline.json), check it, then adopt it", file=sys.stderr); return 2
@@ -832,7 +837,7 @@ def integrity_adopt(root):
         print(f"  {rel}: own {'(not recorded)' if not isinstance(own, list) else (', '.join(map(str, own)) or 'none')}; links {', '.join(sorted({str(l).rpartition(chr(9))[2] for l in x.get('links') or []})) or 'none'}; "
               f"forms {', '.join(map(str, x.get('forms') or [])) or 'none'}; scripts and frames {', '.join(map(str, x.get('origins') or [])) or 'none'}")
     from critic_findings import record_baseline
-    try: record_baseline(root)
+    try: record_baseline(root, hashlib.sha256(raw).hexdigest())
     except OSError as e: print(f"critic_scan: couldn't note it as the owner's ({e})", file=sys.stderr); return 2
     print("adopted"); return 0
 

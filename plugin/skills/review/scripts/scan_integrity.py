@@ -103,7 +103,8 @@ def scripts(label):
 # Script sets one writing system uses together, on the idea of Unicode's "highly restrictive" identifier level (UTS #39;
 # our own short list, no data copied): Japanese mixes Han, Hiragana and Katakana, Chinese Han and Bopomofo, Korean Han
 # and Hangul, and each may add Latin. Any other mix (Latin with Cyrillic or Greek, Cyrillic with Han) is a look-alike.
-CJK_SETS = ({"LATIN", "CJK", "HIRAGANA", "KATAKANA", "KATAKANA-HIRAGANA"}, {"LATIN", "CJK", "BOPOMOFO"}, {"LATIN", "CJK", "HANGUL"})
+CJK_SETS = ({"LATIN", "CJK", "IDEOGRAPHIC", "HIRAGANA", "KATAKANA", "KATAKANA-HIRAGANA", "HALFWIDTH"}, {"LATIN", "CJK", "IDEOGRAPHIC", "BOPOMOFO"},
+            {"LATIN", "CJK", "IDEOGRAPHIC", "HANGUL", "HALFWIDTH"})  # IDEOGRAPHIC: 々 and 〆, which go with Han (batch 2 review)
 
 def mixed(label):
     s = scripts(label)
@@ -115,7 +116,7 @@ def mixed(label):
     # Latin letter (paypaㅣ.com; batch 2 review).
     names = [unicodedata.name(c, "") for c in label if c.isalpha()]
     han = any(n.startswith("CJK") for n in names); syll = any(n.startswith("HANGUL SYLLABLE") for n in names)
-    kana = sum(n.startswith(("HIRAGANA", "KATAKANA")) for n in names)
+    kana = sum(n.startswith(("HIRAGANA", "KATAKANA", "HALFWIDTH KATAKANA")) for n in names)
     if "HANGUL" in s and not syll: return True
     if "BOPOMOFO" in s and not han: return True
     if s & {"HIRAGANA", "KATAKANA", "KATAKANA-HIRAGANA"} and not han and kana < 2: return True
@@ -149,6 +150,7 @@ class Page(HTMLParser):
         try: return urllib.parse.urljoin(b, u)
         except ValueError: return url
     def host(self, url): return host_of(self.resolve(url))
+    def via_base(self, url): return host_of(url) is None and self.host(url) is not None  # a relative target the base sends to a host
     def _close_a(self):
         if self._a is not None: self.links.append(self._a); self._a = None
     def handle_starttag(self, tag, attrs):
@@ -232,6 +234,7 @@ def load_baseline(root):
     bp = pathlib.Path(root) / ".critic" / "integrity-baseline.json"
     if not bp.exists() and not bp.is_symlink(): return None, None
     if bp.is_symlink() or not bp.is_file(): return None, "it is a link or not a file"
+    if bp.stat().st_size > BASELINE_MAX: return None, f"it is over {BASELINE_MAX // 1_000_000} MB"  # before hashing it (batch 2 review)
     from critic_findings import baseline_shipped
     why = baseline_shipped(root)
     if why: return None, why  # a recorded copy can come with the code, like a ledger: then it decides nothing (audit Q04)
@@ -286,7 +289,7 @@ def scan(rel, text, emit, root, baseline=None):
         if lookalike(h): emit("FAIL", "integrity-lookalike-host", "integrity", f"{rel}:{x['line']}", f"a resource loads from {h}, a host whose letters mix scripts", show(x["line"]))
     for x in p.scripts:
         h = p.host(x["src"])
-        if h and not x["sri"] and not LOCAL.match(h) and not (p.own and site(h) in p.own) and not lookalike(h):
+        if h and not x["sri"] and not LOCAL.match(h) and not (p.own and site(h) in p.own) and not lookalike(h) and (p.own or not p.via_base(x["src"])):  # with no own site named, a relative script can't be judged off-site (batch 2 review)
             emit("WARN", "integrity-script-no-sri", "integrity", f"{rel}:{x['line']}", f"a script loads from {h} with no integrity= hash: if that site changes the file, this page runs the change", show(x["line"]))
     for policy, ln in p.csp:
         w = weak_csp(policy)
