@@ -122,14 +122,30 @@ def live_count(target, add=0):
     except (OSError, ValueError): led = {}
     key = f"{_run_id()} {target}"
     if not add: return int(led.get(key, 0))
-    import fcntl
-    with open(p.with_suffix(".lock"), "a") as lk:  # read, add and write under one lock, so parallel sessions don't lose counts
-        fcntl.flock(lk, fcntl.LOCK_EX)
-        try: led = json.loads(p.read_text()) if p.is_file() and not p.is_symlink() else {}
-        except (OSError, ValueError): led = {}
-        led[key] = int(led.get(key, 0)) + add
-        tmp = p.with_name(f"live-requests.{os.getpid()}.tmp"); tmp.write_text(json.dumps(led, indent=1)); os.replace(tmp, p)
-        return led[key]
+    with open(p.with_suffix(".lock"), "a+") as lk:  # read, add and write under one lock, so parallel sessions don't lose counts
+        unlock = _lock(lk)
+        try:
+            try: led = json.loads(p.read_text()) if p.is_file() and not p.is_symlink() else {}
+            except (OSError, ValueError): led = {}
+            led[key] = int(led.get(key, 0)) + add
+            tmp = p.with_name(f"live-requests.{os.getpid()}.tmp"); tmp.write_text(json.dumps(led, indent=1)); os.replace(tmp, p)
+            return led[key]
+        finally: unlock()
+
+def _lock(fh):
+    """An exclusive lock on an open file, released by the function it returns: fcntl where there is one, msvcrt on
+    Windows, which has no fcntl (audit O4: the import crashed a live session after its requests were sent)."""
+    try:
+        import fcntl
+        fcntl.flock(fh, fcntl.LOCK_EX); return lambda: fcntl.flock(fh, fcntl.LOCK_UN)
+    except ImportError: pass
+    import msvcrt
+    fh.seek(0)
+    while True:
+        try: msvcrt.locking(fh.fileno(), msvcrt.LK_LOCK, 1); break
+        except OSError: time.sleep(0.05)  # LK_LOCK gives up after about 10 s; keep waiting, as flock does
+    def unlock(): fh.seek(0); msvcrt.locking(fh.fileno(), msvcrt.LK_UNLCK, 1)
+    return unlock
 
 def destructive(c):
     import safe_web
@@ -165,8 +181,10 @@ ACT_JS = """([ref, verb, expect, pattern]) => { const nameOf = """ + NAME_JS + "
   window.addEventListener('click', window.__curmGuard, true);
   return {ok: true, x: px, y: py};
 }"""
+KEY_NAMES = {"Enter", "NumpadEnter", "Tab", "Escape", "Backspace", "Delete", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Home", "End", "PageUp",
+             "PageDown", "Insert", "Shift", "Control", "Alt", "Meta", "CapsLock"} | {f"F{k}" for k in range(1, 13)}  # keys that type nothing
 FOCUS_JS = """() => { const el = document.activeElement; if (!el || el === document.body) return {};
-  const f = el.form; return {name: (el.getAttribute('aria-label') || el.innerText || el.value || '').trim().slice(0, 80), id: el.id || '', href: el.getAttribute('href') || '',
+  const f = el.form; return {kind: (el.tagName === 'INPUT' ? String(el.type || 'text') : '').toLowerCase(), name: (el.getAttribute('aria-label') || el.innerText || (el.type === 'password' ? '' : el.value) || '').trim().slice(0, 80), id: el.id || '', href: el.getAttribute('href') || '',
   action: f ? (f.getAttribute('action') || '') : '', formaction: el.getAttribute('formaction') || '', title: el.getAttribute('title') || '',
   submit: f ? [...f.querySelectorAll('button,input[type=submit]')].map(b => (b.innerText || b.value || b.id || '') + ' ' + (b.getAttribute('formaction') || '')).join(' ') : ''}; }"""
 
@@ -307,7 +325,10 @@ def replay(sess, shot_dir, record=None):
                 elif verb == "press":
                     key = args[0]; lastk = key.rsplit("+", 1)[-1] if len(key) > 1 else key
                     activates = lastk in ("Enter", "NumpadEnter", " ", "Space") or "\n" in key or "\r" in key  # Playwright reads \n and \r as Enter
-                    if not sim and activates and destructive_focus(pg.evaluate(FOCUS_JS)):
+                    focus = pg.evaluate(FOCUS_JS); mods = key.split("+")[:-1] if len(key) > 1 else []
+                    if focus.get("kind") in ("password", "hidden", "file") and (len(lastk) == 1 or lastk in ("Space",) or len(key) > 1 and "+" not in key and lastk not in KEY_NAMES) and not set(mods) & {"Control", "Meta", "Alt"}:
+                        evidence["refused"] = f"press {args[0]}: the focused field is a {focus['kind']} field, and nothing typed from model output goes into one (audit V45)"; break
+                    if not sim and activates and destructive_focus(focus):
                         evidence["refused"] = f"press {args[0]}: the focused control or its form looks destructive, and this session sends data for real"; break
                     pg.keyboard.press(args[0])
                 elif verb == "wait": pg.wait_for_timeout(min(int(args[0]), 10000))

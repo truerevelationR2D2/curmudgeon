@@ -1,0 +1,1243 @@
+{
+ "agreement": {
+  "agreed": 196,
+  "agreement": 0.956,
+  "controls_a": null,
+  "controls_b": null,
+  "findings": 205,
+  "kappa_verdict": 0.886
+ },
+ "labels": {
+  "cc-code-review/lens10-clean/0": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "critical",
+   "verdict": "real"
+  },
+  "cc-code-review/lens10-clean/1": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "cc-code-review/lens10-clean/2": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "cc-code-review/lens10-clean/3": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "cc-code-review/lens10-clean/4": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "cc-code-review/lens10-clean/5": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "high",
+   "verdict": "real"
+  },
+  "cc-code-review/lens10-clean/6": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "trivial"
+  },
+  "cc-code-review/lens10-clean/7": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "cc-code-review/lens10-clean/8": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "cc-code-review/lens10-clean/9": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "cc-code-review/lens11-clean/0": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "high",
+   "verdict": "real"
+  },
+  "cc-code-review/lens11-clean/1": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "cc-code-review/lens11-clean/2": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "cc-code-review/lens11-clean/3": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "trivial"
+  },
+  "cc-code-review/lens11-clean/4": {
+   "actionable": false,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "trivial"
+  },
+  "cc-code-review/lens12-clean/0": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "cc-code-review/lens12-clean/1": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "cc-code-review/lens12-clean/2": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "cc-code-review/lens12-clean/3": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "cc-code-review/lens12-clean/4": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "cc-code-review/lens12-clean/5": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "trivial"
+  },
+  "cc-code-review/lens12-clean/6": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "cc-code-review/lens12-clean/7": {
+   "actionable": true,
+   "decided_by": "tiebreaker",
+   "severity": null,
+   "verdict": "trivial"
+  },
+  "cc-code-review/lens12-clean/8": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "cc-code-review/lens12-clean/9": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "cc-code-review/lens5-clean/0": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "cc-code-review/lens5-clean/1": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "cc-code-review/lens5-clean/2": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "cc-code-review/lens5-clean/3": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "cc-code-review/lens5-clean/4": {
+   "actionable": true,
+   "decided_by": "tiebreaker",
+   "severity": null,
+   "verdict": "trivial"
+  },
+  "cc-code-review/lens5-clean/5": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "trivial"
+  },
+  "cc-code-review/lens5-clean/6": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "trivial"
+  },
+  "cc-code-review/lens5-clean/7": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "cc-code-review/lens5-clean/8": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "cc-code-review/lens5-clean/9": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "trivial"
+  },
+  "cc-code-review/lens6-clean/0": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "cc-code-review/lens6-clean/1": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "cc-code-review/lens6-clean/2": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "high",
+   "verdict": "real"
+  },
+  "cc-code-review/lens6-clean/3": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "cc-code-review/lens6-clean/4": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "cc-code-review/lens6-clean/5": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "cc-code-review/lens6-clean/6": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "cc-code-review/lens6-clean/7": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "cc-code-review/lens6-clean/8": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "cc-code-review/lens6-clean/9": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "trivial"
+  },
+  "cc-code-review/lens7-clean/0": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "cc-code-review/lens7-clean/1": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "cc-code-review/lens7-clean/2": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "cc-code-review/lens7-clean/3": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "cc-code-review/lens7-clean/4": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "cc-code-review/lens7-clean/5": {
+   "actionable": false,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "trivial"
+  },
+  "cc-code-review/lens7-clean/6": {
+   "actionable": false,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "trivial"
+  },
+  "cc-code-review/lens7-clean/7": {
+   "actionable": false,
+   "decided_by": "tiebreaker",
+   "severity": null,
+   "verdict": "wrong"
+  },
+  "cc-code-review/lens7-clean/8": {
+   "actionable": false,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "trivial"
+  },
+  "cc-code-review/lens8-clean/0": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "high",
+   "verdict": "real"
+  },
+  "cc-code-review/lens8-clean/1": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "high",
+   "verdict": "real"
+  },
+  "cc-code-review/lens8-clean/2": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "high",
+   "verdict": "real"
+  },
+  "cc-code-review/lens8-clean/3": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "cc-code-review/lens8-clean/4": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "cc-code-review/lens8-clean/5": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "cc-code-review/lens8-clean/6": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "cc-code-review/lens8-clean/7": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "cc-code-review/lens8-clean/8": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "trivial"
+  },
+  "cc-code-review/lens8-clean/9": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "cc-code-review/lens9-clean/0": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "cc-code-review/lens9-clean/1": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "cc-code-review/lens9-clean/2": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "cc-code-review/lens9-clean/3": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "cc-code-review/lens9-clean/4": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "cc-code-review/lens9-clean/5": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "cc-code-review/lens9-clean/6": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "cc-code-review/lens9-clean/7": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "trivial"
+  },
+  "code-review-best/lens10-clean/0": {
+   "actionable": false,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "none"
+  },
+  "code-review-best/lens10-clean/1": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "critical",
+   "verdict": "real"
+  },
+  "code-review-best/lens10-clean/2": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "high",
+   "verdict": "real"
+  },
+  "code-review-best/lens10-clean/3": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "code-review-best/lens10-clean/4": {
+   "actionable": false,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "none"
+  },
+  "code-review-best/lens10-clean/5": {
+   "actionable": false,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "none"
+  },
+  "code-review-best/lens10-clean/6": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "trivial"
+  },
+  "code-review-best/lens11-clean/0": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "high",
+   "verdict": "real"
+  },
+  "code-review-best/lens5-clean/0": {
+   "actionable": false,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "none"
+  },
+  "code-review-best/lens5-clean/1": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "code-review-best/lens6-clean/0": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "code-review-best/lens6-clean/1": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "code-review-best/lens6-clean/2": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "high",
+   "verdict": "real"
+  },
+  "code-review-best/lens6-clean/3": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "code-review-best/lens7-clean/0": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "code-review-best/lens7-clean/1": {
+   "actionable": false,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "none"
+  },
+  "code-review-best/lens7-clean/2": {
+   "actionable": false,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "none"
+  },
+  "code-review-best/lens8-clean/0": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "high",
+   "verdict": "real"
+  },
+  "code-review-best/lens8-clean/1": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "high",
+   "verdict": "real"
+  },
+  "code-review-best/lens8-clean/2": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "high",
+   "verdict": "real"
+  },
+  "code-review-best/lens8-clean/3": {
+   "actionable": false,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "none"
+  },
+  "code-review-best/lens8-clean/4": {
+   "actionable": false,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "none"
+  },
+  "code-review-best/lens9-clean/0": {
+   "actionable": false,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "none"
+  },
+  "code-review-best/lens9-clean/1": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "code-review/lens10-clean/0": {
+   "actionable": false,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "none"
+  },
+  "code-review/lens10-clean/1": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "critical",
+   "verdict": "real"
+  },
+  "code-review/lens10-clean/2": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "code-review/lens10-clean/3": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "code-review/lens11-clean/0": {
+   "actionable": false,
+   "decided_by": "tiebreaker",
+   "severity": null,
+   "verdict": "none"
+  },
+  "code-review/lens11-clean/1": {
+   "actionable": false,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "trivial"
+  },
+  "code-review/lens12-clean/0": {
+   "actionable": false,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "none"
+  },
+  "code-review/lens12-clean/1": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "code-review/lens12-clean/2": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "code-review/lens12-clean/3": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "code-review/lens12-clean/4": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "code-review/lens12-clean/5": {
+   "actionable": false,
+   "decided_by": "tiebreaker",
+   "severity": null,
+   "verdict": "wrong"
+  },
+  "code-review/lens12-clean/6": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "code-review/lens5-clean/0": {
+   "actionable": false,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "none"
+  },
+  "code-review/lens5-clean/1": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "code-review/lens5-clean/2": {
+   "actionable": false,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "none"
+  },
+  "code-review/lens5-clean/3": {
+   "actionable": false,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "none"
+  },
+  "code-review/lens6-clean/0": {
+   "actionable": false,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "none"
+  },
+  "code-review/lens6-clean/1": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "code-review/lens6-clean/2": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "high",
+   "verdict": "real"
+  },
+  "code-review/lens6-clean/3": {
+   "actionable": false,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "wrong"
+  },
+  "code-review/lens7-clean/0": {
+   "actionable": false,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "none"
+  },
+  "code-review/lens7-clean/1": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "code-review/lens7-clean/2": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "code-review/lens7-clean/3": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "code-review/lens7-clean/4": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "code-review/lens8-clean/0": {
+   "actionable": false,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "none"
+  },
+  "code-review/lens8-clean/1": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "high",
+   "verdict": "real"
+  },
+  "code-review/lens8-clean/2": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "high",
+   "verdict": "real"
+  },
+  "code-review/lens8-clean/3": {
+   "actionable": false,
+   "decided_by": "tiebreaker",
+   "severity": null,
+   "verdict": "wrong"
+  },
+  "code-review/lens8-clean/4": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "high",
+   "verdict": "real"
+  },
+  "code-review/lens8-clean/5": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "high",
+   "verdict": "real"
+  },
+  "code-review/lens8-clean/6": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "high",
+   "verdict": "real"
+  },
+  "code-review/lens8-clean/7": {
+   "actionable": false,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "none"
+  },
+  "code-review/lens9-clean/0": {
+   "actionable": false,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "none"
+  },
+  "code-review/lens9-clean/1": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "code-review/lens9-clean/2": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/lens10-clean/0": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "critical",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/lens10-clean/1": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/lens10-clean/2": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/lens11-clean/0": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "high",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/lens12-clean/0": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/lens12-clean/1": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/lens12-clean/10": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/lens12-clean/11": {
+   "actionable": true,
+   "decided_by": "tiebreaker",
+   "severity": null,
+   "verdict": "trivial"
+  },
+  "curmudgeon-lite/lens12-clean/2": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/lens12-clean/3": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/lens12-clean/4": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/lens12-clean/5": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/lens12-clean/6": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/lens12-clean/7": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/lens12-clean/8": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": null,
+   "verdict": "trivial"
+  },
+  "curmudgeon-lite/lens12-clean/9": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/lens5-clean/0": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/lens5-clean/1": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/lens6-clean/0": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "high",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/lens6-clean/1": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/lens7-clean/0": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/lens7-clean/1": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/lens7-clean/2": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/lens8-clean/0": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "high",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/lens8-clean/1": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "high",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/lens8-clean/2": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/lens8-clean/3": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/lens8-clean/4": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/lens9-clean/0": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/lens9-clean/1": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/lens9-clean/2": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/lens9-clean/3": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/lens9-clean/4": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "curmudgeon-lite/lens9-clean/5": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "curmudgeon/lens10-clean/0": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "critical",
+   "verdict": "real"
+  },
+  "curmudgeon/lens10-clean/1": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon/lens10-clean/2": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "curmudgeon/lens10-clean/3": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "curmudgeon/lens10-clean/4": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "curmudgeon/lens10-clean/5": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "curmudgeon/lens11-clean/0": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "high",
+   "verdict": "real"
+  },
+  "curmudgeon/lens12-clean/0": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "curmudgeon/lens12-clean/1": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon/lens12-clean/10": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon/lens12-clean/11": {
+   "actionable": false,
+   "decided_by": "tiebreaker",
+   "severity": null,
+   "verdict": "wrong"
+  },
+  "curmudgeon/lens12-clean/2": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon/lens12-clean/3": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "curmudgeon/lens12-clean/4": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon/lens12-clean/5": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon/lens12-clean/6": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon/lens12-clean/7": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "curmudgeon/lens12-clean/8": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "curmudgeon/lens12-clean/9": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "curmudgeon/lens5-clean/0": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "curmudgeon/lens5-clean/1": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "curmudgeon/lens5-clean/2": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon/lens6-clean/0": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "high",
+   "verdict": "real"
+  },
+  "curmudgeon/lens6-clean/1": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "curmudgeon/lens6-clean/2": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "curmudgeon/lens6-clean/3": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "curmudgeon/lens6-clean/4": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon/lens7-clean/0": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon/lens7-clean/1": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon/lens8-clean/0": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "high",
+   "verdict": "real"
+  },
+  "curmudgeon/lens8-clean/1": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "high",
+   "verdict": "real"
+  },
+  "curmudgeon/lens8-clean/2": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon/lens8-clean/3": {
+   "actionable": true,
+   "decided_by": "tiebreaker",
+   "severity": null,
+   "verdict": "trivial"
+  },
+  "curmudgeon/lens9-clean/0": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon/lens9-clean/1": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon/lens9-clean/2": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  },
+  "curmudgeon/lens9-clean/3": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "medium",
+   "verdict": "real"
+  },
+  "curmudgeon/lens9-clean/4": {
+   "actionable": true,
+   "decided_by": "agreed",
+   "severity": "low",
+   "verdict": "real"
+  }
+ },
+ "tiebroken": 9
+}

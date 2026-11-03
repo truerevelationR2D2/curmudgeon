@@ -6,7 +6,7 @@ usage: critic_map.py [--files PATH ...] [--base GIT_REF] [--intent "what the cha
 Without --files it uses `git diff --name-only` against --base (default HEAD), plus untracked files.
 
 Tier: trivial (≤2 files, <20 changed lines, nothing sensitive), full (anything sensitive, >10 files or >400
-lines), else lite. The tier sets the review size: trivial = one reviewer and no verification; lite = one reviewer
+lines), else lite. The tier sets the review size: trivial = one reviewer, with verification of contested findings only (a lone traced Critical or High); lite = one reviewer
 plus verification of Critical/High; full = three blind reviewers, verification and the full sandbox."""
 import json, os, pathlib, posixpath, re, subprocess, sys
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))

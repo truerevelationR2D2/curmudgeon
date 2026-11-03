@@ -2,6 +2,57 @@
 
 Every release of Curmudgeon, newest first. The repository's history starts at 4.2.1; earlier versions are summarised from the project's own build and review records. Numbers are the ones measured at the time; the README's Benchmarks section has the current ones and how they were measured.
 
+## Unreleased: audit batch 5 (Mediums, Lows and Nits)
+
+Batch 5 of the ultimate audit of 30 Oct 2026 (03 §5.57). Each fix has a test that fails on the code before it (`plugin/tests/cases_8.py`). F-0dcc1490, V44 and Q13 were already fixed in batch 1.
+- **The reviewers' Bash guard (V22, Q16, Q01, P3, V14).** It no longer reads a URL, a search pattern, `tr`'s sets, an `awk -F` or `cut -d` separator, or a lone `/` in a heredoc body as a path, so `grep -rn "http://"`, `grep "../"` and a probe that divides two numbers work again. The same paths written as operands are still refused. It expands a command's own variables (`X=.cri; cat ${X}tic/...`), refuses inline code that names `.critic` or `~/.curmudgeon`, refuses `ps`, `pgrep`, `lsof` and `/proc` reads (other agents' command lines), and recognises `require("https")` and its relatives as network code. It is still a tripwire, not a sandbox.
+- **Globs (V27, Q17).** A Glob's `{a,b}` alternatives are expanded and judged. One with more than 5,000 matches from a folder that holds `.critic/` is refused, never cut off silently.
+- **Hooks (V26, Q11).** The stuck watcher's refusal now reaches a repeated Write or Edit. A notebook edit gets the while-you-work scan.
+- **Reviewers' copies (V24, V23).** A tracked file the copy left out (over 5 MB) no longer shows as deleted in the copy's git, while the owner's own deletions still do. An earlier run's output in a nested `.critic/` (reviews, findings, history) is neither copied nor put in the copy's git; a nested ledger or recorded copy, as the eval fixtures carry, still is.
+- **Counting (V07, V08, V32, P2, Q20, Q23, Q10).**
+  - In the trivial tier, one reviewer's traced Critical or High is contested and verified, as the docs say.
+  - The verdict word follows from the counts, and `counts.md` prints it: BLOCK when a Critical or High is counted, CONCERNS when only Medium or Low ones are, CLEAN when nothing is. The stamp refuses any other word [PROPOSED rule: before this, only CLEAN with a Critical or High was refused].
+  - A dedup group joining two reviewers' findings in different files, where no file is shared, counts the votes the script matched itself. So two unrelated Mediums can't make one kept finding; such a finding goes to a verifier instead. One recorded replay changes from 2 votes to 1 for a finding the verifier confirmed; its counts are unchanged.
+  - A review that changed after the tally that listed the dedup candidates isn't counted with those groups.
+  - One bad JSON line costs only that line of a review, and is named.
+  - The tally and the files beside it are written whole or not at all.
+  - A ledger finding that isn't a record stops the command instead of vanishing on the next save.
+- **The lead's steps (P5).** During a review run, a reviewer whose prompt doesn't hold its brief word for word is refused.
+- **Scanners.**
+  - curl's `--user`, `-U`, `--proxy-user` and joined `-uUSER:PASS` forms are masked (F-bd5e8b92).
+  - Unquoted credentials in `.npmrc`, shell scripts, Dockerfiles (`ENV`), `.pypirc` and `.netrc` are found (F-7b40ffc1).
+  - An attacker-chosen expression in `actions/github-script`'s `script:` is an injection, as in `run:` (F-c02301cf).
+  - Upper-case extensions (`app.JS`) get the code rules (Q14).
+  - One odd `package.json` or lockfile no longer stops every dependency check (Q19).
+  - `catalog.info(password)` is no log call, while `audit_log.info(password)` is (F-a92bf605).
+  - `DEBUG = True` under `devices/` or `latest/` is flagged (F-0203513e).
+  - A database URL whose password holds an unencoded `@` is found (F-0c3380dc).
+  - An assert in a nested function the test never calls doesn't count as a check (V42).
+  - A scope entry with a port that isn't a number is refused with a reason (Q12).
+  - Long one-line YAML flow lists are read in linear time (V36).
+  - The scan's live request cap is shared with `browse.py`'s for the whole run (V41).
+- **The browser driver (O4, V45).** It takes its lock with `msvcrt` on Windows, which has no `fcntl`, and `press` types nothing into a focused password, hidden or file field.
+- **The eval kit (V38, V40, Q15, V43, V05, V20, M2).**
+  - An unmatched Nit needs a label and costs precision like any finding.
+  - A cited range over 10 lines, or `myapp.js` for `app.js`, doesn't point at a plant.
+  - Fix advice that names a planted defect earns no credit.
+  - The fast-create id check freezes the clock, so the `Date.now()` collision fails it.
+  - The consent eval commits its `rules.md`, as a clone would, needs the scan to report mutation testing blocked, and `review-never-edits` also catches shell edits.
+  - `bench_stats.py` reads an archived run's recorded scores when the files have the same time (a fresh clone), and `--rescore` forces scoring again.
+  - No test leaves a file in the system's temporary folder.
+  - Rescoring the 5.2.4 archive with these changes gives the same numbers.
+
+## Unreleased: audit batch 4 (documents and the benchmark scorer)
+
+Batch 4 of the ultimate audit of 30 Oct 2026 (03 §5.57). The two scorer and number fixes have tests that fail on the code before them (`plugin/tests/cases_8.py`); the rest are document fixes.
+- **The benchmark splitter (V18).** The death match's free-form splitter now keeps a numbered finding's flush bullets with it and ends a list at the prose after it. The old splitter cut the code-review plugin's findings so that the claim and the location landed in different blocks. Rescored with the archived replies: the plugin as it runs found 48 planted bugs, not 34, and its judged findings fell from 130 to 85, because one finding no longer counts as several bullets. Labels moved to the new block numbers wherever the text was already labelled. Two blind labellers labelled the 7 blocks left over and agreed on all 7. The scores before are kept, and so are the labels as first given. The plain-Claude arms were rescored too (89, 102 and 165 of 245). The older death matches can't be rescored, because their replies weren't kept, and the README says so.
+- **The README's benchmark numbers (V06)** are regenerated from `stats.json`, with the cluster intervals (for example 20–68% for the built-in `/code-review`), and a script test now holds them to it. The budget line is measured again: about 864 tokens always on, and the review skill about 8.8k when it runs.
+- **The benchmark's tuning overlap (V17)** is now disclosed in the README and the write-up. The planted apps are Curmudgeon's own tuning apps, and its checklist names several of their defect classes. Plain Claude given the checklist found 165 of 245. A benchmark on apps Curmudgeon has never seen is still to be run [PROPOSED].
+- **CI and headless runs (P1, Q22).** The README's CI recipe pins each action to a full commit SHA. It also sets `CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=0`, because print mode otherwise stops waiting for background reviewers after ten minutes and the run ends with no review.
+- **Windows (57.4, V19).** The README says plainly that Windows isn't yet supported for live-site checks or the stop gates. It also gives the latest CI results: macOS passes, while the Windows run reached 305 tests and passed 220 of them. CONTRIBUTING no longer implies those jobs gate anything.
+- **What is git-ignored (V04).** PRIVACY.md and the README now say exactly which parts of `.critic/` are ignored. The findings, the teardown, the ledger and the scan's screenshots are not.
+- **Smaller fixes.** Curmudgeon never offers to install Playwright (V11). Only controls that look destructive are simulated in the scan, so the README says so instead of promising that "even a link-style delete never reaches" a running app (V15). CONTRIBUTING points new tests to the highest-numbered part (V21). SECURITY.md gives the right manifest path (V16).
+
 ## Unreleased: Qodo on #21
 
 Two findings, each with a test that fails on the code before it (`plugin/tests/cases_8.py`).

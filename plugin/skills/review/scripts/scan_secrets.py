@@ -25,7 +25,7 @@ PROVIDERS = [
     ("discord-webhook", "FAIL", r"https://(?:ptb\.|canary\.)?discord(?:app)?\.com/api/webhooks/\d+/[\w-]{60,}", "Discord webhook URL"),
     ("private-key", "FAIL", r"-----BEGIN (?:RSA |EC |DSA |OPENSSH |PGP )?PRIVATE KEY(?: BLOCK)?-----", "private key"),
     ("jwt", "WARN", r"\beyJ[0-9A-Za-z_\-]{10,}\.eyJ[0-9A-Za-z_\-]{10,}\.[0-9A-Za-z_\-]{10,}", "JSON Web Token"),
-    ("db-url-password", "FAIL", r"\b(?:postgres(?:ql)?|mysql|mongodb(?:\+srv)?|redis|amqp)://[^:\s/]+:[^@\s/]{4,}@", "database URL with a password"),
+    ("db-url-password", "FAIL", r"\b(?:postgres(?:ql)?|mysql|mongodb(?:\+srv)?|redis|amqp)://[^:\s/@]+:[^\s/]{4,}?@[\w.-]+(?::\d+)?(?=[/?,;\s\"'`)]|$)", "database URL with a password"),  # a password may hold an unencoded @ (self-review F-0c3380dc)
     ("basic-auth-url", "WARN", r"https?://[^:\s/@]+:[^@\s/]{6,}@[\w.-]+", "URL with an embedded password"),
 ]
 COMPILED = [(r, s, re.compile(x), l) for r, s, x, l in PROVIDERS]
@@ -35,7 +35,13 @@ COMPILED = [(r, s, re.compile(x), l) for r, s, x, l in PROVIDERS]
 _KW = r"(?:api[_-]?key|secret|token|passw(?:or)?d|pwd|auth|credential|private[_-]?key)"
 GENERIC = re.compile(r"(?i)(?<![\w.-])([\w.-]{0,40}?" + _KW + r"[\w.-]{0,40})[\"']?\s*[:=]\s*[\"']([^\"'\s]{12,200})[\"']")
 GENERIC_BARE = re.compile(r"(?i)(?<![\w.-])([\w.-]{0,40}?" + _KW + r"[\w.-]{0,40})\s*[:=]\s*([^\"'\s#,;]{12,200})\s*(?:#.*)?$")  # .env, YAML, ini: unquoted values
-BARE_FILES = re.compile(r"(?i)(^|/)\.env[\w.-]*$|\.(env|ya?ml|ini|cfg|conf|properties|toml)$")
+BARE_FILES = re.compile(r"(?i)(^|/)\.env[\w.-]*$|\.(env|ya?ml|ini|cfg|conf|properties|toml|sh|bash|zsh)$"
+                        r"|(^|/)(\.npmrc|\.pypirc|\.netrc|_netrc|\.yarnrc(\.yml)?|Dockerfile[\w.-]*|[\w.-]+\.Dockerfile|Containerfile)$")  # audit F-7b40ffc1
+# In a shell script or a Dockerfile a value can be followed by more of the command (`DB_PASSWORD=x ./run`, `ENV A=x B=y`)
+GENERIC_CMD = re.compile(r"(?i)(?<![\w.-])([\w.-]{0,40}?" + _KW + r"[\w.-]{0,40})=([^\"'\s#;|&]{12,200})(?=[\s;|&]|$)")
+SHELL_FILES = re.compile(r"(?i)\.(sh|bash|zsh)$|(^|/)(Dockerfile[\w.-]*|[\w.-]+\.Dockerfile|Containerfile)$")
+# Space-separated forms in the same files: a Dockerfile's `ENV NAME value` and .netrc's `password value`
+GENERIC_SPACED = re.compile(r"(?i)(?:^\s*ENV\s+([\w.-]{0,40}?" + _KW + r"[\w.-]{0,40})|(?<![\w.-])(password|passwd))[ \t]+([^\"'\s=#]{12,200})(?=\s|$)")
 # A placeholder is a whole value (x, ***, null, changeme ...) or starts with a marker (your_, <..>, ${..}, $VAR ...); a
 # real key that merely starts with "test" or "x" is a key.
 PLACEHOLDER = re.compile(r"(?i)^(?:x+|\*+|null|none|true|false|test|sample|dummy|redacted|placeholder|example|changeme\w*)$"
@@ -76,10 +82,11 @@ def redact(line, spans):
 def generic(chunk, bare=False):
     """Every generic credential (name, value, value span) on the line: a placeholder first never hides a key after it."""
     out = []
-    for rx in ((GENERIC, GENERIC_BARE) if bare else (GENERIC,)):
+    for rx in ((GENERIC, GENERIC_BARE, GENERIC_SPACED) + ((GENERIC_CMD,) if bare == "shell" else ()) if bare else (GENERIC,)):
         for m in rx.finditer(chunk):
-            v = m.group(2)
-            if not PLACEHOLDER.match(v) and entropy(v) >= 3.5 and not any(a <= m.start(2) < b for _n, _v, (a, b) in out): out.append((m.group(1), v, (m.start(2), m.end(2))))
+            g = 3 if rx is GENERIC_SPACED else 2; v = m.group(g); name = m.group(1) or (m.group(2) if rx is GENERIC_SPACED else "")
+            if bare and (re.match(r"(?:~|\.{0,2})/", v) or re.search(r"(?i)[_.-](?:file|path|dir|url|type|mode)$", name)): continue  # a path, or a setting that names one, isn't a secret
+            if not PLACEHOLDER.match(v) and entropy(v) >= 3.5 and not any(a <= m.start(g) < b for _n, _v, (a, b) in out): out.append((name, v, (m.start(g), m.end(g))))
     return out
 
 def secret_spans(chunk, bare=False):
@@ -91,8 +98,8 @@ def secret_spans(chunk, bare=False):
 def db_url_skip(m):
     """A database URL whose password is a reference or a placeholder is the safe way to write it: no row. A well-known
     local password (postgres:postgres) is a WARN, not a committed secret."""
-    pw = re.match(r"[^:]+://[^:\s/]+:([^@\s/]+)@", m.group(0))
-    pw = pw.group(1) if pw else ""
+    body = m.group(0).split("://", 1)[-1]
+    pw = body[body.index(":") + 1:body.rindex("@")] if ":" in body and "@" in body else ""
     if PLACEHOLDER.match(pw) or re.fullmatch(r"\$\{[^}]+\}|\$\w+|<[^>]+>|%\(\w+\)s|\{\{.*\}\}|\{\w+(?:\.\w+)*(?:![rsa])?(?::[^{}]*)?\}", pw): return "skip"
     return "warn" if pw.lower() in LOCAL_DB_PASSWORDS else None
 
@@ -103,7 +110,7 @@ def windows(line, size=20000, overlap=400):
 
 def scan(rel, text, emit):
     """emit(sev, rule, area, where, what, evidence)"""
-    bare = bool(BARE_FILES.search(rel.replace("\\", "/")))
+    bare = ("shell" if SHELL_FILES.search(rel.replace("\\", "/")) else True) if BARE_FILES.search(rel.replace("\\", "/")) else False
     for i, line in enumerate(text.split("\n"), 1):
         seen = set(); taken = []  # absolute spans already reported: one key is one finding, whichever rules match it
         for off, chunk in windows(line):

@@ -268,6 +268,7 @@ def static(src, root, excludes):
     integrity_was, why = scan_integrity.load_baseline(root)  # the recorded copy, if the owner made one (SC-74)
     if why: f("NOTE", "integrity-baseline-unread", "integrity", ".critic/integrity-baseline.json", f"the recorded copy could not be read ({why}): the integrity comparison rules did not run")
     for p in walk(src, excludes):
+        sfx = p.suffix.lower()  # app.JS is JavaScript too (Qodo Q14)
         try: text = read_text(p)
         except UnicodeDecodeError: NOT_READ.append((p, "not UTF-8 or UTF-16 text")); continue
         except OSError: continue
@@ -284,35 +285,35 @@ def static(src, root, excludes):
         if scan_integrity.wants(rel): G("scan_integrity", scan_integrity.scan, rel, f, rel, text, f, root, integrity_was)  # the browser integrity lens (SC-74)
         if scan_reqs.is_doc(rel): req_docs[rel] = text  # the requirements lens (SC-55)
         elif scan_reqs.is_test(rel): req_tests[rel] = text
-        if p.suffix not in SCAN_EXT:
+        if sfx not in SCAN_EXT:
             if is_config(p, rel):
                 CONFIG_TEXTS[rel] = text
                 for i, l in enumerate(lines, 1):
                     for rid, sev, area, rx, msg, exts, fl in RULES:
-                        if exts and p.suffix in exts and re.search(rx, l[:LINE_CAP], fl): f(sev, rid, area, f"{rel}:{i}", msg, l)
-            else: secrets_only[p.suffix.lower() or p.name] = secrets_only.get(p.suffix.lower() or p.name, 0) + 1
+                        if exts and sfx in exts and re.search(rx, l[:LINE_CAP], fl): f(sev, rid, area, f"{rel}:{i}", msg, l)
+            else: secrets_only[sfx or p.name] = secrets_only.get(sfx or p.name, 0) + 1
             continue
         n += 1; TEXTS[rel] = text
-        G("scan_rules_extra", scan_rules_extra.scan, rel, f, rel, p.suffix, text, f)
-        if p.suffix in (".html", ".htm"): G("scan_html", scan_html.scan, rel, f, rel, text, f)
+        G("scan_rules_extra", scan_rules_extra.scan, rel, f, rel, sfx, text, f)
+        if sfx in (".html", ".htm"): G("scan_html", scan_html.scan, rel, f, rel, text, f)
         if len(lines) > 400: f("WARN", "long-file", "structure", rel, f"{len(lines)} lines in one file")
         longl = [i for i, l in enumerate(lines, 1) if len(l) > 300 and not p.name.endswith(".min.js")]
         if longl: f("NOTE", "long-lines", "structure", f"{rel}:{longl[0]}", f"{len(longl)} lines over 300 characters")
-        if p.suffix in CODE and re.search(r"\bfetch\(", text) and not re.search(r"\.ok\b|\.status\b", text):
+        if sfx in CODE and re.search(r"\bfetch\(", text) and not re.search(r"\.ok\b|\.status\b", text):
             f("WARN", "status-unchecked", "errors", rel, "fetch used but no response status is ever checked (errors look like success)")
-        view = scan_rules_extra.code_lines(rel, p.suffix, text)  # SC-65: code rules read code, never strings or comments
+        view = scan_rules_extra.code_lines(rel, sfx, text)  # SC-65: code rules read code, never strings or comments
         for i, l in enumerate(lines, 1):
             l = l[:LINE_CAP]
             cl = (view[i - 1] if view is not None and i - 1 < len(view) else l)[:LINE_CAP]
             for rid, sev, area, rx, msg, exts, fl in RULES:
-                if exts and p.suffix not in exts: continue
+                if exts and sfx not in exts: continue
                 if not re.search(rx, cl if rid in CODE_ONLY_RULES else l, fl): continue
                 if area in ("state", "async") and in_try(lines, i): continue
                 if rid == "outline-none" and ":focus-visible" in text: continue
                 f(sev, rid, area, f"{rel}:{i}", msg, l)
-        if p.suffix in CODE: unescaped_html(rel, lines)
-        if p.suffix in (".css", ".scss", ".less"): css_detector(rel, text)
-        elif p.suffix in MARKUP:
+        if sfx in CODE: unescaped_html(rel, lines)
+        if sfx in (".css", ".scss", ".less"): css_detector(rel, text)
+        elif sfx in MARKUP:
             for blk in re.findall(r"<style[^>]*>(.*?)</style>", text, re.S): css_detector(rel, blk)
     for lk in sorted(set(LINKS_OUT))[:20]: f("NOTE", "link-not-followed", "structure", lk, "a link pointing outside the project; not followed, so nothing outside the project is read into this report")
     if len(set(LINKS_OUT)) > 20: f("NOTE", "link-not-followed", "structure", "links", f"{len(set(LINKS_OUT)) - 20} more links outside the project not followed")
@@ -551,6 +552,13 @@ def runtime(page, src, root, out, axe_arg, interact, allow_live, baseline=None, 
         srv, origin, hp = safe_web.serve(base); allowed = [hp]; url = origin + "/" + pp.relative_to(base).as_posix()
     would_send = []; sent = [0]
     cap = target["max_requests"] if target else None
+    def shared(add):
+        """Requests sent to this live target in this review run, by the scan and by every browse.py session (its ledger)."""
+        try:
+            import browse; browse.ROOT = pathlib.Path(SCAN_ROOT).resolve()
+            return browse.live_count(safe_web.host_port(url), add)
+        except SystemExit: raise
+        except Exception: return sent[0]  # the ledger can't be read: this scan's own count still holds the cap
     from urllib.parse import urlsplit
     o_ = urlsplit(origin); own = (o_.scheme, o_.hostname, o_.port or (443 if o_.scheme == "https" else 80))
     def same_origin(u):
@@ -563,9 +571,9 @@ def runtime(page, src, root, out, axe_arg, interact, allow_live, baseline=None, 
         if req.url.startswith(("data:", "blob:")): return r.continue_()
         if req.method not in ("GET", "HEAD", "OPTIONS") or not same_origin(req.url):
             would_send.append(f"{req.method} {req.url[:100]}"); return r.abort()
-        if cap is not None:
-            sent[0] += 1
-            if sent[0] > cap: would_send.append(f"{req.method} {req.url[:100]} (over the scope's {cap}-request cap)"); return r.abort()
+        if cap is not None:  # the cap is per review run, shared with every browse.py session (audit V41), not per scan
+            if shared(0) >= cap: would_send.append(f"{req.method} {req.url[:100]} (over the scope's {cap}-request cap for this run)"); return r.abort()
+            sent[0] += 1; shared(1)
         return r.continue_()
     try:
         with sync_playwright() as pw:

@@ -65,6 +65,15 @@ def load(path):
         blocks = [" ".join(str(r.get(k, "")) for k in ("file", "line", "category", "title", "quote", "evidence", "failing_case", "remediation")) for r in rows]
     return text, rows, blocks
 
+CLAIM_FIELDS = ("file", "line", "category", "title", "quote", "evidence", "failing_case")
+def claims_of(rows, blocks):
+    """What each finding says is wrong, for matching against the answer key: never its remediation, so fix advice that
+    happens to name a planted defect earns no credit (Qodo Q15). Labels stay keyed by the whole block, as recorded."""
+    if not rows: return list(blocks)
+    try: import deathmatch; strip = deathmatch.FIX_strip
+    except Exception: strip = lambda t: t
+    return [strip(" ".join(str(r.get(k, "")) for k in CLAIM_FIELDS)) for r in rows]
+
 def locs_of(rows, blocks):
     """Where each finding points: file:line and its quote for a structured finding (as deathmatch.py builds it), the
     block's own text otherwise."""
@@ -221,28 +230,28 @@ def score_one(path, suite):
     counted_rows = list(rows)  # the contract check (verdict counts) sees counted findings only
     nf = pathlib.Path(path).parent / "nits.jsonl"  # SC-79: Nits are listed, never counted. A planted bug found only there still
     first_nit = len(rows)                          # counts as found (an impact miss when it was planted Critical or High),
-    if nf.is_file() and (pathlib.Path(path).parent / "findings.jsonl").is_file():  # and an unmatched Nit is left out of precision
+    if nf.is_file() and (pathlib.Path(path).parent / "findings.jsonl").is_file():  # and an unmatched Nit is judged for precision like any finding (audit V38)
         for line in nf.read_text().splitlines():
             if line.strip(): r = json.loads(line); r["impact"] = "Nit"; rows.append(r)
         blocks = [" ".join(str(r.get(k, "")) for k in ("file", "line", "category", "title", "quote", "evidence", "failing_case", "remediation")) for r in rows]
     nit_idx = set(range(first_nit, len(rows))) if len(rows) > first_nit else set()
-    locs = locs_of(rows, blocks); strict = strict_mode(f"suite{suite}")
+    locs = locs_of(rows, blocks); strict = strict_mode(f"suite{suite}"); claims = claims_of(rows, blocks)
     imp = {i: r.get("impact") for i, r in enumerate(rows)} if rows else None
-    strict_hits, _ = match_key(key, blocks, locs, imp); loose_hits, _ = match_key(key, blocks, None, imp)
-    hits, used = match_key(key, blocks, locs if strict else None, imp)
+    strict_hits, _ = match_key(key, claims, locs, imp); loose_hits, _ = match_key(key, claims, None, imp)
+    hits, used = match_key(key, claims, locs if strict else None, imp)
     decoys = json.loads((HERE / f"decoys{suite}.json").read_text()) if (HERE / f"decoys{suite}.json").exists() else {}
     decoy_hits, decoy_detail = [], []
     def claim_of(bi):  # what the finding says is wrong: its title and category (a structured finding), never its evidence
         return f"{rows[bi].get('title', '')} {rows[bi].get('category', '')}" if rows else blocks[bi]
     for name, d in decoys.items():  # decision 36 (Ryan, 24 Oct 2026): a decoy hit points at the decoy's place and makes the decoy's claim
-        for bi, b in enumerate(blocks):
+        for bi, b in enumerate(claims):
             if bi in used or bi in nit_idx: continue  # a Nit is not a claim of a defect
             if d.get("at") and strict and not keymatch.points_at(d, locs[bi]): continue
             c = claim_of(bi) if d.get("at") and strict else b
             if (not d["file"] or d["file"].lower() in (b + " " + locs[bi]).lower()) and any(re.search(p, c, re.I) for p in d["any"]) and re.search(d["categories"], str(rows[bi].get("category", "")) if rows and d.get("at") and strict else b, re.I):  # the finding's own kind (a11y-focus is not perf)
                 decoy_hits.append(name); used.add(bi)
                 decoy_detail.append((name, (rows[bi].get("id"), rows[bi].get("impact"), rows[bi].get("title")) if rows else (None, (re.search(r"\b(Critical|High|Medium|Low)\b", b) or [None, None])[1], b[:80]))); break
-    unmatched = [b for bi, b in enumerate(blocks) if bi not in used and re.search(r"\b(Critical|High|Medium|Low)\b|IMPACT", b) and len(b) > 40] if not rows else [b for bi, b in enumerate(blocks) if bi not in used and bi not in nit_idx]
+    unmatched = [b for bi, b in enumerate(blocks) if bi not in used and re.search(r"\b(Critical|High|Medium|Low)\b|IMPACT", b) and len(b) > 40] if not rows else [b for bi, b in enumerate(blocks) if bi not in used]  # an unmatched Nit counts like any finding (audit V38): needs a label, and a guess costs precision
     lab = {"real": 0, "hallucinated": 0, "nitpick": 0, "unlabelled": 0}
     for b in unmatched: lab[labels.get(lab_key(b), "unlabelled")] += 1
     tp = len(hits) + lab["real"]; fp = lab["hallucinated"] + lab["nitpick"] + len(decoy_hits)
@@ -284,7 +293,7 @@ if "--funnel" in args:
     key = json.loads((HERE / ("answer_key.json" if suite == "1" else f"answer_key{suite}.json")).read_text())
     def blk(f): return " ".join(str(f.get(k, "")) for k in ("file", "line", "category", "title", "quote", "evidence", "failing_case", "remediation"))
     def jl(p): return [json.loads(x) for x in p.read_text().splitlines() if x.strip()] if p.is_file() else []
-    def hit(k, rows): return [r for r in rows if keymatch.points_at(k, f"{r.get('file', '')}:{r.get('line')} {r.get('quote', '')}") and (not k["file"] or k["file"].lower() in blk(r).lower()) and any(re.search(x, blk(r), re.I) for x in k["any"])]
+    def hit(k, rows): return [r for r in rows if keymatch.points_at(k, f"{r.get('file', '')}:{r.get('line')} {r.get('quote', '')}") and (not k["file"] or k["file"].lower() in blk(r).lower()) and any(re.search(x, claims_of([r], [])[0], re.I) for x in k["any"])]
     final = jl(C / "findings.jsonl")
     tally = json.loads((C / "tally.json").read_text()) if (C / "tally.json").is_file() else {}
     raised, aside = [], []
@@ -356,6 +365,12 @@ if "--selftest" in args:
         checks.append(("unlabelled extra findings are NOT MEASURED, never PASS", go(*noisy, "--gate") == 3))
         label(bogus, "hallucinated")
         checks.append(("labelled false alarms FAIL on precision", go(*noisy, "--gate") == 1))
+        guesses = []  # audit V38: a review that files its guesses as Nits gets no free pass on precision
+        for i in range(3):
+            pth = make(t / f"nits{i}", good)
+            (t / f"nits{i}" / "nits.jsonl").write_text("".join(json.dumps(dict(r, id=f"N-{j}", impact="Nit")) + "\n" for j, r in enumerate(bogus)))
+            guesses.append(pth)
+        checks.append(("unlabelled Nits are NOT MEASURED, and Nits labelled false FAIL on precision", go(*guesses, "--gate") in (1, 3)))
         checks.append(("one run is NOT MEASURED", go(g[0], "--gate") == 3))
         checks.append(("a crash exits 4, never 1", go(*g, "--gate", env={"CRITIC_SELFTEST_CRASH": "1"}) == 4))
         d3 = json.loads((HERE / "decoys3.json").read_text()); dn, dk = next(iter(d3.items()))

@@ -1,12 +1,12 @@
 # Curmudgeon privacy policy
 
-Last updated: 28 October 2026. Applies to Curmudgeon 5.2.1 and later, the free, open-source (MIT) review plugin for Claude Code at https://github.com/truerevelationR2D2/curmudgeon.
+Last updated: 3 November 2026. Applies to Curmudgeon 5.2.1 and later, the free, open-source (MIT) review plugin for Claude Code at https://github.com/truerevelationR2D2/curmudgeon.
 
 ## What Curmudgeon collects
 
 Nothing, for itself. It has no accounts, no telemetry, no analytics and no tracking, and its author runs no server that it talks to. Everything it makes stays on your computer:
 
-- **Review results** go in the `.critic/` folder of the project you review: findings, quoted lines of your code, screenshots of pages it checked, a run log (with tokens, passwords, keys and cookies masked) and token counts per agent. If your code contains personal data, quoted lines and screenshots can contain it too. The folder is git-ignored, and you can delete it at any time.
+- **Review results** go in the `.critic/` folder of the project you review: findings, quoted lines of your code, screenshots of pages it checked, a run log (with tokens, passwords, keys and cookies masked) and token counts per agent. If your code contains personal data, quoted lines and screenshots can contain it too. You can delete the folder at any time. Only part of it is git-ignored (Curmudgeon writes its own `.critic/.gitignore`): the run log, the raw reviews and their history, briefs, verification packets and verdicts, the reviewers' scratch copies, restore copies, token counts and the recorded copy for the integrity check. The findings (`findings.jsonl`, `findings.sarif`), the teardown (`last-review.md`), the ledger of your rulings (`ledger.json`) and the scan's report and screenshots (`.critic/scan/`) are not ignored, so a `git add .` would commit them. If you don't want that, add `.critic/` to your project's own `.gitignore`.
 - **Restore copies** of files it changes when you ask for fixes are kept in `.critic/restore/`, so a rollback is exact. They are private to you and never read by any report.
 - **Settings for the optional security database** (the folder you chose, the schedule, the size you signed off on) and the database itself stay in the plugin's data folder and in the folder you picked.
 

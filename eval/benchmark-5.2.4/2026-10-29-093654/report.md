@@ -18,7 +18,7 @@ One scorer for every arm. Precision is NOT MEASURED while any block is unlabelle
 | code-review | lens5-clean | - | 0 | 0 | no findings | 0.1269237 | 270200 | 26.7 |  |
 | code-review | lens6-clean | - | 1 | 0 | 0 of 1 | 0.0940177 | 216542 | 34.4 |  |
 | code-review | lens7-clean | - | 0 | 0 | no findings | 0.0827316 | 160083 | 25.7 |  |
-| code-review | lens8-clean | - | 1 | 0 | 0 of 1 | 0.0955879 | 215867 | 21.7 |  |
+| code-review | lens8-clean | - | 0 | 0 | no findings | 0.0955879 | 215867 | 21.7 |  |
 | code-review | lens9-clean | - | 0 | 0 | no findings | 0.0738157 | 158434 | 23.9 |  |
 | code-review-best | lens10-clean | - | 0 | 0 | no findings | 0.916642705 | 139584 | 73.6 |  |
 | code-review-best | lens11-clean | - | 0 | 0 | no findings | 0.7643274649999999 | 63337 | 85.3 |  |

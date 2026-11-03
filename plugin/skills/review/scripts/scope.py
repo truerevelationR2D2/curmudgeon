@@ -29,7 +29,8 @@ DEFAULT_CAP, MAX_CAP = 200, 5000
 
 def origin_of(url):
     u = urlsplit(url)
-    port = u.port or (443 if u.scheme == "https" else 80)
+    try: port = u.port or (443 if u.scheme == "https" else 80)
+    except ValueError: port = -1  # an unreadable port matches no target (Qodo Q12)
     return (u.scheme, (u.hostname or "").lower(), port)
 
 def load(root):
@@ -59,6 +60,8 @@ def load(root):
         try: u = urlsplit(o)
         except ValueError: return [], f"target {i}: {o!r} is not a URL"
         if u.scheme not in ("http", "https") or not u.hostname: return [], f"target {i}: the origin must be http(s)://host[:port]"
+        try: u.port
+        except ValueError: return [], f"target {i}: {o!r} has a port that isn't a number from 0 to 65535 (Qodo Q12)"
         if "@" in u.netloc: return [], f"target {i}: an origin with a user name or password is never allowed"
         if u.path not in ("", "/") or u.query or u.fragment: return [], f"target {i}: an origin has no path, query or fragment ({o})"
         cap = t.get("max_requests", DEFAULT_CAP)

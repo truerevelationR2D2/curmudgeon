@@ -145,7 +145,7 @@
  },
  {
   "false_alarms": 1,
-  "blocks": 4,
+  "blocks": 5,
   "unlabelled": 0,
   "precision": "0 of 1",
   "arm": "code-review",
@@ -168,10 +168,10 @@
   "error": null
  },
  {
-  "false_alarms": 1,
-  "blocks": 8,
+  "false_alarms": 0,
+  "blocks": 4,
   "unlabelled": 0,
-  "precision": "0 of 1",
+  "precision": "no findings",
   "arm": "code-review",
   "task": "lens8-clean",
   "cost_usd": 0.0955879,
@@ -277,7 +277,7 @@
  },
  {
   "false_alarms": 0,
-  "blocks": 2,
+  "blocks": 3,
   "unlabelled": 0,
   "precision": "no findings",
   "arm": "code-review-best",

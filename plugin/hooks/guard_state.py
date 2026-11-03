@@ -4,13 +4,25 @@ a tripwire against an agent "fixing" its own score, not a lock: shell commands a
 Only active in projects that have a .critic/ folder. Fails open (allows) on any error."""
 import json, os, pathlib, re, sys
 
-PROTECTED = {"ledger.json", "ledger.md", "decisions.md", "gate", "gate-count", "gate-async", "findings.jsonl", "findings.sarif", "tally.json", "counts.md", "async-shown.json", "refutations.jsonl", "runlog.jsonl", "spotcheck.md"}
+PROTECTED = {"ledger.json", "tally-reviews.json", "ledger.md", "decisions.md", "gate", "gate-count", "gate-async", "findings.jsonl", "findings.sarif", "tally.json", "counts.md", "async-shown.json", "refutations.jsonl", "runlog.jsonl", "spotcheck.md"}
 PROTECTED_DIRS = {"baseline", "verify", "restore", "private", "verdicts", "verdicts-variants", "stops", "verify-opened"}  # verdicts: saved by check_contract.py as the verifier returned them, never retyped; stops and verify-opened: the hooks' own records of each agent (§5.56)
 AGENT_PROTECTED = {"scope.json", "rules.md", "rules", "last-review.md"}  # the owner's rules and the run's end marker: an untracked rules.md an agent wrote would count as the owner's  # private: the browser driver's signing key and live-request ledger
 
 def main():
     try: data = json.load(sys.stdin)
     except Exception: return 0
+    import io, contextlib
+    out = io.StringIO()
+    with contextlib.redirect_stdout(out): check(data)
+    if out.getvalue(): sys.stdout.write(out.getvalue()); return 0
+    if re.fullmatch(r"(?:curmudgeon:)?curmudgeon-[a-z]+", str(data.get("agent_type") or "")):  # audit V26: the stuck refusal for a repeated Write or Edit (the PostToolUse watcher sees them; Read-type calls get it in pre_tool.py)
+        try:
+            sys.path.insert(0, os.path.dirname(os.path.abspath(__file__))); import stuck
+            stuck.main(data)
+        except Exception: pass
+    return 0
+
+def check(data):
     ti = data.get("tool_input") or {}
     path = ti.get("file_path") or ti.get("notebook_path") or ""
     if not path: return 0

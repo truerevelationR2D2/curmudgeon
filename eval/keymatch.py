@@ -2,12 +2,13 @@
 
 An answer-key entry may carry "at": [[file, first_line, last_line], ...], the places the planted defect lives. A finding
 credits that plant only when it points at one of them: it cites file:line with the line inside a range (3 lines of slack
-either side, for a finding that cites the call instead of the body), or quotes the plant's "quote". An entry without
+either side, for a finding that cites the call instead of the body; a cited range over 10 lines counts as its first line), or quotes the plant's "quote". An entry without
 "at" is matched on its file and pattern alone, which can over-credit a loose pattern; every entry in the four answer keys
 and every key the planter writes has "at", and score.py reports how many credits came from an entry without one."""
 import pathlib, re
 
 SLACK = 3
+WIDE = 10  # a cited range wider than this credits only its first line: "app.js:1-200" points at nothing in particular (audit V40)
 
 CITE = r"[`'\"*]*\s*(?::L?|#L|\s+L(?=\d)|,?\s*\(?\s*(?:at\s+)?lines?\s+)(\d+)(?:\s*[-–]\s*L?(\d+))?"
 
@@ -15,9 +16,9 @@ def cited_lines(loc, name):
     """Line numbers loc cites for the file called name, in the forms people and tools write: file:12, file:12-15,
     file:L12, file#L12, `file` L12-15 (as GitHub-style reviews write it), file line 12, `file` line 12, file (line 12), file, line 12, file lines 12-15."""
     out = []
-    for m in re.finditer(re.escape(name) + CITE, loc, re.I):
+    for m in re.finditer(r"(?<![\w.-])" + re.escape(name) + CITE, loc, re.I):  # the whole name: myapp.js is not app.js (audit V40)
         a = int(m.group(1)); b = int(m.group(2) or a)
-        out.extend(range(a, min(b, a + 200) + 1))
+        out.extend(range(a, (b if 0 <= b - a <= WIDE else a) + 1))
     return out
 
 def points_at(k, loc):

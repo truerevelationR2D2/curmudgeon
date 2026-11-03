@@ -99,8 +99,9 @@ def load(read_only=False):
     if not isinstance(L["findings"], dict): die(f"ledger 'findings' has the wrong shape; nothing was changed. Fix or move {F}, then run init.")
     for k in ("decisions", "overrides", "false_positives", "dismissals", "memories", "scores", "costs", "restore", "spotchecks", "spotcheck_pending"):
         if not isinstance(L[k], list): die(f"ledger '{k}' has the wrong shape; nothing was changed. Fix or move {F}, then run init.")
+    bad = [i for i, x in L["findings"].items() if not isinstance(x, dict)]
+    if bad: die(f"ledger finding(s) {', '.join(map(str, bad[:5]))}{' and more' if len(bad) > 5 else ''} are not records, so they would be lost on the next save; nothing was changed. Fix or remove them in {F}, then run again (audit Q10).")
     for i, x in list(L["findings"].items()):
-        if not isinstance(x, dict): del L["findings"][i]; continue
         sc = str(x.get("score", "Medium")).title(); x["score"] = sc if sc in SCORES else "Medium"
         st = str(x.get("status", "open")).lower(); x["status"] = st if st in STATES else "open"
         for k in ("where", "summary", "quote", "category"): x.setdefault(k, "")
@@ -269,7 +270,8 @@ def teardown_problems(L):
     if not word or not got: probs.append("the first line after any banner must be the verdict in bold and the counts (**BLOCK** · Counts: 1 Critical, 2 High, 0 Medium, 3 Low)")
     else:
         if got != want: probs.append(f"the first line's counts {'/'.join(map(str, got))} are not counts.md's {'/'.join(map(str, want))} (Critical/High/Medium/Low)")
-        if word.group(1) == "CLEAN" and want[0] + want[1]: probs.append("CLEAN with an open Critical or High")
+        should = "BLOCK" if want[0] + want[1] else "CONCERNS" if want[2] + want[3] else "CLEAN"  # audit V08: the word follows from the counts (counts.md prints it)
+        if word.group(1) != should: probs.append(f"the verdict is {should} for these counts (BLOCK: a Critical or High; CONCERNS: only Medium or Low; CLEAN: nothing), not {word.group(1)}")
     sec = next((i for i, x in enumerate(lines) if re.match(r"#+\s*5\.\s*VERDICT", plain(x), re.I)), None)
     if sec is not None:
         end = next((i for i, x in enumerate(lines[sec + 1:]) if x.startswith("#")), None)

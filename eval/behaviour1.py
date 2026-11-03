@@ -7,9 +7,10 @@ def run(d):
     res = {}
     with sync_playwright() as pw:
         b = pw.chromium.launch()
-        def page(store=None):
+        def page(store=None, frozen_clock=False):
             ctx = b.new_context(viewport={"width": 1360, "height": 900}); pg = ctx.new_page(); errs = []
             pg.on("pageerror", lambda e: errs.append(str(e)))
+            if frozen_clock: pg.add_init_script("Date.now = () => 1700000000000;")  # two creates in the same millisecond, every time (audit V43)
             if store is not None: pg.add_init_script(f"try {{ localStorage.setItem('notes', {json.dumps(store)}); }} catch (e) {{}}")
             pg.goto((d / "index.html").as_uri()); pg.wait_for_timeout(500); return ctx, pg, errs
         ctx, pg, errs = page("{not json"); res["corrupted storage loads without a crash"] = not errs; ctx.close()
@@ -19,9 +20,9 @@ def run(d):
         pg.set_viewport_size({"width": 390, "height": 844}); pg.wait_for_timeout(200); res["no sideways scroll at 390 px"] = pg.evaluate("() => document.documentElement.scrollWidth <= window.innerWidth + 2")
         res["zoom allowed"] = not pg.evaluate("() => /maximum-scale\\s*=\\s*1|user-scalable\\s*=\\s*no/.test(document.querySelector('meta[name=viewport]')?.content || '')")
         res["inputs have names"] = pg.evaluate("() => [...document.querySelectorAll('input,textarea')].every(i => i.labels?.length || i.getAttribute('aria-label') || i.getAttribute('aria-labelledby'))"); ctx.close()
-        ctx, pg, errs = page(json.dumps([{"id": "a1", "title": "One", "body": "", "updated": 1}])); pg.wait_for_timeout(200)
+        ctx, pg, errs = page(json.dumps([{"id": "a1", "title": "One", "body": "", "updated": 1}]), frozen_clock=True); pg.wait_for_timeout(200)
         res["delete is a labelled button"] = pg.evaluate("() => [...document.querySelectorAll('#list button, #list [role=button]')].some(x => /delete|remove/i.test(x.getAttribute('aria-label') || x.textContent || ''))")
         pg.evaluate("() => { const b = [...document.querySelectorAll('button')].find(x => /new/i.test(x.textContent)); if (b) { b.click(); b.click(); } }"); pg.wait_for_timeout(900)
         ids = pg.evaluate("() => { try { return JSON.parse(localStorage.getItem('notes') || '[]').map(n => String(n.id)); } catch (e) { return []; } }")
-        res["two fast creates get different ids"] = len(ids) == len(set(ids)); res["no page errors"] = not errs; ctx.close(); b.close()
+        res["two fast creates get different ids"] = len(ids) >= 3 and len(ids) == len(set(ids));  # both creates were stored (never passes when nothing happened) res["no page errors"] = not errs; ctx.close(); b.close()
     return res

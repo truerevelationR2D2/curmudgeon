@@ -44,11 +44,11 @@ One scorer for every arm. Precision is NOT MEASURED while any block is unlabelle
 | code-review | suite1-clean~3 | - | 0 | 0 | no findings | 0.0912551 | 162518 | 20.3 |  |
 | code-review | suite1-clean~4 | - | 0 | 0 | no findings | 0.0952501 | 162997 | 22.5 |  |
 | code-review | suite1-clean~5 | - | 0 | 0 | no findings | 0.1119706 | 222410 | 30.3 |  |
-| code-review | suite1~1 | 1 of 16 | - | 0 | 5 of 5 | 0.1136796 | 160581 | 20.1 |  |
-| code-review | suite1~2 | 2 of 16 | - | 0 | 5 of 5 | 0.0844651 | 160402 | 19.7 |  |
-| code-review | suite1~3 | 2 of 16 | - | 0 | 6 of 6 | 0.08665 | 160696 | 23.8 |  |
+| code-review | suite1~1 | 3 of 16 | - | 0 | 4 of 4 | 0.1136796 | 160581 | 20.1 |  |
+| code-review | suite1~2 | 3 of 16 | - | 0 | 3 of 3 | 0.0844651 | 160402 | 19.7 |  |
+| code-review | suite1~3 | 3 of 16 | - | 0 | 3 of 3 | 0.08665 | 160696 | 23.8 |  |
 | code-review | suite1~4 | 4 of 16 | - | 0 | 4 of 4 | 0.0863656 | 160654 | 24.7 |  |
-| code-review | suite1~5 | 1 of 16 | - | 0 | 6 of 6 | 0.0864787 | 160684 | 22.6 |  |
+| code-review | suite1~5 | 2 of 16 | - | 0 | 2 of 2 | 0.0864787 | 160684 | 22.6 |  |
 | code-review | suite2-clean~1 | - | 0 | 0 | no findings | 0.1181349 | 224926 | 24.1 |  |
 | code-review | suite2-clean~2 | - | 0 | 0 | no findings | 0.11637639999999999 | 224588 | 24.7 |  |
 | code-review | suite2-clean~3 | - | 0 | 0 | no findings | 0.0920349 | 163233 | 18.0 |  |
@@ -62,18 +62,18 @@ One scorer for every arm. Precision is NOT MEASURED while any block is unlabelle
 | code-review | suite3~1 | 0 of 2 | - | 0 | 1 of 2 | 0.0816537 | 160548 | 17.7 |  |
 | code-review | suite3~2 | 0 of 2 | - | 0 | no findings | 0.0805671 | 160452 | 17.2 |  |
 | code-review | suite3~3 | 0 of 2 | - | 0 | 0 of 1 | 0.081077 | 160589 | 14.9 |  |
-| code-review | suite3~4 | 0 of 2 | - | 0 | 0 of 1 | 0.0814314 | 160512 | 14.1 |  |
+| code-review | suite3~4 | 0 of 2 | - | 0 | no findings | 0.0814314 | 160512 | 14.1 |  |
 | code-review | suite3~5 | 0 of 2 | - | 0 | 1 of 1 | 0.08048820000000001 | 160629 | 16.1 |  |
 | code-review | suite4-clean~1 | - | 0 | 0 | no findings | 0.0795948 | 159705 | 16.6 |  |
 | code-review | suite4-clean~2 | - | 0 | 0 | no findings | 0.07843910000000001 | 159539 | 18.8 |  |
 | code-review | suite4-clean~3 | - | 0 | 0 | no findings | 0.0795438 | 159720 | 17.6 |  |
 | code-review | suite4-clean~4 | - | 0 | 0 | no findings | 0.0739306 | 159067 | 12.6 |  |
 | code-review | suite4-clean~5 | - | 0 | 0 | no findings | 0.0806056 | 159820 | 24.8 |  |
-| code-review | suite4~1 | 1 of 4 | - | 0 | 10 of 10 | 0.0823572 | 159975 | 16.9 |  |
-| code-review | suite4~2 | 1 of 4 | - | 0 | 8 of 8 | 0.0804181 | 159700 | 22.9 |  |
+| code-review | suite4~1 | 4 of 4 | - | 0 | 5 of 5 | 0.0823572 | 159975 | 16.9 |  |
+| code-review | suite4~2 | 4 of 4 | - | 0 | 5 of 5 | 0.0804181 | 159700 | 22.9 |  |
 | code-review | suite4~3 | 4 of 4 | - | 0 | 4 of 4 | 0.0798579 | 159636 | 18.5 |  |
-| code-review | suite4~4 | 1 of 4 | - | 0 | 9 of 9 | 0.0819259 | 159886 | 22.1 |  |
-| code-review | suite4~5 | 0 of 4 | - | 0 | 8 of 8 | 0.0841158 | 160455 | 19.9 |  |
+| code-review | suite4~4 | 4 of 4 | - | 0 | 5 of 5 | 0.0819259 | 159886 | 22.1 |  |
+| code-review | suite4~5 | 0 of 4 | - | 0 | 4 of 4 | 0.0841158 | 160455 | 19.9 |  |
 | code-review-best | suite1-clean~1 | - | 0 | 0 | no findings | 0.6976159349999999 | 63347 | 59.7 |  |
 | code-review-best | suite1-clean~2 | - | 0 | 0 | no findings | 0.677396685 | 139082 | 65.9 |  |
 | code-review-best | suite1-clean~3 | - | 0 | 0 | no findings | 0.6230568650000001 | 63165 | 53.9 |  |

@@ -1,0 +1,7 @@
+[
+ {
+  "id": "R9813a6d7",
+  "app": "app-b12f46",
+  "finding": "Bug and security scan of the introduced code (Opus): nothing flagged. Note text is inserted as plain text, so there is no HTML injection. Pending saves stay with the note they were typed in. A new shared-notes search cancels the old one, so stale results don't show. Unreadable saved data is copied to a backup before anything overwrites it."
+ }
+]

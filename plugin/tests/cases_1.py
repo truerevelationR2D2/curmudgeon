@@ -131,8 +131,9 @@ def _(d):
 @test("5.2.1 security scan F-e18a394b: recovery restores only backups in the private record, never a shipped, edited or linked one, and never before the user allows a run")
 def _(d):
     sys.path.insert(0, str(S)); import scan_mutation
+    d = d / "proj"; d.mkdir()  # the project inside the test's own folder, so the file "outside" it is still cleaned up (audit M2)
     write(d, "a.py", "x = 1\n"); write(d, "a.py.critic-mutation-backup", "import os; os.system('evil')\n")  # shipped in a cloned repo
-    out = d.parent / (d.name + "-outside.txt"); out.write_text("kept\n")
+    out = d.parent / "outside.txt"; out.write_text("kept\n")
     write(d, "b.py.critic-mutation-backup", "overwrite\n"); os.symlink(out, d / "b.py")  # a link out of the project
     rows = []
     scan_mutation.run(d, ["a.py"], lambda *a: rows.append(a), lambda *a: rows.append(a))  # no test command: no consent
@@ -544,7 +545,7 @@ def _(d):
 
 @test("4.1 recheck: links in .critic stop every script; a bad refutation line can't crash apply; verify names, SPDX parentheses, old fp rulings, file- ids")
 def _(d):
-    outside = d.parent / (d.name + "-outside.txt"); outside.write_text("keep me\n" * 5)
+    d = d / "proj"; d.mkdir(); outside = d.parent / "outside.txt"; outside.write_text("keep me\n" * 5)  # inside the test's own folder (audit M2)
     (d / ".critic").mkdir(); os.symlink(outside, d / ".critic/runlog.jsonl")
     for script, args in (("critic_scan.py", [".", "--root", "."]), ("critic_ledger.py", ["init"]), ("critic_map.py", ["--files", "x"]), ("critic_merge.py", ["show"])):
         r = run(S / script, *args, cwd=d); assert r.returncode == 2 and "refusing" in r.stderr, (script, r.stderr)

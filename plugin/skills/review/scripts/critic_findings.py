@@ -394,7 +394,7 @@ REDACT_RULES = [  # applied in order; each masks the value and keeps the label
     (re.compile(r"(?<=://)([^/\s:@]+):([^@\s/]+)@"), lambda m: m.group(1) + ":[redacted]@"),                  # user:password@ in URLs
     (re.compile(r"(?i)(\bhttps?://)([^/\s:@]{8,})@"), lambda m: m.group(1) + "[redacted]@"),                  # token@ in web URLs (ssh user@ stays)
     (re.compile(r"(?i)([?&](?:x-(?:amz|goog)-signature|x-amz-credential|signature|sig)=)([^&\s\"'#]+)"), lambda m: m.group(1) + "[redacted]"),  # signed URLs
-    (re.compile(r"(\s-u\s+)([^\s:]+):(\S+)"), lambda m: f"{m.group(1)}{m.group(2)}:[redacted]"),             # curl -u user:password
+    (re.compile(r"(\s(?:--(?:proxy-)?user(?:=|\s+)|-[uU]\s*)['\"]?)([^\s:'\"]+):([^\s'\"]+)"), lambda m: f"{m.group(1)}{m.group(2)}:[redacted]"),  # curl -u / --user / -U / --proxy-user user:password (audit F-bd5e8b92)
     (re.compile(r"(?i)(\b(?:mysql\w*|mariadb\w*)\b[^|;&\n]{0,200}?\s-p)(\S+)"), lambda m: m.group(1) + "[redacted]"),  # mysql -pPASSWORD
     (re.compile(r"(?i)(\bsshpass\s+-p\s*)(\S+)"), lambda m: m.group(1) + "[redacted]"),
     (re.compile(r"(?i)(\bredis-cli\b[^|;&\n]{0,200}?\s-a\s+)(\S+)"), lambda m: m.group(1) + "[redacted]"),
@@ -568,7 +568,7 @@ def check_manifest(d):
 RUNLOG_MAX = 1_000_000
 # Local state that must never be committed: logs, restore copies, and the files that hold reviewers' raw quotes (a
 # quote can contain a secret from the code under review; the outputs Curmudgeon writes itself are masked by scrub()).
-IGNORED = ("runlog.jsonl", "refutations.jsonl", "cost.jsonl", "scratch/", "manifest.json", "spotcheck.md", "restore/", "reviews/", "history/", "outside/", "verify/",
+IGNORED = ("runlog.jsonl", "tally-reviews.json", "refutations.jsonl", "cost.jsonl", "scratch/", "manifest.json", "spotcheck.md", "restore/", "reviews/", "history/", "outside/", "verify/",
            "tally.json", "dedup-candidates.json", "findings-import.jsonl", "briefs/", "scan-only.txt", "verdicts/", "verdicts-variants/", "verify-variants/", "variants.jsonl", "variants-found.json", "scan-skipped",
            "integrity-baseline.json")  # the owner's recorded copy: a tracked one is never trusted (audit Q04), so it stays out of commits
 _TRACKED = {}

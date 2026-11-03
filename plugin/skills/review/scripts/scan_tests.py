@@ -51,9 +51,28 @@ def _always_true(node):
     if isinstance(node, (ast.List, ast.Set, ast.Dict)): return bool(getattr(node, "elts", None) or getattr(node, "keys", None))
     return False
 
+def _walk_reached(fn):
+    """The nodes of a test body that can run: a nested function or class counts only when the body names it (calls it,
+    or hands it to something that will) or it is decorated (registered somewhere); one defined and never used can't
+    make the test fail (audit V42)."""
+    nested = []
+    def visit(nodes):
+        out, stack = [], list(nodes)
+        while stack:
+            c = stack.pop()
+            if isinstance(c, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)): nested.append(c); continue
+            out.append(c); stack.extend(ast.iter_child_nodes(c))
+        return out
+    seen = visit(fn.body); done = set()
+    while True:
+        names = {n.id for n in seen if isinstance(n, ast.Name)} | {n.attr for n in seen if isinstance(n, ast.Attribute)}
+        more = [x for x in nested if (x.name in names or x.decorator_list) and id(x) not in done]
+        if not more: return seen
+        for x in more: done.add(id(x)); seen += visit(x.body) + visit(x.decorator_list)
+
 def _checks(fn):
     """True when the test body can fail: an assert, an assertion-like call, a raise, or pytest.raises/warns/fail."""
-    for n in ast.walk(fn):
+    for n in _walk_reached(fn):
         if isinstance(n, (ast.Assert, ast.Raise)): return True
         if isinstance(n, ast.Call):
             last = _name(n.func).split(".")[-1]
