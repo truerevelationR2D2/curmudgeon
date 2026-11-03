@@ -531,6 +531,11 @@ def runtime(page, src, root, out, axe_arg, interact, allow_live, baseline=None, 
             for k in names: state(k, "blocked", why)
             f("WARN", "live-refused", "runtime", page, why); return {}
         if target: log_run(SCAN_ROOT, "network", f"live page {page} (scope target {target['host']}, up to {target['max_requests']} requests, GET/HEAD/OPTIONS only)")
+    elif pathlib.Path(page).is_symlink() or not pathlib.Path(page).resolve().is_relative_to(pathlib.Path(root).resolve()):  # decided before Playwright is looked for, so the refusal is reported on every machine (CI, batch 1)
+        from browse import page_refusal
+        why = page_refusal(page, pathlib.Path(root).resolve())
+        for k in names: state(k, "blocked", why)
+        f("WARN", "page-refused", "runtime", page, why); return {}
     try: from playwright.sync_api import sync_playwright
     except ImportError:
         for k in names: state(k, "unavailable", "Playwright not installed")
@@ -539,9 +544,6 @@ def runtime(page, src, root, out, axe_arg, interact, allow_live, baseline=None, 
     import safe_web
     if re.match(r"^https?://", page): url = page; origin = re.match(r"^(https?://[^/]+)", page).group(1); allowed = [safe_web.host_port(page)]
     else:
-        if pathlib.Path(page).is_symlink() or not pathlib.Path(page).resolve().is_relative_to(pathlib.Path(root).resolve()):
-            from browse import page_refusal
-            raise ValueError(page_refusal(page, pathlib.Path(root).resolve()))
         pp = pathlib.Path(page).resolve(); base = src if src.is_dir() and pp.is_relative_to(src.resolve()) else pp.parent  # a path test, not a string prefix (V44)
         if any(safe_web.hidden(x) for x in pp.relative_to(base).parts[:-1]): base = pp.parent  # a page under a dot folder (.vitepress/dist) is served from its own folder: the server never serves dot paths
         # served from this computer only (loopback), never a file whose real path leaves the folder, never a listing
