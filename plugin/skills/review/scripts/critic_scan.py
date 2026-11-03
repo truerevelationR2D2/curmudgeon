@@ -556,6 +556,7 @@ def runtime(page, src, root, out, axe_arg, interact, allow_live, baseline=None, 
         """Requests sent to this live target in this review run, by the scan and by every browse.py session (its ledger)."""
         try:
             import browse; browse.ROOT = pathlib.Path(SCAN_ROOT).resolve()
+            if browse._run_id() == "no-run": return sent[0]  # no review run: this scan's own count (one shared "no-run" key would cap every later scan)
             return browse.live_count(safe_web.host_port(url), add)
         except SystemExit: raise
         except Exception: return sent[0]  # the ledger can't be read: this scan's own count still holds the cap

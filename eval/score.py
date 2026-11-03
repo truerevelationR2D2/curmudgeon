@@ -370,7 +370,13 @@ if "--selftest" in args:
             pth = make(t / f"nits{i}", good)
             (t / f"nits{i}" / "nits.jsonl").write_text("".join(json.dumps(dict(r, id=f"N-{j}", impact="Nit")) + "\n" for j, r in enumerate(bogus)))
             guesses.append(pth)
-        checks.append(("unlabelled Nits are NOT MEASURED, and Nits labelled false FAIL on precision", go(*guesses, "--gate") in (1, 3)))
+        checks.append(("Nits labelled false FAIL on precision", go(*guesses, "--gate") == 1))
+        fresh_n = []
+        for i in range(3):
+            pth = make(t / f"nitsu{i}", good)
+            (t / f"nitsu{i}" / "nits.jsonl").write_text(json.dumps({"id": "N-x", "file": "app.js", "line": 990, "category": "made-up", "impact": "Nit", "title": "an unlabelled guess filed as a Nit"}) + "\n")
+            fresh_n.append(pth)
+        checks.append(("unlabelled Nits are NOT MEASURED, never PASS", go(*fresh_n, "--gate") == 3))
         checks.append(("one run is NOT MEASURED", go(g[0], "--gate") == 3))
         checks.append(("a crash exits 4, never 1", go(*g, "--gate", env={"CRITIC_SELFTEST_CRASH": "1"}) == 4))
         d3 = json.loads((HERE / "decoys3.json").read_text()); dn, dk = next(iter(d3.items()))

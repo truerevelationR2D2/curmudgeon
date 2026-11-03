@@ -24,5 +24,6 @@ def run(d):
         res["delete is a labelled button"] = pg.evaluate("() => [...document.querySelectorAll('#list button, #list [role=button]')].some(x => /delete|remove/i.test(x.getAttribute('aria-label') || x.textContent || ''))")
         pg.evaluate("() => { const b = [...document.querySelectorAll('button')].find(x => /new/i.test(x.textContent)); if (b) { b.click(); b.click(); } }"); pg.wait_for_timeout(900)
         ids = pg.evaluate("() => { try { return JSON.parse(localStorage.getItem('notes') || '[]').map(n => String(n.id)); } catch (e) { return []; } }")
-        res["two fast creates get different ids"] = len(ids) >= 3 and len(ids) == len(set(ids));  # both creates were stored (never passes when nothing happened) res["no page errors"] = not errs; ctx.close(); b.close()
+        res["two fast creates get different ids"] = len(ids) >= 3 and len(ids) == len(set(ids))  # both creates were stored (never passes when nothing happened)
+        res["no page errors"] = not errs; ctx.close(); b.close()
     return res

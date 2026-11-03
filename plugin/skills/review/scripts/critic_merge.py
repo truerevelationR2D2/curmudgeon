@@ -273,7 +273,7 @@ def tally(paths):
     except (OSError, ValueError): snap = {}
     if not isinstance(snap, dict) or snap.get("started") != started or not isinstance(snap.get("hashes"), dict): snap = {"started": started, "hashes": {}}
     now = {pathlib.Path(p).name: hashlib.sha256(pathlib.Path(p).read_bytes()).hexdigest() for p in paths if pathlib.Path(p).is_file()}
-    changed = sorted(k for k, h in now.items() if k in snap["hashes"] and snap["hashes"][k] != h) if groups is not None else []
+    changed = sorted(k for k, h in now.items() if snap["hashes"].get(k) != h) if groups is not None and snap["hashes"] else []  # changed, or not in that tally at all (batch 5 review)
     if changed: die(f"{', '.join(changed)} changed after the tally that listed the dedup candidates, so these groups no longer match it and every verifier would run twice. "
                     "Tally again without --groups and redo the dedup step, or start the round again with critic_ledger.py round")
     if groups is None: snap["hashes"].update(now)  # the tally that wrote dedup-candidates.json: the grouped tally must count the same reviews
@@ -455,7 +455,7 @@ def tally(paths):
             out["contested"].append(f)  # an outside vote never stands in for a check  # nothing the script could check: verify it, even on one reviewer
         elif (votes >= need and not (out["tier"] == "trivial" and n == 1 and f["impact"] in ("Critical", "High"))) or executed: out["kept"].append(f)  # audit V07: in the trivial tier one reviewer's traced Critical or High is contested, as the docs say, never kept unverified
         elif f["impact"] in ("Critical", "High"): out["contested"].append(f)
-        elif f["impact"] == "Medium" and n > 1:  # 03 §5.57.6: one reviewer's Medium goes to a blind verifier and is kept only if confirmed (the self-review lost a real High this way)
+        elif f["impact"] == "Medium" and n > 1 or c.get("cross_file"):  # 03 §5.57.6: one reviewer's Medium goes to a blind verifier and is kept only if confirmed (the self-review lost a real High this way); so does a cross-file group whatever its impact (batch 5 review: two reviewers' Lows were dropped unverified)
             f["single_vote"] = True; out["contested"].append(f)
         else: out["dropped"].append({"finding": f, "why": f"raised by {votes} of {n} reviewers, not executed"})
     vd = D / "verify"; vd.mkdir(parents=True, exist_ok=True)

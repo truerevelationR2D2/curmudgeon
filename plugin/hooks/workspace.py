@@ -38,16 +38,14 @@ SKIP_ANYWHERE = {".git", ".hg", ".svn", "__pycache__", ".mypy_cache", ".pytest_c
 SKIP_BUILD = {"dist", "build", ".next", "coverage", "target", ".gradle", "out", ".turbo", ".parcel-cache"}  # non-git projects only
 LINK_DIRS = {"node_modules", ".venv", "venv"}
 # An earlier Curmudgeon run's output inside a nested .critic/ (a monorepo package reviewed on its own): never copied, so
-# a reviewer can't anchor on old reviews or findings (audit V23). The rest of a nested .critic (a ledger, a recorded
-# integrity copy, rules) stays: the eval fixtures carry theirs on purpose.
-RUN_OUTPUT = {"reviews", "history", "scratch", "verify", "verify-variants", "verdicts", "verdicts-variants", "outside", "briefs", "restore", "private",
-              "stops", "verify-opened", "scan", "baseline", "findings.jsonl", "findings.sarif", "last-review.md", "counts.md", "tally.json", "runlog.jsonl",
-              "refutations.jsonl", "dedup-candidates.json", "change-map.json", "change-map.md", "cost.jsonl", "stuck.jsonl", "variants.jsonl", "variants-found.json",
-              "findings-import.jsonl", "spotcheck.md", "manifest.json", "scan-only.txt"}
+# a reviewer can't anchor on old reviews or findings (audit V23). Only the owner's own settings in it stay (a ledger, a
+# recorded integrity copy, rules, a scope file): the eval fixtures carry theirs on purpose. An allow-list, so a run
+# output added later is left out too (batch 5 review: nits.jsonl and variants.md got through a deny-list).
+NESTED_KEEP = {"ledger.json", "integrity-baseline.json", "rules.md", "rules", "scope.json", "decisions.md", ".gitignore"}
 def run_output(rel):
-    """True for a path inside a nested .critic/ that holds an earlier run's output (RUN_OUTPUT)."""
+    """True for a path inside a nested .critic/ that isn't one of the owner's settings (NESTED_KEEP)."""
     parts = pathlib.PurePosixPath(str(rel).replace(os.sep, "/")).parts
-    return any(parts[k] == ".critic" and parts[k + 1] in RUN_OUTPUT for k in range(1, len(parts) - 1))
+    return any(parts[k] == ".critic" and parts[k + 1] not in NESTED_KEEP for k in range(1, len(parts) - 1))
 ESCAPE_SCAN_MAX = 300000  # entries walked in one dependency folder before it counts as too large to check
 
 def escaping_link(folder, root):

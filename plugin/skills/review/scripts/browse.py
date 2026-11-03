@@ -326,7 +326,7 @@ def replay(sess, shot_dir, record=None):
                     key = args[0]; lastk = key.rsplit("+", 1)[-1] if len(key) > 1 else key
                     activates = lastk in ("Enter", "NumpadEnter", " ", "Space") or "\n" in key or "\r" in key  # Playwright reads \n and \r as Enter
                     focus = pg.evaluate(FOCUS_JS); mods = key.split("+")[:-1] if len(key) > 1 else []
-                    if focus.get("kind") in ("password", "hidden", "file") and (len(lastk) == 1 or lastk in ("Space",) or len(key) > 1 and "+" not in key and lastk not in KEY_NAMES) and not set(mods) & {"Control", "Meta", "Alt"}:
+                    if focus.get("kind") in ("password", "hidden", "file") and lastk not in KEY_NAMES and not set(mods) & {"Control", "Meta", "Alt"}:  # any key that types (a, Shift+KeyA, Digit1, Space)
                         evidence["refused"] = f"press {args[0]}: the focused field is a {focus['kind']} field, and nothing typed from model output goes into one (audit V45)"; break
                     if not sim and activates and destructive_focus(focus):
                         evidence["refused"] = f"press {args[0]}: the focused control or its form looks destructive, and this session sends data for real"; break

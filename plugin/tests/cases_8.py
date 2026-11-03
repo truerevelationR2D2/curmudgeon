@@ -877,6 +877,8 @@ def _(d):
     run_c(B, "start", "site/index.html", "--session", ses, cwd=d)
     r = run(B, "step", "press", "a", "--session", ses, cwd=d); assert r.returncode == 2 and "password field" in r.stdout, r.stdout
     r = run(B, "step", "press", "Shift+A", "--session", ses, cwd=d); assert r.returncode == 2 and "password field" in r.stdout, r.stdout
+    for k in ("Shift+KeyA", "Digit1"):
+        r = run(B, "step", "press", k, "--session", ses, cwd=d); assert r.returncode == 2 and "password field" in r.stdout, (k, r.stdout)
     r = run(B, "step", "press", "Tab", "--session", ses, cwd=d); assert r.returncode == 0 and "refused" not in r.stdout, r.stdout
 
 @test("audit Q10, Q20 and Q23: a ledger finding that isn't a record stops the command instead of vanishing, one bad JSON line costs only that line, and the tally is written whole or not at all")
@@ -1082,3 +1084,68 @@ def _(d):
     for f in sorted(HERE.glob("tests/cases_*.py")):
         t = f.read_text()
         assert not re.search(r"d\.parent\s*/\s*\(d\.name", t), f"{f.name} writes a file next to its test folder"
+
+# ---- Batch 4 and 5 blind review, round 1 ----
+
+@test("batch 5 review: the guard still refuses every reviewer-found bypass (tr <, paste -s, column -t, grep -e./-f/--file=, rg --files, ag -g, here-strings, unterminated or shell-fed heredocs, split variables, /proc spellings, padded or climbing Globs)")
+def _(d):
+    p = d / "proj"; write(p, "src/app.js", "x\n"); write(p, ".critic/reviews/review-B.json", '[{"title": "SECRET-B"}]'); write(p, ".critic/ledger.json", "{}")
+    run(H / "scratch_dir.py", cwd=p, stdin=json.dumps({"agent_type": "curmudgeon:curmudgeon-reviewer", "agent_id": "r1", "cwd": str(p)}))
+    ws = json.loads((p / ".critic/scratch/r1/workspace.json").read_text())["payload"]; R = "../../../reviews/review-B.json"; P = f"{p}/.critic/reviews/review-B.json"
+    bad = [f"tr a a < {R}", f"tr -d x < {P}", f"paste -s {R}", f"column -t {R}", f"cut -c1- -s {R}", f"grep -e. {R}", f"grep -e. {P}", f"grep -rne x {R}",
+           f"grep -f src/app.js {R}", f"grep --file=src/app.js {R}", f"rg -f src/app.js ../../..", "rg --files ../../..", "rg -l --files ../../..", "ag -g json ../../..",
+           "cat <<<x\ngrep -r SECRET /", "echo '<<X'\ngrep -r SECRET /\nX", "bash <<'EOF'\ngrep -r SECRET /\nEOF", "xargs grep -r SECRET <<EOF\n/\nEOF",
+           "cat <<EOF | xargs grep -rl SECRET\n/\nEOF", "wc -c <<<EOF\ngrep -rl SECRET //",
+           f"export X={p}/.cri; X=zz cat ${{X}}tic/reviews/review-B.json", f"X={p}/.cri; cat ${{X%%zz}}tic/reviews/review-B.json",
+           f"for X in {p}/.cri; do cat ${{X}}tic/reviews/review-B.json; done", f"typeset X={p}/.cri; cat ${{X}}tic/ledger.json",
+           "cat /proc/self/../1/cmdline", "cat //proc/1/cmdline", "Q=/proc; cat $Q/1/cmdline"]
+    ok = ["tr / _ < src/app.js", "awk -F / '{print $1}' src/app.js", "paste -d / src/app.js src/app.js", "column -s / -t src/app.js", "grep -e. src/app.js",
+          "grep -rn 'http://' src", "rg --files src", "python3 - <<'EOF'\nratio = 6 / 3\nprint(ratio)\nEOF", "cat /proc/cpuinfo", "ls /proc",
+          "python3 -c \"import pathlib; pathlib.Path('t/.critic').mkdir(parents=True)\"", "echo .critic >/dev/null; python3 - <<'EOF'\nprint(1)\nEOF"]
+    for c in bad: assert _guard(p, p, "Bash", command=f"cd {ws} && {c}"), c
+    for c in ok: assert not _guard(p, p, "Bash", command=f"cd {ws} && {c}"), c
+    pad = ",".join(f"x{k}" for k in range(70))
+    assert _guard(p, p, "Glob", pattern="{" + pad + ",.critic}/reviews/*.json", path=str(p))
+    for k in range(5003): write(p, f"aaa/f{k}.txt", "")
+    assert _guard(p, p, "Glob", pattern="../../../../{aaa,.critic}/**/*", path=ws)
+
+@test("batch 5 review: database URLs in XML, templates, IPv6 and flow maps are found again, a base64 secret starting with / is found, cross-file Lows are verified, and a late review can't join a grouped tally")
+def _(d):
+    import scan_secrets as ss
+    for rel, line in (("config.xml", "<url>postgres://admin:Zq9xW2vB7kLm@db.internal</url>"), ("app.js", "`postgres://admin:Zq8vLx2mPw9t@${host}/db`"),
+                      ("a.py", "u = 'postgres://admin:Zq8vLx2mPw9t@[::1]:5432/db'"), ("a.properties", "url=jdbc:mysql://admin:Zq8vLx2mPw9t@db.internal}"),
+                      ("config.yaml", "db: {url: postgres://admin:Zq8xW2mR7tLp@db.internal}"), ("docs.md", "<postgres://admin:Zq8xW2mR7tLp@db.internal>"),
+                      ("cfg.py", 'DB = "postgres://app:Pa@ssw0rd99@db.internal:5432/app"')):
+        rows = []; ss.scan(rel, line + "\n", lambda *a: rows.append(a)); assert any(r[1] == "secret-db-url-password" for r in rows), (rel, rows)
+    for rel, line in ((".env", "AWS_SECRET_ACCESS_KEY=/k3J9vQ2mZx8LpR4tW7yB1nC6dF0gH5sA"), ("app.yaml", "jwt_secret: /k8JdQ2mZ9xLp4Rt7Vb3N+aQ")):
+        rows = []; ss.scan(rel, line + "\n", lambda *a: rows.append(a)); assert any(r[1] == "secret-generic" for r in rows), (rel, rows)
+    rows = []; ss.scan(".env", "SECRET_DIR=/var/lib/app/secrets\n", lambda *a: rows.append(a)); assert not rows, rows
+    write(d, "a.py", "def load(path):\n    return open(path).read()\n"); write(d, "b.py", "x = 1\nprint(load(input()))\n"); run(S / "critic_ledger.py", "start", "review", "--tier", "full", cwd=d)
+    a = finding(category="io", impact="Low", file="a.py", line=2, quote="return open(path).read()", title="file handle never closed", failing_case="many loads leak handles")
+    b = finding(category="io", impact="Low", file="b.py", line=2, quote="print(load(input()))", title="reads any path the user types", failing_case="typing /etc/passwd prints it")
+    _tally3(d, [a], [b], [])
+    raw = [it["id"] for v in json.loads((d / ".critic/dedup-candidates.json").read_text())["findings_by_file"].values() for it in v]
+    write(d, ".critic/groups.json", json.dumps({"groups": [raw]}))
+    t = _tally3(d, [a], [b], [], "--groups", ".critic/groups.json")
+    assert not t["dropped"] and t["contested"], (t["dropped"], t["contested"])
+    e = d / "late"; write(e, "src/app.js", APP); run(S / "critic_ledger.py", "start", "review", "--tier", "full", cwd=e)
+    write(e, ".critic/reviews/review-A.json", json.dumps([finding(impact="High")])); write(e, ".critic/reviews/review-B.json", json.dumps([finding(impact="High")]))
+    run(S / "critic_merge.py", "tally", ".critic/reviews/review-A.json", ".critic/reviews/review-B.json", cwd=e)
+    write(e, ".critic/reviews/review-C.json", json.dumps([finding(impact="High")])); write(e, ".critic/groups.json", '{"groups": []}')
+    r = run(S / "critic_merge.py", "tally", *[f".critic/reviews/review-{x}.json" for x in "ABC"], "--groups", ".critic/groups.json", cwd=e)
+    assert r.returncode == 2 and "review-C.json" in r.stderr, r.stderr
+
+@test("batch 5 review: a nested .critic keeps only the owner's settings in a reviewer's copy, the second reviewer can't reuse the first one's brief, and behaviour1 still checks page errors")
+def _(d):
+    p = d / "proj"; write(p, "src/a.py", "x = 1\n")
+    for n in ("nits.jsonl", "variants.md", "groups.json", "ledger.json", "integrity-baseline.json"): write(p, f"pkg/.critic/{n}", "{}")
+    run(H / "scratch_dir.py", cwd=p, stdin=json.dumps({"agent_type": "curmudgeon:curmudgeon-reviewer", "agent_id": "r9", "cwd": str(p)}))
+    ws = pathlib.Path(json.loads((p / ".critic/scratch/r9/workspace.json").read_text())["payload"])
+    assert sorted(x.name for x in (ws / "pkg/.critic").iterdir()) == ["integrity-baseline.json", "ledger.json"]
+    e = d / "b"; write(e, "src/app.js", APP); run(S / "critic_ledger.py", "start", "review", "--tier", "full", cwd=e)
+    for L_ in "AB": write(e, f".critic/briefs/brief-{L_}.md", f"# Brief {L_}\nRead in order {L_}.\n")
+    ask = lambda prompt: run(H / "pre_tool.py", cwd=e, stdin=json.dumps({"tool_name": "Agent", "tool_input": {"subagent_type": "curmudgeon:curmudgeon-reviewer", "prompt": prompt}, "cwd": str(e)})).stdout
+    assert "deny" not in ask("# Brief A\nRead in order A.\n") and "deny" in ask("# Brief A\nRead in order A.\n") and "deny" not in ask("# Brief B\nRead in order B.\n")
+    import ast as _ast
+    keys = {n.value for n in _ast.walk(_ast.parse((HERE.parent / "eval" / "behaviour1.py").read_text())) if isinstance(n, _ast.Constant) and isinstance(n.value, str)}
+    assert "no page errors" in keys

@@ -25,7 +25,7 @@ PROVIDERS = [
     ("discord-webhook", "FAIL", r"https://(?:ptb\.|canary\.)?discord(?:app)?\.com/api/webhooks/\d+/[\w-]{60,}", "Discord webhook URL"),
     ("private-key", "FAIL", r"-----BEGIN (?:RSA |EC |DSA |OPENSSH |PGP )?PRIVATE KEY(?: BLOCK)?-----", "private key"),
     ("jwt", "WARN", r"\beyJ[0-9A-Za-z_\-]{10,}\.eyJ[0-9A-Za-z_\-]{10,}\.[0-9A-Za-z_\-]{10,}", "JSON Web Token"),
-    ("db-url-password", "FAIL", r"\b(?:postgres(?:ql)?|mysql|mongodb(?:\+srv)?|redis|amqp)://[^:\s/@]+:[^\s/]{4,}?@[\w.-]+(?::\d+)?(?=[/?,;\s\"'`)]|$)", "database URL with a password"),  # a password may hold an unencoded @ (self-review F-0c3380dc)
+    ("db-url-password", "FAIL", r"\b(?:postgres(?:ql)?|mysql|mongodb(?:\+srv)?|redis|amqp)://[^:\s/@]+:[^\s/]{4,}?@(?:[\w.-]+|\[[0-9A-Fa-f:.]+\])?(?![\w.@-])", "database URL with a password"),  # a password may hold an unencoded @ (self-review F-0c3380dc); the host may be ${host}, [::1] or end in } < > (batch 5 review)
     ("basic-auth-url", "WARN", r"https?://[^:\s/@]+:[^@\s/]{6,}@[\w.-]+", "URL with an embedded password"),
 ]
 COMPILED = [(r, s, re.compile(x), l) for r, s, x, l in PROVIDERS]
@@ -85,7 +85,7 @@ def generic(chunk, bare=False):
     for rx in ((GENERIC, GENERIC_BARE, GENERIC_SPACED) + ((GENERIC_CMD,) if bare == "shell" else ()) if bare else (GENERIC,)):
         for m in rx.finditer(chunk):
             g = 3 if rx is GENERIC_SPACED else 2; v = m.group(g); name = m.group(1) or (m.group(2) if rx is GENERIC_SPACED else "")
-            if bare and (re.match(r"(?:~|\.{0,2})/", v) or re.search(r"(?i)[_.-](?:file|path|dir|url|type|mode)$", name)): continue  # a path, or a setting that names one, isn't a secret
+            if bare and (re.match(r"(?:~|\.{1,2})/|/[\w.-]+/", v) or re.search(r"(?i)[_.-](?:file|path|dir|url|type|mode)$", name)): continue  # a path, or a setting that names one, isn't a secret
             if not PLACEHOLDER.match(v) and entropy(v) >= 3.5 and not any(a <= m.start(g) < b for _n, _v, (a, b) in out): out.append((name, v, (m.start(g), m.end(g))))
     return out
 
