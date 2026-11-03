@@ -2,6 +2,15 @@
 
 Every release of Curmudgeon, newest first. The repository's history starts at 4.2.1; earlier versions are summarised from the project's own build and review records. Numbers are the ones measured at the time; the README's Benchmarks section has the current ones and how they were measured.
 
+## Unreleased: Qodo on #19
+
+Five findings, each with a test that fails on the code before it (`plugin/tests/cases_8.py`).
+- The gate's suggested `stamp --add` command quotes each deleted path, so a file name is never shell syntax to copy.
+- Tenant-boundary phrases ("tenant scoping", "tenant context", "tenant boundary") make a finding a security one; a plain "tenant" still doesn't.
+- A deleted package `__init__.py` counts as the provider for `from . import name`, so its callers are listed and scanned.
+- A relative import must resolve to the deleted file's exact path; only non-relative imports may leave out a source root. A same-named module elsewhere no longer joins a deletion's callers.
+- A deletion nothing calls reports the static check as not applicable, not as blocked, so the review isn't marked as degraded.
+
 ## Unreleased: the next collected round (Qodo on #18)
 
 Six findings, each with a test that fails on the code before it (`plugin/tests/cases_8.py`).

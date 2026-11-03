@@ -630,3 +630,35 @@ def _(d):
     run(S / "critic_map.py", cwd=e)
     rad = json.loads((e / ".critic/change-map.json").read_text())["radius"]
     assert "src/view.js" in rad.get("src/utils.js: formatDate", []) and "pkg/use.py" in rad.get("pkg/mod.py: compute_total", []), rad
+
+# ---- Qodo on #19 ----
+
+@test("Qodo on #19 (1, 2): the gate's stamp suggestion quotes paths safely, and tenant-boundary phrases are security while a plain 'tenant' is not")
+def _(d):
+    write(d, "src/a b;rm -rf x.py", "x = 1\n"); write(d, "src/b.py", "y = 1\n"); _gate(d)
+    run(S / "critic_ledger.py", "stamp", "src/a b;rm -rf x.py", "src/b.py", cwd=d); _review_now(d)
+    (d / "src/a b;rm -rf x.py").unlink(); time.sleep(0.05)
+    r = run(H / "stop_gate.py", cwd=d, stdin=json.dumps({"cwd": str(d)}))
+    assert "stamp --add 'src/a b;rm -rf x.py'" in json.loads(r.stdout)["reason"], r.stdout
+    import critic_findings as cf
+    for t in ("Tenant scoping is ignored for account reads", "Tenant context not checked on export", "Reads cross the tenant boundary"):
+        assert cf.security_refutation_problem({"verdict": "refuted"}, {"category": "logic", "title": t}), t
+    assert cf.security_refutation_problem({"verdict": "refuted"}, {"category": "ui", "title": "Tenant name truncated in header"}) is None
+
+@test("Qodo on #19 (3, 5): a deleted package initializer's callers count, and a relative import of a same-named module elsewhere does not")
+def _(d):
+    _del_repo(d, {"pkg/__init__.py": "def compute_total(x):\n    return x\n", "pkg/use.py": "from . import compute_total\nprint(compute_total(1))\n",
+                  "other/totals.py": "def compute_total(x):\n    return x\n", "vendor/src/utils.js": "export function formatDate(d) { return d; }\n",
+                  "src/utils.js": "export function formatDate(d) { return d; }\n", "src/view.js": "import { formatDate } from './utils';\nformatDate(1);\n"},
+             ["pkg/__init__.py", "vendor/src/utils.js"])
+    run(S / "critic_map.py", cwd=d)
+    rad = json.loads((d / ".critic/change-map.json").read_text())["radius"]
+    assert "pkg/use.py" in rad.get("pkg/__init__.py: compute_total", []), rad
+    assert "src/view.js" not in rad.get("vendor/src/utils.js: formatDate", []), rad
+
+@test("Qodo on #19 (4): a deletion nothing calls reports the static check as not applicable, not as blocked")
+def _(d):
+    write(d, "a.py", "x = 1\n"); write(d, "only.txt", "")
+    run(S / "critic_scan.py", ".", "--root", ".", "--only", "only.txt", cwd=d)
+    md = (d / ".critic/scan/report.md").read_text()
+    assert re.search(r"\| static \| n/a \|", md) and "DEGRADED" not in md.split("## Checks")[0], md[:600]

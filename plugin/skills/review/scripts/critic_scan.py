@@ -344,6 +344,7 @@ def static(src, root, excludes):
         except ValueError: f("NOTE", "rule-file-invalid", "structure", ".critic/rules", "the rule runner returned no readable results")
     if texts: state("static", *family_state({"safety", "errors", "state", "async", "perf", "a11y", "layout", "domain", "html", "theming", "ux", "tests", "supply-chain", "agent-config", "release", "requirements", "operations", "integrity"}, f"{n} source files, {len(CONFIG_TEXTS)} config files, {texts} text files checked for secrets, {len(custom)} rule-file rules"
                               + (("; not checked beyond secrets: " + ", ".join(f"{k} {v}" for k, v in sorted(secrets_only.items(), key=lambda kv: -kv[1])[:8])) if secrets_only else "")))
+    elif ONLY is not None and not ONLY: state("static", NA, "nothing to scan: the change only deletes files nothing calls")  # an empty list on purpose, not a failure (Qodo on #19)
     else: state("static", "blocked", "no readable files found")
     try:
         g = scan_graph.scan(root, TEXTS, f)

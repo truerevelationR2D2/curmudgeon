@@ -74,20 +74,20 @@ def imports_module(caller, text, target):
     caller's folder ('./utils', '../lib/x', from .mod import f), or an absolute one that matches the target's path or
     its end, so an import that leaves out a source root ('src/') still counts (Qodo on #18)."""
     want = _noext(pathlib.PurePosixPath(target).as_posix()); here = pathlib.PurePosixPath(caller).parent.as_posix()
-    def hit(spec_path): return bool(spec_path) and (spec_path == want or want.endswith("/" + spec_path))
+    def hit(spec_path, relative=False): return bool(spec_path) and (spec_path == want or (not relative and want.endswith("/" + spec_path)))  # a resolved relative path must match exactly (Qodo on #19)
     for m in JS_SPEC.finditer(text):
-        sp = m.group(1)
-        if sp.startswith("."): sp = posixpath.normpath(posixpath.join(here, sp))
-        else: sp = re.sub(r"^(?:@|~)/", "", sp)
-        if hit(_noext(sp)): return True
+        sp = m.group(1); rel_ = sp.startswith(".")
+        sp = posixpath.normpath(posixpath.join(here, sp)) if rel_ else re.sub(r"^(?:@|~)/", "", sp)
+        if hit(_noext(sp), rel_): return True
     for m in PY_FROM.finditer(text):
         dots, mod, names = m.group(1), m.group(2), m.group(3)
         if dots:
             base = here
             for _ in range(len(dots) - 1): base = posixpath.dirname(base)
-            cands = [posixpath.join(base, mod.replace(".", "/"))] if mod else [posixpath.join(base, n.strip().split(" as ")[0].strip()) for n in names.strip("() ").split(",")]
-        else:
-            cands = [mod.replace(".", "/")] + [mod.replace(".", "/") + "/" + n.strip().split(" as ")[0].strip() for n in names.strip("() ").split(",")]
+            cands = [posixpath.join(base, mod.replace(".", "/"))] if mod else [base] + [posixpath.join(base, n.strip().split(" as ")[0].strip()) for n in names.strip("() ").split(",")]  # from . import name: the package's __init__ or a submodule (Qodo on #19)
+            if any(hit(posixpath.normpath(c).lstrip("./"), True) for c in cands): return True
+            continue
+        cands = [mod.replace(".", "/")] + [mod.replace(".", "/") + "/" + n.strip().split(" as ")[0].strip() for n in names.strip("() ").split(",")]
         if any(hit(posixpath.normpath(c).lstrip("./")) for c in cands): return True
     return any(hit(m.group(1).replace(".", "/")) for m in PY_IMPORT.finditer(text))
 
