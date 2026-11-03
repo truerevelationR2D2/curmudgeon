@@ -244,6 +244,15 @@ def heredoc_operators(text):
         out.append(text[pos:m.end()]); out.append(LONE_SLASH.sub(" ", text[m.end():stop])); pos = stop
     return "".join(out) + text[pos:]
 
+TRAVERSE = re.compile(r"\b(?:walk|listdir|scandir|iterdir|r?glob|iglob|readdir\w*|opendir\w*|read_dir|find_files|Find\.find|Dir\.(?:glob|entries|children|each_child|\[))\s*[(\[]")  # code that lists or searches folders
+def _top(g):  # the root as code writes it: '/', '\\', 'C:\\' or os.sep (g: the number of its quote group)
+    return r"(?:[rbuRBU]{0,2}(['\"])(?:[/\\]+|[A-Za-z]:[/\\]*)\%d(?!\s*\.)|os\.(?:path\.)?(?:sep|altsep)\b|path\.sep\b|File::SEPARATOR\b)" % g
+_LIST = r"\b(?:walk|listdir|scandir|iterdir|r?glob|iglob|readdir\w*|opendir\w*|read_dir|Path|PurePath|abspath|realpath|normpath|resolve|chdir|Find\.find|Dir\.\w+)\s*[(\[]\s*"  # a call whose first argument is where it starts
+TOP_START = re.compile(_LIST + r"(?:(?:os\.)?path\.join\s*\(\s*)?" + _top(1)  # the root as that argument, or as the first part of a path.join there
+                       + r"|(?:^|[;\n:])\s*[A-Za-z_]\w*\s*=\s*" + _top(2) + r"\s*(?:$|[;\n#)])"  # a name set to the root on its own line (never a keyword argument: sep='/')
+                       + r"|" + _LIST + r"[rbuRBU]{0,2}['\"]/[^'\"\n]*[*?\[]"  # an absolute wildcard as that argument ('/**/x'), never '/*' counted in a file
+                       + r"|\.anchor\b|\bparents\s*\[\s*-")  # the root by API: Path.cwd().anchor, .parents[-1]
+HOME_START = re.compile(r"\bgetenv\s*\(\s*['\"](?:HOME|USERPROFILE)|\bPath\.home\s*\(|\bexpanduser\s*\(|\bhomedir\s*\(|\bgethome\w*|environ(?:\.get\s*\(|\[)\s*['\"](?:HOME|USERPROFILE)|process\.env\.(?:HOME|USERPROFILE)|ENV\[['\"]HOME|\bDir\.home\b")
 PATTERN_CMDS = {"grep", "egrep", "fgrep", "rg", "ag", "ack", "zgrep"}  # the first operand is a pattern, never a file
 SEPARATOR_OPTS = {"awk": {"-F"}, "gawk": {"-F"}, "mawk": {"-F"}, "cut": {"-d"}, "paste": {"-d"}, "column": {"-s", "-o"}}  # options that take a separator, per command
 VALUE_OPTS = {"grep": {"-m", "--max-count", "-A", "-B", "-C", "--context", "--include", "--exclude", "--exclude-dir", "-d", "-D", "--label"},
@@ -265,22 +274,31 @@ def data_words(cmd, args, base):
             if a in SEPARATOR_OPTS[cmd] and k + 1 < len(args): out.add(base + 2 + k)
         return out
     if cmd in PATTERN_CMDS:
-        explicit = False; k = 0
-        while k < len(args):
-            a = args[k]
-            if cmd == "rg" and a in ("--files", "--type-list"): explicit = True; k += 1; continue  # rg --files takes paths only
-            if a in ("-e", "--regexp") or (cmd in ("ag", "ack") and a == "-g"):
-                if k + 1 < len(args): out.add(base + 2 + k)
-                explicit = True; k += 2; continue
-            if a in ("-f", "--file") or a.startswith(("--file=", "--regexp=")): explicit = True; k += 1 if "=" in a else 2; continue  # the pattern comes from the option; every operand is a path
-            if re.fullmatch(r"-[A-Za-z]*[ef]", a) and len(a) > 2:  # -rne PATTERN, -rf FILE
-                if a[-1] == "e" and k + 1 < len(args): out.add(base + 2 + k)
-                explicit = True; k += 2; continue
-            if re.fullmatch(r"-[A-Za-z]*[ef].+", a): explicit = True; k += 1; continue  # -e. or -ePATTERN, -fFILE: attached
-            if a in VALUE_OPTS.get(cmd, VALUE_OPTS["grep"]): k += 2; continue
-            if a == "--": k += 1; continue
-            if not explicit and not a.startswith("-"): out.add(base + 1 + k); break
-            k += 1
+        def scan():  # walks the options as the tool reads them: GNU grep and ripgrep take options after the operands too
+            explicit, first, k, opts = False, None, 0, True
+            while k < len(args):
+                a = args[k]
+                if opts and a == "--": opts = False; k += 1; continue  # after --, every word is an operand
+                if opts and a.startswith("-") and a != "-":
+                    if cmd == "rg" and a in ("--files", "--type-list"): explicit = True; k += 1; continue  # rg --files takes paths only
+                    if a in ("-e", "--regexp") or (cmd in ("ag", "ack") and a == "-g"):
+                        if k + 1 < len(args): out.add(base + 2 + k)
+                        explicit = True; k += 2; continue
+                    if cmd in ("ag", "ack") and a == "-f": k += 1; continue  # ag -f is --follow, ack -f lists files: neither takes a value
+                    if cmd == "ack" and a == "--match":
+                        if k + 1 < len(args): out.add(base + 2 + k)
+                        explicit = True; k += 2; continue
+                    if a in ("-f", "--file") or a.startswith(("--file=", "--regexp=", "--match=")): explicit = True; k += 1 if "=" in a else 2; continue  # the pattern comes from the option; every operand is a path
+                    if re.fullmatch(r"-[A-Za-z]*[ef]", a) and len(a) > 2:  # -rne PATTERN, -rf FILE
+                        if a[-1] == "e" and k + 1 < len(args): out.add(base + 2 + k)
+                        explicit = True; k += 2; continue
+                    if re.fullmatch(r"-[A-Za-z]*[ef].+", a): explicit = True; k += 1; continue  # -e. or -ePATTERN, -fFILE: attached
+                    k += 2 if a in VALUE_OPTS.get(cmd, VALUE_OPTS["grep"]) else 1; continue
+                if first is None: first = k
+                k += 1
+            return explicit, first
+        explicit, first = scan()  # one pass over the whole command: grep FILE -e x makes FILE a path (Qodo on #22)
+        if not explicit and first is not None: out.add(base + 1 + first)
     return out
 
 def bash_problem(cmd, rec, root, critic, role, me):
@@ -372,10 +390,21 @@ def bash_problem(cmd, rec, root, critic, role, me):
             code = [args[k + 1] for k in range(len(args) - 1) if args[k] in INLINE] + [x for k, x in enumerate(args) if k and args[k - 1] in ("<<<",)]
             if "<<" in args or "<<-" in args: code.append(flat_orig)  # the body as written, before its lone slashes were blanked (round 3 review)  # the body is on the lines after, in the same command text
             if any(NET_CODE.search(c) for c in code): return f"{n} with network code: reviewers and verifiers work offline"
+            def from_top(c):
+                """Code that searches the disk from its root, the home folder or a folder at or above the project can
+                find .critic/ under a name it builds as it runs ('.cri' + 'tic'), so the name never shows (Qodo on
+                #22). A lone / in a heredoc is blanked for the shell's words, never here: this reads the body as
+                written. Splitting or joining on '/' and walking the copy's own folders are not starts at the top."""
+                for lit in re.findall(r"['\"](/[^'\"\n]*)['\"]", c):  # a folder at or above the project, written out
+                    q = os.path.normpath(lit)
+                    if q.strip("/") and any(r_ == q or r_.startswith(q.rstrip("/") + "/") for r_ in (str(root), os.path.realpath(str(root)))): return True
+                if not TRAVERSE.search(c): return False
+                return bool(TOP_START.search(c) or HOME_START.search(c))  # from the root or home, or an absolute wildcard ('/**/x')
             def reaches(c):  # names .critic or ~/.curmudgeon and can leave the copy: the project's own path or a "..", never a .critic folder a probe makes inside the copy (batch 5 review)
                 c = c.replace(str(pay.parent), "")
                 if re.search(r"(?i)\.curmudgeon\b", c): return True
                 if re.search(r"\.\.[/\\]+\.\.|\bdirname\s*\(\s*(?:os\.path\.)?dirname|\.parent\.parent|parents\[\s*[1-9]|os\.walk\s*\(\s*['\"]/['\"]", c): return True  # two levels up from the copy is the scratch folder, three is .critic/ (round 3 review)
+                if from_top(c): return True
                 if not re.search(r"(?i)\.critic\b", c): return False
                 if str(root) in c or os.path.realpath(str(root)) in c or ".." in c or "~" in c: return True
                 if re.search(r"(?i)\.parents?\b|\bpardir\b|\bchdir\b|\bexpanduser\b|\bglob\b|\bos\.sep\b", c): return True  # a climb by API (round 2 review)

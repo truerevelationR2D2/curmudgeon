@@ -122,14 +122,26 @@ def live_count(target, add=0):
     except (OSError, ValueError): led = {}
     key = f"{_run_id()} {target}"
     if not add: return int(led.get(key, 0))
-    with open(p.with_suffix(".lock"), "a+") as lk:  # read, add and write under one lock, so parallel sessions don't lose counts
+    return _locked_add(p, key, add, None)[1]
+
+def reserve(target, cap):
+    """One more request to a live target, admitted only while this run's count across every session is under cap: the
+    check and the add happen under one lock, so two sessions can't both take the last request (Qodo on #22)."""
+    return _locked_add(_private() / "live-requests.json", f"{_run_id()} {target}", 1, cap)[0]
+
+def _locked_add(p, key, add, cap):
+    """Read, check against cap (None: no cap), add and write the ledger under one lock, so parallel sessions don't lose
+    counts or overshoot the cap. Returns (admitted, count)."""
+    with open(p.with_suffix(".lock"), "a+") as lk:
         unlock = _lock(lk)
         try:
             try: led = json.loads(p.read_text()) if p.is_file() and not p.is_symlink() else {}
             except (OSError, ValueError): led = {}
-            led[key] = int(led.get(key, 0)) + add
+            n = int(led.get(key, 0))
+            if cap is not None and n + add > cap: return False, n
+            led[key] = n + add
             tmp = p.with_name(f"live-requests.{os.getpid()}.tmp"); tmp.write_text(json.dumps(led, indent=1)); os.replace(tmp, p)
-            return led[key]
+            return True, led[key]
         finally: unlock()
 
 def _lock(fh):
@@ -220,7 +232,7 @@ def replay(sess, shot_dir, record=None):
     if record and sess.get("record_path"): url = urllib.parse.urljoin(url, sess["record_path"])
     o = urllib.parse.urlsplit(url); own = (o.scheme, o.hostname, o.port or (443 if o.scheme == "https" else 80))
     live = sess.get("live_target"); cap = live["max_requests"] if live else None
-    already = live_count(safe_web.host_port(url)) if live else 0  # sent to this target in this run, by every session
+    live_hp = safe_web.host_port(url) if live else None  # each request to it is reserved against the run's cap as it goes (Qodo on #22)
     phase = [0]; last_phase = len(sess["steps"])  # 0 is the page load, i is step i; only the newest may send data
     offline = sim and is_http and not record  # replayed from the recordings: nothing goes to the real server
     def same(u):
@@ -253,9 +265,11 @@ def replay(sess, shot_dir, record=None):
         if is_write and not write_ok:
             evidence["would_have_sent"].append(f"{rq.method} {redact(rq.url)}"); return route.abort()
         if is_http:  # a real request to the page's own server (a recording, or --allow-writes on loopback)
+            try: ok_ = cap is None or reserve(live_hp, cap)  # the run's cap, shared with every session and the scan, reserved before the request goes
+            except (Exception, SystemExit): ok_ = False  # the ledger can't be read or locked: the request isn't sent (Q22 review)
+            if not ok_:
+                evidence["would_have_sent"].append(f"{rq.method} {redact(rq.url)} (over the scope's request cap for this run)"); return route.abort()
             evidence["sent"] += 1
-            if cap is not None and already + evidence["sent"] > cap:
-                evidence["would_have_sent"].append(f"{rq.method} {redact(rq.url)} (over the scope's request cap for this session)"); return route.abort()
         if is_write: evidence["wrote"] = True
         return route.continue_()
     def ws_guard(ws):
@@ -414,10 +428,6 @@ def check(page, allow_live, allow_writes):
     if allow_writes and not consent_given(ROOT, "writes"): return False, None, "--allow-writes needs the owner's consent on file for this run: after they say yes, run critic_ledger.py consent writes"
     return True, live, ""
 
-def safe_web_hp(page):
-    import safe_web
-    return safe_web.host_port(page)
-
 def main(argv):
     ap = argparse.ArgumentParser(add_help=True); ap.add_argument("cmd", choices=["start", "step", "show", "record"]); ap.add_argument("rest", nargs="*")
     ap.add_argument("--session", required=True); ap.add_argument("--allow-live", default=None); ap.add_argument("--allow-writes", action="store_true")
@@ -440,7 +450,6 @@ def main(argv):
         if simulated(sess) and re.match(r"^https?://", page):  # the one real visit: the page is recorded, then replayed offline
             rec = sp.parent / f"{sp.stem}-recording-1.har"; sess["recordings"] = []
         ev = replay(sess, sp.parent, record=rec); sess["requests_total"] = ev["sent"]
-        if live: live_count(safe_web_hp(page), ev["sent"])
         if ev.get("error") or ev.get("refused"):  # nothing worth replaying: no session, no recording
             if rec and rec.exists(): rec.unlink()
             show(ev); return 2
@@ -466,7 +475,6 @@ def main(argv):
         tmp = dict(sess, record_path=path_, steps=[])
         ev = replay(tmp, sp.parent, record=rec)
         sess["requests_total"] = sess.get("requests_total", 0) + ev["sent"]
-        if live: live_count(safe_web_hp(sess["page"]), ev["sent"])
         if ev.get("error") or ev.get("refused"): show(ev); return 2
         sess.setdefault("recordings", []).append({"path": str(rec.resolve()), "sha256": _sha(rec), "page": path_})
         sp.write_text(json.dumps(sign(sess), indent=1)); print(f"recorded {path_} (GET only); later steps can load it in the simulation"); show(ev); return 0
@@ -478,7 +486,6 @@ def main(argv):
     sess["steps"].append({"verb": verb, "args": args[:VERBS[verb]], **({"expect": a.expect[:300]} if a.expect else {})})
     ev = replay(sess, sp.parent)
     sess["requests_total"] = sess.get("requests_total", 0) + ev["sent"]
-    if live: live_count(safe_web_hp(sess["page"]), ev["sent"])
     if ev.get("refused") or ev.get("error"): sess["steps"].pop()  # a refused or failed step is not kept: the record holds only what was done
     elif ev.get("wrote"): sess["wrote_at"] = len(sess["steps"])
     sp.write_text(json.dumps(sign(sess), indent=1)); show(ev)

@@ -43,11 +43,22 @@ def scan_order(changed, record, mtime):
     #17; collected round review)."""
     def rank(p):
         r = record.get(p)
-        if not isinstance(r, list) or len(r) != 2 or (mtime(p) or 0) > r[0]: return 0
+        if not isinstance(r, list) or len(r) not in (2, 3) or not isinstance(r[0], (int, float)) or (mtime(p) or 0) > r[0]: return 0
         return 1 if r[1] in ("timeout", "failed") else 2
     order = sorted(changed, key=rank)
     retry = [p for p in order if rank(p) == 1][:CHUNK // 2]  # files whose part ran out of time or failed get half of the first part, so fresh edits can't keep them waiting at every stop (Qodo on #20)
     return retry + [p for p in order if p not in set(retry)]
+
+TRIES = 3
+def mark_failed(record, part, before):
+    """A part whose scan failed or came back degraded: retried at later stops, but a version of a file that has failed
+    TRIES times is recorded as given up, so a check that can never run here (an unreadable security database, a part of
+    binary files) stops taking the retry slot from fresh edits at every stop (Qodo on #22). A new edit counts again."""
+    for p in part:
+        r = record.get(p)
+        if isinstance(r, list) and len(r) == 2 and r[1] == "gave-up" and r[0] == before[p]: continue  # given up stays given up for this version (Q22 review)
+        n = r[2] if isinstance(r, list) and len(r) == 3 and r[1] == "failed" and r[0] == before[p] and isinstance(r[2], int) else 0
+        record[p] = [before[p], "gave-up"] if n + 1 >= TRIES else [before[p], "failed", n + 1]
 
 def main():
     try: data = json.load(sys.stdin)
@@ -106,12 +117,14 @@ def main():
             for p in part: record[p] = [before[p], "timeout"]  # after the files not reached yet, next time
             break
         if res.returncode != 0 or not rp.is_file():  # the scanner failed: never recorded as done (Qodo on #20)
-            for p in part: record[p] = [before[p], "failed"]
+            mark_failed(record, part, before)
             continue
         try: degraded = json.loads(rp.read_text()).get("degraded")
         except (OSError, ValueError, AttributeError): degraded = ["unreadable report"]
         reports.append(rp); scanned |= set(part)  # what it did find still counts
-        for p in part: record[p] = [before[p], "failed" if degraded else "ok"]  # a check that didn't run: retried, never recorded as done (Qodo on #21)
+        if degraded: mark_failed(record, part, before)  # a check that didn't run: retried, never recorded as done (Qodo on #21), up to TRIES times (Qodo on #22)
+        else:
+            for p in part: record[p] = [before[p], "ok"]
     try: rec_f.write_text(json.dumps(record)) if not rec_f.is_symlink() else None
     except OSError: pass
     new = []

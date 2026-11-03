@@ -2,6 +2,27 @@
 
 Every release of Curmudgeon, newest first. The repository's history starts at 4.2.1; earlier versions are summarised from the project's own build and review records. Numbers are the ones measured at the time; the README's Benchmarks section has the current ones and how they were measured.
 
+## Unreleased: Qodo on #22
+
+Seven findings, each with a test that fails on the code before it (`plugin/tests/cases_8.py`, "Qodo on #22").
+- **Reviewers' Bash guard, inline code (High).** Code run by an interpreter (`python3 -c`, a heredoc fed to python, `node -e`) could walk the disk from `/` and build the name `.critic` as it ran (`'.cri' + 'tic'`), so neither the name nor a path above the copy showed. The lone `/` in a heredoc is blanked for the shell's words (audit V22), and the old check needed the name written out. Now code that lists or searches folders from the root, the home folder or an absolute wildcard is refused, and so is code that writes out a folder at or above the project. Splitting or joining on `/`, and walking the copy's own folders, still run. The guard is still a tripwire, not a sandbox: a script written to `notes/` and then run is not read (listed below under batch 5).
+- **Reviewers' Bash guard, search options (Medium).** `grep FILE -e x` and `rg PATH --files` were read as a pattern and then a path, so FILE and PATH went unjudged. GNU grep and ripgrep take options after the operands; the guard now reads the whole command before deciding which operand is the pattern.
+- **Live request cap (High).** The scan checked the run's count and recorded a request in two steps, and a browser session read the count once and recorded its requests after its replay. Parallel sessions could each pass the check on the same count. Each request to a live site is now reserved, by the scan and by every session, under one lock before it is sent (`browse.reserve`), and nothing is recorded a second time afterwards.
+- **Benchmark scorer (Medium).** Fix advice in one field of a structured finding (`Fix:` in the evidence) cut off the fields after it, so a planted defect named only in `failing_case` lost its credit. Each field is now stripped on its own.
+- **Operations lens (Medium).** `app.JS` was admitted to the scan but skipped by the operations checks, which compared the suffix case-sensitively.
+- **Test lens (Low).** An assert inside a method of a nested class the test uses (a request handler's `do_GET`, a mock's method) now counts as a check; a class defined and never used still doesn't.
+- **Background stop check (Low).** A check that can never run for a file (an unreadable security database, a part made of binary files) kept that file in the retry slot at every stop. A file version that has failed three times is now recorded as given up; a new edit starts the count again.
+
+Two blind reviewers checked these fixes, one on the guard and one on the rest, each in a private copy with only the diff. Their findings are fixed, each with a failing-first test:
+- The first version of the root rule refused honest probes that print `'//'`, use `sep='/'`, build a route with `'/' + name` or `path.join('/', ...)`, or count `'/*'` in files. It missed `os.getenv('HOME')`, `abspath('/')`, `.anchor` and `parents[-1]`. Now the root counts only as the first argument of a listing call (or of a `path.join` there), or as a name set to it on its own line.
+- `ag -f` (follow links) and `ack -f` take no value; `ack --match PATTERN` names the pattern.
+- A file given up on went back into the retry slot at its next failure; it now stays given up until it changes.
+- Only the suffix is folded for the operations lens. Folding the whole path had left `.GitHub/Workflows/*.yaml` unchecked by either scanner.
+- Only a nested subclass's methods count as reachable (a framework calls them). A plain stub's `raise NotImplementedError` is not a check.
+- A live-request ledger that can't be read or locked now stops the request from being sent.
+
+Not re-reviewed: these follow-up fixes. A `'/*'` word in a heredoc body is still judged as a path, as before; use `-c` for a probe that counts it.
+
 ## Unreleased: audit batch 6 (optional modules)
 
 Ruled in 03 §5.57.5 and confirmed on 3 Nov 2026 as in-plugin modules, not a companion plugin. Browser checks, live sites, mutation testing and the local security database each have their own instructions file under `plugin/skills/review/references/modules/`, which the review skill reads only on a run that uses that feature. The text was moved, with a few sentences added from the code (which controls count as destructive, the request cap per run, the mutation backups); the consent steps keep their wording, and the scripts still refuse a live host, a real send or an unapproved test command without the owner's record. The background stop check was already the gate skill's. The README has an "Optional modules" table. The review skill's cost when it runs fell from about 8.8k to about 8.5k tokens (`claude plugin details`); the always-on cost is unchanged at about 864. A smoke eval of the skill change is still to run [PROPOSED], since moving instructions can change what the lead does.

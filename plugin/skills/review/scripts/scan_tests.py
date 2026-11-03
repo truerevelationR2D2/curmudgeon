@@ -68,7 +68,11 @@ def _walk_reached(fn):
         names = {n.id for n in seen if isinstance(n, ast.Name)} | {n.attr for n in seen if isinstance(n, ast.Attribute)}
         more = [x for x in nested if (x.name in names or x.decorator_list) and id(x) not in done]
         if not more: return seen
-        for x in more: done.add(id(x)); seen += visit(x.body) + visit(x.decorator_list)
+        for x in more:
+            done.add(id(x)); seen += visit(x.body) + visit(x.decorator_list)
+            if isinstance(x, ast.ClassDef) and x.bases:  # a subclass the test uses (a handler's do_GET, a mock's method) has its methods called by the framework: they can fail the test (Qodo on #22)
+                for m in x.body:  # a plain class's methods count only when the test names them (a stub's raise NotImplementedError is no check: Q22 review)
+                    if isinstance(m, (ast.FunctionDef, ast.AsyncFunctionDef)) and id(m) not in done: done.add(id(m)); seen += visit(m.body)
 
 def _checks(fn):
     """True when the test body can fail: an assert, an assertion-like call, a raise, or pytest.raises/warns/fail."""

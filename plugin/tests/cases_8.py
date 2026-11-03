@@ -1021,7 +1021,7 @@ def _(d):
 def _(d):
     src = (S / "critic_scan.py").read_text()
     body = src[src.index("def guard_net(r):"):src.index("with sync_playwright() as pw:", src.index("def guard_net(r):"))]
-    assert "shared(0) >= cap" in body and "shared(1)" in body and "browse.live_count(safe_web.host_port(url), add)" in src, body
+    assert "if not reserve()" in body and "browse.reserve(safe_web.host_port(url), cap)" in src, body  # since Qodo on #22: one locked check-and-add per request
     import browse
     old = browse.ROOT; browse.ROOT = d
     try:
@@ -1279,3 +1279,97 @@ def _(d):
     for c in bad: assert _guard(p, p, "Bash", command=f"cd {ws} && {c}"), c
     ok = ["python3 -c \"import pathlib; d = pathlib.Path.cwd() / 'fixture' / '.critic'; d.mkdir(parents=True, exist_ok=True)\"", "ls $PWD/src", "grep -rn --color '../' src"]
     for c in ok: assert not _guard(p, p, "Bash", command=f"cd {ws} && {c}"), c
+
+# ---- Qodo on #22 ----
+
+def _q22_proj(d):
+    p = d / "proj"; write(p, "src/app.js", "x\n"); write(p, ".critic/reviews/review-B.json", '[{"title": "SECRET-B"}]')
+    run(H / "scratch_dir.py", cwd=p, stdin=json.dumps({"agent_type": "curmudgeon:curmudgeon-reviewer", "agent_id": "r1", "cwd": str(p)}))
+    return p, json.loads((p / ".critic/scratch/r1/workspace.json").read_text())["payload"]
+
+@test("Qodo on #22 (1): inline code that starts from the filesystem root, or from a folder above the project, and builds the protected name at run time is refused, in a heredoc or -c; honest probes that split or join on / still run")
+def _(d):
+    p, ws = _q22_proj(d); anc = str(p.parent)
+    bad = ["python3 - <<'EOF'\nimport os\nn = '.cri' + 'tic'\nfor r, d, f in os.walk(os.sep):\n    if r.endswith(os.path.join(n, 'reviews')):\n        [print(open(os.path.join(r, x)).read()) for x in f]\nEOF",
+           "python3 - <<'EOF'\nimport os\nn = '.cri' + 'tic'\nroot = '/'\nfor r, d, f in os.walk(root):\n    if r.endswith(n + '/reviews'):\n        [print(open(r + '/' + x).read()) for x in f]\nEOF",
+           "python3 - <<'EOF'\nimport glob\nn = '.cri' + 'tic'\nfor x in glob.glob('/' + '**/' + n + '/reviews/*', recursive=True): print(open(x).read())\nEOF",
+           "python3 -c \"import glob; n='.cri'+'tic'; [print(open(x).read()) for x in glob.glob('/**/'+n+'/reviews/*', recursive=True)]\"",
+           f"python3 -c \"import os; n='.cri'+'tic'; [print(r) for r, d, f in os.walk('{anc}')]\"",
+           "python3 -c \"import pathlib; n='.cri'+'tic'; [print(x.read_text()) for x in pathlib.Path('/').rglob('review-*.json') if n in str(x)]\"",
+           "node -e \"const fs=require('fs'); const n='.cri'+'tic'; console.log(fs.readdirSync('/', {recursive: true}).filter(x => x.includes(n)))\"",
+           "python3 -c \"import os; n='.cri'+'tic'; [print(r) for r, d, f in os.walk(os.getenv('HOME'))]\"", "python3 -c \"import os; [print(r) for r, d, f in os.walk(os.path.abspath('/'))]\"",
+           "python3 -c \"import pathlib; [print(x) for x in pathlib.Path.cwd().parents[-1].rglob('review-*.json')]\"", "python3 -c \"import pathlib; [print(x) for x in pathlib.Path(pathlib.Path.cwd().anchor).rglob('review-*.json')]\""]
+    for c in bad: assert _guard(p, p, "Bash", command=f"cd {ws} && {c}"), c
+    ok = ["python3 - <<'EOF'\nprint(6 / 3)\nEOF", "python3 -c \"print('/'.join(['a', 'b']), 'a/b'.split('/'))\"",
+          "python3 - <<'EOF'\nimport os\nfor r, d, f in os.walk('src'):\n    [print(r + '/' + x) for x in f]\nEOF",
+          "python3 -c \"import os; print(os.listdir('.'), os.sep)\"", "python3 -c \"print('//')\"",
+          "python3 -c \"import os; [print(r, x, sep='/') for r, d, f in os.walk('src') for x in f]\"", "python3 -c \"import os; [print('/' + f[:-3]) for f in os.listdir('src')]\"",
+          "node -e \"const fs=require('fs'), path=require('path'); for (const f of fs.readdirSync('src')) console.log(path.join('/', 'api', f))\"",
+          "python3 -c \"import os; [print(x, open(os.path.join(r, x)).read().count('/*')) for r, d, f in os.walk('src') for x in f]\""]  # the guard review of these fixes (a '/*' word in a heredoc body is judged as a path, as before)
+    for c in ok: assert not _guard(p, p, "Bash", command=f"cd {ws} && {c}"), c
+
+@test("Qodo on #22 (5): a grep, rg, ag or ack option after the operands (grep FILE -e x, rg PATH --files) leaves the first operand a path, and it is judged")
+def _(d):
+    p, ws = _q22_proj(d); R = "../../../reviews/review-B.json"
+    bad = [f"grep {R} -e x", f"rg {R} -e x", f"grep {R} -f /dev/null", "rg ../../.. --files", f"grep {R} --regexp=x", f"grep -r {R} -ne x", f"ag {R} -g x", f"grep -- x {R}", f"ack {R} --match x"]
+    for c in bad: assert _guard(p, p, "Bash", command=f"cd {ws} && {c}"), c
+    ok = ["grep -rn '../' src", "grep -e '../' -r src", "rg -- '../' src", "grep -rn x src -e '../'", "ag '../' src -f"]
+    for c in ok: assert not _guard(p, p, "Bash", command=f"cd {ws} && {c}"), c
+
+@test("Qodo on #22 (2): the live request cap is reserved under one lock, request by request, so parallel sessions at a cap of 5 send exactly 5; the scan and the browser driver both reserve before each request")
+def _(d):
+    prog = (f"import sys; sys.path.insert(0, {str(S)!r}); import browse, pathlib; browse.ROOT = pathlib.Path({str(d)!r})\n"
+            "print(sum(browse.reserve('t.test:443', 5) for _ in range(5)))\n")
+    procs = [subprocess.Popen([sys.executable, "-c", prog], stdout=subprocess.PIPE, text=True, cwd=d, env=dict(os.environ, CRITIC_ROOT=str(d), TMPDIR=str(d))) for _ in range(6)]
+    got = sum(int(pr.communicate(timeout=120)[0].strip() or 0) for pr in procs)
+    assert got == 5, got
+    scan = (S / "critic_scan.py").read_text(); body = scan[scan.index("def guard_net(r):"):scan.index("with sync_playwright() as pw:", scan.index("def guard_net(r):"))]
+    assert "reserve(" in body and "shared(0) >= cap" not in body, body
+    br = (S / "browse.py").read_text()
+    assert "reserve(" in br[br.index("def replay("):br.index("def ws_guard(")] and 'live_count(' not in br[br.index("def main("):], "browse.py reserves per request and records nothing after the replay"
+    assert "except (Exception, SystemExit): ok_ = False" in br[br.index("def replay("):br.index("def ws_guard(")], "a ledger that can't be read or locked sends nothing (Q22 review)"
+
+@test("Qodo on #22 (3): fix advice in one structured field no longer cuts off the claim in a later field")
+def _(d):
+    EV = HERE.parent / "eval"; sys.path.insert(0, str(EV))
+    import ast as _ast
+    src = (EV / "score.py").read_text(); tree = _ast.parse(src)
+    ns = {}; exec(compile(_ast.Module(body=[n for n in tree.body if (isinstance(n, _ast.FunctionDef) and n.name == "claims_of") or (isinstance(n, _ast.Assign) and any(getattr(t, "id", "") == "CLAIM_FIELDS" for t in n.targets))], type_ignores=[]), "score", "exec"), ns)
+    row = {"file": "app.js", "line": 3, "title": "Unescaped output", "evidence": "Fix: escape it", "failing_case": "a title of <img onerror> runs script", "remediation": "Fix: escape titles"}
+    c = ns["claims_of"]([row], [""])[0]
+    assert "onerror" in c and "escape titles" not in c, c
+
+@test("Qodo on #22 (4): an uppercase .JS file gets the same operations checks as .js")
+def _(d):
+    import scan_ops
+    for name in ("a.js", "b.JS", "c.PY"):
+        rows = []; scan_ops.scan(name, ("console.log(password)\n" if "s" in name.lower() else "logger.info(password)\n"), lambda *a: rows.append(a), d)
+        assert any(r[1] == "ops-log-secret" for r in rows), (name, rows)
+    pod = "apiVersion: v1\nkind: Pod\nmetadata:\n  name: p\nspec:\n  containers:\n  - name: c\n    image: x\n"
+    rows = []; scan_ops.scan(".GitHub/Workflows/pod.yaml", pod, lambda *a: rows.append(a), d)
+    assert any(r[1] == "ops-k8s-no-probes" for r in rows), ("only the suffix is folded: the workflow folder test keeps its case, as scan_ci's does (Q22 review)", rows)
+
+@test("Qodo on #22 (6): an assert inside a used nested class's method (a request handler the test serves) counts as a check")
+def _(d):
+    import scan_tests, ast as _ast
+    t = ("def test_server():\n    class H(BaseHTTPRequestHandler):\n        def do_GET(self):\n            assert self.path == '/x'\n            self.send_response(200)\n"
+         "    srv = HTTPServer(('127.0.0.1', 0), H)\n    srv.handle_request()\n")
+    fn = _ast.parse(t).body[0]
+    assert scan_tests._checks(fn), "the handler's assert can fail the test"
+    t2 = ("def test_x():\n    class H:\n        def unused(self):\n            assert False\n    x = 1\n")
+    assert not scan_tests._checks(_ast.parse(t2).body[0]), "a class defined and never used still can't fail the test"
+    t3 = ("def test_save():\n    class Repo:\n        def load(self):\n            raise NotImplementedError\n    Service(Repo()).save(1)\n")
+    assert not scan_tests._checks(_ast.parse(t3).body[0]), "a plain stub's uncalled method is not a check (Q22 review)"
+
+@test("Qodo on #22 (7): a check that stays degraded for the same file stops taking the retry slot after three tries")
+def _(d):
+    sys.path.insert(0, str(H)); import stop_async
+    rec = {}
+    for _ in range(3): stop_async.mark_failed(rec, ["a.py"], {"a.py": 10.0})
+    assert stop_async.scan_order(["a.py", "b.py"], rec, lambda p: 10.0) == ["b.py", "a.py"], rec
+    rec2 = {}; stop_async.mark_failed(rec2, ["a.py"], {"a.py": 10.0})
+    assert stop_async.scan_order(["a.py", "b.py"], rec2, lambda p: 10.0)[0] == "a.py", rec2
+    for _ in range(4): stop_async.mark_failed(rec, ["a.py"], {"a.py": 10.0})
+    assert rec["a.py"][1] == "gave-up" and stop_async.scan_order(["a.py", "b.py"], rec, lambda p: 10.0) == ["b.py", "a.py"], ("given up stays given up for that version (Q22 review)", rec)
+    rec3 = {"a.py": [10.0, "failed", 3]}; stop_async.mark_failed(rec3, ["a.py"], {"a.py": 11.0})
+    assert rec3["a.py"][1] == "failed", "a new edit starts the count again"
