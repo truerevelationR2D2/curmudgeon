@@ -11,4 +11,5 @@ If it is on and due, run `update` before the scan (exit 5: it grew past the sign
 estimate and ask again).
 
 The downloads send nothing about the project: size requests and public vulnerability files from OSV.dev and CISA.
-Their log is `feed-log.jsonl` beside the settings in `~/.curmudgeon/feed` (or the folder `CURMUDGEON_FEED_DIR` names).
+Their log is `feed-log.jsonl` beside the settings in `~/.curmudgeon/feed` (`feed/` under `CURMUDGEON_STATE_DIR` when that is set, or the folder
+`CURMUDGEON_FEED_DIR` names).
