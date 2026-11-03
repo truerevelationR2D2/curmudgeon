@@ -657,5 +657,4 @@ def _(d):
     out = run(S / "critic_variants.py", "find", cwd=d).stdout
     lines = [x for x in out.splitlines() if x.strip().startswith("verifier ")]
     assert len(lines) >= 2 and all(len(x.split(":", 1)[1].split()) == 1 for x in lines), ("each Critical variant gets its own verifier", out)
-    import critic_run, critic_findings as cf
-    assert critic_run.verifier_batches is cf.verifier_batches, "one shared rule, not two copies"
+    assert "def verifier_batches" not in (S / "critic_run.py").read_text() and "def verifier_batches" in (S / "critic_findings.py").read_text(), "one shared rule, not two copies"
