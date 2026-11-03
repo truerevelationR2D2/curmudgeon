@@ -686,6 +686,19 @@ def ledger_shipped(root):
     if git_tracked(root, ".critic/ledger.json"): return True
     return read_owner_state(root, "ledger").get("sha") != _sha(p)  # not owner_untracked: a shipped archive can carry its own .git (batch 1 review)
 
+def baseline_shipped(root):
+    """Why .critic/integrity-baseline.json can't be trusted, or None when it is the owner's: exactly the file recorded
+    (critic_scan.py --integrity-record) or adopted (--integrity-adopt) on this machine, and not tracked by git. The same
+    rule as the ledger (ultimate audit Q04: a planted copy listing an attacker's hosts hid the change)."""
+    p = pathlib.Path(root) / ".critic" / "integrity-baseline.json"
+    if git_tracked(root, ".critic/integrity-baseline.json"): return "git tracks it, so it could have come with the code"
+    if read_owner_state(root, "integrity").get("sha") != _sha(p): return "it wasn't recorded or adopted by the owner on this machine, or it changed since; record it again (--integrity-record) or adopt it after checking it (--integrity-adopt)"
+    return None
+
+def record_baseline(root):
+    """Note the sha256 of the recorded copy just written or adopted, in the owner's record outside the project."""
+    write_owner_state(root, "integrity", {"sha": _sha(pathlib.Path(root) / ".critic" / "integrity-baseline.json")})
+
 LEDGER_RULINGS = ("false_positives", "dismissals", "memories", "decisions", "overrides")  # what a ledger can use to hide or steer
 
 def record_ledger(root):

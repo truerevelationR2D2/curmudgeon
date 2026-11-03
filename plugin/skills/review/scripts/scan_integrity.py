@@ -12,8 +12,8 @@ guidance; no rule text copied. Markup is read with Python's own HTML parser; not
                                  the address is written (http:host, http:/host, with tabs or backslashes).
   integrity-duplicate-attr FAIL  a link, form, script or frame tag with two different href, src, action, formaction
                                  or integrity values: the browser uses the first, a reader or tool may see the last.
-  integrity-form-offsite   WARN  a form that posts to a different site from the one the page says it is (its canonical,
-                                 base or og:url host).
+  integrity-form-offsite   WARN  a form that posts to a different site from the one the page says it is (its canonical
+                                 or og:url host; the recorded copy's, when there is one).
   integrity-script-no-sri  WARN  a script from another site with no integrity= hash: if that site is altered, so is
                                  this page.
   integrity-csp-weak       WARN  a Content-Security-Policy (meta tag or a headers file: _headers, vercel.json,
@@ -22,12 +22,17 @@ guidance; no rule text copied. Markup is read with Python's own HTML parser; not
                                  'strict-dynamic'. Browsers ignore those fallbacks in the strict forms, so we do too.
   integrity-changed        FAIL  against the recorded copy (.critic/integrity-baseline.json): a link with the same
                                  text now goes to a different site, a link goes to a site the page never linked to, or
-                                 a form now posts somewhere new.
+                                 a form now posts somewhere new, or the page names another site as its own.
   integrity-new-origin     FAIL  against the recorded copy: a script or frame from a site the recorded copy never used.
-  integrity-baseline-unread NOTE the recorded copy exists but could not be read; the comparison rules did not run.
+  integrity-baseline-unread NOTE the recorded copy exists but could not be read or isn't the owner's; the comparison
+                                 rules did not run.
+  integrity-baseline-old   NOTE the recorded copy predates the own-site list; record it again.
 
 The recorded copy is written by `critic_scan.py --integrity-record` on a version the owner trusts; it holds hosts only
-(no page text beyond link labels). The page's own site counts as "(this site)" in it, so writing a relative address
+(no page text beyond link labels) and the sites each page said it was. It is compared against only when it is exactly
+the file the owner recorded, or adopted with `--integrity-adopt` after seeing it, on this machine, and git doesn't
+track it: one that came with the code could list an attacker's hosts as already there (audit Q04). A <base href>
+decides where relative targets go and is never the page's own site (audit F-5a56b49c). The page's own site counts as "(this site)" in it, so writing a relative address
 out in full is not a change. Without one, the comparison rules stay silent."""
 import json, pathlib, re, unicodedata, urllib.parse
 from html.parser import HTMLParser
@@ -95,12 +100,22 @@ def scripts(label):
             except ValueError: pass
     return s
 
+# Script sets one writing system uses together, on the idea of Unicode's "highly restrictive" identifier level (UTS #39;
+# our own short list, no data copied): Japanese mixes Han, Hiragana and Katakana, Chinese Han and Bopomofo, Korean Han
+# and Hangul, and each may add Latin. Any other mix (Latin with Cyrillic or Greek, Cyrillic with Han) is a look-alike.
+CJK_SETS = ({"LATIN", "CJK", "HIRAGANA", "KATAKANA", "KATAKANA-HIRAGANA"}, {"LATIN", "CJK", "BOPOMOFO"}, {"LATIN", "CJK", "HANGUL"})
+
+def mixed(label):
+    s = scripts(label)
+    return len(s) > 1 and not any(s <= ok for ok in CJK_SETS)
+
 def lookalike(host):
-    """A label that mixes scripts (Latin with Cyrillic, Greek...), or punycode that doesn't decode."""
+    """A label that mixes scripts (Latin with Cyrillic, Greek...), or punycode that doesn't decode. A Japanese, Chinese
+    or Korean name that mixes its own scripts is not one (audit F-e55d7809: Han with Hiragana was flagged)."""
     if not host: return False
     u = unicode_host(host)
     if u is None: return True
-    return any(len(scripts(label)) > 1 for label in u.split("."))
+    return any(mixed(label) for label in u.split("."))
 
 WATCHED_ATTRS = {"href", "src", "action", "formaction", "integrity"}
 WATCHED_TAGS = {"a", "area", "form", "button", "input", "script", "iframe", "link", "base"}  # the tags whose target the lens judges
@@ -110,7 +125,15 @@ class Page(HTMLParser):
     def __init__(self):
         super().__init__(convert_charrefs=True)
         self.links, self.forms, self.scripts, self.frames, self.csp, self.own = [], [], [], [], [], set()
-        self._a = None; self.dupes = []
+        self._a = None; self.dupes = []; self.base = None; self.claims = []  # claims: (site, line) the page says it is
+    def resolve(self, url):
+        """The address a browser would use: a relative one is read against the first <base href> that names a host."""
+        if not self.base or host_of(url) is not None: return url
+        u = clean_url(url)
+        if not u or re.match(r"(?i)^[a-z][a-z0-9+.-]*:", u) and not re.match(r"(?i)^https?:", u): return url  # mailto:, javascript:, data:
+        try: return urllib.parse.urljoin(clean_url(self.base), u)
+        except ValueError: return url
+    def host(self, url): return host_of(self.resolve(url))
     def _close_a(self):
         if self._a is not None: self.links.append(self._a); self._a = None
     def handle_starttag(self, tag, attrs):
@@ -128,9 +151,10 @@ class Page(HTMLParser):
         elif tag == "script" and a.get("src"): self.scripts.append({"src": a["src"], "sri": bool(SRI.match(a.get("integrity", ""))), "line": ln})
         elif tag == "iframe" and a.get("src"): self.frames.append({"src": a["src"], "line": ln})
         elif tag == "meta" and a.get("http-equiv", "").lower() == "content-security-policy": self.csp.append((a.get("content", ""), ln))
-        elif tag == "meta" and a.get("property", "").lower() == "og:url" and host_of(a.get("content", "")): self.own.add(site(host_of(a["content"])))
-        elif tag == "link" and "canonical" in a.get("rel", "").lower() and host_of(a.get("href", "")): self.own.add(site(host_of(a["href"])))
-        elif tag == "base" and host_of(a.get("href", "")): self.own.add(site(host_of(a["href"])))
+        elif tag == "meta" and a.get("property", "").lower() == "og:url" and host_of(a.get("content", "")): self._claim(host_of(a["content"]), ln)
+        elif tag == "link" and "canonical" in a.get("rel", "").lower() and host_of(a.get("href", "")): self._claim(host_of(a["href"]), ln)
+        if tag == "base" and self.base is None and host_of(a.get("href", "")): self.base = a["href"]  # the first base with a host wins, as in a browser; it is where relative targets go, never the page's own site (audit F-5a56b49c)
+    def _claim(self, h, ln): self.own.add(site(h)); self.claims.append((site(h), ln))
     def handle_data(self, data):
         if self._a is not None: self._a["text"] += data
     def handle_endtag(self, tag):
@@ -180,17 +204,22 @@ def mine(h, own):
     return THIS_SITE if s in own else s
 
 def record(rel, text):
-    """What the recorded copy keeps for one file: hosts only."""
+    """What the recorded copy keeps for one file: hosts only, and the sites the page said it was (canonical, og:url),
+    so a later page can't name a new site as its own and have it count as unchanged (audit F-9c12cea5)."""
     p = parse(text)
-    return {"links": sorted({f"{' '.join(l['text'].split())[:80]}\t{mine(host_of(l['href']), p.own)}" for l in p.links if host_of(l["href"])}),
-            "forms": sorted({mine(host_of(f["action"]), p.own) for f in p.forms}),
-            "origins": sorted({mine(host_of(x["src"]), p.own) for x in p.scripts + p.frames if host_of(x["src"])})}
+    return {"links": sorted({f"{' '.join(l['text'].split())[:80]}\t{mine(p.host(l['href']), p.own)}" for l in p.links if p.host(l["href"])}),
+            "forms": sorted({mine(p.host(f["action"]), p.own) for f in p.forms}),
+            "origins": sorted({mine(p.host(x["src"]), p.own) for x in p.scripts + p.frames if p.host(x["src"])}),
+            "own": sorted(p.own)}
 
 def load_baseline(root):
     """(files, problem): the recorded copy's files, or None and why it could not be read ((None, None) when there is none)."""
     bp = pathlib.Path(root) / ".critic" / "integrity-baseline.json"
     if not bp.exists() and not bp.is_symlink(): return None, None
     if bp.is_symlink() or not bp.is_file(): return None, "it is a link or not a file"
+    from critic_findings import baseline_shipped
+    why = baseline_shipped(root)
+    if why: return None, why  # a recorded copy can come with the code, like a ledger: then it decides nothing (audit Q04)
     if bp.stat().st_size > BASELINE_MAX: return None, f"it is over {BASELINE_MAX // 1_000_000} MB"
     try: j = json.loads(bp.read_text(encoding="utf-8"))
     except (OSError, ValueError) as e: return None, f"it is not valid JSON ({type(e).__name__})"
@@ -210,8 +239,17 @@ def scan(rel, text, emit, root, baseline=None):
             if w: emit("WARN", "integrity-csp-weak", "integrity", f"{rel}:{ln}", f"the Content-Security-Policy is weak: {w}, so injected script runs", show(ln))
         return
     p = parse(text)
+    old = (baseline or {}).get(r)
+    if old:
+        if isinstance(old.get("own"), list):  # the recorded copy says which sites the page was: only those are its own, whatever it claims now (audit F-9c12cea5)
+            rec_own = set(old["own"])
+            for s_, ln in p.claims:
+                if s_ not in rec_own:
+                    emit("FAIL", "integrity-changed", "integrity", f"{rel}:{ln}", f"the page now says it is {s_}; the recorded copy said {', '.join(sorted(rec_own)) or 'nothing'}", show(ln))
+            p.own = rec_own
+        else: emit("NOTE", "integrity-baseline-old", "integrity", f"{rel}:1", "the recorded copy was made before it kept the page's own sites, so a site the page names as its own counts as unchanged; record it again (critic_scan.py --integrity-record)", "")
     for l in p.links:
-        h = host_of(l["href"]); shown = " ".join(l["text"].split())
+        h = p.host(l["href"]); shown = " ".join(l["text"].split())
         if lookalike(h): emit("FAIL", "integrity-lookalike-host", "integrity", f"{rel}:{l['line']}", f"the link goes to {h}, a host whose letters mix scripts and can imitate a real domain", show(l["line"])); continue
         m = TEXT_ADDR.match(shown)
         if h and m:
@@ -222,29 +260,28 @@ def scan(rel, text, emit, root, baseline=None):
     for x in p.dupes:
         emit("FAIL", "integrity-duplicate-attr", "integrity", f"{rel}:{x['line']}", f"<{x['tag']}> has two {x['attr']}= values: the browser uses {x['used'][:60]!r}, while a reader or a tool that keeps the last one sees {x['other'][:60]!r}", show(x["line"]))
     for f in p.forms:
-        h = host_of(f["action"])
+        h = p.host(f["action"])
         if lookalike(h): emit("FAIL", "integrity-lookalike-host", "integrity", f"{rel}:{f['line']}", f"the form posts to {h}, a host whose letters mix scripts", show(f["line"])); continue
         if re.match(r"(?i)^http:", clean_url(f["action"])) and h and not LOCAL.match(h):
             emit("FAIL", "integrity-form-insecure", "integrity", f"{rel}:{f['line']}", f"the form posts to {f['action'][:80]} over plain http: what the user types is sent unencrypted", show(f["line"]))
         elif h and p.own and site(h) not in p.own:
             emit("WARN", "integrity-form-offsite", "integrity", f"{rel}:{f['line']}", f"the form posts to {h}, not to this page's own site ({', '.join(sorted(p.own))})", show(f["line"]))
     for x in p.scripts + p.frames:
-        h = host_of(x["src"])
+        h = p.host(x["src"])
         if lookalike(h): emit("FAIL", "integrity-lookalike-host", "integrity", f"{rel}:{x['line']}", f"a resource loads from {h}, a host whose letters mix scripts", show(x["line"]))
     for x in p.scripts:
-        h = host_of(x["src"])
+        h = p.host(x["src"])
         if h and not x["sri"] and not LOCAL.match(h) and not (p.own and site(h) in p.own) and not lookalike(h):
             emit("WARN", "integrity-script-no-sri", "integrity", f"{rel}:{x['line']}", f"a script loads from {h} with no integrity= hash: if that site changes the file, this page runs the change", show(x["line"]))
     for policy, ln in p.csp:
         w = weak_csp(policy)
         if w: emit("WARN", "integrity-csp-weak", "integrity", f"{rel}:{ln}", f"the Content-Security-Policy is weak: {w}", show(ln))
-    old = (baseline or {}).get(r)
     if old:
         was, linked = {}, set()
         for e in old.get("links", []):
             t, _, s = e.partition("\t"); was.setdefault(t, set()).add(s); linked.add(s)
         for l in p.links:
-            h = host_of(l["href"]); t = " ".join(l["text"].split())[:80]
+            h = p.host(l["href"]); t = " ".join(l["text"].split())[:80]
             if not h or LOCAL.match(h): continue
             now = mine(h, p.own)
             if t in was and now not in was[t]:
@@ -253,12 +290,12 @@ def scan(rel, text, emit, root, baseline=None):
                 emit("FAIL", "integrity-changed", "integrity", f"{rel}:{l['line']}", f"the link \"{t[:40]}\" goes to {h}, a site the recorded copy of this page never linked to", show(l["line"]))
         forms_was = set(old.get("forms", []))
         for f in p.forms:
-            h = host_of(f["action"]); now = mine(h, p.own)
+            h = p.host(f["action"]); now = mine(h, p.own)
             if h and LOCAL.match(h): continue
             if now not in forms_was and (forms_was or now != THIS_SITE):
                 emit("FAIL", "integrity-changed", "integrity", f"{rel}:{f['line']}", f"the form posted to {', '.join(sorted(forms_was)) or 'nowhere (there was no form)'} in the recorded copy and now posts to {h or now}", show(f["line"]))
         origins_was = set(old.get("origins", []))
         for x in p.scripts + p.frames:
-            h = host_of(x["src"])
+            h = p.host(x["src"])
             if h and not LOCAL.match(h) and mine(h, p.own) not in origins_was and mine(h, p.own) != THIS_SITE:
                 emit("FAIL", "integrity-new-origin", "integrity", f"{rel}:{x['line']}", f"a script or frame now loads from {h}, which the recorded copy never used", show(x["line"]))

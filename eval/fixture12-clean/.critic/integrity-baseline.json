@@ -9,6 +9,9 @@
    ],
    "origins": [
     "example.org"
+   ],
+   "own": [
+    "example.com"
    ]
   }
  },

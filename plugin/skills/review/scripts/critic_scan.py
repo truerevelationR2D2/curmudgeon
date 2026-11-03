@@ -810,7 +810,27 @@ def integrity_record(src, root, excludes):
     if len(text.encode("utf-8")) > scan_integrity.BASELINE_MAX:
         print(f"critic_scan: the recorded copy would be over {scan_integrity.BASELINE_MAX // 1_000_000} MB, which the scan won't read; record a smaller folder", file=sys.stderr); return 2
     bp.write_text(text, encoding="utf-8")
+    from critic_findings import record_baseline
+    try: record_baseline(root)
+    except OSError as e: print(f"critic_scan: wrote {bp}, but couldn't note it as the owner's ({e}); the scan won't compare against it", file=sys.stderr); return 2
     print(f"recorded {len(files)} pages to {bp}"); return 0
+
+def integrity_adopt(root):
+    """The owner takes an existing recorded copy as theirs (one that came with the code, or edited by hand): every host
+    it lists is printed first, since each one it lists counts as already there (audit Q04)."""
+    bp = root / ".critic" / "integrity-baseline.json"
+    if bp.is_symlink() or not bp.is_file(): print(f"critic_scan: no recorded copy at {bp}", file=sys.stderr); return 2
+    try: files = json.loads(bp.read_text(encoding="utf-8"))["files"]; assert isinstance(files, dict)
+    except Exception as e: print(f"critic_scan: {bp} isn't a recorded copy ({type(e).__name__})", file=sys.stderr); return 2
+    print(f"{bp}: adopting it makes every host below count as already there when pages are compared:")
+    for rel, x in sorted(files.items()):
+        x = x if isinstance(x, dict) else {}
+        print(f"  {rel}: own {', '.join(map(str, x.get('own') or [])) or '(not recorded)'}; links {', '.join(sorted({str(l).rpartition(chr(9))[2] for l in x.get('links') or []})) or 'none'}; "
+              f"forms {', '.join(map(str, x.get('forms') or [])) or 'none'}; scripts and frames {', '.join(map(str, x.get('origins') or [])) or 'none'}")
+    from critic_findings import record_baseline
+    try: record_baseline(root)
+    except OSError as e: print(f"critic_scan: couldn't note it as the owner's ({e})", file=sys.stderr); return 2
+    print("adopted"); return 0
 
 def main(argv):
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0], formatter_class=argparse.RawDescriptionHelpFormatter, epilog=__doc__.split("\n\n", 1)[1])
@@ -821,6 +841,7 @@ def main(argv):
     ap.add_argument("--baseline", choices=("save", "compare")); ap.add_argument("--budget-kb", type=int, default=1500)
     ap.add_argument("--focus", choices=("security",), help="security: keep only the security areas' rows (the security scan mode)")
     ap.add_argument("--integrity-record", action="store_true", help="record the link, form and script hosts of every page as the trusted copy (.critic/integrity-baseline.json), then stop")
+    ap.add_argument("--integrity-adopt", action="store_true", help="take the existing .critic/integrity-baseline.json as the owner's trusted copy after printing every host it lists, then stop")
     a = ap.parse_args(argv)
     global NO_PROJECT_RULES, SCAN_ROOT, ONLY; NO_PROJECT_RULES = a.no_project_rules
     SCAN_ROOT = pathlib.Path(a.root or os.environ.get("CRITIC_ROOT") or os.getcwd()).resolve()
@@ -832,6 +853,7 @@ def main(argv):
     src = pathlib.Path(a.src).resolve()
     if not src.exists(): print(f"critic_scan: {a.src} does not exist", file=sys.stderr); return 2
     if a.integrity_record: return integrity_record(src, SCAN_ROOT, a.exclude)
+    if a.integrity_adopt: return integrity_adopt(SCAN_ROOT)
     root = pathlib.Path(a.root or os.environ.get("CRITIC_ROOT") or os.getcwd()).resolve()
     out = pathlib.Path(a.out).resolve() if a.out else root / ".critic" / "scan"
     led = root / ".critic" / "ledger.json"

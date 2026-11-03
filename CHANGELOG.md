@@ -2,6 +2,16 @@
 
 Every release of Curmudgeon, newest first. The repository's history starts at 4.2.1; earlier versions are summarised from the project's own build and review records. Numbers are the ones measured at the time; the README's Benchmarks section has the current ones and how they were measured.
 
+## Unreleased: fixes from the full audit, batch 2 of 5 (the browser integrity lens)
+
+Each fix has a test that fails on 5.2.6 (`plugin/tests/cases_8.py`), and the lens fixture (`eval/lens12.json`) gains three plants, a clean-twin page and decoys for them: 13 of 13 found, 0 wrong rows (5.2.6 on the same fixture: 7 of 13, 3 wrong rows on the decoys).
+- A page that names a new site as its own (canonical, `og:url`) no longer makes that site's forms, scripts and links count as unchanged. The recorded copy keeps the sites each page said it was, and a page that now claims another one fails `integrity-changed` (audit F-9c12cea5, High).
+- `<base href>` is not the page's own site. Relative form, script and link targets are resolved against it, so a base on another site shows up as an off-site form, an unpinned script, or a change against the recorded copy (audit F-5a56b49c, High).
+- The recorded copy is trusted only when the owner recorded it, or adopted it with the new `--integrity-adopt` after seeing every host it lists, on this machine, and git doesn't track it. A copy that came with the code is ignored with a note, and agents can't record or adopt one (audit Q04).
+- A Japanese, Chinese or Korean host that mixes its own scripts (Han with Hiragana or Katakana, Han with Hangul) is no longer a look-alike; Latin with Cyrillic still is (audit F-e55d7809).
+
+**After upgrading:** run `critic_scan.py . --integrity-record` again on a version you trust. A copy recorded before this change has no own-site list and isn't noted as yours, so it is ignored until you record it again.
+
 ## Unreleased: fixes from Qodo's review of PR #14
 
 Qodo reviewed the batch 1 pull request and raised three Mediums and one Low. Each was checked against the code, and all four are fixed, each with a test that fails on 5.2.6 (`plugin/tests/cases_7.py`).

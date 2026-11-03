@@ -686,7 +686,7 @@ def _(d):
     write(d, "site/index.html", page)
     r = run(S / "critic_scan.py", ".", "--root", ".", "--integrity-record", cwd=d); assert r.returncode == 0, r.stderr
     rec = json.loads((d / ".critic/integrity-baseline.json").read_text())["files"]["site/index.html"]
-    assert rec == {"links": ["Contact support\texample.com"], "forms": ["(this site)"], "origins": ["example.org"]}, rec
+    assert rec == {"links": ["Contact support\texample.com"], "forms": ["(this site)"], "origins": ["example.org"], "own": []}, rec  # own: the sites the page said it was (audit F-9c12cea5)
     run(S / "critic_scan.py", ".", "--root", ".", cwd=d)
     assert not [x for x in json.loads((d / ".critic/scan/report.json").read_text())["findings"] if x["area"] == "integrity"], "an unchanged page raises nothing"
     write(d, "site/index.html", page.replace("help.example.com", "help.example.net").replace('"/pay"', '"https://pay.example.net/c"').replace("cdn.example.org", "cdn.example.net"))

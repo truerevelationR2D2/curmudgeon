@@ -12,7 +12,7 @@ It copies the fixture and the clean twin to a temporary folder, runs critic_scan
   decoys      regular rows from this lens in a decoy file (must be 0)
   clean twin  regular rows from this lens in the clean twin (must be 0)
 Exit 0 when recall and precision are both 100% and decoys and clean-twin rows are 0; 1 otherwise; 2 on bad usage."""
-import json, pathlib, shutil, subprocess, sys, tempfile
+import json, os, pathlib, shutil, subprocess, sys, tempfile
 
 HERE = pathlib.Path(__file__).resolve().parent
 SCAN = HERE.parent / "plugin" / "skills" / "review" / "scripts" / "critic_scan.py"
@@ -20,7 +20,10 @@ SCAN = HERE.parent / "plugin" / "skills" / "review" / "scripts" / "critic_scan.p
 def rows(folder, area):
     with tempfile.TemporaryDirectory(prefix="lens-") as t:
         dst = pathlib.Path(t) / "p"; shutil.copytree(folder, dst)
-        try: r = subprocess.run([sys.executable, str(SCAN), ".", "--root", ".", "--no-project-rules"], cwd=dst, capture_output=True, text=True, timeout=300)
+        env = dict(os.environ, CURMUDGEON_STATE_DIR=str(pathlib.Path(t) / "state"))  # the measurer's own record, never the user's
+        if (dst / ".critic" / "integrity-baseline.json").is_file():  # a fixture's recorded copy came with the code: the measurer adopts it, as an owner would (audit Q04)
+            subprocess.run([sys.executable, str(SCAN), ".", "--root", ".", "--integrity-adopt"], cwd=dst, capture_output=True, text=True, timeout=60, env=env)
+        try: r = subprocess.run([sys.executable, str(SCAN), ".", "--root", ".", "--no-project-rules"], cwd=dst, capture_output=True, text=True, timeout=300, env=env)
         except subprocess.TimeoutExpired: sys.exit(f"lens: the scan of {folder} took over 300 s and was stopped; nothing measured")
         rep = dst / ".critic" / "scan" / "report.json"
         if not rep.exists(): sys.exit(f"lens: the scan wrote no report ({r.stderr.strip()[-300:]})")
