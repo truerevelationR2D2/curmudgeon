@@ -175,3 +175,29 @@ def _(d):
     subprocess.run(["git", "add", "-f", ".critic/integrity-baseline.json"], cwd=g)
     r = run(S / "critic_scan.py", ".", "--root", ".", "--integrity-record", cwd=g)
     assert r.returncode == 2 and "git rm --cached" in r.stderr, (r.returncode, r.stdout, r.stderr)
+
+@test("batch 2 review round 3: the guard catches the variable, printf and python -c forms of adopt or record, and no longer refuses pytest --integration, yarn check --integrity or a grep")
+def _(d):
+    sys.path.insert(0, str(H)); import importlib, read_guard as rg8; importlib.reload(rg8)
+    deny = (f"X=integrity-adopt; python3 {S}/critic_scan.py . --$X", f"a=--in; b=tegrity-adopt; python3 {S}/critic_scan.py . $a$b",
+            f"python3 {S}/critic_scan.py . $(printf -- --%s integrity-adopt)", f"python3 {S}/critic_scan.py . --in${{e}}tegrity-adopt",
+            "python3 -c 'import critic_scan as c; c.main([\".\", \"-\"*2+\"integrity-adopt\"])'", "python3 -c 'import critic_scan as c; getattr(c, \"integrity_\"+\"adopt\")(\".\")'",
+            f"echo LS1pbnRlZ3JpdHktYWRvcHQ= | base64 -d | xargs python3 {S}/critic_scan.py .")
+    for cmd in deny: assert rg8.owner_problem(cmd, True), cmd
+    allow = ("python3 -m pytest tests --integration", "yarn check --integrity", "grep -rn record_baseline plugin", "grep -n -- --integrity-adopt README.md",
+             f"python3 {S}/critic_scan.py src --root . --page dist/index.html")
+    for cmd in allow: assert rg8.owner_problem(cmd, True) is None, cmd
+
+@test("batch 2 review round 3: ideographic full stops split labels as a browser splits them, 〇 counts as ideographic, labels from right-to-left pages adopt, and padded hosts don't")
+def _(d):
+    import scan_integrity as si
+    for h in ("例｡paypaｴ.com", "日本。paypaロ.com", "g〇〇gle.com"):
+        assert si.lookalike(h), h
+    assert not si.lookalike("日本。東京.jp")
+    write(d, "site/index.html", '<a href="https://shop.example.net/">חנות&rlm;</a>\n')
+    r = run(S / "critic_scan.py", ".", "--root", ".", "--integrity-record", cwd=d); assert r.returncode == 0, r.stderr
+    r = run(S / "critic_scan.py", ".", "--root", ".", "--integrity-adopt", cwd=d); assert r.returncode == 0 and "adopted" in r.stdout, r.stderr
+    for pad in ([" " * 300 + "none"], ["evil-cdn.net", " " * 300], ["x" * 300 + ".net"]):
+        write(d, ".critic/integrity-baseline.json", json.dumps({"files": {"a.html": {"own": [], "links": [], "forms": [], "origins": pad}}}))
+        r = run(S / "critic_scan.py", ".", "--root", ".", "--integrity-adopt", cwd=d)
+        assert r.returncode == 2 and "adopted" not in r.stdout, (pad[0][:20], r.stdout[-200:])

@@ -95,7 +95,7 @@ def unicode_host(host):
 def scripts(label):
     s = set()
     for c in label:
-        if c.isalpha():
+        if c.isalpha() or unicodedata.name(c, "").startswith("IDEOGRAPHIC"):  # 〇 is a number to Python, a letter to a reader (batch 2 review round 3)
             try: s.add(unicodedata.name(c).split()[0])
             except ValueError: pass
     return s
@@ -129,7 +129,7 @@ def lookalike(host):
     if not host: return False
     u = unicode_host(host)
     if u is None: return True
-    u = unicodedata.normalize("NFKC", u)  # as a browser maps a host (IDNA): halfwidth ﾛ and ￜ become the letters they stand for (batch 2 review round 2)
+    u = re.sub("[\u3002\uff0e\uff61]", ".", unicodedata.normalize("NFKC", u))  # as a browser maps a host (IDNA): halfwidth ﾛ and ￜ become the letters they stand for, and the ideographic full stops split labels (batch 2 review rounds 2 and 3)
     return any(mixed(label) for label in u.split("."))
 
 WATCHED_ATTRS = {"href", "src", "action", "formaction", "integrity"}
@@ -227,11 +227,17 @@ def mine(h, own):
     s = site(h)
     return THIS_SITE if s in own else s
 
+INVISIBLE = re.compile("[\x00-\x1f\x7f-\x9f\u200b-\u200f\u2028-\u202e\u2060-\u2069\ufeff]")
+
+def label(text):
+    """A link's text as the recorded copy keeps it: spaces folded, invisible marks (&rlm; on right-to-left pages) dropped."""
+    return " ".join(INVISIBLE.sub("", text or "").split())[:80]
+
 def record(rel, text):
     """What the recorded copy keeps for one file: hosts only, and the sites the page said it was (canonical, og:url),
     so a later page can't name a new site as its own and have it count as unchanged (audit F-9c12cea5)."""
     p = parse(text)
-    return {"links": sorted({f"{' '.join(l['text'].split())[:80]}\t{mine(p.host(l['href']), p.own)}" for l in p.links if p.host(l["href"])}),
+    return {"links": sorted({f"{label(l['text'])}\t{mine(p.host(l['href']), p.own)}" for l in p.links if p.host(l["href"])}),
             "forms": sorted({mine(p.host(f["action"]), p.own) for f in p.forms}),
             "origins": sorted({mine(p.host(x["src"]), p.own) for x in p.scripts + p.frames if p.host(x["src"])}),
             "own": sorted(p.own)}
@@ -305,7 +311,7 @@ def scan(rel, text, emit, root, baseline=None):
         for e in old.get("links", []):
             t, _, s = e.partition("\t"); was.setdefault(t, set()).add(s); linked.add(s)
         for l in p.links:
-            h = p.host(l["href"]); t = " ".join(l["text"].split())[:80]
+            h = p.host(l["href"]); t = label(l["text"])
             if not h or LOCAL.match(h): continue
             now = mine(h, p.own)
             if t in was and now not in was[t]:

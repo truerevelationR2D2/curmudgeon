@@ -113,11 +113,17 @@ def owner_problem(cmd, detector):
     project), the run's ledger script at all. Quotes and backslashes are removed first, so con""sent reads as consent."""
     flat = re.sub(r"[\\'\"]", "", cmd)
     base = os.path.realpath(os.environ.get("CURMUDGEON_STATE_DIR") or os.path.expanduser("~/.curmudgeon"))
-    if re.search(r"(?:write_owner_state|record_baseline|record_ledger|integrity_adopt|integrity_record)\b|(?:~|\$HOME|\$\{HOME\})/\.curmudgeon\b", flat) or base in flat:  # writing it, or naming its folder; mentioning the words (a grep) is fine
+    reading = bool(READ_ONLY_CMD.fullmatch(flat.strip()))  # a plain grep or cat of these names is reading, not writing (batch 2 review round 3)
+    if not reading and (re.search(r"(?:write_owner_state|record_baseline|record_ledger|integrity_adopt|integrity_record)\b|(?:~|\$HOME|\$\{HOME\})/\.curmudgeon\b", flat) or base in flat):  # writing it, or naming its folder
         return "the owner's own record of approvals and consent is theirs to write, through the lead"
     if detector and "critic_ledger" in flat: return "the detector runs the scripted checks; the run's ledger (consent and approvals among it) is the lead's"
     if re.search(r"critic_ledger(?:\.py)?\b.*\b(?:consent|approve|adopt)\b", flat): return "only the owner gives consent, approves a file or adopts a set-aside ledger, through the lead"
-    if re.search(r"--inte(?:g|[$`{])|--inte\S*(?:adopt|rec)", flat): return "only the owner records or adopts the trusted copy of the pages, through the lead (audit Q04)"
+    if not reading:  # the trusted copy of the pages (audit Q04). A text check is a tripwire, never a wall: it catches the plain and the usual hidden forms
+        other = re.sub(r"--integrat\w*|--integrity(?=\s|$)", "", flat)  # pytest --integration, yarn check --integrity: other programs' own flags
+        if re.search(r"integrity[-_ ]?(?:adopt|rec)|--inte(?:g|[$`{])|--inte\S*(?:adopt|rec)", other): return "only the owner records or adopts the trusted copy of the pages, through the lead (audit Q04)"
+        runs_scan = re.search(r"critic_scan|critic_findings|\S*[*?]\S*\.py\b", flat)
+        hidden = re.search(r"[$`]|\b(?:base64|xargs|printf|eval|getattr|exec|compile)\b|python\S*\s+-c\b|\.main\s*\(", re.sub(r"\$\{?CLAUDE_PLUGIN_ROOT\}?", "", flat))
+        if runs_scan and hidden: return "the scan's commands run as written: a variable, decoder or python -c around critic_scan could hide an owner-only flag (audit Q04)"
     if re.search(r"security_feed(?:\.py)?\b.*\b(?:set|update|pick-folder)\b", flat) and not READ_ONLY_CMD.fullmatch(flat.strip()):  # the owner's sign-off on the downloads, and the downloads themselves (ultimate audit V13); only plain reading of the file passes (batch 1 review rounds 1 and 2: a narrow match let "-- update", a variable or python -c through)
         return "the security feed's settings, sign-off and downloads are the owner's, through the lead"
     return None

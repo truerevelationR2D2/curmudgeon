@@ -830,8 +830,10 @@ def integrity_adopt(root):
     shape = all(isinstance(k, str) and isinstance(x, dict) and all(isinstance(x.get(k_, []), list) and all(isinstance(v, str) for v in x.get(k_, [])) for k_ in ("own", "links", "forms", "origins")) for k, x in files.items())
     if not shape: print(f"critic_scan: {bp} has a page entry that isn't lists of text; refusing to adopt it", file=sys.stderr); return 2
     INVIS = r"[\x00-\x08\x0a-\x1f\x7f-\x9f\u200b-\u200f\u2028-\u202e\u2060-\u2069\ufeff]"  # line breaks, bidi and zero-width marks could hide or reorder a host on a terminal (batch 2 review round 2)
-    bad = [s for k, x in files.items() for s in [k] + [v for k_ in ("own", "forms", "origins") for v in x.get(k_, [])] if re.search(INVIS + "|\t", s)]
-    bad += [v for x in files.values() for v in x.get("links", []) if re.search(INVIS, v) or v.count("\t") != 1]  # a link entry is label TAB host
+    host = lambda h: h == scan_integrity.THIS_SITE or (bool(re.fullmatch(r"[^\s/\\]{1,253}", h)) and not re.search(INVIS, h))  # a host has no spaces of any kind and is short: padding can't push one off the screen (batch 2 review round 3)
+    bad = [k for k in files if re.search(INVIS + "|\t", k) or len(k) > 1000]
+    bad += [v for x in files.values() for k_ in ("own", "forms", "origins") for v in x.get(k_, []) if not host(v)]
+    bad += [v for x in files.values() for v in x.get("links", []) if v.count("\t") != 1 or len(v.split("\t")[0]) > 80 or re.search(INVIS, v.split("\t")[0]) or not host(v.split("\t")[1])]  # label TAB host
     if bad: print(f"critic_scan: {bp} holds {len(bad)} entr{'y' if len(bad) == 1 else 'ies'} with control characters (first: {bad[0]!r:.80}), which could hide a host from you; refusing to adopt it", file=sys.stderr); return 2
     from critic_findings import git_tracked
     if git_tracked(root, ".critic/integrity-baseline.json"):  # never trusted while tracked, so adopting it would change nothing (batch 2 review)
