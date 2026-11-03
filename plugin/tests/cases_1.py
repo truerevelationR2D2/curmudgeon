@@ -1,6 +1,6 @@
 """Curmudgeon's script tests, part 1 of 3. Run plugin/tests/run_tests.py, which defines the helpers and runs every part
 (the tests were split so no file passes the plugin directory's 256 KiB limit). Not runnable on its own."""
-@test("merge: 2 of 3 votes kept, single traced Medium dropped, contract breaches rejected, bad quotes retracted")
+@test("merge: 2 of 3 votes kept, single traced Medium sent to one verifier (03 §5.57.6), contract breaches rejected, bad quotes retracted")
 def _(d):
     write(d, "src/app.js", APP); run(S / "critic_ledger.py", "start", "full", cwd=d)
     write(d, "a.json", json.dumps([finding(), finding(category="domain", impact="Medium", line=4, quote="const price = total * 1.0825;", title="Tax rule in render code")]))
@@ -9,7 +9,7 @@ def _(d):
     r = run(S / "critic_merge.py", "tally", "a.json", "b.json", "c.json", cwd=d); assert r.returncode == 0, r.stderr
     t = json.loads((d / ".critic/tally.json").read_text())
     assert [f["title"] for f in t["kept"]] == ["Title rendered as HTML"] and t["kept"][0]["votes"] == 2, t["kept"]
-    assert any(x["finding"]["title"] == "Tax rule in render code" for x in t["dropped"])
+    assert any(f["title"] == "Tax rule in render code" and f.get("single_vote") for f in t["contested"]), "one reviewer's Medium goes to a verifier, kept only if confirmed (03 §5.57.6)"
     assert any(x["finding"]["title"] == "eval of input" for x in t["retracted"])
     assert any(x["finding"]["title"] == "no case" for x in t["rejected"])
 
@@ -94,7 +94,7 @@ def _(d):
 
 @test("hooks: stop gate blocks edits after a review, stops after 3 blocks, honours stop_hook_active")
 def _(d):
-    write(d, "src/a.js", "x"); (d / ".critic").mkdir(exist_ok=True); (d / ".critic/gate").write_text("")
+    write(d, "src/a.js", "x"); run(S / "critic_ledger.py", "gate", "on", cwd=d)  # the owner's command, recorded outside the project (ultimate audit V12)
     blocks = [run(H / "stop_gate.py", cwd=d, stdin=json.dumps({"cwd": str(d)})).stdout for _ in range(4)]
     assert all('"block"' in b for b in blocks[:3]) and '"block"' not in blocks[3], blocks
     assert not run(H / "stop_gate.py", cwd=d, stdin=json.dumps({"cwd": str(d), "stop_hook_active": True})).stdout.strip()
@@ -174,7 +174,7 @@ def _(d):
     L = S / "critic_ledger.py"; write(d, "src/app.js", APP); run(L, "start", "full", cwd=d)
     j = json.loads((d / ".critic/ledger.json").read_text())
     j["memories"] = [{"reason": "intended", "pattern": "title rendered html", "file_glob": "*", "hits": 0, "made": "2026-10-18", "last_used": "2026-10-18"}]
-    (d / ".critic/ledger.json").write_text(json.dumps(j))
+    own_ledger(d, j)
     write(d, "a.json", json.dumps([finding(impact="High", category="correctness", verified="executed")]))
     run(S / "critic_merge.py", "tally", "a.json", cwd=d); t = json.loads((d / ".critic/tally.json").read_text())
     assert t["kept"] and not t["suppressed"], t["suppressed"]
@@ -416,7 +416,7 @@ def _(d):
     write(d, "src/app.js", APP); run(S / "critic_ledger.py", "start", "full", cwd=d)
     j = json.loads((d / ".critic/ledger.json").read_text())
     j["memories"] = [{"reason": "intended", "pattern": "rendered title html", "file_glob": "*", "hits": 0, "count": 3, "made": "2026-10-18", "last_used": "2026-10-18"}]
-    (d / ".critic/ledger.json").write_text(json.dumps(j))
+    own_ledger(d, j)
     med = finding(impact="Medium", verified="executed"); crit = finding(category="xss2", impact="Critical", verified="executed", line=2)
     write(d, "a.json", json.dumps([med, crit])); run(S / "critic_merge.py", "tally", "a.json", cwd=d)
     t = json.loads((d / ".critic/tally.json").read_text())
@@ -492,14 +492,14 @@ def _(d):
     write(d, "src/app.js", APP); run(S / "critic_ledger.py", "start", "full", cwd=d)
     j = json.loads((d / ".critic/ledger.json").read_text())
     j["memories"] = [{"reason": "intended", "pattern": "rendered title html", "file_glob": "*", "hits": 0, "count": 3, "made": "2026-10-18", "last_used": "2026-10-18"}]
-    (d / ".critic/ledger.json").write_text(json.dumps(j))
+    own_ledger(d, j)
     rows = [finding(impact="High", verified="executed"), finding(category="xss3", impact="Medium", verified="executed", line=2), finding(category="xss4", impact="Low", verified="executed", line=2)]
     write(d, "a.json", json.dumps(rows)); run(S / "critic_merge.py", "tally", "a.json", cwd=d)
     noted = {k["impact"]: bool(k.get("memory_note")) for k in json.loads((d / ".critic/tally.json").read_text())["kept"]}
     assert noted == {"High": False, "Medium": True, "Low": True}, noted
     write(d, "v.json", "[]"); run(S / "critic_merge.py", "apply", "v.json", cwd=d)
     L = json.loads((d / ".critic/ledger.json").read_text())
-    low = next(k for k, v in L["findings"].items() if v["score"] == "Low"); L["findings"][low]["status"] = "fixed"; (d / ".critic/ledger.json").write_text(json.dumps(L))
+    low = next(k for k, v in L["findings"].items() if v["score"] == "Low"); L["findings"][low]["status"] = "fixed"; own_ledger(d, L)
     out = run(S / "critic_ledger.py", "dismiss", "--like", "1", "same as before", cwd=d).stdout
     st = {v["score"]: v["status"] for v in json.loads((d / ".critic/ledger.json").read_text())["findings"].values()}
     assert st == {"High": "open", "Medium": "dismissed", "Low": "fixed"}, (out, st)
@@ -563,7 +563,7 @@ def _(d):
     write(d, "b.js", "debugger;\n")
     write(d, ".critic/rules/r.json", json.dumps([{"id": "file-timeout", "severity": "FAIL", "area": "perf", "pattern": "x", "message": "fake"}]))
     j = json.loads((d / ".critic/ledger.json").read_text()); j["false_positives"].append({"rule": "debugger-left", "where": "b.js:1", "why": "on purpose"})
-    (d / ".critic/ledger.json").write_text(json.dumps(j))
+    own_ledger(d, j)
     run(S / "critic_scan.py", ".", "--root", ".", cwd=d)
     rows = json.loads((d / ".critic/scan/report.json").read_text())["findings"]
     py = [r["where"] for r in rows if r["rule"] == "py-verify-false"]
@@ -588,7 +588,7 @@ def _(d):
     write(d, "src/app.js", APP); run(S / "critic_ledger.py", "start", "full", cwd=d)
     write(d, "a.json", json.dumps([finding(impact="High", verified="executed")])); run(S / "critic_merge.py", "tally", "a.json", cwd=d)
     fid = json.loads((d / ".critic/tally.json").read_text())["kept"][0]["id"]
-    write(d, "v.json", json.dumps([{"id": fid, "verdict": "downgrade", "impact_after": "Low", "reproduced": "traced", "note": "minor"}]))
+    write(d, "v.json", json.dumps([{"id": fid, "verdict": "downgrade", "impact_after": "Low", "reproduced": "traced", "note": "The title passes through the escaping helper called at src/app.js:2, so the remaining risk is bounded to markup."}]))
     run(S / "critic_merge.py", "apply", "v.json", cwd=d)
     out = run(S / "critic_ledger.py", "spotcheck", cwd=d).stdout; assert "1 item(s)" in out, out
     assert "downgraded" in (d / ".critic/spotcheck.md").read_text()
@@ -711,7 +711,7 @@ def _(d):
     write(d, "src/app.js", APP); run(S / "critic_ledger.py", "start", "full", cwd=d)
     write(d, "a.json", json.dumps([finding(impact="High", verified="executed")])); run(S / "critic_merge.py", "tally", "a.json", cwd=d)
     fid = json.loads((d / ".critic/tally.json").read_text())["kept"][0]["id"]
-    write(d, "v.json", json.dumps([{"id": fid, "verdict": "downgrade", "impact_after": "Medium", "reproduced": "traced", "note": "bounded"}]))
+    write(d, "v.json", json.dumps([{"id": fid, "verdict": "downgrade", "impact_after": "Medium", "reproduced": "traced", "note": "The title passes through the escaping helper called at src/app.js:2, so the remaining risk is bounded to markup."}]))
     run(S / "critic_merge.py", "apply", "v.json", cwd=d)
     for _ in range(5):  # the downgraded finding is still Medium: it must never be listed twice
         run(S / "critic_ledger.py", "spotcheck", cwd=d)
@@ -1127,7 +1127,7 @@ def _(d):
 def _(d):
     subprocess.run(["git", "init", "-q"], cwd=d); write(d, "base.js", "const a = 1;\n")
     subprocess.run(["git", "add", "."], cwd=d); subprocess.run(["git", "-c", "user.email=t@example.invalid", "-c", "user.name=t", "commit", "-qm", "base"], cwd=d)
-    write(d, ".critic/gate-async", "on\n"); write(d, "src/a.js", "eval(input);\n"); write(d, "src/b.js", "const ok = 1;\n"); write(d, "untouched.js", "eval(x);\n")
+    run(S / "critic_ledger.py", "gate", "async", cwd=d); write(d, "src/a.js", "eval(input);\n"); write(d, "src/b.js", "const ok = 1;\n"); write(d, "untouched.js", "eval(x);\n")
     subprocess.run(["git", "add", "untouched.js"], cwd=d); subprocess.run(["git", "-c", "user.email=t@example.invalid", "-c", "user.name=t", "commit", "-qm", "u"], cwd=d)
     r = subprocess.run([sys.executable, str(H / "stop_async.py")], input=json.dumps({"cwd": str(d)}), capture_output=True, text=True, cwd=d)
     assert r.returncode == 2 and "src/a.js" in r.stderr and "untouched.js" not in r.stderr, (r.returncode, r.stderr)

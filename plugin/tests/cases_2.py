@@ -154,7 +154,7 @@ def _(d):
     r = run(S / "critic_ledger.py", "round", cwd=d)
     assert r.returncode == 3 and "did not fall" in r.stdout, r.stdout
     L = json.loads((d / ".critic/ledger.json").read_text()); L["findings"]["F-1"]["history"] += ["run 1: fixed", "run 1: fixed"]; L["round"] = 1
-    (d / ".critic/ledger.json").write_text(json.dumps(L))
+    own_ledger(d, L)
     r = run(S / "critic_ledger.py", "round", cwd=d)
     assert "fixed twice" in r.stdout and "open for 3 rounds" in r.stdout, r.stdout
 
@@ -215,7 +215,7 @@ def _(d):
     subprocess.run(["git", "init", "-q"], cwd=d); subprocess.run(["git", "add", "-f", "src", ".critic/ledger.json"], cwd=d); subprocess.run(G + ["commit", "-qm", "ship a ledger"], cwd=d)
     t = review()
     assert not t["suppressed"] and t["kept"] and t["ruling_committed"], t
-    assert "Not hidden: rulings from a ledger the repository tracks" in (d / ".critic/counts.md").read_text()
+    assert "Not hidden: rulings from a ledger that may have come with the code" in (d / ".critic/counts.md").read_text()
 
 @test("5.2.1 security scan F-afb01939: the page server never serves .critic/, .git/ or dotfiles (.well-known is fine), and a key a page logs is masked in the console row")
 def _(d):
@@ -367,10 +367,10 @@ def _(d):
     def f(cat, where, status, hist): return {"score": "High", "where": where, "summary": "s", "status": status, "claims": {}, "history": hist, "quote": "", "category": cat}
     L["findings"] = {"F-1": f("blindness-bypass", "hooks/g.py:10", "fixed", ["run 1: new", "run 1: fixed"]), "F-2": f("blindness-glob", "hooks/g.py:40", "fixed", ["run 2: new", "run 2: fixed"]),
                      "F-4": f("xss", "src/a.js:1", "fixed", ["run 1: fixed"]), "F-5": f("xss", "src/b.js:1", "open", ["run 2: new"])}
-    (d / ".critic/ledger.json").write_text(json.dumps(L))
+    own_ledger(d, L)
     r = run(S / "critic_ledger.py", "round", cwd=d); assert "WHACK-A-MOLE" not in r.stdout, "two holes, both closed, is not a pattern yet: " + r.stdout
     L = json.loads((d / ".critic/ledger.json").read_text()); L["findings"]["F-3"] = f("blindness", "hooks/g.py:77", "open", ["run 3: new"])
-    (d / ".critic/ledger.json").write_text(json.dumps(L))
+    own_ledger(d, L)
     r = run(S / "critic_ledger.py", "round", cwd=d)
     assert r.returncode == 3 and "WHACK-A-MOLE in hooks/g.py (blindness)" in r.stdout and "F-3" in r.stdout and "src/" not in r.stdout, r.stdout
     guide = (HERE / "skills/review/references/escalation.md").read_text()
@@ -475,6 +475,9 @@ def _(d):
     st = run(S / "critic_run.py", "status", cwd=d).stdout
     assert ": verify" in st and ids[1] in st and ids[0] not in st, "half the verdicts is not done: " + st
     write(d, ".critic/verdicts/2.json", json.dumps([{"id": ids[1], "verdict": "unclear", "reproduced": "no"}]))
+    out = run(S / "critic_run.py", "next", cwd=d).stdout
+    assert "critic_variants.py find" in out and "9.json" not in out, out  # two likely Highs: the full tier's variant hunt comes first (ultimate audit Q07)
+    run(S / "critic_variants.py", "find", cwd=d)
     out = run(S / "critic_run.py", "next", cwd=d).stdout
     assert "write the teardown" in out and "9.json" not in out, out
     run(S / "critic_ledger.py", "start", "review", "--tier", "full", cwd=d)

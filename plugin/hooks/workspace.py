@@ -31,7 +31,8 @@ always be found and deleted; an unfinished copy is never used.
 
 The threat this answers is an honest agent that anchors on what it happens to see, not a hostile one: a same-user
 process can always build a path to any file the user can read. Hostile isolation needs an OS sandbox."""
-import json, os, pathlib, re, shutil, subprocess, time
+import json, os, pathlib, re, shutil, subprocess, sys, time
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "skills", "review", "scripts")); import safegit  # git without the repository's own commands (03 §5.57 review)
 
 SKIP_ANYWHERE = {".git", ".hg", ".svn", "__pycache__", ".mypy_cache", ".pytest_cache", ".ruff_cache", ".tox", ".cache"}
 SKIP_BUILD = {"dist", "build", ".next", "coverage", "target", ".gradle", "out", ".turbo", ".parcel-cache"}  # non-git projects only
@@ -118,7 +119,7 @@ def _link_target(src, root):
     return str(real)  # outside the project: its real target (a relative one would dangle from the copy's depth)
 
 def _git(root, *a, timeout=60):
-    try: return subprocess.run(["git", *a], cwd=root, capture_output=True, text=True, timeout=timeout)
+    try: return safegit.run([*a], cwd=root, capture_output=True, text=True, timeout=timeout)
     except (OSError, subprocess.SubprocessError): return None
 
 def _git_files(root):
@@ -152,7 +153,7 @@ def _own_repo(root, payload):
             if not own or head is None or head.returncode: head = None  # no commit to copy: git status shows every file as new, which is what it is
             try:
                 if head is None: raise ValueError("no repository")
-                ls = subprocess.run(["git", "ls-tree", "-r", "-z", "--full-tree", "HEAD"], cwd=root, capture_output=True, timeout=120)
+                ls = safegit.run(["ls-tree", "-r", "-z", "--full-tree", "HEAD"], cwd=root, capture_output=True, timeout=120)
                 entries = []
                 for rec in ls.stdout.split(b"\0") if ls.returncode == 0 else []:
                     if not rec: continue
@@ -162,18 +163,18 @@ def _own_repo(root, payload):
                     entries.append((mode, typ, sha, path))
                 if ls.returncode == 0:
                     blobs = b"\n".join(sha for _, typ, sha, _ in entries if typ == b"blob") + b"\n"
-                    pk = subprocess.run(["git", "pack-objects", "--stdout", "-q"], cwd=root, input=blobs, capture_output=True, timeout=600)
-                    ip = subprocess.run(["git", "index-pack", "--stdin"], cwd=payload, input=pk.stdout, capture_output=True, timeout=600) if pk.returncode == 0 else None
+                    pk = safegit.run(["pack-objects", "--stdout", "-q"], cwd=root, input=blobs, capture_output=True, timeout=600)
+                    ip = safegit.run(["index-pack", "--stdin"], cwd=payload, input=pk.stdout, capture_output=True, timeout=600) if pk.returncode == 0 else None
                     info = b"".join(mode + b" " + sha + b"\t" + path + b"\0" for mode, typ, sha, path in entries)
-                    ui = subprocess.run(["git", "update-index", "-z", "--index-info"], cwd=payload, input=info, capture_output=True, timeout=300) if ip is not None and ip.returncode == 0 else None
+                    ui = safegit.run(["update-index", "-z", "--index-info"], cwd=payload, input=info, capture_output=True, timeout=300) if ip is not None and ip.returncode == 0 else None
                     wt = _git(payload, "write-tree", "--missing-ok") if ui is not None and ui.returncode == 0 else None
                     if wt and not wt.returncode and wt.stdout.strip():
                         env = dict(os.environ, GIT_AUTHOR_NAME="reviewed code", GIT_AUTHOR_EMAIL="reviewer@example.invalid", GIT_COMMITTER_NAME="reviewed code",
                                    GIT_COMMITTER_EMAIL="reviewer@example.invalid", GIT_AUTHOR_DATE="2000-01-01T00:00:00Z", GIT_COMMITTER_DATE="2000-01-01T00:00:00Z")
-                        c = subprocess.run(["git", "commit-tree", wt.stdout.strip(), "-m", "base"], cwd=payload, capture_output=True, text=True, timeout=60, env=env)
+                        c = safegit.run(["commit-tree", wt.stdout.strip(), "-m", "base"], cwd=payload, capture_output=True, text=True, timeout=60, env=env)
                         if not c.returncode and c.stdout.strip():
                             for cmd in (["update-ref", "refs/heads/base", c.stdout.strip()], ["symbolic-ref", "HEAD", "refs/heads/base"], ["reset", "-q"]):  # reset: index = the base commit; the files on disk are the project's working tree
-                                subprocess.run(["git", "-c", "core.logAllRefUpdates=false", *cmd], cwd=payload, capture_output=True, timeout=120, env=env)
+                                safegit.run(["-c", "core.logAllRefUpdates=false", *cmd], cwd=payload, capture_output=True, timeout=120, env=env)
                             shutil.rmtree(payload / ".git" / "logs", ignore_errors=True)  # a reflog would carry this machine's git identity (03 §5.56 batch 2 round 3)
                             return "base"
             except (OSError, subprocess.SubprocessError, ValueError): pass

@@ -43,7 +43,8 @@ apply:
   records every kept finding in the ledger (new, known or regressed)."""
 import hashlib, json, math, os, pathlib, re, subprocess, sys, time
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
-from critic_findings import verdict_required, NIT, IMPACTS, extract_findings, norm_code, relocate_quote, fingerprint, quote_check, read_jsonl, refutation_problem, confirmation_problem, security_refutation_problem, similar, log_run, append_line, refuse_linked_state, to_sarif, validate, write_jsonl, tokens, scrub, redact_finding_text, write_manifest, strip_workspace_path, _cites_real_line
+from critic_findings import verdict_required, NIT, IMPACTS, extract_findings, norm_code, relocate_quote, fingerprint, quote_check, read_jsonl, refutation_problem, downgrade_problem, confirmation_problem, security_refutation_problem, similar, log_run, append_line, refuse_linked_state, to_sarif, validate, write_jsonl, tokens, scrub, redact_finding_text, write_manifest, strip_workspace_path, _cites_real_line
+import safegit  # git without the repository's own commands (03 §5.57 review)
 
 ROOT = pathlib.Path(os.environ.get("CRITIC_ROOT") or re.sub(r"[\\/]\.critic[\\/]scratch(?:[\\/].*)?$", "", os.getcwd()) or os.getcwd()).resolve(); D = ROOT / ".critic"
 
@@ -75,7 +76,8 @@ def load_review(path):
         if not rows:
             try: rows = read_jsonl(p)
             except ValueError: rows = []
-    return [dict(r, source=r.get("source") or p.stem) for r in rows if isinstance(r, dict)]
+    src = p.stem if p.stem not in ("scan", "outside") else f"file-{p.stem}"  # only scan_rows() and the outside loader name those channels (batch 1 review: a file called scan.json)
+    return [dict(r, source=src) for r in rows if isinstance(r, dict)]  # the channel names the source, never the row: a reviewer's "source": "scan" would skip the quote check (ultimate audit Q05)
 
 def inside_root(rel):
     """Findings may only point inside the project: an absolute path, .. or a link out is never read or verified."""
@@ -100,11 +102,17 @@ def ledger():
     try: return json.loads((D / "ledger.json").read_text())
     except Exception: return {}
 
+_SHIPPED = {}
 def ledger_committed():
-    """True when git tracks .critic/ledger.json: a cloned repository can ship one whose rulings would hide findings,
-    so its false-positive rulings never hide anything (they are listed in counts.md instead)."""
+    """True when .critic/ledger.json may have come with the code (critic_findings.ledger_shipped): its false-positive
+    rulings never hide anything (they are listed in counts.md instead). Asked once per ledger state, not once per
+    finding (batch 1 review: 363 git calls for a 180-row tally, against 2)."""
     from critic_findings import ledger_shipped
-    return ledger_shipped(ROOT)
+    p = D / "ledger.json"
+    try: key = (p.stat().st_mtime_ns, p.stat().st_size)
+    except OSError: key = None
+    if key not in _SHIPPED: _SHIPPED.clear(); _SHIPPED[key] = ledger_shipped(ROOT)
+    return _SHIPPED[key]
 
 MEMORY_HITS = []
 def suppressed_by_ledger(f, L):
@@ -114,6 +122,7 @@ def suppressed_by_ledger(f, L):
         xid = x.get("id")
         if not xid: continue
         old = (L.get("findings") or {}).get(xid) or {}
+        if not old.get("score") and str(f.get("impact", "")).title() in ("Critical", "High"): continue  # a ruling on an id the ledger never scored can't vouch for a Critical or High (ultimate audit V33)
         if old.get("score") and IMP_RANK.get(str(f.get("impact", "")).title(), 2) < IMP_RANK.get(old["score"], 2): continue  # never hide a finding more serious than the one ruled on
         if xid == f.get("id"): return f"known false positive (owner's ruling on this exact finding): {x.get('why', '')}"  # the exact id only: an alias could carry the ruling onto another finding (03 §5.56 item 14)
     return None
@@ -238,6 +247,8 @@ def tally(paths):
         except (OSError, ValueError, AttributeError): blocked = []
         if blocked: degraded.append("these scripted checks could not run: " + ", ".join(map(str, blocked)))  # SKILL.md rule 8: blocked or unavailable checks make the review DEGRADED
     if not paths: die("tally needs the blind review files (for example .critic/reviews/review-*.json); refusing to count scan rows alone")
+    if (D / "ledger.json").exists() and not ledger():  # unreadable: the stale-review and stop-record checks below would silently pass (ultimate audit V31)
+        die(".critic/ledger.json is unreadable, so this run's start time is unknown and old reviews can't be told from new ones; nothing was counted. Fix it, or run critic_ledger.py init and start again")
     started = ledger().get("started_at")
     if started:  # a review file older than this run is left over from an earlier one: counting it would invent votes
         stale = [p for p in paths if pathlib.Path(p).resolve().parent == (D / "reviews").resolve() and pathlib.Path(p).exists()
@@ -408,9 +419,13 @@ def tally(paths):
         else: f.pop("memory_note", None)
         executed = any(x["verified"] == "executed" for x in m) or bool(c.get("scan"))
         unanchored = not any(x.get("quote_checked") for x in m if x.get("source") != "outside") and not c.get("scan")
-        if unanchored and not executed and len(c["reviewers"]) < 2 and f["impact"] in ("Critical", "High", "Medium"): out["contested"].append(f)  # an outside vote never stands in for a check  # nothing the script could check: verify it, even on one reviewer
+        if unanchored and not executed and len(c["reviewers"]) < 2 and f["impact"] in ("Critical", "High", "Medium"):
+            if f["impact"] == "Medium" and n > 1: f["single_vote"] = True  # 03 §5.57.6 holds without a quote too (batch 1 review round 2)
+            out["contested"].append(f)  # an outside vote never stands in for a check  # nothing the script could check: verify it, even on one reviewer
         elif votes >= need or executed: out["kept"].append(f)
         elif f["impact"] in ("Critical", "High"): out["contested"].append(f)
+        elif f["impact"] == "Medium" and n > 1:  # 03 §5.57.6: one reviewer's Medium goes to a blind verifier and is kept only if confirmed (the self-review lost a real High this way)
+            f["single_vote"] = True; out["contested"].append(f)
         else: out["dropped"].append({"finding": f, "why": f"raised by {votes} of {n} reviewers, not executed"})
     vd = D / "verify"; vd.mkdir(parents=True, exist_ok=True)
     for old in vd.glob("*.json"): old.unlink()
@@ -454,7 +469,7 @@ def revision_stamp(final):
     """What these findings were reviewed against (SC-38): the git commit, whether the working tree had uncommitted
     changes, and a sha256 of the cited files' contents."""
     def git(*a):
-        try: return subprocess.run(["git", *a], cwd=ROOT, capture_output=True, text=True, timeout=10).stdout.strip()
+        try: return safegit.run([*a], cwd=ROOT, capture_output=True, text=True, timeout=10).stdout.strip()
         except (OSError, subprocess.TimeoutExpired): return ""
     h = hashlib.sha256()
     for f in sorted({str(x.get("file") or "") for x in final}):
@@ -499,12 +514,16 @@ def fix_status(f):
 def apply(paths):
     try: T = json.loads((D / "tally.json").read_text())
     except Exception as e: die(f"run tally first ({e})")
-    verdicts = {}; stale = []
+    verdicts = {}; stale = []; by_hand = []
     t_mtime = (D / "tally.json").stat().st_mtime
+    hook_dirs = ((D / "verdicts").resolve(), (D / "verdicts-variants").resolve())
     for p in paths:
-        if pathlib.Path(p).exists() and pathlib.Path(p).resolve().parent in ((D / "verdicts").resolve(), (D / "verdicts-variants").resolve()) and pathlib.Path(p).stat().st_mtime < t_mtime:
+        saved = pathlib.Path(p).exists() and pathlib.Path(p).resolve().parent in hook_dirs
+        if saved and pathlib.Path(p).stat().st_mtime < t_mtime:
             stale.append(pathlib.Path(p).name); continue  # a verdict on an earlier tally's packet (an earlier round): never applied to this one (§5.56 round 2)
-        for v in load_review(p): verdicts[v.get("id")] = v
+        rows = load_review(p)
+        if rows and not saved: by_hand.append(pathlib.Path(p).name)  # not written by the verifier's stop hook: applied, but the run says so (ultimate audit V03)
+        for v in rows: verdicts[v.get("id")] = v
     final, refuted, notes, unverified, missing = [], [], [], [], []
     if stale: notes.append(f"not applied, older than this tally: {', '.join(stale[:8])}{' ...' if len(stale) > 8 else ''}")
     tier = T.get("tier") or ledger().get("tier") or "full"; contested = {f.get("id") for f in T["contested"]}
@@ -515,6 +534,8 @@ def apply(paths):
                 unverified.append(f); notes.append(f"{f['id']}: outside-only finding with no verdict; left out of the findings until a verifier judges it")
                 if (D / "verify" / f"{f['id']}.json").exists(): missing.append(f["id"])  # every tier verifies these (verdict_required): its absence marks the run DEGRADED
                 continue
+            if f.get("single_vote"):  # 03 §5.57.6: one reviewer's Medium stands only on a verifier's confirmation
+                notes.append(f"{f['id']}: one reviewer's Medium with no verdict; dropped"); missing.append(f["id"]); continue
             if (D / "verify" / f"{f['id']}.json").exists():
                 if verdict_required(tier, f, f["id"] in contested):  # §5.56: the tier needed this verdict, and it never came
                     notes.append(f"{f['id']}: no verdict returned, and the {tier} tier verifies this finding; kept, confidence lowered"); f["verifier"] = "missing"; missing.append(f["id"])
@@ -530,12 +551,16 @@ def apply(paths):
             if not prob:
                 refuted.append({"finding": f, "why": why}); VERIFIER_LOG.append(("refuted", f, why, v.get("reproduced"))); continue
             kind = "unclear"; notes.append(f"{f['id']}: refutation not concrete enough to drop it ({prob}); kept")
+        if f.get("single_vote") and kind == "downgrade" and confirmation_problem(v, root=ROOT): kind = "unclear"  # a downgrade keeps it only with the confirmation's evidence, as critic_variants.py asks; decided first, so the verifier log never records a downgrade of a finding that is then dropped (round 3)
         if kind == "downgrade":
             new = str(v.get("impact_after", "")).title()
-            if new in IMP_RANK and IMP_RANK[new] > IMP_RANK[f["impact"]]:
-                VERIFIER_LOG.append(("downgraded", dict(f), f"{f['impact']} to {new}: {v.get('note') or why}", v.get("reproduced")))
+            dp = downgrade_problem(f["impact"], new, v.get("reproduced"), str(v.get("note") or raw), root=ROOT)  # 03 §5.57.2
+            if not dp:
+                VERIFIER_LOG.append(("downgraded", dict(f), f"{f['impact']} to {new}: {redact_finding_text(str(v.get('note') or '')) or why}", v.get("reproduced")))
                 f["impact_before"] = f["impact"]; f["impact"] = new
-            else: notes.append(f"{f['id']}: downgrade ignored (a verifier may lower, never raise)"); kind = "unclear"
+            else: notes.append(f"{f['id']}: downgrade to {new or '?'} ignored ({dp}); kept at {f['impact']}"); kind = "unclear"
+        if f.get("single_vote") and kind not in ("confirmed", "downgrade"):  # 03 §5.57.6: kept only on a verifier's confirmation
+            notes.append(f"{f['id']}: one reviewer's Medium the verifier didn't confirm ({kind}); dropped"); continue
         if f.get("outside_only") and kind not in ("confirmed", "downgrade"):  # nobody of ours saw it and no verifier confirmed it
             unverified.append(f); notes.append(f"{f['id']}: outside-only finding the verifier couldn't confirm ({kind}); left out of the findings"); continue
         f["verifier"] = kind
@@ -557,7 +582,8 @@ def apply(paths):
     write_verifier_log()
     (D / "findings.sarif").write_text(json.dumps(to_sarif(final), indent=1))
     cnt = {k: sum(1 for f in final if f["impact"] == k) for k in IMPACTS}
-    why_degraded = list(T.get("degraded") or []) + ([f"{len(missing)} verdict(s) the {tier} tier requires never came back ({', '.join(missing[:8])}{' ...' if len(missing) > 8 else ''})"] if missing else [])
+    why_degraded = list(T.get("degraded") or []) + ([f"{len(missing)} verdict(s) the {tier} tier requires never came back ({', '.join(missing[:8])}{' ...' if len(missing) > 8 else ''})"] if missing else []) \
+        + ([f"verdicts not saved by the verifier's stop hook (written or edited outside .critic/verdicts/, so no record shows a verifier returned them): {', '.join(by_hand[:8])}"] if by_hand else [])
     md = ["# Curmudgeon merged findings", ""] + ([f"DEGRADED: {'; '.join(why_degraded)}", "(Copy that line as the teardown's first line, before the verdict.)", ""] if why_degraded else []) + [
           f"Reviewers: {T['reviewers']} (votes needed: {T['votes_needed']}; {tier} tier).",
           "Counts for the VERDICT (copy exactly): " + " · ".join(f"{k} {v}" for k, v in cnt.items()) + f" · total {len(final)}", "",
@@ -597,9 +623,9 @@ def apply(paths):
         md += ["", "## Outside reviewer", f"- {o['raised']} raised; {o['accepted']} passed the contract and quote checks ({o.get('lines_corrected', 0)} at a corrected line); {o['matched_ours']} matched our reviewers; "
                f"{o['only_outside']} only theirs, each verified blind. In the final list: " + (", ".join(f"{f['id']} {f['impact']}" for f in theirs) or "none") + "."]
     if T.get("ruling_committed"):
-        md += ["", "## Not hidden: rulings from a ledger the repository tracks (.critic/ledger.json is committed, so its rulings could be anyone's; these findings stay in the counts above)"]
+        md += ["", "## Not hidden: rulings from a ledger that may have come with the code (git tracks .critic/ledger.json, or Curmudgeon didn't write it on this machine, so its rulings could be anyone's; these findings stay in the counts above)"]
         md += [f"- {r['finding'].get('id')} {r['finding'].get('file')}:{r['finding'].get('line', '')} {r['finding'].get('title')}: {r['why']}" for r in T["ruling_committed"]]
-        md += ["To apply your own rulings, stop tracking the ledger (your copy stays): git rm --cached .critic/ledger.json"]
+        md += ["To apply your own rulings: if git tracks the ledger, stop tracking it (your copy stays): git rm --cached .critic/ledger.json; otherwise critic_ledger.py sets it aside on its next run, and `critic_ledger.py adopt <file> --show` lists its rulings for the owner to take back."]
     alike = [f for f in final if f.get("ruling_like")]
     if alike:
         md += ["", "## Same code as a finding you ruled a false positive (still counted above; your ruling covered another kind of finding)"]

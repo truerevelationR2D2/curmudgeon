@@ -103,6 +103,10 @@ def run_active(root):
     last = root / ".critic" / "last-review.md"
     return not last.exists() or last.stat().st_mtime < started
 
+# A command that only reads files: each part of a pipeline starts with a reader and holds no command substitution,
+# variable expansion into a command, or redirect into a file.
+READ_ONLY_CMD = re.compile(r"(?:[ \t]*(?:cat|grep|egrep|fgrep|head|tail|wc|nl|uniq|cut)\b[^;&|`$<>\n\r]*)(?:\|[ \t]*(?:cat|grep|egrep|fgrep|head|tail|wc|nl|uniq|cut)\b[^;&|`$<>\n\r]*)*")  # one line of plain readers; sed, sort, rg, less and more can run programs (round 3)
+
 def owner_problem(cmd, detector):
     """A tripwire for the owner's consent and approvals (03 §5.56 items 9 and 12), in any Curmudgeon agent's command:
     their record outside the project, the helper that writes it, and, for the detector (which runs scripts from the
@@ -112,7 +116,9 @@ def owner_problem(cmd, detector):
     if re.search(r"write_owner_state\s*\(|(?:~|\$HOME|\$\{HOME\})/\.curmudgeon\b", flat) or base in flat:  # writing it, or naming its folder; mentioning the words (a grep) is fine
         return "the owner's own record of approvals and consent is theirs to write, through the lead"
     if detector and "critic_ledger" in flat: return "the detector runs the scripted checks; the run's ledger (consent and approvals among it) is the lead's"
-    if re.search(r"critic_ledger(?:\.py)?\b.*\b(?:consent|approve)\b", flat): return "only the owner gives consent or approves a file, through the lead"
+    if re.search(r"critic_ledger(?:\.py)?\b.*\b(?:consent|approve|adopt)\b", flat): return "only the owner gives consent, approves a file or adopts a set-aside ledger, through the lead"
+    if re.search(r"security_feed(?:\.py)?\b.*\b(?:set|update|pick-folder)\b", flat) and not READ_ONLY_CMD.fullmatch(flat.strip()):  # the owner's sign-off on the downloads, and the downloads themselves (ultimate audit V13); only plain reading of the file passes (batch 1 review rounds 1 and 2: a narrow match let "-- update", a variable or python -c through)
+        return "the security feed's settings, sign-off and downloads are the owner's, through the lead"
     return None
 
 DENIED = []  # set when this call refused the tool, so pre_tool.py runs nothing after it
@@ -175,7 +181,7 @@ def bash_problem(cmd, rec, root, critic, role, me):
         mode): reviewers and verifiers send nothing over the network and install nothing, from their copy."""
         n = name.rsplit("/", 1)[-1]
         for k, a in enumerate(args[:-1]):
-            if a.endswith("critic_ledger.py") and args[k + 1] in ("consent", "approve"): return f"critic_ledger.py {args[k + 1]}: only the owner gives consent or approves a file, through the lead"
+            if a.endswith("critic_ledger.py") and args[k + 1] in ("consent", "approve", "adopt"): return f"critic_ledger.py {args[k + 1]}: only the owner gives consent, approves a file or adopts a set-aside ledger, through the lead"
         if (n == "poetry" and args[:1] == ["run"]) or (n in ("pnpm", "yarn") and args[:1] == ["exec"]):  # poetry run pip install ...: judge what they launch
             return tripwire(args[1], args[2:]) if len(args) > 1 else None
         if n in WRAPPERS:  # timeout 10 curl ..., nice -n 5 pip install ..., xargs -n1 curl: judge the command they run

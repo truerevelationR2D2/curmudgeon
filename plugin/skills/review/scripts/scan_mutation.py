@@ -15,6 +15,7 @@ approved that file (--project-checks): a cloned repository can ship its own rule
 without consent."""
 import atexit, hashlib, json, os, pathlib, re, shutil, signal, subprocess, time
 from critic_findings import log_run
+import safegit  # git without the repository's own commands (03 §5.57 review)
 
 # Comparisons need a space on both sides, so TypeScript generics (Array<string>) and arrows are never mutated.
 OPS = [(r"===", "!=="), (r"!==", "==="), (r"(?<=\s)==(?=\s)", "!="), (r"(?<=\s)!=(?=\s)", "=="),
@@ -78,7 +79,7 @@ def code_view(path, src):
 def changed_lines(root, rel):
     """Line numbers changed against git HEAD, or None when git can't say (no repo, an untracked file, no changes)."""
     try:
-        r = subprocess.run(["git", "diff", "-U0", "HEAD", "--", rel], cwd=root, capture_output=True, text=True, timeout=10)
+        r = safegit.run(["diff", "-U0", "HEAD", "--", rel], cwd=root, capture_output=True, text=True, timeout=10)
     except (OSError, subprocess.TimeoutExpired): return None
     got = set()
     for m in re.finditer(r"^@@ -\S+ \+(\d+)(?:,(\d+))? @@", r.stdout, re.M):

@@ -23,12 +23,13 @@ usage:
 Steps it never takes: starting agents (only the lead can), writing a review or a verdict, or deciding anything a model
 decides. Each script it runs is logged in .critic/runlog.jsonl like any other."""
 import json, os, pathlib, subprocess, sys, re, time
+import safegit  # git without the repository's own commands (03 §5.57 review)
 
 HERE = pathlib.Path(__file__).resolve().parent
 ROOT = pathlib.Path(os.environ.get("CRITIC_ROOT") or re.sub(r"[\\/]\.critic[\\/]scratch(?:[\\/].*)?$", "", os.getcwd()) or os.getcwd()).resolve(); D = ROOT / ".critic"
 REVIEWERS = {"trivial": ["A"], "lite": ["A"], "full": ["A", "B", "C"]}
 VERIFY_BATCH = 5  # packets per verifier agent; 10 (SC-78) was measured and reverted: no saving, quality worse (03 §5.37)
-FORCE = False  # next --apply-now: apply with the verdicts there are (a finding with no verdict stays, at lower confidence)
+FORCE = False  # next --apply-now: apply with the verdicts there are (a finding with no verdict stays at lower confidence, except single-vote Mediums and outside-only findings, which are left out)
 
 def sh(script, *a):
     r = subprocess.run([sys.executable, str(HERE / script), *a], cwd=ROOT, capture_output=True, text=True)
@@ -101,7 +102,33 @@ def state():
     missing = [p for p in packets if p.stem not in covered and wanted(p)]
     if missing and not FORCE: return "verify", L, tier, missing
     if mtime(D / "findings.jsonl") < max([mtime(tally)] + [mtime(v) for v in fresh]): return "apply", L, tier, fresh
+    if tier == "full":  # SKILL.md step 4.5, the variant hunt: the full tier runs it before the teardown (ultimate audit Q07)
+        try: rows = [json.loads(x) for x in (D / "findings.jsonl").read_text().splitlines() if x.strip()]
+        except (OSError, ValueError): rows = []
+        if any(isinstance(f, dict) and f.get("impact") in ("Critical", "High") and f.get("confidence") in ("confirmed", "likely") for f in rows):
+            found_mark = D / "variants-found.json"
+            if mtime(found_mark) < mtime(D / "findings.jsonl"): return "variants-find", L, tier, []
+            vpk = sorted((D / "verify-variants").glob("*.json")) if (D / "verify-variants").is_dir() else []
+            vv = [v for v in (sorted((D / "verdicts-variants").glob("*.json")) if (D / "verdicts-variants").is_dir() else []) if mtime(v) >= mtime(found_mark)]
+            got = set()
+            for v in vv:
+                try: rr = json.loads(v.read_text())
+                except (OSError, ValueError): continue
+                got |= {str(r.get("id")) for r in (rr if isinstance(rr, list) else [rr]) if isinstance(r, dict)}
+            vmiss = [p for p in vpk if p.stem not in got]
+            if vmiss and not FORCE: return "variants-verify", L, tier, vmiss
+            if vpk and mtime(D / "variants.md") < max([mtime(found_mark)] + [mtime(v) for v in vv]): return "variants-apply", L, tier, vv
     return "teardown", L, tier, []
+
+def verifier_batches(items, tier):
+    """Packets in groups of VERIFY_BATCH for the verifiers, except that in the full tier each Critical gets a verifier
+    of its own (SKILL.md step 4.2; ultimate audit Q08: they used to share a batch of five)."""
+    def impact(p):
+        try: return json.loads(p.read_text()).get("impact")
+        except (OSError, ValueError, AttributeError): return None
+    crit = [p for p in items if tier == "full" and impact(p) == "Critical"]
+    rest = [p for p in items if p not in crit]
+    return [[p] for p in crit] + [rest[i:i + VERIFY_BATCH] for i in range(0, len(rest), VERIFY_BATCH)]
 
 def early(force=False):
     """The scan's FAIL rows, once per scan report (SC-80). Returns True when it printed something."""
@@ -132,10 +159,20 @@ def say_next(st, tier, items):
               + ", ".join(p.stem[-1] for p in items) + ". Give each the text of its brief, unchanged, as its prompt: " + ", ".join(f".critic/briefs/brief-{p.stem[-1]}.md" for p in items) + ". Each writes " + ", ".join(rel(p) for p in items) + ".")
     elif st == "dedup": print(f"next: start curmudgeon:curmudgeon-dedup on {rel(items[0])}; it writes .critic/groups.json. Then run critic_run.py next.")
     elif st == "verify":
-        batches = [items[i:i + VERIFY_BATCH] for i in range(0, len(items), VERIFY_BATCH)]
+        batches = verifier_batches(items, tier)
         print(f"next: start {len(batches)} curmudgeon:curmudgeon-verifier agent(s), blind, on these packets without a verdict yet (each verifier's ```json verdict list is saved in .critic/verdicts/ by the stop hook, unchanged; don't copy verdicts yourself); "
-              "then critic_run.py next. If a verifier can't answer, critic_run.py next --apply-now applies what there is (a finding with no verdict stays, at lower confidence):")
+              "then critic_run.py next. If a verifier can't answer, critic_run.py next --apply-now applies what there is (a finding with no verdict stays at lower confidence, except one reviewer's Medium and an outside-only finding, which are left out):")
         for i, b in enumerate(batches, 1): print(f"  verifier {i}: " + " ".join(rel(p) for p in b))
+    elif st == "variants-find":
+        print("next: the full tier's variant hunt (SKILL.md step 4.5): run critic_variants.py find, then critic_run.py next.")
+    elif st == "variants-verify":
+        batches = verifier_batches(items, tier)
+        print(f"next: start {len(batches)} curmudgeon:curmudgeon-verifier agent(s), blind, on these variant packets (the stop hook saves each verdict list in .critic/verdicts-variants/; don't copy verdicts yourself); then critic_run.py next:")
+        for i, b in enumerate(batches, 1): print(f"  verifier {i}: " + " ".join(rel(p) for p in b))
+    elif st == "variants-apply":
+        files = " ".join(rel(p) for p in items)
+        if files: print(f"next: critic_variants.py apply {files}, then critic_run.py next. Confirmed variants go in the teardown's own section, from .critic/variants.md.")
+        else: print("next: no variant verdicts came back. Run critic_variants.py apply with no files (every variant is listed as not verified), then critic_run.py next.")
     elif st == "teardown":
         print("next: write the teardown from .critic/counts.md (references/output-contract.md), save .critic/last-review.md, then critic_ledger.py stamp <payload>.")
     elif st == "idle": print("next: no run is active; critic_run.py begin starts one.")
@@ -156,7 +193,7 @@ def main(a):
         if audit:
             tier = "full"
             mine = D / "audit-owner.json"  # written by an earlier begin --audit here: that ledger is ours, unless the repository shipped the marker
-            shipped = subprocess.run(["git", "ls-files", "--error-unmatch", ".critic/audit-owner.json"], cwd=ROOT, capture_output=True).returncode == 0
+            shipped = safegit.run(["ls-files", "--error-unmatch", ".critic/audit-owner.json"], cwd=ROOT, capture_output=True).returncode == 0
             ours = mine.is_file() and not mine.is_symlink() and not shipped
             foreign = [n for n in ("ledger.json", "ledger.md", "decisions.md", "scope.json") if (D / n).is_file()] if not ours else []
             if foreign:  # the audited repository's own records are its owner's, not the auditor's: never their decisions, rulings or scope

@@ -26,18 +26,31 @@ def hidden(part):
     return part.startswith(".") and part not in (".", "..", ".well-known")
 
 class _Handler(http.server.SimpleHTTPRequestHandler):
+    """Refused requests are answered 404 in send_head itself, never from a file path: the old sentinel lived inside the
+    served folder, and a planted link at .curmudgeon-refused/404 turned every refusal into a read of any file the user
+    can read (ultimate audit H3)."""
     def log_message(self, *a): pass
     def list_directory(self, path):
         self.send_error(404, "not found"); return None
-    def translate_path(self, path):
-        p = super().translate_path(path)
+    def _allowed(self, real, asked=()):
         base = os.path.realpath(self.directory)
-        real = os.path.realpath(p)
-        refused = os.path.join(base, ".curmudgeon-refused", "404")
-        if real != base and not real.startswith(base.rstrip(os.sep) + os.sep): return refused  # outside the folder: not found
+        if real != base and not real.startswith(base.rstrip(os.sep) + os.sep): return False  # outside the folder
+        return not any(hidden(x) for x in list(asked) + os.path.relpath(real, base).split(os.sep))  # .critic/, .git/, .env ...
+    def translate_path(self, path):
+        p = super().translate_path(path); real = os.path.realpath(p)
         asked = urllib.parse.unquote(urllib.parse.urlsplit(path).path).replace("\\", "/").split("/")
-        if any(hidden(x) for x in asked + os.path.relpath(real, base).split(os.sep)): return refused  # .critic/, .git/, .env ...: never served
+        self._refused = not self._allowed(real, asked)
         return real
+    def send_head(self):
+        path = self.translate_path(self.path)
+        if self._refused: self.send_error(404, "not found"); return None
+        if os.path.isdir(path):  # the base class answers a folder with the first index that is a file: check that one (batch 1 review: a folder named index.html let index.htm through unchecked)
+            for name in ("index.html", "index.htm"):
+                idx = os.path.join(path, name)
+                if os.path.isfile(idx):
+                    if not self._allowed(os.path.realpath(idx)): self.send_error(404, "not found"); return None
+                    break
+        return super().send_head()
 
 def serve(folder):
     """Start the page server for folder; returns (server, origin, host_port)."""

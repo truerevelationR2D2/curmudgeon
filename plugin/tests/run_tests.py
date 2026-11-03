@@ -74,6 +74,18 @@ def T(text):
     return text
 def write(d, rel, text): p = d / rel; p.parent.mkdir(parents=True, exist_ok=True); p.write_text(T(text)); return p
 
+def own_ledger(d, data):
+    """Write .critic/ledger.json as the owner's own tools would leave it: critic_ledger.py records each save's checksum
+    outside the project, and a ledger without one is set aside as one that came with the code (ultimate audit H1).
+    Tests that build a ledger by hand stand in for those tools."""
+    p = pathlib.Path(d) / ".critic" / "ledger.json"; p.parent.mkdir(parents=True, exist_ok=True); p.write_text(json.dumps(data))
+    import critic_findings; critic_findings.record_ledger(pathlib.Path(d))
+
+def hook_verdicts(d, rows, name="test"):
+    """Verdicts saved where the verifier's stop hook saves them (.critic/verdicts/, newer than the tally), so apply
+    treats them as a verifier's and doesn't mark the run DEGRADED (ultimate audit V03). Returns the path to apply."""
+    time.sleep(0.02); return write(pathlib.Path(d), f".critic/verdicts/{name}.json", json.dumps(rows))
+
 APP = 'function render(n) {\n  list.innerHTML = `<li>${n.title}</li>`;\n}\nconst price = total * 1.0825;\n'
 def finding(**k):
     base = {"category": "xss", "impact": "Critical", "file": "src/app.js", "line": 2, "quote": "list.innerHTML = `<li>${n.title}</li>`;", "title": "Title rendered as HTML",

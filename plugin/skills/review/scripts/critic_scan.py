@@ -58,13 +58,15 @@ PEDANTIC_RULES = set()
 
 def f(sev, rule, area, where, what, ev="", lvl=None):
     for x in FP:
-        if x.get("rule") in (rule, rule[5:] if rule.startswith("rule-") else None) and str(x.get("where")) == str(where):  # rulings saved before rule- ids still apply
+        if x.get("rule") and x.get("rule") in (rule, rule[5:] if rule.startswith("rule-") else rule) and str(x.get("where")) == str(where):  # rulings saved before rule- ids still apply; a ruling with no rule id hides nothing (self-review F-0dcc1490)
             SUPPRESSED.append({"rule": rule, "where": where, "what": what, "why": x.get("why", "")}); return
     level = lvl or ("runtime" if area.startswith(("a11y-", "runtime", "ux", "responsive", "perf-rt", "visual")) else ("ci" if area == "ci" else "source"))
     tier = "pedantic" if rule in PEDANTIC or rule in PEDANTIC_RULES else "regular"
     if tier == "pedantic": sev = "NOTE"
     ev = scan_secrets.redact_spans(str(ev or "")[:4000])  # every row, not only the secrets rows: a key on a TODO line never reaches a report
-    R.append({"sev": sev, "rule": rule, "area": area, "where": str(where), "what": what, "evidence": ev.strip()[:160], "level": level, "tier": tier})
+    what = scan_secrets.redact_spans(str(what or "")[:4000])  # and every text field: a SARIF message or a URL can carry a key too (ultimate audit V37)
+    where = scan_secrets.redact_spans(str(where))
+    R.append({"sev": sev, "rule": rule, "area": area, "where": where, "what": what, "evidence": ev.strip()[:160], "level": level, "tier": tier})
 
 NA = "n/a"  # not applicable: nothing for this check to look at (no page given, no manifest). Never DEGRADED.
 def state(name, s, note=""): CHECKS[name] = {"state": s, "note": note}
@@ -380,12 +382,15 @@ def ci_evidence(root, out=None):
     Curmudgeon's own outputs (anything under .critic/ or the --out folder) are never read back as evidence."""
     import xml.etree.ElementTree as ET
     seen = files = unreadable = 0
-    own = {"scan.sarif", "findings.sarif"}
-    def mine(p): return ".critic" in p.parts or p.name in own or (out is not None and str(p.resolve()).startswith(str(out.resolve())))
+    from critic_findings import leaves_root
+    def mine(p): return ".critic" in p.parts or (out is not None and p.resolve().is_relative_to(out.resolve()))  # by place, not by name: a project's own reports/findings.sarif is read (ultimate audit Q13)
+    def linked_out(p):  # a link out of the project is never read (ultimate audit Q03)
+        if leaves_root(p, root): f("NOTE", "link-not-followed", "ci", str(p.relative_to(root)), "a link pointing outside the project; not followed, so nothing outside the project is read into this report"); return True
+        return False
     def rel_skip(p):  # the project's own parts: a project that lives under /build/ or /dist/ is still read
         try: return bool(set(p.relative_to(root).parts) & SKIP)
         except ValueError: return True
-    for p in [q for q in root.rglob("*.sarif") if not rel_skip(q) and not mine(q)][:20]:
+    for p in [q for q in root.rglob("*.sarif") if not rel_skip(q) and not mine(q) and not linked_out(q)][:20]:
         try:
             j = json.loads(p.read_text()); files += 1
             for run in j.get("runs", []):
@@ -399,7 +404,7 @@ def ci_evidence(root, out=None):
                         seen += 1; continue
                     f({"error": "WARN"}.get(r.get("level"), "NOTE"), f"ci-{tool}-{r.get('ruleId', '')}", tool_lens(tool), where, f"{tool}: {r.get('message', {}).get('text', '')[:150]}", lvl="ci"); seen += 1
         except Exception: unreadable += 1; continue
-    for p in [q for q in root.rglob("*.xml") if not rel_skip(q) and not mine(q)][:40]:
+    for p in [q for q in root.rglob("*.xml") if not rel_skip(q) and not mine(q) and not linked_out(q)][:40]:
         try:
             try: t = ET.parse(p).getroot()
             except ET.ParseError:
@@ -526,6 +531,11 @@ def runtime(page, src, root, out, axe_arg, interact, allow_live, baseline=None, 
             for k in names: state(k, "blocked", why)
             f("WARN", "live-refused", "runtime", page, why); return {}
         if target: log_run(SCAN_ROOT, "network", f"live page {page} (scope target {target['host']}, up to {target['max_requests']} requests, GET/HEAD/OPTIONS only)")
+    elif pathlib.Path(page).is_symlink() or not pathlib.Path(page).resolve().is_relative_to(pathlib.Path(root).resolve()):  # decided before Playwright is looked for, so the refusal is reported on every machine (CI, batch 1)
+        from browse import page_refusal
+        why = page_refusal(page, pathlib.Path(root).resolve())
+        for k in names: state(k, "blocked", why)
+        f("WARN", "page-refused", "runtime", page, why); return {}
     try: from playwright.sync_api import sync_playwright
     except ImportError:
         for k in names: state(k, "unavailable", "Playwright not installed")
@@ -534,7 +544,7 @@ def runtime(page, src, root, out, axe_arg, interact, allow_live, baseline=None, 
     import safe_web
     if re.match(r"^https?://", page): url = page; origin = re.match(r"^(https?://[^/]+)", page).group(1); allowed = [safe_web.host_port(page)]
     else:
-        pp = pathlib.Path(page).resolve(); base = src if src.is_dir() and str(pp).startswith(str(src)) else pp.parent
+        pp = pathlib.Path(page).resolve(); base = src if src.is_dir() and pp.is_relative_to(src.resolve()) else pp.parent  # a path test, not a string prefix (V44)
         if any(safe_web.hidden(x) for x in pp.relative_to(base).parts[:-1]): base = pp.parent  # a page under a dot folder (.vitepress/dist) is served from its own folder: the server never serves dot paths
         # served from this computer only (loopback), never a file whose real path leaves the folder, never a listing
         srv, origin, hp = safe_web.serve(base); allowed = [hp]; url = origin + "/" + pp.relative_to(base).as_posix()
@@ -827,13 +837,18 @@ def main(argv):
     led = root / ".critic" / "ledger.json"
     from critic_findings import ledger_shipped
     if led.exists() and ledger_shipped(root):  # a ledger the repository ships could be anyone's: it hides nothing here either
-        f("NOTE", "ledger-shipped", "setup", ".critic/ledger.json", "git tracks .critic/ledger.json, so its false-positive rulings were not applied (to use your own: git rm --cached .critic/ledger.json)")
+        f("NOTE", "ledger-shipped", "setup", ".critic/ledger.json", "the ledger may have come with the code (git tracks it, or Curmudgeon didn't write it here), so its false-positive rulings were not applied")
     elif led.exists():
         try: FP.extend((json.loads(led.read_text()) or {}).get("false_positives", []))
         except Exception: f("WARN", "ledger-unreadable", "setup", str(led), "ledger unreadable; no false positives suppressed")
     t = time.time()
     try: nfiles = static(src, root, a.exclude)
     except Exception as e: nfiles = 0; state("static", "blocked", f"{type(e).__name__}: {str(e)[:100]}")
+    if a.online:  # package names leave the machine: only with the owner's yes on file for this run (ultimate audit V39)
+        from critic_findings import consent_given
+        if not consent_given(root, "online"):
+            a.online = False
+            f("WARN", "deps-online-refused", "deps", "--online", "--online was not used: the owner's consent isn't on file for this run (after they say yes to sending package names and versions to api.osv.dev, run critic_ledger.py consent online); the lookup ran offline")
     try: scan_deps.scan(root if src.is_dir() else src.parent, f, online=a.online, state=state)
     except Exception as e: state("deps", "blocked", f"{type(e).__name__}: {str(e)[:100]}")
     try: ci_evidence(root, out)
