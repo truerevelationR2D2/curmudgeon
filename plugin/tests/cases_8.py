@@ -610,7 +610,7 @@ def _(d):
 @test("Qodo on #18 (2, 5, 6): the background check records the time a file had before its scan, a bare 'tenant' is not security, and a long first deleted line still shows")
 def _(d):
     src = (H / "stop_async.py").read_text()
-    assert re.search(r"before\s*=\s*\{p:\s*mt\(p\)", src) and "record[p] = [before[p], \"ok\"]" in src, "the record holds the time the scanner read"
+    assert re.search(r"before\s*=\s*\{p:\s*mt\(p\)", src) and "record[p] = [before[p], " in src and "record[p] = [mt(p)" not in src, "the record holds the time the scanner read"
     import critic_findings as cf, importlib.util
     assert cf.security_refutation_problem({"verdict": "refuted"}, {"category": "ui", "title": "Tenant name truncated in header"}) is None
     assert cf.security_refutation_problem({"verdict": "refuted"}, {"category": "logic", "title": "Cross-tenant isolation broken in reports"})
