@@ -581,7 +581,7 @@ def _(d):
     spec = importlib.util.spec_from_file_location("sa9", H / "stop_async.py"); sa = importlib.util.module_from_spec(spec); spec.loader.exec_module(sa)
     rec = {"a.py": [1.0, "ok"], "b.py": [1.0, "timeout"], "c.py": [0.5, "ok"]}
     mt = {"a.py": 1.0, "b.py": 1.0, "c.py": 1.0, "d.py": 1.0}
-    assert sa.scan_order(["a.py", "b.py", "c.py", "d.py"], rec, mt.get) == ["c.py", "d.py", "b.py", "a.py"], "changed since scanned or never scanned first, then timed out, then scanned"
+    assert sa.scan_order(["a.py", "b.py", "c.py", "d.py"], rec, mt.get) == ["b.py", "c.py", "d.py", "a.py"], "timed out (a share up front, Qodo on #20), then changed since scanned or never scanned, then scanned"
     write(d, "site/index.html", "<p>x</p>\n")
     write(d, ".critic/integrity-baseline.json", json.dumps({"files": {"a.html": {"own": [], "links": [], "forms": [], "origins": []}}}))
     r = run(S / "critic_scan.py", ".", "--root", ".", "--integrity-adopt", cwd=d); assert re.search(r"--confirm [0-9a-f]{32}\b", r.stdout), r.stdout
@@ -662,3 +662,48 @@ def _(d):
     run(S / "critic_scan.py", ".", "--root", ".", "--only", "only.txt", cwd=d)
     md = (d / ".critic/scan/report.md").read_text()
     assert re.search(r"\| static \| n/a \|", md) and "DEGRADED" not in md.split("## Checks")[0], md[:600]
+
+# ---- Qodo on #20 ----
+
+@test("Qodo on #20 (1): a stamped file deleted before any review is saved still blocks the gate")
+def _(d):
+    write(d, "src/auth.py", "x = 1\n"); _gate(d)
+    led = json.loads((d / ".critic/ledger.json").read_text()); led["stamps"] = {"src/auth.py": "0" * 16}
+    write(d, ".critic/ledger.json", json.dumps(led)); run(S / "critic_ledger.py", "show", cwd=d)
+    (d / "src/auth.py").unlink()
+    r = run(H / "stop_gate.py", cwd=d, stdin=json.dumps({"cwd": str(d)}))
+    assert '"block"' in r.stdout and "src/auth.py" in r.stdout, r.stdout
+
+@test("Qodo on #20 (2, 3): a scan that fails isn't recorded as done, and files whose part timed out get a share of the next stop ahead of fresh edits")
+def _(d):
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("sa20", H / "stop_async.py"); sa = importlib.util.module_from_spec(spec); spec.loader.exec_module(sa)
+    rec = {f"t{i}.py": [1.0, "timeout"] for i in range(5)}
+    fresh = [f"n{i}.py" for i in range(500)]
+    order = sa.scan_order(fresh + list(rec), rec, lambda p: 1.0)
+    assert set(order[:sa.CHUNK]) >= set(rec), "timed-out files ride in the first part"
+    src = (H / "stop_async.py").read_text()
+    assert "returncode" in src and "failed" in src, "a failed scan is recorded as failed, not ok"
+    subprocess.run(["git", "init", "-q"], cwd=d); _gate(d, "async"); _review_now(d); write(d, "x.py", "x = eval(input())\n")
+    fake = d / "fakescan"; write(fake, "critic_scan.py", "import sys\nsys.exit(3)\n")
+    rr = subprocess.run([sys.executable, "-c", f"import runpy,sys; sys.argv=['stop_async.py']; import importlib.util as u; s=u.spec_from_file_location('m', {str(H / 'stop_async.py')!r}); m=u.module_from_spec(s); s.loader.exec_module(m); m.SCAN_OVERRIDE={str(fake / 'critic_scan.py')!r}; import io; sys.stdin=io.StringIO({json.dumps(json.dumps({'cwd': str(d)}))}); sys.exit(m.main())"],
+                        capture_output=True, text=True, cwd=d, env=dict(os.environ, CRITIC_ROOT=str(d), CURMUDGEON_STATE_DIR=os.environ["CURMUDGEON_STATE_DIR"]))
+    rec2 = json.loads((d / ".critic/async-scanned.json").read_text())
+    assert rec2.get("x.py", [0, ""])[1] == "failed", (rec2, rr.stderr[-300:])
+
+@test("Qodo on #20 (4, 5, 6): parenthesised imports across lines count, a mixed change scans the deletion's callers too, and disclosure widgets or test data isolation aren't security")
+def _(d):
+    _del_repo(d, {"pkg/__init__.py": "", "pkg/mod.py": "def compute_total(x):\n    return x\n", "other/totals.py": "def compute_total(x):\n    return x\n",
+                  "pkg/use.py": "from . import (\n    mod,\n)\nprint(mod.compute_total(1))\n", "a.py": "x = 1\n"}, ["pkg/mod.py"])
+    write(d, "a.py", "x = 2\n")
+    run(S / "critic_map.py", cwd=d)
+    rad = json.loads((d / ".critic/change-map.json").read_text())["radius"]
+    assert "pkg/use.py" in rad.get("pkg/mod.py: compute_total", []), rad
+    run(S / "critic_ledger.py", "init", cwd=d); run(S / "critic_run.py", "begin", "--tier", "full", cwd=d)
+    lst = (d / ".critic/scan-only.txt").read_text().split()
+    assert "a.py" in lst and "pkg/use.py" in lst, lst
+    import critic_findings as cf
+    for t in ("Disclosure widget lacks aria-expanded", "Tests share fixtures, no data isolation"):
+        assert cf.security_refutation_problem({"verdict": "refuted"}, {"category": "a11y", "title": t}) is None, t
+    for t in ("Information disclosure through the error page", "Unauthorized disclosure of account emails"):
+        assert cf.security_refutation_problem({"verdict": "refuted"}, {"category": "logic", "title": t}), t

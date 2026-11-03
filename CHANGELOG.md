@@ -2,6 +2,16 @@
 
 Every release of Curmudgeon, newest first. The repository's history starts at 4.2.1; earlier versions are summarised from the project's own build and review records. Numbers are the ones measured at the time; the README's Benchmarks section has the current ones and how they were measured.
 
+## Unreleased: Qodo on #20
+
+Six findings (one High), each with a test that fails on the code before it (`plugin/tests/cases_8.py`).
+- A stamped file deleted before any review is saved now blocks the gate (High).
+- A background scan that fails, or writes no report, is recorded as failed, never as done.
+- Files whose part ran out of time or failed get up to half of the next stop's first part, so a stream of fresh edits can't keep them waiting.
+- A Python import written across lines in parentheses (`from . import (\n    mod,\n)`) or with backslashes counts when finding a deleted module's callers.
+- A change that both edits and deletes scans the deletion's callers as well as the edited files.
+- "Disclosure widget" and "data isolation" in tests are not security terms; "information disclosure", "unauthorized disclosure" and "customer isolation" are.
+
 ## Unreleased: Qodo on #19
 
 Five findings, each with a test that fails on the code before it (`plugin/tests/cases_8.py`).

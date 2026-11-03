@@ -209,8 +209,8 @@ def main(a):
         sh("critic_brief.py", "--letters", ",".join(REVIEWERS.get(tier, REVIEWERS["full"])))
         cmj = json.loads((D / "change-map.json").read_text()) if (D / "change-map.json").exists() else {}
         files = [str(f) for f in (cmj.get("files") or [])]
-        if not files and cmj.get("deleted"):  # a deletion-only change: scan the callers it may have broken (Qodo on #17)
-            files = sorted({u for k, v in (cmj.get("radius") or {}).items() if k.partition(": ")[0] in cmj["deleted"] for u in v})
+        if cmj.get("deleted"):  # a deletion: scan the callers it may have broken too, with or without other changes (Qodo on #17 and #20)
+            files = sorted(set(files) | {u for k, v in (cmj.get("radius") or {}).items() if k.partition(": ")[0] in cmj["deleted"] for u in v})
         only = ""
         if files and not (D / "scan-only.txt").is_symlink():
             (D / "scan-only.txt").write_text("\n".join(files) + "\n", encoding="utf-8"); only = " --only .critic/scan-only.txt"

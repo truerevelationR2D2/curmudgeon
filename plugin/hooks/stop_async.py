@@ -34,6 +34,8 @@ def walk_changed(root, since, limit=500_000):
         if n >= limit: break
     return [x for _, x in out]
 
+SCAN_OVERRIDE = None  # tests only: a stand-in scanner
+
 def scan_order(changed, record, mtime):
     """Changed files in the order this stop scans them: first those never scanned or changed since their last scan,
     then those whose part ran out of time, then those already scanned as they are. A record per file, not a part
@@ -42,8 +44,10 @@ def scan_order(changed, record, mtime):
     def rank(p):
         r = record.get(p)
         if not isinstance(r, list) or len(r) != 2 or (mtime(p) or 0) > r[0]: return 0
-        return 1 if r[1] == "timeout" else 2
-    return sorted(changed, key=rank)
+        return 1 if r[1] in ("timeout", "failed") else 2
+    order = sorted(changed, key=rank)
+    retry = [p for p in order if rank(p) == 1][:CHUNK // 2]  # files whose part ran out of time or failed get half of the first part, so fresh edits can't keep them waiting at every stop (Qodo on #20)
+    return retry + [p for p in order if p not in set(retry)]
 
 def main():
     try: data = json.load(sys.stdin)
@@ -72,7 +76,7 @@ def main():
     else: out = [x for x in (diff or []) + (others or []) if x]
     changed = sorted(set(changed) | {x for x in out if (root / x).is_file() and not x.startswith(".critic/") and (root / x).stat().st_mtime > since})
     if not changed: return 0
-    scan = pathlib.Path(__file__).resolve().parent.parent / "skills" / "review" / "scripts" / "critic_scan.py"
+    scan = pathlib.Path(SCAN_OVERRIDE) if SCAN_OVERRIDE else pathlib.Path(__file__).resolve().parent.parent / "skills" / "review" / "scripts" / "critic_scan.py"
     outdir = c / "scan-async"
     t0 = time.time(); listed = changed  # every changed file, in parts of CHUNK; never the first 200 only (audit Q09)
     (c / "scan-async-files.txt").write_text("\n".join(listed) + "\n", encoding="utf-8")
@@ -95,12 +99,16 @@ def main():
         left = DEADLINE - (time.time() - t0)
         if left < 10: break  # out of time: the files not reached rank first at the next stop
         before = {p: mt(p) for p in part}  # the times the scanner reads: an edit during the scan is newer, so it ranks first next time (Qodo on #18)
-        try: subprocess.run([sys.executable, str(scan), str(root), "--root", str(root), "--out", str(outdir / f"part-{n_}"), "--no-project-rules",
-                             "--only", str(lst)], capture_output=True, timeout=left)
+        rp = outdir / f"part-{n_}" / "report.json"; rp.unlink(missing_ok=True)
+        try: res = subprocess.run([sys.executable, str(scan), str(root), "--root", str(root), "--out", str(outdir / f"part-{n_}"), "--no-project-rules",
+                                   "--only", str(lst)], capture_output=True, timeout=left)
         except subprocess.TimeoutExpired:
             for p in part: record[p] = [before[p], "timeout"]  # after the files not reached yet, next time
             break
-        reports.append(outdir / f"part-{n_}" / "report.json"); scanned |= set(part)
+        if res.returncode != 0 or not rp.is_file():  # the scanner failed: never recorded as done (Qodo on #20)
+            for p in part: record[p] = [before[p], "failed"]
+            continue
+        reports.append(rp); scanned |= set(part)
         for p in part: record[p] = [before[p], "ok"]
     try: rec_f.write_text(json.dumps(record)) if not rec_f.is_symlink() else None
     except OSError: pass

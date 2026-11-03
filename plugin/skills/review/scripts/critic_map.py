@@ -74,6 +74,8 @@ def imports_module(caller, text, target):
     caller's folder ('./utils', '../lib/x', from .mod import f), or an absolute one that matches the target's path or
     its end, so an import that leaves out a source root ('src/') still counts (Qodo on #18)."""
     want = _noext(pathlib.PurePosixPath(target).as_posix()); here = pathlib.PurePosixPath(caller).parent.as_posix()
+    text = re.sub(r"(?m)^(\s*from\s+\S+\s+import\s*)\(([^)]*)\)", lambda m: m.group(1) + " ".join(m.group(2).replace(",", " , ").split()).replace(" ,", ","), text)  # a parenthesised import across lines, on one line (Qodo on #20)
+    text = re.sub(r"\\\n\s*", " ", text)  # and backslash continuations
     def hit(spec_path, relative=False): return bool(spec_path) and (spec_path == want or (not relative and want.endswith("/" + spec_path)))  # a resolved relative path must match exactly (Qodo on #19)
     for m in JS_SPEC.finditer(text):
         sp = m.group(1); rel_ = sp.startswith(".")
