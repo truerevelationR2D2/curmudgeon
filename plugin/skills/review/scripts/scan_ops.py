@@ -20,7 +20,7 @@ SECRETISH = re.compile(r"(?i)^(?:.*_)?(pass(?:word|wd)?|secret|token|api_?key|ap
 NOT_SECRET = re.compile(r"(?i)_(counts?|types?|len|length|policy|expiry|expires(_at)?|url|uri|endpoint|field|name|required|valid|ttl|lifetime|format|kind|prefix|index|idx|num|number|hint|label|min|max|strength|reset_at|hash(ed)?|digest|fingerprint|method|mode|backend|provider|scheme|file|path|dir|header_name|source|status|state|error)$|^(is|has|num|n|max|min)_")
 def secretish(name): return bool(SECRETISH.match(name)) and not NOT_SECRET.search(name)
 MASKER = re.compile(r"(?i)^_?(?:mask|redact|obfuscate)(?:_?(?:secret|token|password|value|sensitive|key))?$")  # mask(password) logs no secret; sanitize() only strips control characters
-LOGGER_NAME = re.compile(r"(?i:(?:^|_)(?:log|logger|logging)(?:_|$)|(?<!b)logger$)|[a-z0-9]Log(?:ger)?$")  # log, app_logger, audit_log, auditLog; never catalog, dialog or blog (self-review F-a92bf605)
+LOGGER_NAME = re.compile(r"(?i:(?:^|_)(?:log|logger|logging)(?:_|$)|(?<!^b)logger$)|[a-z0-9]Log(?:ger)?$")  # log, app_logger, audit_log, auditLog; never catalog, dialog or blog (self-review F-a92bf605)
 NON_PROD = {"dev", "devel", "development", "local", "test", "tests", "testing", "example", "examples", "sample", "samples"}
 LOG_CALLS = {"debug", "info", "warning", "warn", "error", "exception", "critical", "log", "print"}
 PEDANTIC = {"ops-k8s-no-probes", "ops-k8s-no-limits"}

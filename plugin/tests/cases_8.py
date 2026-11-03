@@ -1225,3 +1225,57 @@ def _(d):
     rv = lambda xs: [f".critic/reviews/review-{x}.json" for x in xs]
     run(S / "critic_merge.py", "tally", *rv("ABC"), cwd=f); write(f, ".critic/groups.json", '{"groups": []}')
     r = run(S / "critic_merge.py", "tally", *rv("AB"), "--groups", ".critic/groups.json", cwd=f); assert r.returncode == 2 and "review-C.json" in r.stderr, r.stderr
+
+# ---- Batch 4-6 blind review, round 3 (the last; these fixes are not re-reviewed) ----
+
+@test("batch 5 review round 3: process substitution, ${X%..} ${X/..} ${X:1} ${!X} $@ $*, {c..c}, $\"..\", /proc/$PPID, export A=1 X=.., printf -v '%s%s', and bash -c with an outer variable are refused; python probes with 2>&1 or | tail and relative .critic probes are not")
+def _(d):
+    p = d / "proj"; write(p, "src/app.js", "x\n"); write(p, ".critic/reviews/review-B.json", '[{"title": "SECRET-B"}]')
+    run(H / "scratch_dir.py", cwd=p, stdin=json.dumps({"agent_type": "curmudgeon:curmudgeon-reviewer", "agent_id": "r1", "cwd": str(p)}))
+    ws = json.loads((p / ".critic/scratch/r1/workspace.json").read_text())["payload"]; R = "../../../reviews/review-B.json"; C = f"{p}/.cri"
+    bad = [f"tr x y <(cat {R} >&2)", f"tr x y >(cat {R} >&2)", f"tr -d x <(cat {R} 1>&2)",
+           f"X={p}/.criticZZ; cat ${{X%ZZ}}/reviews/review-B.json", f"X={p}/.criticZZ; cat ${{X/ZZ/}}/reviews/review-B.json", f"X=x{p}/.critic; cat ${{X:1}}/reviews/review-B.json",
+           f"X=Y; Y={C}; cat ${{!X}}tic/reviews/review-B.json", f"set -- {C}; cat $@tic/reviews/review-B.json", f"set -- {C}; cat $*tic/reviews/review-B.json",
+           f"cat {p}/.{{c..c}}ritic/reviews/review-B.json", f"cat {p}/$\".critic\"/reviews/review-B.json", "cat /proc/$PPID/cwd/.critic/reviews/review-B.json", "cat /proc/$PPID/environ",
+           f"export A=1 X={C}; cat ${{X}}tic/reviews/review-B.json", f"printf -v X '%s%s' {C} tic; cat ${{X}}/reviews/review-B.json",
+           f"export X={C}; bash -c 'cat ${{X}}tic/reviews/review-B.json'"]
+    for c in bad: assert _guard(p, p, "Bash", command=f"cd {ws} && {c}"), c
+    ok = ["python3 - <<'EOF' 2>&1\nprint(6 / 3)\nEOF", "python3 - <<'EOF' 2>&1 | tail -20\nprint(6 / 3)\nEOF",
+          "python3 -c \"import pathlib; print(pathlib.Path('tests/.critic').resolve())\"", "node -e \"const p = require('path'); console.log(p.dirname('src/.critic/x'))\""]
+    for c in ok: assert not _guard(p, p, "Bash", command=f"cd {ws} && {c}"), c
+    import scan_secrets as ss, scan_ops
+    for line in ("SECRET_STORE=/opt/MyCompany/vault/keys", "TOKEN_CACHE=/Users/ryan/Library/Caches/MyApp", "API_KEY_LOCATION=/run/secrets/ApiKey"):
+        rows = []; ss.scan(".env", line + "\n", lambda *a: rows.append(a)); assert not rows, (line, rows)
+    rows = []; scan_ops.scan("a.py", "blogger.info(password)\ndblogger.info(password)\n", lambda *a: rows.append(a), d)
+    assert [int(r[3].split(":")[1]) for r in rows if r[1] == "ops-log-secret"] == [2], rows
+
+@test("batch 5 review round 3 (2): /proc/$PPID/root and /proc/self/cwd, \"$X\"tic, nested loops past the cap, two-level climbs in inline code, and a nested .critic in the real project are refused; the copy's git shows no phantom ledger")
+def _(d):
+    p = d / "proj"; write(p, "src/app.js", "x\n"); write(p, ".critic/reviews/review-B.json", '[{"title": "SECRET-B"}]')
+    write(p, "pkg/.critic/ledger.json", json.dumps({"findings": {"F-1": {"summary": "OLD"}}, "decisions": ["d"]}))
+    subprocess.run(["git", "init", "-q"], cwd=p); subprocess.run(["git", "add", "-A"], cwd=p); subprocess.run(G8 + ["commit", "-qm", "c"], cwd=p)
+    run(H / "scratch_dir.py", cwd=p, stdin=json.dumps({"agent_type": "curmudgeon:curmudgeon-reviewer", "agent_id": "r1", "cwd": str(p)}))
+    ws = json.loads((p / ".critic/scratch/r1/workspace.json").read_text())["payload"]; C = f"{p}/.cri"
+    bad = [f"cat /proc/$PPID/root{p}/.critic/reviews/review-B.json", "cat /proc/self/cwd/../../../reviews/review-B.json", "cat /proc/$$/cwd/../../../reviews/review-B.json",
+           f"X={C}; cat \"$X\"tic/reviews/review-B.json", f"X={C}; cat $X'tic'/reviews/review-B.json",
+           f"for X in {C} a b c; do for Y in tic q r s t; do cat $X$Y/reviews/review-B.json; done; done",
+           "python3 -c \"print(open('../../../reviews/review-B.json').read())\"", "python3 -c \"import os; print(os.listdir(os.path.dirname(os.path.dirname(os.getcwd()))))\"",
+           f"cat {p}/pkg/.critic/ledger.json", "cat ../../../../pkg/.critic/ledger.json"]
+    for c in bad: assert _guard(p, p, "Bash", command=f"cd {ws} && {c}"), c
+    assert _guard(p, p, "Read", file_path=f"{p}/pkg/.critic/ledger.json")
+    assert not _guard(p, p, "Bash", command=f"cd {ws} && python3 -c \"print(open('../notes/x.txt').read())\"")
+    st = subprocess.run(["git", "status", "--porcelain"], cwd=ws, capture_output=True, text=True).stdout
+    assert "ledger.json" not in st, st
+
+@test("batch 5 review round 3 (3): a # no longer hides the rest of a command, unset variables are judged as empty, a guard crash refuses instead of allowing, grep --color keeps its file judged, and a heredoc's absolute path is seen; probes with cwd() and $PWD work")
+def _(d):
+    p = d / "proj"; write(p, "src/app.js", "x\n"); write(p, ".critic/reviews/review-B.json", '[{"title": "SECRET-B"}]')
+    run(H / "scratch_dir.py", cwd=p, stdin=json.dumps({"agent_type": "curmudgeon:curmudgeon-reviewer", "agent_id": "r1", "cwd": str(p)}))
+    ws = json.loads((p / ".critic/scratch/r1/workspace.json").read_text())["payload"]; R = "../../../reviews/review-B.json"
+    bad = [f"echo x#y; cat {R}", f"true # list the files\ncat {R}", f"cat {p}/.cri${{NOPE}}tic/reviews/review-B.json", "cat .${U}./../../reviews/review-B.json",
+           f"declare -a -g -x -r X=(src); cat {R}", f"grep --color SECRET {R}", f"read X Y <<< \"src {p}/.cri\"; cat ${{Y}}tic/reviews/review-B.json",
+           f"mapfile -t X <<< {p}/.cri; cat ${{X}}tic/reviews/review-B.json",
+           "python3 - <<'EOF'\nimport os\n[print(open(os.path.join(r, x)).read()) for r, d, f in os.walk('/') for x in f if r.endswith('.critic' + os.sep + 'reviews')]\nEOF"]
+    for c in bad: assert _guard(p, p, "Bash", command=f"cd {ws} && {c}"), c
+    ok = ["python3 -c \"import pathlib; d = pathlib.Path.cwd() / 'fixture' / '.critic'; d.mkdir(parents=True, exist_ok=True)\"", "ls $PWD/src", "grep -rn --color '../' src"]
+    for c in ok: assert not _guard(p, p, "Bash", command=f"cd {ws} && {c}"), c

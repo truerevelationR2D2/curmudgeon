@@ -48,7 +48,10 @@ def judge(target, critic, role, me, via="read"):
     if t == c: return ".critic (the whole folder)"
     g = fold(os.path.join(os.path.dirname(str(critic)), ".git"))
     if t == g or t.startswith(g + os.sep): return "the project's own .git (its history and authors; your copy has its own, without them)"
-    if not t.startswith(c + os.sep): return None
+    if not t.startswith(c + os.sep):
+        proj = fold(os.path.dirname(str(critic)))
+        if t.startswith(proj + os.sep) and ".critic" in t[len(proj) + 1:].split(os.sep): return "a nested .critic/ in the project (an earlier run's records; your copy holds the settings you may read)"  # round 3 review
+        return None
     parts = t[len(c) + 1:].split(os.sep)
     top = parts[0]
     if top == "scratch":
@@ -179,6 +182,8 @@ def deny(reason):
     print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason": reason}}))
     return 0
 
+OPAQUE = re.compile(r"\$\{!|\$\{[A-Za-z_][A-Za-z0-9_]*(?:\[[^\]]*\])?(?:%|#|/|\^|,|:[^-=+?])|\$[@*#!?$-]|\$\{[@*#]|\{[^{}\s,]*\.\.[^{}\s,]*\}|\$\"")  # ${!X}, ${X%..} ${X#..} ${X/..} ${X:1}, $@ $* $$, {a..b}, $"..": a path built this way is refused, not guessed
+PROC_ANY = re.compile(r"(?:^|[\s=:'\"])/+proc/+(?:[\d*?\[{$]|thread-self|self/+(?:task|cwd|root|fd))")  # /proc/<pid>, /proc/*, /proc/$PPID ... by text, before any expansion (round 3 review)
 PROC_PID = re.compile(r"/proc/(?:\d+|thread-self|self/task/\d+)(?:/|$)")
 VAR_REF = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*|\d+)(?:\[[^\]]*\])?(?:[:%#/^,@+-][^}]*)?\}|\$([A-Za-z_][A-Za-z0-9_]*|\d)")
 VAR_DEFAULT = re.compile(r"\$\{[A-Za-z_][A-Za-z0-9_]*(?:\[[^\]]*\])?(?::?[-=+?]|//?[^/}]*/)([^}]*)\}")  # ${Y:-word}, ${X:+word}, ${X/pat/word}: the shell may put the word there
@@ -230,7 +235,9 @@ def heredoc_operators(text):
         head = text[text.rfind("\n", 0, m.start()) + 1:m.start()]
         tail = m.group(0)[len(m.group(0).rstrip("\n").split(m.group(2), 1)[0]) + len(m.group(2)):].strip(" \t\n'\"")
         line = re.sub(r"^.*(?:&&|;)\s*", "", head) + " " + tail  # the whole opening line: a pipe after the marker feeds the body to that command (round 2 review)
-        if head.count("'") % 2 or head.count('"') % 2 or re.search(r"[|;&`]|\$\(", tail) or not SCRIPT_READERS.match(line): continue  # inside quotes, piped on, or not a reader
+        tail_ = re.sub(r"\d*>&\d+|&>\S*|\d*>\s*/dev/null", " ", tail)  # 2>&1 and the like aren't a pipe (round 3 review)
+        piped_to_shell = re.search(r"\|\s*(?:sudo\s+)?(?:sh|bash|zsh|dash|ksh|xargs|eval|source|\.)\b", tail_) or re.search(r"`|\$\(", tail_)
+        if head.count("'") % 2 or head.count('"') % 2 or piped_to_shell or not SCRIPT_READERS.match(re.sub(r"[|&;].*$", "", line)): continue  # inside quotes, fed to a shell, or not a reader
         end = re.search(r"(?m)^[ \t]*" + re.escape(m.group(2)) + r"[ \t]*$", text[m.end():])
         if not end: continue  # no terminator: whatever follows is commands
         stop = m.end() + end.start()
@@ -239,7 +246,7 @@ def heredoc_operators(text):
 
 PATTERN_CMDS = {"grep", "egrep", "fgrep", "rg", "ag", "ack", "zgrep"}  # the first operand is a pattern, never a file
 SEPARATOR_OPTS = {"awk": {"-F"}, "gawk": {"-F"}, "mawk": {"-F"}, "cut": {"-d"}, "paste": {"-d"}, "column": {"-s", "-o"}}  # options that take a separator, per command
-VALUE_OPTS = {"grep": {"-m", "--max-count", "-A", "-B", "-C", "--context", "--include", "--exclude", "--exclude-dir", "-d", "-D", "--label", "--color", "--colour"},
+VALUE_OPTS = {"grep": {"-m", "--max-count", "-A", "-B", "-C", "--context", "--include", "--exclude", "--exclude-dir", "-d", "-D", "--label"},
               "rg": {"-m", "--max-count", "-A", "-B", "-C", "--context", "-g", "--glob", "-t", "--type", "-T", "--type-not", "-j", "--threads", "-M", "--max-columns", "--max-depth", "--color", "--colour"},
               "ag": {"-A", "-B", "-C", "-m", "--max-count", "-G", "--file-search-regex", "--ignore", "--depth"},
               "ack": {"-A", "-B", "-C", "-m", "--max-count", "--type", "--ignore-dir", "--ignore-file"}}  # options that take a value, per tool (grep -T and ag -t take none: round 2 review)
@@ -250,7 +257,7 @@ def data_words(cmd, args, base):
     awk -F, cut -d, paste -d and column -s separators (audit V22: `grep -rn "../" src`, `tr / _` and `awk -F /` were
     refused). Nothing at or after a redirect is ever text (tr a a < FILE reads FILE), and files these commands read
     stay judged: grep -f FILE, rg --files PATH, ag -g PAT PATH (batch 5 review)."""
-    stop = next((k for k, a in enumerate(args) if a in REDIRECTS or re.fullmatch(r"\d*(?:[<>]{1,2}|>\||<>|>&|<&)\d*-?", a)), len(args)); args = args[:stop]
+    stop = next((k for k, a in enumerate(args) if a in REDIRECTS or re.fullmatch(r"\d*(?:[<>]{1,2}|>\||<>|>&|<&)\d*-?", a) or a.startswith(("<(", ">(", "$(", "`"))), len(args)); args = args[:stop]
     out = set()
     if cmd == "tr": return {base + 1 + k for k in range(len(args))}
     if cmd in SEPARATOR_OPTS:
@@ -295,14 +302,18 @@ def bash_problem(cmd, rec, root, critic, role, me):
     unquoted = re.sub(r"'[^']*'|\"(?:\\.|[^\"\\])*\"", " ", rest)  # what the shell itself would expand
     if re.search(r"(?i)\$\{?(?:OLDPWD|CLAUDE_PROJECT_DIR)\b|(?:^|[\s;&|(])(?:cd|pushd)\s+-(?:\s|$|[;&|)])", unquoted): return "a way back to the project folder ($OLDPWD, cd -, $CLAUDE_PROJECT_DIR)"
     if re.search(r"\$\{?IFS\b|(?:^|[\s=:])~-|\{[^}\s]*\b(?:cd|pushd|chdir)\b[^}\s]*,", unquoted): return "a command spelled through $IFS, ~- or brace expansion"
+    rest = re.sub(r"\$\{?PWD\}?", lambda m_: payload, rest)  # $PWD is the copy the command starts in
+    flat_orig = re.sub(r"\\(.)", r"\1", rest).replace("${HOME}", home).replace("$HOME", home).replace("\n", " ; ")
     rest = heredoc_operators(rest)
+    rest = re.sub(r"\$([A-Za-z_][A-Za-z0-9_]*)(?=[\"'])", r"${\1}", rest)  # "$X"tic: the shell ends the name at the quote; shlex would glue it to tic (round 3 review)
+    rest = re.sub(r'\$"', '"', rest)  # $"..": locale quoting, the text inside it (round 3 review)
     rest = re.sub(r"\$'((?:[^'\\]|\\.)*)'", lambda m_: "'" + m_.group(1).encode().decode("unicode_escape", "replace").replace("'", "") + "'", rest)  # $'..' is the text inside it, escapes decoded (round 2 review)
     flat = re.sub(r"\\(.)", r"\1", rest).replace("${HOME}", home).replace("$HOME", home).replace("\n", " ; ")
     def split(text):
         try:
-            lx = shlex.shlex(text, posix=True, punctuation_chars=True); lx.whitespace_split = True; return list(lx)
+            lx = shlex.shlex(text, posix=True, punctuation_chars=True); lx.whitespace_split = True; lx.commenters = ""; return list(lx)  # no comments: a # would hide the rest of the joined command (round 3 review)
         except ValueError: return text.replace("'", " ").replace('"', " ").split()
-    SEP = {";", "&&", "||", "|", "&", "(", ")", "{", "}", ";;", "|&", "&>"}
+    SEP = {";", "&&", "||", "|", "&", "(", ")", "{", "}", ";;", "|&", "&>", "<(", ">("}  # a process substitution starts a command (round 3 review)
     LEAD = {"builtin", "command", "time", "eval", "exec", "nohup", "env", "if", "while", "until", "!", "then", "do", "else", "elif", "sudo"}  # a command still follows these
     pay = pathlib.Path(payload); ws_ = fold(payload); own = fold(pay.parent)
     inside = lambda q: fold(q) == ws_ or fold(q).startswith(ws_ + os.sep)
@@ -359,12 +370,16 @@ def bash_problem(cmd, rec, root, critic, role, me):
         if n.startswith("python") and "-m" in args and any(a in ("pip", "ensurepip", "venv", "http.server") for a in args[args.index("-m") + 1:args.index("-m") + 2]): return "python -m pip: it would change the environment or reach the network"
         if n.startswith("python") or n in ("node", "deno", "bun", "ruby", "perl", "php", "osascript", "pwsh", "powershell"):
             code = [args[k + 1] for k in range(len(args) - 1) if args[k] in INLINE] + [x for k, x in enumerate(args) if k and args[k - 1] in ("<<<",)]
-            if "<<" in args or "<<-" in args: code.append(flat)  # the body is on the lines after, in the same command text
+            if "<<" in args or "<<-" in args: code.append(flat_orig)  # the body as written, before its lone slashes were blanked (round 3 review)  # the body is on the lines after, in the same command text
             if any(NET_CODE.search(c) for c in code): return f"{n} with network code: reviewers and verifiers work offline"
             def reaches(c):  # names .critic or ~/.curmudgeon and can leave the copy: the project's own path or a "..", never a .critic folder a probe makes inside the copy (batch 5 review)
                 c = c.replace(str(pay.parent), "")
-                return bool(re.search(r"(?i)\.curmudgeon\b", c)) or bool(re.search(r"(?i)\.critic\b", c)) and (str(root) in c or os.path.realpath(str(root)) in c or ".." in c or "~" in c
-                       or bool(re.search(r"(?i)\.parents?\b|\b(?:dirname|pardir|expanduser|abspath|realpath|resolve|getcwd|cwd|chdir|environ|home)\b|['\"]/", c)))  # a climb by API or an absolute path (round 2 review)
+                if re.search(r"(?i)\.curmudgeon\b", c): return True
+                if re.search(r"\.\.[/\\]+\.\.|\bdirname\s*\(\s*(?:os\.path\.)?dirname|\.parent\.parent|parents\[\s*[1-9]|os\.walk\s*\(\s*['\"]/['\"]", c): return True  # two levels up from the copy is the scratch folder, three is .critic/ (round 3 review)
+                if not re.search(r"(?i)\.critic\b", c): return False
+                if str(root) in c or os.path.realpath(str(root)) in c or ".." in c or "~" in c: return True
+                if re.search(r"(?i)\.parents?\b|\bpardir\b|\bchdir\b|\bexpanduser\b|\bglob\b|\bos\.sep\b", c): return True  # a climb by API (round 2 review)
+                return any(not os.path.normpath(os.path.join(str(pay), lit)).startswith(str(pay) + os.sep) for lit in re.findall(r"['\"]([^'\"\n]*\.critic[^'\"\n]*)['\"]", c))  # a .critic path written out that leads outside the copy (round 3 review: 'tests/.critic' is fine)
             if any(reaches(c) for c in code): return f"{n} with code that names the project's .critic/ or Curmudgeon's own records: reviewers and verifiers work on code in their copy (audit Q01)"
         return None
     real_root = fold(pathlib.Path(root).resolve()); real_notes = fold((pay.parent / "notes").resolve())
@@ -397,12 +412,13 @@ def bash_problem(cmd, rec, root, critic, role, me):
         try: r = fold(q.resolve())
         except (OSError, RuntimeError): return False
         return r != real_ws and not r.startswith(real_ws + os.sep)
+    shell_vars = {}
     def walk(words, cands):
         """Judge the words (§5.56 rounds 1-2). A shell's folder can't be known for sure from the text (a cd in a
         subshell, a cd that fails, a cd spelled some way not listed here), so every path is judged from every folder
         the shell might be in: the copy, and every cd destination named so far. A cd may move within the copy, never
         out of it; a path that leads above the copy (to the agent's own scratch folder or higher) is refused."""
-        cmd_pos = True; cmd = None; targets = set(); text_words = set(); shell_vars = {}
+        cmd_pos = True; cmd = None; targets = set(); text_words = set()  # shell_vars is shared: bash -c '...' sees the outer command's variables (round 3 review)
         sure = not any(x in ("(", ")", "|", "|&", "||", "&") or "$(" in x or "`" in x for x in words)  # no subshell or pipe: a cd joined by && really happened if the command goes on
         skip = None
         for i, w in enumerate(words):
@@ -443,7 +459,8 @@ def bash_problem(cmd, rec, root, critic, role, me):
                 if sure and follows == "&&" and all(x.is_dir() for x in new): cands = list(dict.fromkeys(new))  # cd X && ...: X exists, so the rest runs in X (a failed cd stops the chain)
                 else: cands = cands + [x for x in new if x not in cands]
             am = re.fullmatch(r"([A-Za-z_][A-Za-z0-9_]*)=(.*)", w)
-            decl = i and any(words[j] in ("export", "local", "declare", "readonly", "typeset") and all(x.startswith("-") for x in words[j + 1:i]) for j in range(max(0, i - 4), i))  # declare -x X=..
+            back = next((j for j in range(i - 1, -1, -1) if words[j] in SEP), -1)
+            decl = i and any(words[j] in ("export", "local", "declare", "readonly", "typeset") for j in range(back + 1, i))  # declare -x X=.., export A=1 X=..
             if am and (cmd_pos or decl): shell_vars.setdefault(am.group(1), []).extend(expand_vars(am.group(2), shell_vars) or [am.group(2)])  # Y=$X takes X's values  # X=/project/.cri, then ${X}tic: judged with every value X was given (audit Q16; a prefix X=zz cmd ${X} still expands the old one)
             pm = re.fullmatch(r"([A-Za-z_][A-Za-z0-9_]*)\+=(.*)", w)
             if pm: shell_vars[pm.group(1)] = [v + pm.group(2) for v in shell_vars.get(pm.group(1), [""])]
@@ -456,22 +473,40 @@ def bash_problem(cmd, rec, root, critic, role, me):
                 for x in words[i + 2:]:
                     if x == ")": break
                     arr.append(x)
-                shell_vars[am.group(1)][-1:] = arr or [""]
+                shell_vars.setdefault(am.group(1), [""])[-1:] = arr or [""]
             if cmd_pos and w == "set" and i + 1 < len(words) and words[i + 1] == "--":
                 for n_, x in enumerate(words[i + 2:], 1):
                     if x in SEP: break
                     shell_vars.setdefault(str(n_), []).append(x)
-            if cmd_pos and w == "printf" and i + 2 < len(words) and words[i + 1] == "-v": shell_vars.setdefault(words[i + 2], []).extend(x for x in words[i + 3:i + 6] if x not in SEP)
+            if cmd_pos and w == "printf" and i + 2 < len(words) and words[i + 1] == "-v":
+                pa = []
+                for x in words[i + 3:]:
+                    if x in SEP: break
+                    pa.append(x)
+                try: shell_vars.setdefault(words[i + 2], []).append(pa[0].replace("%s", "{}").format(*pa[1:]) if pa and pa[0].count("%s") == len(pa) - 1 else "".join(pa[1:]) or "")
+                except (IndexError, ValueError): shell_vars.setdefault(words[i + 2], []).append("".join(pa[1:]))
             if cmd_pos and w == "read":
-                names = [x for x in words[i + 1:] if not x.startswith("-") and x not in SEP and re.fullmatch(r"[A-Za-z_]\w*", x)][:1]
+                k_ = next((k for k in range(i + 1, len(words)) if words[k] == "<<<"), len(words))
+                names = [x for x in words[i + 1:k_] if not x.startswith("-") and x not in SEP and re.fullmatch(r"[A-Za-z_]\w*", x)]
+                fields = words[k_ + 1].split() if k_ + 1 < len(words) else []
+                for n_, name_ in enumerate(names):
+                    shell_vars.setdefault(name_, []).append(" ".join(fields[n_:]) if n_ == len(names) - 1 else (fields[n_] if n_ < len(fields) else ""))
+            if cmd_pos and w in ("mapfile", "readarray"):
                 k_ = next((k for k in range(i + 1, len(words)) if words[k] == "<<<"), None)
-                if names and k_ is not None and k_ + 1 < len(words): shell_vars.setdefault(names[0], []).append(words[k_ + 1])
+                names = [x for x in words[i + 1:k_ or len(words)] if re.fullmatch(r"[A-Za-z_]\w*", x)]
+                if names and k_ is not None and k_ + 1 < len(words): shell_vars.setdefault(names[-1], []).append(words[k_ + 1])
             variants = [w] + [VAR_DEFAULT.sub(lambda m_: m_.group(1), w)] if VAR_DEFAULT.search(w) else [w]
             if "$" in w:  # ${X}, $X, ${X%%zz} and the like: each value the command gave X (at most 8 spellings)
                 for name in dict.fromkeys(m_.group(1) or m_.group(2) for x_ in variants for m_ in VAR_REF.finditer(x_)):
                     vals = shell_vars.get(name)
-                    if vals: variants = [VAR_REF.sub(lambda m_: v if (m_.group(1) or m_.group(2)) == name else m_.group(0), x) for x in variants for v in vals[-8:]][-16:]  # the last values: the one the shell uses is last (round 2 review)
+                    if vals:
+                        if len(variants) * len(vals) > 16 or len(vals) > 8: return f"{w}: a path built from more variable values than the guard follows; write the path out", cands  # fail closed (round 3 review)
+                        variants = [VAR_REF.sub(lambda m_: v if (m_.group(1) or m_.group(2)) == name else m_.group(0), x) for x in variants for v in vals]
+            if "$" in w: variants = variants + [VAR_REF.sub("", x) for x in variants if VAR_REF.search(x)]  # a name the command never set expands to nothing (round 3 review)
             if "{" in w and "," in w: variants = [b_ for x in variants for b_ in braces(x)]  # cat /p/.{critic,x}/...: as the shell expands it (round 2 review)
+            if i != skip and i not in text_words and "/" in w and OPAQUE.search(w):  # round 3 review: refuse what can't be evaluated exactly, instead of chasing each spelling
+                return f"{w}: a path spelled through parameter expansion ({OPAQUE.search(w).group(0)}); write the path out", cands
+            if i != skip and i not in text_words and PROC_ANY.search(w): return f"{w}: other agents' processes and command lines are not yours to read (audit P3)", cands
             pieces = []
             for w_ in ([] if i == skip or i in text_words else variants):
                 unurl = re.sub(r"(?i)file://", "", re.sub(r"(?i)\b(?!file:)[a-z][\w+.-]*://(?![^\s,;]*(?:\.\.|\.critic))[^\s,;]*", "", w_))  # a URL is no path (audit V22: http:// was read as /), unless it holds .. or .critic (a folder named "x:" makes x://../.. a path); file:// leaves its path
@@ -564,7 +599,9 @@ def main(data=None):
         cmd = ti.get("command")
         if isinstance(cmd, str) and cmd:
             if not rec: why = "anything with Bash: no private workspace was made for you, so review by reading (Read, Grep, Glob)"
-            else: why = bash_problem(cmd, rec, root, critic, role, me)
+            else:
+                try: why = bash_problem(cmd, rec, root, critic, role, me)
+                except Exception as e: why = f"a command the guard couldn't read ({type(e).__name__}); write it more plainly"  # fail closed for a review agent, never allow on a crash (round 3 review)
     if why: return deny(f"Curmudgeon blindness: a {role} may not read {why}.{where} Review only what your brief gives you.")
     return 0
 

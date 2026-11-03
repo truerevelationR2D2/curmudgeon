@@ -132,9 +132,10 @@ def _(d):
                      ("Bash", {"command": "cat .critic/scratch/me/r/review-B.json"}), ("Bash", {"command": "rg --hidden title ."})]:
         assert ask(tool, **ti), f"should be denied: {tool} {ti}"
     for tool, ti in [("Grep", {"pattern": "x", "path": ".", "glob": "!.critic/**"}), ("Grep", {"pattern": "\\.critic/reviews", "path": "plugin"}), ("Grep", {"pattern": "x", "path": "src"}),
-                     ("Read", {"file_path": "eval/fixture3/.critic/ledger.json"}), ("Read", {"file_path": "src/a.py"}), ("Glob", {"pattern": "**/*.py"}),
+                     ("Read", {"file_path": "src/a.py"}), ("Glob", {"pattern": "**/*.py"}),
                      ("Read", {"file_path": ".critic/rules.md"})]:
         assert not ask(tool, **ti), f"should be allowed: {tool} {ti}"
+    assert ask("Read", file_path="eval/fixture3/.critic/ledger.json"), "a nested .critic in the real project is an earlier run's record (round 3 review); a reviewer's copy holds its rulings"
     assert not ask("Read", agent="curmudgeon:curmudgeon-verifier", file_path=".critic/verify/F-1.json")
     assert ask("Read", agent="curmudgeon:curmudgeon-verifier", file_path=".critic/reviews/review-B.json")
     r = run(S / "critic_ledger.py", "start", "review", "--tier", "full", cwd=d)

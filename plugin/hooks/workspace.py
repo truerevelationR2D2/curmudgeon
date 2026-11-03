@@ -190,6 +190,9 @@ def _own_repo(root, payload):
                             for cmd in (["update-ref", "refs/heads/base", c.stdout.strip()], ["symbolic-ref", "HEAD", "refs/heads/base"], ["reset", "-q"]):  # reset: index = the base commit; the files on disk are the project's working tree
                                 safegit.run(["-c", "core.logAllRefUpdates=false", *cmd], cwd=payload, capture_output=True, timeout=120, env=env)
                             shutil.rmtree(payload / ".git" / "logs", ignore_errors=True)  # a reflog would carry this machine's git identity (03 §5.56 batch 2 round 3)
+                            try:  # the rulings-only nested ledgers the copy writes are no untracked change (round 3 review)
+                                with open(payload / ".git" / "info" / "exclude", "a", encoding="utf-8") as fh: fh.write("\n**/.critic/ledger.json\n")
+                            except OSError: pass
                             gone = safegit.run(["ls-files", "-d", "-z"], cwd=payload, capture_output=True, timeout=120)  # audit V24: a tracked file the copy left out (over 5 MB, a dependency folder) is no deletion
                             skipped = [x for x in (gone.stdout.split(b"\0") if gone.returncode == 0 else []) if x and os.path.lexists(os.path.join(os.fsencode(str(root)), x))]  # still in the project: left out, not deleted by the owner
                             if skipped: safegit.run(["update-index", "-z", "--skip-worktree", "--stdin"], cwd=payload, input=b"\0".join(skipped) + b"\0", capture_output=True, timeout=120)
