@@ -562,7 +562,8 @@ RUNLOG_MAX = 1_000_000
 # Local state that must never be committed: logs, restore copies, and the files that hold reviewers' raw quotes (a
 # quote can contain a secret from the code under review; the outputs Curmudgeon writes itself are masked by scrub()).
 IGNORED = ("runlog.jsonl", "refutations.jsonl", "cost.jsonl", "scratch/", "manifest.json", "spotcheck.md", "restore/", "reviews/", "history/", "outside/", "verify/",
-           "tally.json", "dedup-candidates.json", "findings-import.jsonl", "briefs/", "scan-only.txt", "verdicts/", "verdicts-variants/", "verify-variants/", "variants.jsonl", "variants-found.json", "scan-skipped")
+           "tally.json", "dedup-candidates.json", "findings-import.jsonl", "briefs/", "scan-only.txt", "verdicts/", "verdicts-variants/", "verify-variants/", "variants.jsonl", "variants-found.json", "scan-skipped",
+           "integrity-baseline.json")  # the owner's recorded copy: a tracked one is never trusted (audit Q04), so it stays out of commits
 _TRACKED = {}
 def git_tracked(root, rel):
     """True when the repository tracks this file: ignore rules don't apply to a tracked file, so anything written to

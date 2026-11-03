@@ -107,7 +107,19 @@ CJK_SETS = ({"LATIN", "CJK", "HIRAGANA", "KATAKANA", "KATAKANA-HIRAGANA"}, {"LAT
 
 def mixed(label):
     s = scripts(label)
-    return len(s) > 1 and not any(s <= ok for ok in CJK_SETS)
+    if len(s) <= 1: return False
+    if not any(s <= ok for ok in CJK_SETS): return True
+    if "LATIN" not in s: return False
+    # Latin beside a CJK script is a real name only when that script carries words: a Han character, a Hangul
+    # syllable, or two or more kana. A lone kana, a Hangul letter (jamo) or Bopomofo in a Latin name stands in for a
+    # Latin letter (paypaㅣ.com; batch 2 review).
+    names = [unicodedata.name(c, "") for c in label if c.isalpha()]
+    han = any(n.startswith("CJK") for n in names); syll = any(n.startswith("HANGUL SYLLABLE") for n in names)
+    kana = sum(n.startswith(("HIRAGANA", "KATAKANA")) for n in names)
+    if "HANGUL" in s and not syll: return True
+    if "BOPOMOFO" in s and not han: return True
+    if s & {"HIRAGANA", "KATAKANA", "KATAKANA-HIRAGANA"} and not han and kana < 2: return True
+    return False
 
 def lookalike(host):
     """A label that mixes scripts (Latin with Cyrillic, Greek...), or punycode that doesn't decode. A Japanese, Chinese
@@ -128,10 +140,13 @@ class Page(HTMLParser):
         self._a = None; self.dupes = []; self.base = None; self.claims = []  # claims: (site, line) the page says it is
     def resolve(self, url):
         """The address a browser would use: a relative one is read against the first <base href> that names a host."""
-        if not self.base or host_of(url) is not None: return url
+        if not self.base or host_of(self.base) is None or host_of(url) is not None: return url  # a relative base: targets stay on this site
         u = clean_url(url)
         if not u or re.match(r"(?i)^[a-z][a-z0-9+.-]*:", u) and not re.match(r"(?i)^https?:", u): return url  # mailto:, javascript:, data:
-        try: return urllib.parse.urljoin(clean_url(self.base), u)
+        b = clean_url(self.base); m = re.match(r"(?i)^(https?:)/*(?=[^/])", b)
+        if m: b = m.group(1) + "//" + b[m.end():]  # http:host and http:/host name a host, as host_of reads them (batch 2 review)
+        elif b.startswith("//"): b = "https:" + b
+        try: return urllib.parse.urljoin(b, u)
         except ValueError: return url
     def host(self, url): return host_of(self.resolve(url))
     def _close_a(self):
@@ -153,7 +168,7 @@ class Page(HTMLParser):
         elif tag == "meta" and a.get("http-equiv", "").lower() == "content-security-policy": self.csp.append((a.get("content", ""), ln))
         elif tag == "meta" and a.get("property", "").lower() == "og:url" and host_of(a.get("content", "")): self._claim(host_of(a["content"]), ln)
         elif tag == "link" and "canonical" in a.get("rel", "").lower() and host_of(a.get("href", "")): self._claim(host_of(a["href"]), ln)
-        if tag == "base" and self.base is None and host_of(a.get("href", "")): self.base = a["href"]  # the first base with a host wins, as in a browser; it is where relative targets go, never the page's own site (audit F-5a56b49c)
+        if tag == "base" and self.base is None and a.get("href"): self.base = a["href"]  # the first base with an href wins, as in a browser (batch 2 review); it is where relative targets go, never the page's own site (audit F-5a56b49c)
     def _claim(self, h, ln): self.own.add(site(h)); self.claims.append((site(h), ln))
     def handle_data(self, data):
         if self._a is not None: self._a["text"] += data
@@ -262,7 +277,7 @@ def scan(rel, text, emit, root, baseline=None):
     for f in p.forms:
         h = p.host(f["action"])
         if lookalike(h): emit("FAIL", "integrity-lookalike-host", "integrity", f"{rel}:{f['line']}", f"the form posts to {h}, a host whose letters mix scripts", show(f["line"])); continue
-        if re.match(r"(?i)^http:", clean_url(f["action"])) and h and not LOCAL.match(h):
+        if re.match(r"(?i)^http:", clean_url(p.resolve(f["action"]))) and h and not LOCAL.match(h):  # the address the browser posts to, base included (batch 2 review)
             emit("FAIL", "integrity-form-insecure", "integrity", f"{rel}:{f['line']}", f"the form posts to {f['action'][:80]} over plain http: what the user types is sent unencrypted", show(f["line"]))
         elif h and p.own and site(h) not in p.own:
             emit("WARN", "integrity-form-offsite", "integrity", f"{rel}:{f['line']}", f"the form posts to {h}, not to this page's own site ({', '.join(sorted(p.own))})", show(f["line"]))

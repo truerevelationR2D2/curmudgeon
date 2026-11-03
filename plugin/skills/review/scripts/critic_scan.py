@@ -822,10 +822,14 @@ def integrity_adopt(root):
     if bp.is_symlink() or not bp.is_file(): print(f"critic_scan: no recorded copy at {bp}", file=sys.stderr); return 2
     try: files = json.loads(bp.read_text(encoding="utf-8"))["files"]; assert isinstance(files, dict)
     except Exception as e: print(f"critic_scan: {bp} isn't a recorded copy ({type(e).__name__})", file=sys.stderr); return 2
+    from critic_findings import git_tracked
+    if git_tracked(root, ".critic/integrity-baseline.json"):  # never trusted while tracked, so adopting it would change nothing (batch 2 review)
+        print("critic_scan: git tracks .critic/integrity-baseline.json, so it could have come with the code and is never trusted. Untrack it (git rm --cached .critic/integrity-baseline.json), check it, then adopt it", file=sys.stderr); return 2
     print(f"{bp}: adopting it makes every host below count as already there when pages are compared:")
     for rel, x in sorted(files.items()):
         x = x if isinstance(x, dict) else {}
-        print(f"  {rel}: own {', '.join(map(str, x.get('own') or [])) or '(not recorded)'}; links {', '.join(sorted({str(l).rpartition(chr(9))[2] for l in x.get('links') or []})) or 'none'}; "
+        own = x.get("own")
+        print(f"  {rel}: own {'(not recorded)' if not isinstance(own, list) else (', '.join(map(str, own)) or 'none')}; links {', '.join(sorted({str(l).rpartition(chr(9))[2] for l in x.get('links') or []})) or 'none'}; "
               f"forms {', '.join(map(str, x.get('forms') or [])) or 'none'}; scripts and frames {', '.join(map(str, x.get('origins') or [])) or 'none'}")
     from critic_findings import record_baseline
     try: record_baseline(root)
@@ -833,7 +837,7 @@ def integrity_adopt(root):
     print("adopted"); return 0
 
 def main(argv):
-    ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0], formatter_class=argparse.RawDescriptionHelpFormatter, epilog=__doc__.split("\n\n", 1)[1])
+    ap = argparse.ArgumentParser(allow_abbrev=False, description=__doc__.split("\n\n")[0], formatter_class=argparse.RawDescriptionHelpFormatter, epilog=__doc__.split("\n\n", 1)[1])
     ap.add_argument("src"); ap.add_argument("--root"); ap.add_argument("--page"); ap.add_argument("--out"); ap.add_argument("--axe")
     ap.add_argument("--exclude", action="append", default=[]); ap.add_argument("--no-interact", action="store_true"); ap.add_argument("--allow-live", metavar="HOST", default=None, help="the owner's typed confirmation for a live target listed in .critic/scope.json")
     ap.add_argument("--online", action="store_true"); ap.add_argument("--mutate", nargs="+", default=[]); ap.add_argument("--test-cmd"); ap.add_argument("--project-checks", action="store_true"); ap.add_argument("--no-project-rules", action="store_true")

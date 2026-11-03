@@ -68,3 +68,51 @@ def _(d):
     write(d, "site/index.html", page)
     got = [x for x in _irows(d) if x[0] == "integrity-lookalike-host"]
     assert got == [("integrity-lookalike-host", "site/index.html:5")], got
+
+@test("batch 2 review: an abbreviated --integrity-adopt or --integrity-record is refused, both by critic_scan.py and by the agents' guard")
+def _(d):
+    write(d, "site/index.html", "<p>x</p>\n"); write(d, ".critic/integrity-baseline.json", json.dumps({"files": {}}))
+    r = run(S / "critic_scan.py", ".", "--root", ".", "--integrity-adop", cwd=d)
+    assert r.returncode == 2 and "adopted" not in r.stdout, (r.returncode, r.stdout, r.stderr[-200:])
+    sys.path.insert(0, str(H)); import importlib, read_guard as rg8; importlib.reload(rg8)
+    for cmd in (f"python3 {S}/critic_scan.py . --integrity-adop", f"python3 {S}/critic_scan.py . --integrity-a", f"python3 {S}/critic_scan.py . --integ"):
+        assert rg8.owner_problem(cmd, True), cmd
+
+@test("batch 2 review: the owner's recorded copy is kept out of git, and adopting one git tracks fails and says how to fix it")
+def _(d):
+    subprocess.run(["git", "init", "-q"], cwd=d); write(d, "site/index.html", "<p>x</p>\n")
+    run(S / "critic_scan.py", ".", "--root", ".", cwd=d); run(S / "critic_scan.py", ".", "--root", ".", "--integrity-record", cwd=d)
+    subprocess.run(["git", "add", "-A"], cwd=d)
+    tracked = subprocess.run(["git", "ls-files", ".critic"], cwd=d, capture_output=True, text=True).stdout
+    assert "integrity-baseline.json" not in tracked, tracked
+    subprocess.run(["git", "add", "-f", ".critic/integrity-baseline.json"], cwd=d)
+    r = run(S / "critic_scan.py", ".", "--root", ".", "--integrity-adopt", cwd=d)
+    assert r.returncode != 0 and "git rm --cached" in (r.stdout + r.stderr) and "adopted" not in r.stdout, r.stdout + r.stderr
+
+@test("batch 2 review: a Latin name with a lone Hangul letter, Bopomofo or kana is still a look-alike; real CJK names, with or without Latin, are not")
+def _(d):
+    import scan_integrity as si
+    for h in ("xn--paypa-ljv.com", "xn--ggle-bkra.com", "xn--witter-2b5e.com", "paypaノ.com", "gㄅogle.com"):
+        assert si.lookalike(h), h
+    for h in ("東京ばな奈.jp", "ソニー銀行.jp", "한국大學.kr", "sony銀行.jp", "sonyストア.jp", "lg전자.kr", "ラーメン.jp"):
+        assert not si.lookalike(h), h
+
+@test("batch 2 review: <base> rules as a browser reads them: the first base with an href wins, http:host is a host, and an http base makes a relative form insecure")
+def _(d):
+    import scan_integrity as si
+    rows = []
+    def emit(sev, rule, area, where, what, ev=""): rows.append((rule, where, what))
+    si.scan("p.html", '<link rel="canonical" href="https://www.example.com/">\n<base href="http://www.example.com/">\n<form action="/login"></form>\n', emit, d)
+    assert ("integrity-form-insecure", "p.html:3") in [(r, w) for r, w, _ in rows], rows
+    rows.clear()
+    si.scan("p.html", '<link rel="canonical" href="https://www.example.com/">\n<base href="/sub/">\n<base href="https://evil.example.net/">\n<form action="/login"></form>\n', emit, d)
+    assert not rows, ("the browser uses the first base, which is relative", rows)
+    p = si.parse('<base href="http:evil.example.net/">\n<form action="/login"></form>\n')
+    assert p.host("/login") == "evil.example.net", p.host("/login")
+
+@test("batch 2 review: --integrity-adopt shows an empty own-site list as none, and (not recorded) only when the list is missing")
+def _(d):
+    write(d, "site/index.html", "<p>x</p>\n")
+    write(d, ".critic/integrity-baseline.json", json.dumps({"files": {"a.html": {"own": [], "links": [], "forms": [], "origins": []}, "b.html": {"links": [], "forms": [], "origins": []}}}))
+    r = run(S / "critic_scan.py", ".", "--root", ".", "--integrity-adopt", cwd=d)
+    assert "a.html: own none" in r.stdout and "b.html: own (not recorded)" in r.stdout, r.stdout
