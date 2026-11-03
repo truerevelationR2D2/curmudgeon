@@ -217,7 +217,7 @@ def _cites_real_line(text, root):
     return False
 
 SECURITY = re.compile(r"(?i)\b(?:xss|inject\w*|secrets?|credentials?|auth\w*|csrf|ssrf|traversal|deserial\w*|eval|rce|privileges?|tokens?|passwords?|crypto\w*|sanitiz\w*|leak\w*|exposure|security"
-                      r"|(?:tenant|cross[- ]tenant|multi[- ]tenant|customer) isolation|cross[- ]tenant|tenant (?:scop\w*|context|boundar(?:y|ies)|separation|filter\w*|check\w*|leak\w*)|idor|access[- ]control|permission (?:check|bypass)|unauthori[sz]ed|(?:information|data|sensitive|unauthori[sz]ed|pii) disclosure|exfiltrat\w*|spoof\w*|impersonat\w*"
+                      r"|(?:tenant|cross[- ]tenant|multi[- ]tenant|customer) isolation|cross[- ]tenant|tenant (?:scop\w*|context|boundar(?:y|ies)|separation|filter\w*|check\w*|leak\w*)|idor|access[- ]control|permission (?:check|bypass)|unauthori[sz]ed|(?:information|data|sensitive|unauthori[sz]ed|pii) disclosure|disclosure of (?:sensitive|personal|private|confidential|secret|customer|user|account|credential|internal)\w*|exfiltrat\w*|spoof\w*|impersonat\w*"
                       r"|privilege escalat\w*|escalat\w* (?:of )?privileges?|account takeover|session (?:fixation|hijack\w*|token)|(?:auth|session) cookies?|cors|xxe|sqli|open[- ]redirect|clickjack\w*"
                       r"|another (?:user|tenant|customer|account)'s|other (?:users|tenants|customers|accounts)' (?:data|records|files|rows))\b")  # tenant isolation and access control are security too (Qodo on #15), in phrases that don't catch ordinary words (collected round review)
 SECURITY_REASONS = ("no_untrusted_input", "guard_blocks", "not_reachable", "no_privilege_gain", "already_public", "platform_escapes")

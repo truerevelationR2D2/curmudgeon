@@ -707,3 +707,21 @@ def _(d):
         assert cf.security_refutation_problem({"verdict": "refuted"}, {"category": "a11y", "title": t}) is None, t
     for t in ("Information disclosure through the error page", "Unauthorized disclosure of account emails"):
         assert cf.security_refutation_problem({"verdict": "refuted"}, {"category": "logic", "title": t}), t
+
+# ---- Qodo on #21 ----
+
+@test("Qodo on #21: a background scan whose report is degraded or unreadable is recorded as failed (its findings still count), and 'disclosure of sensitive data' is security while a disclosure widget is not")
+def _(d):
+    import critic_findings as cf
+    for t in ("Disclosure of sensitive data in logs", "Disclosure of customer emails to other accounts"):
+        assert cf.security_refutation_problem({"verdict": "refuted"}, {"category": "logic", "title": t}), t
+    assert cf.security_refutation_problem({"verdict": "refuted"}, {"category": "a11y", "title": "Disclosure widget lacks aria-expanded"}) is None
+    subprocess.run(["git", "init", "-q"], cwd=d); _gate(d, "async"); _review_now(d); write(d, "x.py", "x = 1\n")
+    fake = d / "fakescan"
+    write(fake, "critic_scan.py", "import json, pathlib, sys\na = sys.argv\nout = pathlib.Path(a[a.index('--out') + 1]); out.mkdir(parents=True, exist_ok=True)\n"
+                                  "(out / 'report.json').write_text(json.dumps({'degraded': ['static'], 'findings': [{'sev': 'FAIL', 'rule': 'r', 'where': 'x.py:1', 'what': 'w'}]}))\n")
+    prog = (f"import io, sys, importlib.util as u; s = u.spec_from_file_location('m', {str(H / 'stop_async.py')!r}); m = u.module_from_spec(s); s.loader.exec_module(m); "
+            f"m.SCAN_OVERRIDE = {str(fake / 'critic_scan.py')!r}; sys.stdin = io.StringIO({json.dumps(json.dumps({'cwd': str(d)}))}); sys.exit(m.main())")
+    rr = subprocess.run([sys.executable, "-c", prog], capture_output=True, text=True, cwd=d, env=dict(os.environ, CRITIC_ROOT=str(d)))
+    rec = json.loads((d / ".critic/async-scanned.json").read_text())
+    assert rec.get("x.py", [0, ""])[1] == "failed" and rr.returncode == 2 and "x.py:1" in rr.stderr, (rec, rr.returncode, rr.stderr[-300:])

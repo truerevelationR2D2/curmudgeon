@@ -2,6 +2,12 @@
 
 Every release of Curmudgeon, newest first. The repository's history starts at 4.2.1; earlier versions are summarised from the project's own build and review records. Numbers are the ones measured at the time; the README's Benchmarks section has the current ones and how they were measured.
 
+## Unreleased: Qodo on #21
+
+Two findings, each with a test that fails on the code before it (`plugin/tests/cases_8.py`).
+- A background scan whose report says a check didn't run (degraded), or can't be read, is recorded as failed and retried. Whatever it did find still counts.
+- "Disclosure of sensitive data" (and of personal, customer or credential data) is a security phrase; a disclosure widget still isn't.
+
 ## Unreleased: Qodo on #20
 
 Six findings (one High), each with a test that fails on the code before it (`plugin/tests/cases_8.py`).
