@@ -654,7 +654,7 @@ def main(a):
         need(rest, 1, "stamp [--add] PATH...")
         add = rest[0] == "--add"; rest = rest[1:] if add else rest
         need(rest, 1, "stamp [--add] PATH...")
-        new = dict(L["stamps"]) if add else {}
+        new = {k: v for k, v in L["stamps"].items() if (ROOT / k).exists()} if add else {}  # a deleted file leaves the stamps when the review that covered it is stamped (batch 3 review)
         for a_ in rest:
             p = pathlib.Path(a_)
             if not p.exists(): die(f"{a_} does not exist; nothing was stamped")

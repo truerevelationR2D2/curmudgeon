@@ -1132,7 +1132,7 @@ def _(d):
     r = subprocess.run([sys.executable, str(H / "stop_async.py")], input=json.dumps({"cwd": str(d)}), capture_output=True, text=True, cwd=d)
     assert r.returncode == 2 and "src/a.js" in r.stderr and "untouched.js" not in r.stderr, (r.returncode, r.stderr)
     dirs = sorted(p.name for p in (d / ".critic/scan-async").iterdir())
-    assert dirs == ["all"], f"expected one scan for all changed files, got {dirs}"
+    assert dirs == ["part-0"], f"expected one scan for all changed files (up to 200 per part, audit Q09), got {dirs}"
     src = (H / "stop_async.py").read_text()
     assert "timeout=10" in src and "DEADLINE" in src, "git calls and the whole check must be time-limited"
     hooks = json.loads((H / "hooks.json").read_text())["hooks"]

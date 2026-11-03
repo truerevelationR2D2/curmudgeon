@@ -13,20 +13,32 @@ import hashlib, json, os, pathlib, sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import workspace
 
-SKIP = {".git", "node_modules", "dist", "build", ".critic", "__pycache__", ".next", "coverage", "vendor", ".venv", "venv"}
+SKIP = {".git", "node_modules", "dist", "build", ".critic", "__pycache__", ".next", "coverage", "vendor", ".venv", "venv",
+        ".tox", ".nox", ".mypy_cache", ".pytest_cache", ".ruff_cache", ".cache", ".gradle", ".idea", ".svn", ".hg"}
+# dot-folders that hold code people write (audit O2); every other dot-folder is a tool's (.env, .svelte-kit, .yarn,
+# .terraform: generated or downloaded, and would block for files nobody wrote; batch 3 review)
+CODE_DOTDIRS = {".claude", ".github", ".husky", ".devcontainer", ".circleci", ".gitlab", ".storybook", ".githooks", ".config"}
 CODE = {".js", ".mjs", ".cjs", ".ts", ".jsx", ".tsx", ".py", ".css", ".scss", ".html", ".vue", ".svelte", ".go", ".rs", ".java", ".rb", ".php", ".cs", ".swift", ".kt"}
 
 def newest(root, stamps):
     best = (0.0, None)
     paths = [root / k for k in stamps]
     for dp, dns, fns in os.walk(root):
-        dns[:] = [d for d in dns if d not in SKIP and not d.startswith(".")]
+        dns[:] = [d for d in dns if d not in SKIP and (not d.startswith(".") or d in CODE_DOTDIRS)]
         paths += [pathlib.Path(dp) / fn for fn in fns if pathlib.Path(fn).suffix in CODE]
     for p in paths:
         try: m = p.stat().st_mtime
         except OSError: continue  # deleted files and broken links are skipped, not fatal
         if m > best[0]: best = (m, p)
     return best
+
+def deleted_after(p, since):
+    """Whether a deleted file went after the review: its folder (or the nearest one left) changed after it. A review
+    saved after the deletion covers it (batch 3 review)."""
+    q = p.parent
+    while not q.exists() and q != q.parent: q = q.parent
+    try: return q.stat().st_mtime > since
+    except OSError: return True
 
 def out(obj): print(json.dumps(obj)); return 0
 
@@ -50,11 +62,19 @@ def main():
     review = c / "last-review.md"
     m, p = newest(root, L.get("stamps") or {})
     reason, batch = None, ""
+    since = review.stat().st_mtime if review.exists() else None
+    gone = sorted(k for k in (L.get("stamps") or {}) if since is not None and not (root / k).exists() and not (root / k).is_symlink() and deleted_after(root / k, since))  # a stamped file deleted since the review: a change too (audit O1)
+    parts, keys = [], []
+    if gone:  # alongside the edit check, never instead of it, so a new edit always starts a new batch (batch 3 review)
+        keys.append("deleted:" + hashlib.sha1("|".join(gone).encode()).hexdigest()[:12])
+        parts.append(f"{', '.join(gone[:5])}{' and more' if len(gone) > 5 else ''} {'was' if len(gone) == 1 else 'were'} deleted after the last Curmudgeon review.")
     if p is not None and not (review.exists() and review.stat().st_mtime >= m):
-        batch = hashlib.sha1(f"{p}:{m}".encode()).hexdigest()[:12]
+        keys.append(hashlib.sha1(f"{p}:{m}".encode()).hexdigest()[:12])
         where = p.relative_to(root) if str(p).startswith(str(root)) else p
-        reason = ("No Curmudgeon review exists yet for this project's edits." if not review.exists() else f"{where} was edited after the last Curmudgeon review.") + \
-                 " Run /curmudgeon:review review on the files edited since the last review (use the curmudgeon-reviewer agent), and save the teardown to .critic/last-review.md."
+        parts.append("No Curmudgeon review exists yet for this project's edits." if not review.exists() else f"{where} was edited after the last Curmudgeon review.")
+    if parts:
+        batch = "|".join(keys)
+        reason = " ".join(parts) + " Run /curmudgeon:review review on what changed since the last review (use the curmudgeon-reviewer agent; a deletion can remove a check), and save the teardown to .critic/last-review.md."
     elif L.get("mode") == "full":
         open_ = [i for i, f in (L.get("findings") or {}).items() if isinstance(f, dict) and f.get("status") == "open" and str(f.get("score", "")).title() in ("Critical", "High")]
         if open_:
