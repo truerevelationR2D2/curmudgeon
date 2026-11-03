@@ -52,7 +52,13 @@ def data_dir():
     d = pathlib.Path(os.environ.get("CURMUDGEON_STATE_DIR") or pathlib.Path.home() / ".curmudgeon") / "feed"
     old = pathlib.Path(os.environ["CLAUDE_PLUGIN_DATA"]) / "feed" if os.environ.get("CLAUDE_PLUGIN_DATA") else None
     if old and old != d and (old / "feed.json").is_file() and not old.is_symlink() and not (d / "feed.json").exists():
-        try: d.parent.mkdir(parents=True, exist_ok=True); shutil.move(str(old), str(d))
+        try:
+            d.parent.mkdir(parents=True, exist_ok=True)
+            if not d.exists(): shutil.move(str(old), str(d))
+            else:  # the new folder is already there (a log, say): move each item in, never nest the old folder inside it (batch 3 review)
+                for item in old.iterdir():
+                    if not (d / item.name).exists(): shutil.move(str(item), str(d / item.name))
+                if not any(old.iterdir()): old.rmdir()
         except OSError: return old  # couldn't move it: keep using it rather than lose the owner's settings
     return d
 

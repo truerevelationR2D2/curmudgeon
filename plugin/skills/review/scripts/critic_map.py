@@ -172,8 +172,8 @@ def main(a):
     defined_in = {}
     for r, t in texts.items():
         for m in DEF.finditer(t): defined_in.setdefault(next(g for g in m.groups() if g), set()).add(r)
-    for x in files:
-        syms = {next(g for g in m.groups() if g) for m in DEF.finditer(texts.get(x, ""))}
+    for x in files + deleted:  # a deleted file's callers are what its deletion breaks (batch 3 review)
+        syms = {next(g for g in m.groups() if g) for m in DEF.finditer(texts.get(x, "") if x in files else touched.get(x, ""))}
         for s in syms:
             if len(s) < 4 or s.lower() in COMMON or len(defined_in.get(s, ())) > 1: continue  # common or ambiguous names link everything to everything
             users = [r for r, t in texts.items() if r != x and not r.endswith((".css", ".scss")) and re.search(rf"(?<![\w$#-]){re.escape(s)}\s*\(|new\s+(?:\w+\.)?{re.escape(s)}\b|\bimport\b[^;\n]*\b{re.escape(s)}\b", t)]  # lib.compute_total() counts; common and ambiguous names were skipped above
@@ -192,7 +192,7 @@ def main(a):
     D.mkdir(parents=True, exist_ok=True); (D / "change-map.md").write_text("\n".join(md) + "\n")
     from_git = "--files" not in a
     untracked = set(git("ls-files", "-z", "--others", "--exclude-standard").split("\0")) if from_git else set()  # NUL-separated: names with spaces or quotes stay whole (audit F-a9c4ecf9)
-    (D / "change-map.json").write_text(json.dumps({"tier": tier, "files": order, "deleted": deleted, "lines": total, "sensitive": {x: sens[x] for x in files + deleted}, "radius": radius, "intent": intent,
+    (D / "change-map.json").write_text(json.dumps({"tier": tier, "files": order, "deleted": deleted, "deleted_text": {x: touched.get(x, "")[:4000] for x in deleted}, "lines": total, "sensitive": {x: sens[x] for x in files + deleted}, "radius": radius, "intent": intent,
         "mode": "diff" if from_git else "files", "base": base if from_git else None,
         "hunks": hunks(base, files) if from_git else {}, "new_files": sorted(x for x in files if x in untracked)}, indent=1))
     print(json.dumps({"tier": tier, "files": len(files), "lines": total, "sensitive": any_sens, "radius": len(radius)}))

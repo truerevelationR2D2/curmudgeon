@@ -5,13 +5,13 @@ Every release of Curmudgeon, newest first. The repository's history starts at 4.
 ## Unreleased: fixes from the full audit, batch 3 of 5 (the stop gates and the change map)
 
 Each fix has a test that fails on the code before it (`plugin/tests/cases_8.py`).
-- Deleting a file the last review stamped now counts as an edit, so the stop gate asks for a review (audit O1).
-- New code under a dot-folder (`.claude/hooks`, `.github/scripts`, `.husky`) counts for the stop gate; tool folders such as `.git`, `.venv` and `.cache` still don't (audit O2).
+- Deleting a file the last review stamped now counts as an edit, so the stop gate asks for a review, alongside any other edit, so a new edit always starts a new batch; a review saved after the deletion covers it, and `stamp --add` drops deleted files (audit O1).
+- New code under the dot-folders people write code in (`.claude`, `.github`, `.husky`, `.devcontainer` and a few more) counts for the stop gate; other dot-folders (`.env`, `.svelte-kit`, `.yarn`, `.terraform`) hold generated or downloaded files and still don't (audit O2).
 - In a project that is a subfolder of a repository, the background check sees tracked edits (`git diff --relative`; audit V47).
 - Outside git, the background check finds changed files by their own times (audit O3).
 - The background check scans every changed file, in parts of 200, instead of silently dropping everything past the first 200 (audit Q09).
 - The security feed's settings live in `~/.curmudgeon/feed` (or `CURMUDGEON_FEED_DIR`), so the skill and the background check see the same feed. A feed set up under the plugin's data folder is moved there once (audit V46).
-- The change map counts deleted files: their names and removed lines are sized and checked for sensitive words, so deleting `auth.py` with a one-line README edit is no longer trivial (audit V30).
+- The change map counts deleted files: their names and removed lines are sized and checked for sensitive words, so deleting `auth.py` with a one-line README edit is no longer trivial. The deleted file's callers join the blast radius, and the reviewers' brief shows its removed lines and who still refers to it (audit V30).
 - A changed file with a space or a quote in its name gets its hunks and touched text, and a new one is marked new (audit F-a9c4ecf9).
 
 ## Unreleased: fixes from the full audit, batch 2 of 5 (the browser integrity lens)

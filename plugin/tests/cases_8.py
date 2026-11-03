@@ -304,3 +304,57 @@ def _(d):
             if v is None: os.environ.pop(k, None)
             else: os.environ[k] = v
     assert got == d / "state" / "feed" and json.loads((got / "feed.json").read_text())["cadence"] == "weekly" and not (d / "pd/feed").exists(), got
+
+@test("batch 3 review: a deletion never silences the gate for later edits, a review saved after the deletion clears it, and stamp --add drops deleted files")
+def _(d):
+    write(d, "src/auth.py", "def check(p):\n    return p\n"); write(d, "src/b.py", "x = 1\n"); _gate(d)
+    run(S / "critic_ledger.py", "stamp", "src/auth.py", "src/b.py", cwd=d)
+    _review_now(d); (d / "src/auth.py").unlink(); time.sleep(0.05)
+    outs = [run(H / "stop_gate.py", cwd=d, stdin=json.dumps({"cwd": str(d)})).stdout for _ in range(4)]
+    assert all('"block"' in o for o in outs[:3]) and '"block"' not in outs[3], outs
+    time.sleep(0.05); write(d, "src/b.py", "x = eval(input())\n")
+    r = run(H / "stop_gate.py", cwd=d, stdin=json.dumps({"cwd": str(d)}))
+    assert '"block"' in r.stdout and "src/b.py" in r.stdout, ("a new edit starts a new batch", r.stdout)
+    e = d / "e"; write(e, "src/auth.py", "x = 1\n"); write(e, "src/b.py", "y = 1\n"); _gate(e)
+    run(S / "critic_ledger.py", "stamp", "src/auth.py", "src/b.py", cwd=e)
+    (e / "src/auth.py").unlink(); _review_now(e)
+    r = run(H / "stop_gate.py", cwd=e, stdin=json.dumps({"cwd": str(e)}))
+    assert '"block"' not in r.stdout, ("the review came after the deletion", r.stdout)
+    run(S / "critic_ledger.py", "stamp", "--add", "src/b.py", cwd=e)
+    assert "src/auth.py" not in json.loads((e / ".critic/ledger.json").read_text())["stamps"]
+
+@test("batch 3 review: generated dot-folders (.env, .svelte-kit, .yarn, .terraform) don't block the gate; code dot-folders (.claude, .github, .husky) do")
+def _(d):
+    write(d, "a.py", "x = 1\n"); _gate(d); _review_now(d)
+    for f in (".env/lib/python3.12/site-packages/requests/api.py", ".svelte-kit/generated/client/app.js", ".yarn/releases/yarn.js", ".terraform/modules/x/main.py"):
+        write(d, f, "y = 2\n")
+    r = run(H / "stop_gate.py", cwd=d, stdin=json.dumps({"cwd": str(d)})); assert '"block"' not in r.stdout, r.stdout
+    write(d, ".husky/check.py", "import os\n")
+    r = run(H / "stop_gate.py", cwd=d, stdin=json.dumps({"cwd": str(d)})); assert '"block"' in r.stdout and ".husky/check.py" in r.stdout, r.stdout
+
+@test("batch 3 review: a deleted file reaches the reviewers: its callers are in the blast radius and its removed lines are in the brief")
+def _(d):
+    subprocess.run(["git", "init", "-q"], cwd=d)
+    write(d, "auth.py", "def check_token(t):\n    return t == 'secret-ok'\n"); write(d, "app.py", "from auth import check_token\n\ndef handle(r):\n    return check_token(r)\n")
+    subprocess.run(["git", "add", "-A"], cwd=d); subprocess.run(G8 + ["commit", "-qm", "c"], cwd=d)
+    (d / "auth.py").unlink()
+    run(S / "critic_map.py", cwd=d); run(S / "critic_ledger.py", "start", "review", cwd=d)
+    cm = json.loads((d / ".critic/change-map.json").read_text())
+    assert any(k.startswith("auth.py:") and "app.py" in v for k, v in cm["radius"].items()), cm["radius"]
+    run(S / "critic_brief.py", cwd=d)
+    b = (d / ".critic/briefs/brief-A.md").read_text()
+    assert "auth.py" in b and "check_token" in b and "deleted" in b.lower(), b[-800:]
+
+@test("batch 3 review: moving an old feed into an existing settings folder keeps the settings readable")
+def _(d):
+    import security_feed as sf
+    old = {k: os.environ.get(k) for k in ("CLAUDE_PLUGIN_DATA", "CURMUDGEON_FEED_DIR", "CURMUDGEON_STATE_DIR")}
+    try:
+        os.environ.pop("CURMUDGEON_FEED_DIR", None); os.environ["CURMUDGEON_STATE_DIR"] = str(d / "state"); os.environ["CLAUDE_PLUGIN_DATA"] = str(d / "pd")
+        write(d, "pd/feed/feed.json", json.dumps({"cadence": "weekly"})); write(d, "state/feed/feed-log.jsonl", "{}\n")
+        got = sf.data_dir(); cfg = sf.load_cfg()
+    finally:
+        for k, v in old.items():
+            if v is None: os.environ.pop(k, None)
+            else: os.environ[k] = v
+    assert cfg.get("cadence") == "weekly" and (got / "feed.json").is_file() and not (got / "feed").exists(), (cfg, list(got.iterdir()))

@@ -3,7 +3,8 @@
 changed since the last review, in the background, without blocking. Only when it finds a new FAIL-level problem
 does it wake Claude (exit 2 with asyncRewake), and each problem wakes it once. At most 3 wakes per batch of edits.
 Claude Code doesn't enforce a timeout on async hooks, so this script keeps its own: every git call has a 10 s limit,
-and the whole check, one scan over every changed file, stops by DEADLINE seconds."""
+and the whole check, one scan per 200 changed files (every changed file, never only the first 200), stops by DEADLINE
+seconds; files it had no time for are checked at the next stop."""
 import hashlib, json, os, pathlib, subprocess, sys, time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import workspace
