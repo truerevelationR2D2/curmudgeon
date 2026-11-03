@@ -47,12 +47,18 @@ ESC = {"n": "\n", "t": "\t", "r": "\r", "0": "\0", "\\": "\\", '"': '"', "/": "/
 
 def _quoted(text, line):
     """Parse one quoted scalar at the start of text; returns (value, rest). Single line only."""
-    q = text[0]; i = 1; out = []
+    v, end = _quoted_at(text, 0, line)
+    return v, text[end:]
+
+def _quoted_at(text, start, line):
+    """The quoted scalar starting at text[start]: (value, the index just after it). Reads in place, never copying the
+    rest of the line, so a long flow collection is read in linear time (audit V36: 1.9 MB took about a minute)."""
+    q = text[start]; i = start + 1; out = []
     while i < len(text):
         c = text[i]
         if q == "'" and c == "'":
             if text[i + 1:i + 2] == "'": out.append("'"); i += 2; continue
-            return "".join(out), text[i + 1:]
+            return "".join(out), i + 1
         if q == '"' and c == "\\":
             n = text[i + 1:i + 2]
             if n in ESC: out.append(ESC[n]); i += 2; continue
@@ -60,9 +66,11 @@ def _quoted(text, line):
                 k = {"x": 2, "u": 4, "U": 8}[n]; h = text[i + 2:i + 2 + k]
                 if len(h) == k and re.fullmatch(r"[0-9A-Fa-f]+", h): out.append(chr(int(h, 16))); i += 2 + k; continue
             raise Refused(line, f"an escape it doesn't know (\\{n})")
-        if q == '"' and c == '"': return "".join(out), text[i + 1:]
+        if q == '"' and c == '"': return "".join(out), i + 1
         out.append(c); i += 1
     raise Refused(line, "a quoted string that continues on the next line")
+
+PLAIN_FLOW = re.compile(r"[^,\[\]{}]*")
 
 def _strip_comment(text):
     """Remove a trailing comment (a # after whitespace) from a plain value."""
@@ -92,8 +100,8 @@ def _flow(text, line):
         if c == "[": return seq()
         if c == "{": return mp()
         if c in "'\"":
-            v, rest = _quoted(text[pos[0]:], line); pos[0] = len(text) - len(rest); return _s(v, line)
-        m = re.match(r"[^,\[\]{}]*", text[pos[0]:]); raw = m.group(0)
+            v, pos[0] = _quoted_at(text, pos[0], line); return _s(v, line)
+        raw = PLAIN_FLOW.match(text, pos[0]).group(0)
         if ":" in raw and re.search(r":(\s|$)", raw): raw = raw[:re.search(r":(\s|$)", raw).start()]
         pos[0] += len(raw)
         return _s(_plain(raw.strip(), line, in_flow=True), line)

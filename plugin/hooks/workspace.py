@@ -37,6 +37,20 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(
 SKIP_ANYWHERE = {".git", ".hg", ".svn", "__pycache__", ".mypy_cache", ".pytest_cache", ".ruff_cache", ".tox", ".cache"}
 SKIP_BUILD = {"dist", "build", ".next", "coverage", "target", ".gradle", "out", ".turbo", ".parcel-cache"}  # non-git projects only
 LINK_DIRS = {"node_modules", ".venv", "venv"}
+# An earlier Curmudgeon run's output inside a nested .critic/ (a monorepo package reviewed on its own): never copied, so
+# a reviewer can't anchor on old reviews or findings (audit V23). Only the owner's own settings in it stay (a ledger, a
+# recorded integrity copy, rules, a scope file): the eval fixtures carry theirs on purpose. An allow-list, so a run
+# output added later is left out too (batch 5 review: nits.jsonl and variants.md got through a deny-list).
+NESTED_KEEP = {"ledger.json", "integrity-baseline.json", "rules.md", "rules", "scope.json", ".gitignore"}  # a nested ledger is copied with its rulings only (nested_ledger below)
+def nested_ledger(rel):
+    """True for a nested .critic/ledger.json (not the project's own, which is never copied)."""
+    parts = pathlib.PurePosixPath(str(rel).replace(os.sep, "/")).parts
+    return len(parts) >= 3 and parts[-2] == ".critic" and parts[-1] == "ledger.json"
+
+def run_output(rel):
+    """True for a path inside a nested .critic/ that isn't one of the owner's settings (NESTED_KEEP)."""
+    parts = pathlib.PurePosixPath(str(rel).replace(os.sep, "/")).parts
+    return any(parts[k] == ".critic" and parts[k + 1] not in NESTED_KEEP for k in range(1, len(parts) - 1))
 ESCAPE_SCAN_MAX = 300000  # entries walked in one dependency folder before it counts as too large to check
 
 def escaping_link(folder, root):
@@ -158,7 +172,7 @@ def _own_repo(root, payload):
                 for rec in ls.stdout.split(b"\0") if ls.returncode == 0 else []:
                     if not rec: continue
                     meta, path = rec.split(b"\t", 1)
-                    if path == b".critic" or path.startswith(b".critic/"): continue  # Curmudgeon's own records never reach a reviewer
+                    if path == b".critic" or path.startswith(b".critic/") or run_output(os.fsdecode(path)) or nested_ledger(os.fsdecode(path)): continue  # Curmudgeon's own records, and an earlier run's in a nested .critic, never reach a reviewer
                     mode, typ, sha = meta.split(b" ")
                     entries.append((mode, typ, sha, path))
                 if ls.returncode == 0:
@@ -176,6 +190,12 @@ def _own_repo(root, payload):
                             for cmd in (["update-ref", "refs/heads/base", c.stdout.strip()], ["symbolic-ref", "HEAD", "refs/heads/base"], ["reset", "-q"]):  # reset: index = the base commit; the files on disk are the project's working tree
                                 safegit.run(["-c", "core.logAllRefUpdates=false", *cmd], cwd=payload, capture_output=True, timeout=120, env=env)
                             shutil.rmtree(payload / ".git" / "logs", ignore_errors=True)  # a reflog would carry this machine's git identity (03 §5.56 batch 2 round 3)
+                            try:  # the rulings-only nested ledgers the copy writes are no untracked change (round 3 review)
+                                with open(payload / ".git" / "info" / "exclude", "a", encoding="utf-8") as fh: fh.write("\n**/.critic/ledger.json\n")
+                            except OSError: pass
+                            gone = safegit.run(["ls-files", "-d", "-z"], cwd=payload, capture_output=True, timeout=120)  # audit V24: a tracked file the copy left out (over 5 MB, a dependency folder) is no deletion
+                            skipped = [x for x in (gone.stdout.split(b"\0") if gone.returncode == 0 else []) if x and os.path.lexists(os.path.join(os.fsencode(str(root)), x))]  # still in the project: left out, not deleted by the owner
+                            if skipped: safegit.run(["update-index", "-z", "--skip-worktree", "--stdin"], cwd=payload, input=b"\0".join(skipped) + b"\0", capture_output=True, timeout=120)
                             return "base"
             except (OSError, subprocess.SubprocessError, ValueError): pass
             shutil.rmtree(payload / ".git", ignore_errors=True)
@@ -209,6 +229,13 @@ def make(root, agent_id):
     def put(rel):
         """Copy one project file (or link) at rel. False once the budget is spent."""
         src = root / rel; dst = payload / rel
+        if run_output(rel): return True
+        if nested_ledger(rel) and os.path.isfile(src) and not os.path.islink(src):  # the owner's rulings only: an earlier run's findings, dismissals and memories stay out (round 2 review)
+            try:
+                led = json.loads(open(src, encoding="utf-8").read())
+                keep = {k: led[k] for k in ("version", "decisions", "false_positives", "overrides") if isinstance(led, dict) and k in led}
+            except (OSError, ValueError): keep = {}
+            dst.parent.mkdir(parents=True, exist_ok=True); dst.write_text(json.dumps(keep, indent=1), encoding="utf-8"); return True
         if os.path.islink(src):
             t = _link_target(src, root)
             if t is None: return True
@@ -256,7 +283,7 @@ def make(root, agent_id):
             relt = os.path.relpath(top, root); keep = []
             for x in sorted(dirs):
                 src = os.path.join(top, x); rel = os.path.normpath(os.path.join(relt, x))
-                if (relt == "." and x == ".critic") or x in SKIP_ANYWHERE or x in SKIP_BUILD: continue
+                if (relt == "." and x == ".critic") or x in SKIP_ANYWHERE or x in SKIP_BUILD or run_output(os.path.join(relt, x)): continue
                 if x in LINK_DIRS and not os.path.islink(src): (payload / relt).mkdir(parents=True, exist_ok=True); link_deps(src, payload / rel, rel); continue
                 if os.path.islink(src): put(rel); continue
                 (payload / rel).mkdir(parents=True, exist_ok=True); keep.append(x)

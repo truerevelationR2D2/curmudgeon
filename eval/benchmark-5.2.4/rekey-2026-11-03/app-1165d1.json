@@ -1,0 +1,7 @@
+[
+ {
+  "id": "Rb87aefbd",
+  "app": "app-1165d1",
+  "finding": "1. Broken migration dependency in shop/migrations/0007_backfill.py (line 12), so Django cannot load the graph.\ndependencies = [(\"shop\", \"0006_product_slug\")] points at a migration that doesn't exist. The branch only adds 0006_safe.py.\nDjango will raise NodeNotFoundError on migrate and makemigrations.\nshop/migrations/0006_safe.py (line 10) has the same problem. It depends on (\"shop\", \"0005_initial\"), and main has no shop migrations at all."
+ }
+]

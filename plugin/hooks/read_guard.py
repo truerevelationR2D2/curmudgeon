@@ -48,7 +48,10 @@ def judge(target, critic, role, me, via="read"):
     if t == c: return ".critic (the whole folder)"
     g = fold(os.path.join(os.path.dirname(str(critic)), ".git"))
     if t == g or t.startswith(g + os.sep): return "the project's own .git (its history and authors; your copy has its own, without them)"
-    if not t.startswith(c + os.sep): return None
+    if not t.startswith(c + os.sep):
+        proj = fold(os.path.dirname(str(critic)))
+        if t.startswith(proj + os.sep) and ".critic" in t[len(proj) + 1:].split(os.sep): return "a nested .critic/ in the project (an earlier run's records; your copy holds the settings you may read)"  # round 3 review
+        return None
     parts = t[len(c) + 1:].split(os.sep)
     top = parts[0]
     if top == "scratch":
@@ -95,6 +98,50 @@ def resolve(v, root):
     try: return p.resolve()
     except (OSError, RuntimeError, ValueError): return p
 
+def brief_problem(root, ti):
+    """A reviewer starts with its brief unchanged (audit P5: a lead once paraphrased them and nothing caught it): during a
+    review run with written briefs, a curmudgeon-reviewer's prompt must hold one of them, word for word (whitespace
+    aside). Text around it is allowed. None when it does, or when there is nothing to check."""
+    if not re.fullmatch(r"(?:curmudgeon:)?curmudgeon-reviewer", str(ti.get("subagent_type") or "")) or not run_active(root): return None
+    bd = root / ".critic" / "briefs"
+    try: started = json.loads((root / ".critic" / "ledger.json").read_text()).get("started_at") or 0
+    except Exception: return None
+    briefs = [p for p in (sorted(bd.glob("brief-*.md")) if bd.is_dir() and not bd.is_symlink() else []) if p.is_file() and not p.is_symlink() and p.stat().st_mtime >= started - 2]
+    if not briefs: return None
+    flat = lambda t: " ".join(str(t).split())
+    prompt = flat(ti.get("prompt") or "")
+    try: hit = [p for p in briefs if flat(p.read_text(encoding="utf-8", errors="replace")) in prompt]
+    except OSError: return "a brief in .critic/briefs/ can't be read, so this reviewer's prompt can't be checked against it; write the briefs again with critic_run.py begin"
+    if len(hit) > 1: return "this prompt holds more than one brief; give each reviewer only its own (.critic/briefs/brief-<letter>.md)"  # round 2 review
+    if hit:  # each reviewer its own brief: the reading orders differ (batch 5 review: one brief for all three passed)
+        used_f, lock = bd / ".used.json", bd / ".used.lock"; fd = None
+        for _ in range(100):  # reviewers start in parallel: claim under a lock file made with O_EXCL (round 2 review)
+            try: fd = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY); break
+            except FileExistsError:
+                try:
+                    if time.time() - lock.stat().st_mtime > 10: lock.unlink()
+                except OSError: pass
+                time.sleep(0.02)
+            except OSError: break
+        try:
+            try: used = json.loads(used_f.read_text()) if used_f.is_file() and not used_f.is_symlink() else {}
+            except (OSError, ValueError): used = {}
+            if used.get("started") != started: used = {"started": started, "briefs": []}
+            name = hit[0].name; unused = [p.name for p in briefs if p.name not in used["briefs"]]
+            if name in used["briefs"] and unused:  # a reviewer that failed to start gets its brief again once the others have theirs
+                return f"{name} was already given to a reviewer; give this one its own brief ({', '.join(unused)}). To start a reviewer again after a failed start, start the others first"
+            used["briefs"].append(name)
+            try: used_f.write_text(json.dumps(used))
+            except OSError: pass
+            return None
+        finally:
+            if fd is not None:
+                os.close(fd)
+                try: lock.unlink()
+                except OSError: pass
+    return ("start each reviewer with the text of its brief, unchanged, as its prompt (.critic/briefs/brief-<letter>.md, which critic_run.py begin wrote); "
+            "this prompt doesn't hold any of them word for word. Add to it if you need to, but don't rewrite or shorten it.")
+
 def run_active(root):
     led = root / ".critic" / "ledger.json"
     try: started = json.loads(led.read_text()).get("started_at") if led.is_file() and not led.is_symlink() else None
@@ -135,6 +182,107 @@ def deny(reason):
     print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason": reason}}))
     return 0
 
+OPAQUE = re.compile(r"\$\{!|\$\{[A-Za-z_][A-Za-z0-9_]*(?:\[[^\]]*\])?(?:%|#|/|\^|,|:[^-=+?])|\$[@*#!?$-]|\$\{[@*#]|\{[^{}\s,]*\.\.[^{}\s,]*\}|\$\"")  # ${!X}, ${X%..} ${X#..} ${X/..} ${X:1}, $@ $* $$, {a..b}, $"..": a path built this way is refused, not guessed
+PROC_ANY = re.compile(r"(?:^|[\s=:'\"])/+proc/+(?:[\d*?\[{$]|thread-self|self/+(?:task|cwd|root|fd))")  # /proc/<pid>, /proc/*, /proc/$PPID ... by text, before any expansion (round 3 review)
+PROC_PID = re.compile(r"/proc/(?:\d+|thread-self|self/task/\d+)(?:/|$)")
+VAR_REF = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*|\d+)(?:\[[^\]]*\])?(?:[:%#/^,@+-][^}]*)?\}|\$([A-Za-z_][A-Za-z0-9_]*|\d)")
+VAR_DEFAULT = re.compile(r"\$\{[A-Za-z_][A-Za-z0-9_]*(?:\[[^\]]*\])?(?::?[-=+?]|//?[^/}]*/)([^}]*)\}")  # ${Y:-word}, ${X:+word}, ${X/pat/word}: the shell may put the word there
+
+def expand_vars(text, shell_vars, cap=8):
+    """text with each $X / ${X} replaced by every value it was given (the last ones first kept), up to cap spellings."""
+    out = [text]
+    for name in dict.fromkeys(m_.group(1) or m_.group(2) for m_ in VAR_REF.finditer(text)):
+        vals = shell_vars.get(name)
+        if vals: out = [VAR_REF.sub(lambda m_: v if (m_.group(1) or m_.group(2)) == name else m_.group(0), x) for x in out for v in vals[-cap:]][-cap * 2:]
+    return out if out != [text] else []
+
+def braces(pat, limit=64):
+    """The patterns a Glob's {a,b} alternatives stand for (nested ones too), at most `limit` of them."""
+    m = None; depth = 0
+    for k, ch in enumerate(pat):
+        if ch == "{":
+            if depth == 0: open_ = k
+            depth += 1
+        elif ch == "}" and depth:
+            depth -= 1
+            if depth == 0: m = (open_, k); break
+    if not m: return [pat]
+    inner = pat[m[0] + 1:m[1]]; parts, depth, cur = [], 0, ""
+    for ch in inner:
+        if ch == "," and depth == 0: parts.append(cur); cur = ""; continue
+        depth += ch == "{"; depth -= ch == "}"; cur += ch
+    parts.append(cur)
+    if len(parts) < 2: return [pat]
+    out = []
+    for p_ in parts:
+        out += braces(pat[:m[0]] + p_ + pat[m[1] + 1:], limit)
+        if len(out) >= limit: break
+    return out[:limit]
+
+HEREDOC = re.compile(r"(?<!<)<<-?(?!<)[ \t]*(['\"]?)([A-Za-z_][\w.-]*)\1[^\n]*\n")  # never a here-string (<<<)
+LONE_SLASH = re.compile(r"(?<![\w.~/$-])/{1,2}(?![\w.~*/$-])")
+SCRIPT_READERS = re.compile(r"^\s*(?:(?:[A-Za-z_]\w*=\S*|timeout\s+\S+|env|nice|command)\s+)*(?:python[\d.]*|node|deno|ruby|perl|php)\b[^|;&`$()]*$|^\s*cat\b[^|;&`$()]*>[^|;&`$()]*$|^\s*tee\s+[^|;&`$()-][^|;&`$()]*$")  # cat > f <<EOF, cat <<EOF > f, tee f <<EOF
+def heredoc_operators(text):
+    """A heredoc body fed to a script interpreter (python3 - <<EOF, node, ruby ...) or written to a file (cat > f <<EOF)
+    is a program or text, not the shell's words: a lone / or // there is division, a route or a comment (audit V22:
+    `ratio = total / count` in a probe was refused as a read of /). Only those lone slashes are blanked, only in a body
+    that ends with its own terminator line, and only when the line that opens it is such a reader with no pipe or
+    command substitution; a body fed to a shell or to xargs is judged word for word (batch 5 review). Every word in
+    the body that looks like a path (../x, /etc/y, a/b) is still judged as one."""
+    out, pos = [], 0
+    for m in HEREDOC.finditer(text):
+        if m.start() < pos: continue
+        head = text[text.rfind("\n", 0, m.start()) + 1:m.start()]
+        tail = m.group(0)[len(m.group(0).rstrip("\n").split(m.group(2), 1)[0]) + len(m.group(2)):].strip(" \t\n'\"")
+        line = re.sub(r"^.*(?:&&|;)\s*", "", head) + " " + tail  # the whole opening line: a pipe after the marker feeds the body to that command (round 2 review)
+        tail_ = re.sub(r"\d*>&\d+|&>\S*|\d*>\s*/dev/null", " ", tail)  # 2>&1 and the like aren't a pipe (round 3 review)
+        piped_to_shell = re.search(r"\|\s*(?:sudo\s+)?(?:sh|bash|zsh|dash|ksh|xargs|eval|source|\.)\b", tail_) or re.search(r"`|\$\(", tail_)
+        if head.count("'") % 2 or head.count('"') % 2 or piped_to_shell or not SCRIPT_READERS.match(re.sub(r"[|&;].*$", "", line)): continue  # inside quotes, fed to a shell, or not a reader
+        end = re.search(r"(?m)^[ \t]*" + re.escape(m.group(2)) + r"[ \t]*$", text[m.end():])
+        if not end: continue  # no terminator: whatever follows is commands
+        stop = m.end() + end.start()
+        out.append(text[pos:m.end()]); out.append(LONE_SLASH.sub(" ", text[m.end():stop])); pos = stop
+    return "".join(out) + text[pos:]
+
+PATTERN_CMDS = {"grep", "egrep", "fgrep", "rg", "ag", "ack", "zgrep"}  # the first operand is a pattern, never a file
+SEPARATOR_OPTS = {"awk": {"-F"}, "gawk": {"-F"}, "mawk": {"-F"}, "cut": {"-d"}, "paste": {"-d"}, "column": {"-s", "-o"}}  # options that take a separator, per command
+VALUE_OPTS = {"grep": {"-m", "--max-count", "-A", "-B", "-C", "--context", "--include", "--exclude", "--exclude-dir", "-d", "-D", "--label"},
+              "rg": {"-m", "--max-count", "-A", "-B", "-C", "--context", "-g", "--glob", "-t", "--type", "-T", "--type-not", "-j", "--threads", "-M", "--max-columns", "--max-depth", "--color", "--colour"},
+              "ag": {"-A", "-B", "-C", "-m", "--max-count", "-G", "--file-search-regex", "--ignore", "--depth"},
+              "ack": {"-A", "-B", "-C", "-m", "--max-count", "--type", "--ignore-dir", "--ignore-file"}}  # options that take a value, per tool (grep -T and ag -t take none: round 2 review)
+for _alias in ("egrep", "fgrep", "zgrep"): VALUE_OPTS[_alias] = VALUE_OPTS["grep"]
+REDIRECTS = {">", ">>", "&>", "1>", "2>", ">|", "<", "<<", "<<-", "<<<", "<>"}
+def data_words(cmd, args, base):
+    """Indices (into the words) of a command's arguments that are text, never a path: a search's pattern, tr's sets,
+    awk -F, cut -d, paste -d and column -s separators (audit V22: `grep -rn "../" src`, `tr / _` and `awk -F /` were
+    refused). Nothing at or after a redirect is ever text (tr a a < FILE reads FILE), and files these commands read
+    stay judged: grep -f FILE, rg --files PATH, ag -g PAT PATH (batch 5 review)."""
+    stop = next((k for k, a in enumerate(args) if a in REDIRECTS or re.fullmatch(r"\d*(?:[<>]{1,2}|>\||<>|>&|<&)\d*-?", a) or a.startswith(("<(", ">(", "$(", "`"))), len(args)); args = args[:stop]
+    out = set()
+    if cmd == "tr": return {base + 1 + k for k in range(len(args))}
+    if cmd in SEPARATOR_OPTS:
+        for k, a in enumerate(args):
+            if a in SEPARATOR_OPTS[cmd] and k + 1 < len(args): out.add(base + 2 + k)
+        return out
+    if cmd in PATTERN_CMDS:
+        explicit = False; k = 0
+        while k < len(args):
+            a = args[k]
+            if cmd == "rg" and a in ("--files", "--type-list"): explicit = True; k += 1; continue  # rg --files takes paths only
+            if a in ("-e", "--regexp") or (cmd in ("ag", "ack") and a == "-g"):
+                if k + 1 < len(args): out.add(base + 2 + k)
+                explicit = True; k += 2; continue
+            if a in ("-f", "--file") or a.startswith(("--file=", "--regexp=")): explicit = True; k += 1 if "=" in a else 2; continue  # the pattern comes from the option; every operand is a path
+            if re.fullmatch(r"-[A-Za-z]*[ef]", a) and len(a) > 2:  # -rne PATTERN, -rf FILE
+                if a[-1] == "e" and k + 1 < len(args): out.add(base + 2 + k)
+                explicit = True; k += 2; continue
+            if re.fullmatch(r"-[A-Za-z]*[ef].+", a): explicit = True; k += 1; continue  # -e. or -ePATTERN, -fFILE: attached
+            if a in VALUE_OPTS.get(cmd, VALUE_OPTS["grep"]): k += 2; continue
+            if a == "--": k += 1; continue
+            if not explicit and not a.startswith("-"): out.add(base + 1 + k); break
+            k += 1
+    return out
+
 def bash_problem(cmd, rec, root, critic, role, me):
     """The agent's commands run in its copy, so a recursive search or a relative path there only finds code. This is
     the backstop for the rest: every path-like word (and every word a wildcard expands to) is resolved from the copy,
@@ -154,17 +302,24 @@ def bash_problem(cmd, rec, root, critic, role, me):
     unquoted = re.sub(r"'[^']*'|\"(?:\\.|[^\"\\])*\"", " ", rest)  # what the shell itself would expand
     if re.search(r"(?i)\$\{?(?:OLDPWD|CLAUDE_PROJECT_DIR)\b|(?:^|[\s;&|(])(?:cd|pushd)\s+-(?:\s|$|[;&|)])", unquoted): return "a way back to the project folder ($OLDPWD, cd -, $CLAUDE_PROJECT_DIR)"
     if re.search(r"\$\{?IFS\b|(?:^|[\s=:])~-|\{[^}\s]*\b(?:cd|pushd|chdir)\b[^}\s]*,", unquoted): return "a command spelled through $IFS, ~- or brace expansion"
+    rest = re.sub(r"\$\{?PWD\}?", lambda m_: payload, rest)  # $PWD is the copy the command starts in
+    flat_orig = re.sub(r"\\(.)", r"\1", rest).replace("${HOME}", home).replace("$HOME", home).replace("\n", " ; ")
+    rest = heredoc_operators(rest)
+    rest = re.sub(r"\$([A-Za-z_][A-Za-z0-9_]*)(?=[\"'])", r"${\1}", rest)  # "$X"tic: the shell ends the name at the quote; shlex would glue it to tic (round 3 review)
+    rest = re.sub(r'\$"', '"', rest)  # $"..": locale quoting, the text inside it (round 3 review)
+    rest = re.sub(r"\$'((?:[^'\\]|\\.)*)'", lambda m_: "'" + m_.group(1).encode().decode("unicode_escape", "replace").replace("'", "") + "'", rest)  # $'..' is the text inside it, escapes decoded (round 2 review)
     flat = re.sub(r"\\(.)", r"\1", rest).replace("${HOME}", home).replace("$HOME", home).replace("\n", " ; ")
     def split(text):
         try:
-            lx = shlex.shlex(text, posix=True, punctuation_chars=True); lx.whitespace_split = True; return list(lx)
+            lx = shlex.shlex(text, posix=True, punctuation_chars=True); lx.whitespace_split = True; lx.commenters = ""; return list(lx)  # no comments: a # would hide the rest of the joined command (round 3 review)
         except ValueError: return text.replace("'", " ").replace('"', " ").split()
-    SEP = {";", "&&", "||", "|", "&", "(", ")", "{", "}", ";;", "|&", "&>"}
+    SEP = {";", "&&", "||", "|", "&", "(", ")", "{", "}", ";;", "|&", "&>", "<(", ">("}  # a process substitution starts a command (round 3 review)
     LEAD = {"builtin", "command", "time", "eval", "exec", "nohup", "env", "if", "while", "until", "!", "then", "do", "else", "elif", "sudo"}  # a command still follows these
     pay = pathlib.Path(payload); ws_ = fold(payload); own = fold(pay.parent)
     inside = lambda q: fold(q) == ws_ or fold(q).startswith(ws_ + os.sep)
     try: real_ws = fold(pay.resolve())
     except (OSError, RuntimeError): real_ws = ws_
+    PROCS = {"ps", "pgrep", "pstree", "top", "htop", "lsof", "pidof", "fuser"}
     NET = {"curl", "wget", "nc", "ncat", "netcat", "ssh", "scp", "sftp", "rsync", "telnet", "ftp", "socat", "npx", "pnpx", "bunx"}
     WRITERS = {"rm", "rmdir", "mv", "cp", "touch", "tee", "truncate", "ln", "chmod", "chown", "dd", "install", "mkdir"}
     WRAPPERS = {"timeout": {"-s", "--signal", "-k", "--kill-after"}, "nice": {"-n", "--adjustment"}, "ionice": {"-c", "-n", "-p"}, "stdbuf": set(),
@@ -174,7 +329,9 @@ def bash_problem(cmd, rec, root, critic, role, me):
     GIT_NET = {"fetch", "pull", "push", "clone", "ls-remote", "remote", "submodule", "send-email", "request-pull", "archive", "lfs"}
     PKG_NET = {"install", "i", "in", "ci", "add", "update", "up", "upgrade", "uninstall", "remove", "rm", "un", "link", "ln", "publish", "exec", "x", "dlx", "audit", "outdated", "view", "info", "show", "search", "create", "init", "fetch", "unlink", "dedupe", "prune", "rebuild"}
     INLINE = {"-c", "-e", "-E", "-p", "-r", "--eval", "--print", "eval"}  # the flags that take a program as text
-    NET_CODE = re.compile(r"\b(?:socket|urllib|http\.client|requests|httpx|aiohttp|fetch\(|net\.|https?\.(?:get|request)|XMLHttpRequest|LWP|Net::HTTP|open-uri|curl_)")
+    NET_CODE = re.compile(r"\b(?:socket|urllib|http\.client|requests|httpx|aiohttp|fetch\(|net\.|https?\.(?:get|request)|XMLHttpRequest|LWP|Net::HTTP|open-uri|curl_)"
+                          r"|\brequire\(\s*['\"](?:node:)?(?:https?|http2|net|tls|dgram|dns|undici)['\"]\s*\)|\bfrom\s+['\"](?:node:)?(?:https?|http2|net|tls|dgram|undici)['\"]"
+                          r"|\bimport\(\s*['\"](?:node:)?(?:https?|net|tls|undici)['\"]|\bWebSocket\b|\bwget\b|\bcurl\b")  # audit V14: require("https").get(...) and its relatives
     def positional(args, value_opts=()):
         out, k = [], 0
         while k < len(args):
@@ -200,6 +357,7 @@ def bash_problem(cmd, rec, root, critic, role, me):
             tool_ = next(iter(positional(args)), "")
             if tool_ and "@" not in tool_[1:] and any((pathlib.Path(c) / "node_modules" / ".bin" / tool_).exists() for c in [pay]): return None
         if n in NET: return f"a network command ({n}): reviewers and verifiers work offline in their copy"
+        if n in PROCS or any(a.startswith("/") and re.match(r"/proc/(?:\d+|thread-self)(?:/|$)", os.path.normpath("/" + a.lstrip("/"))) for a in args): return f"{n} {' '.join(args[:1])}: other agents' processes and command lines are not yours to read (audit P3); work on the code in your copy"
         if n == "git":
             sub = next(iter(positional(args, GIT_VALUE)), None)
             if sub in GIT_NET: return f"git {sub} (it reaches the network): review the copy as it is"
@@ -212,8 +370,17 @@ def bash_problem(cmd, rec, root, critic, role, me):
         if n.startswith("python") and "-m" in args and any(a in ("pip", "ensurepip", "venv", "http.server") for a in args[args.index("-m") + 1:args.index("-m") + 2]): return "python -m pip: it would change the environment or reach the network"
         if n.startswith("python") or n in ("node", "deno", "bun", "ruby", "perl", "php", "osascript", "pwsh", "powershell"):
             code = [args[k + 1] for k in range(len(args) - 1) if args[k] in INLINE] + [x for k, x in enumerate(args) if k and args[k - 1] in ("<<<",)]
-            if "<<" in args or "<<-" in args: code.append(flat)  # the body is on the lines after, in the same command text
+            if "<<" in args or "<<-" in args: code.append(flat_orig)  # the body as written, before its lone slashes were blanked (round 3 review)  # the body is on the lines after, in the same command text
             if any(NET_CODE.search(c) for c in code): return f"{n} with network code: reviewers and verifiers work offline"
+            def reaches(c):  # names .critic or ~/.curmudgeon and can leave the copy: the project's own path or a "..", never a .critic folder a probe makes inside the copy (batch 5 review)
+                c = c.replace(str(pay.parent), "")
+                if re.search(r"(?i)\.curmudgeon\b", c): return True
+                if re.search(r"\.\.[/\\]+\.\.|\bdirname\s*\(\s*(?:os\.path\.)?dirname|\.parent\.parent|parents\[\s*[1-9]|os\.walk\s*\(\s*['\"]/['\"]", c): return True  # two levels up from the copy is the scratch folder, three is .critic/ (round 3 review)
+                if not re.search(r"(?i)\.critic\b", c): return False
+                if str(root) in c or os.path.realpath(str(root)) in c or ".." in c or "~" in c: return True
+                if re.search(r"(?i)\.parents?\b|\bpardir\b|\bchdir\b|\bexpanduser\b|\bglob\b|\bos\.sep\b", c): return True  # a climb by API (round 2 review)
+                return any(not os.path.normpath(os.path.join(str(pay), lit)).startswith(str(pay) + os.sep) for lit in re.findall(r"['\"]([^'\"\n]*\.critic[^'\"\n]*)['\"]", c))  # a .critic path written out that leads outside the copy (round 3 review: 'tests/.critic' is fine)
+            if any(reaches(c) for c in code): return f"{n} with code that names the project's .critic/ or Curmudgeon's own records: reviewers and verifiers work on code in their copy (audit Q01)"
         return None
     real_root = fold(pathlib.Path(root).resolve()); real_notes = fold((pay.parent / "notes").resolve())
     def write_targets(cmd_, args, base):
@@ -245,12 +412,13 @@ def bash_problem(cmd, rec, root, critic, role, me):
         try: r = fold(q.resolve())
         except (OSError, RuntimeError): return False
         return r != real_ws and not r.startswith(real_ws + os.sep)
+    shell_vars = {}
     def walk(words, cands):
         """Judge the words (§5.56 rounds 1-2). A shell's folder can't be known for sure from the text (a cd in a
         subshell, a cd that fails, a cd spelled some way not listed here), so every path is judged from every folder
         the shell might be in: the copy, and every cd destination named so far. A cd may move within the copy, never
         out of it; a path that leads above the copy (to the agent's own scratch folder or higher) is refused."""
-        cmd_pos = True; cmd = None; targets = set()
+        cmd_pos = True; cmd = None; targets = set(); text_words = set()  # shell_vars is shared: bash -c '...' sees the outer command's variables (round 3 review)
         sure = not any(x in ("(", ")", "|", "|&", "||", "&") or "$(" in x or "`" in x for x in words)  # no subshell or pipe: a cd joined by && really happened if the command goes on
         skip = None
         for i, w in enumerate(words):
@@ -268,6 +436,7 @@ def bash_problem(cmd, rec, root, critic, role, me):
                 why = tripwire(bare, rest_args)
                 if why: return why, cands
                 targets = write_targets(bare.rsplit("/", 1)[-1], rest_args, i)
+                text_words = data_words(bare.rsplit("/", 1)[-1], rest_args, i)
             if (i in targets or (i >= 1 and words[i - 1] in (">", ">>", "&>", "1>", "2>", ">|"))) and i != skip:
                 pieces = [w[3:]] if w.startswith("of=") else [p_ for p_ in re.split(r"[=:,]", w) if p_ and not p_.startswith("-")]
                 if any(through_link(p_, c) for p_ in pieces for c in cands):
@@ -289,14 +458,71 @@ def bash_problem(cmd, rec, root, critic, role, me):
                 follows = next((x for x in words[i + 1:] if x in SEP), None)
                 if sure and follows == "&&" and all(x.is_dir() for x in new): cands = list(dict.fromkeys(new))  # cd X && ...: X exists, so the rest runs in X (a failed cd stops the chain)
                 else: cands = cands + [x for x in new if x not in cands]
-            for piece in ([] if i == skip else re.split(r"[=:,]", w)):  # --file=../x, PATH-like lists
+            am = re.fullmatch(r"([A-Za-z_][A-Za-z0-9_]*)=(.*)", w)
+            back = next((j for j in range(i - 1, -1, -1) if words[j] in SEP), -1)
+            decl = i and any(words[j] in ("export", "local", "declare", "readonly", "typeset") for j in range(back + 1, i))  # declare -x X=.., export A=1 X=..
+            if am and (cmd_pos or decl): shell_vars.setdefault(am.group(1), []).extend(expand_vars(am.group(2), shell_vars) or [am.group(2)])  # Y=$X takes X's values  # X=/project/.cri, then ${X}tic: judged with every value X was given (audit Q16; a prefix X=zz cmd ${X} still expands the old one)
+            pm = re.fullmatch(r"([A-Za-z_][A-Za-z0-9_]*)\+=(.*)", w)
+            if pm: shell_vars[pm.group(1)] = [v + pm.group(2) for v in shell_vars.get(pm.group(1), [""])]
+            if w == "for" and cmd_pos and i + 2 < len(words) and words[i + 2] == "in":
+                for x in words[i + 3:]:
+                    if x in SEP or x == "do": break
+                    shell_vars.setdefault(words[i + 1], []).append(x)
+            if am and am.group(2) == "" and i + 1 < len(words) and words[i + 1] == "(":  # X=(a b): an array (shlex splits off the parenthesis)
+                arr = []
+                for x in words[i + 2:]:
+                    if x == ")": break
+                    arr.append(x)
+                shell_vars.setdefault(am.group(1), [""])[-1:] = arr or [""]
+            if cmd_pos and w == "set" and i + 1 < len(words) and words[i + 1] == "--":
+                for n_, x in enumerate(words[i + 2:], 1):
+                    if x in SEP: break
+                    shell_vars.setdefault(str(n_), []).append(x)
+            if cmd_pos and w == "printf" and i + 2 < len(words) and words[i + 1] == "-v":
+                pa = []
+                for x in words[i + 3:]:
+                    if x in SEP: break
+                    pa.append(x)
+                try: shell_vars.setdefault(words[i + 2], []).append(pa[0].replace("%s", "{}").format(*pa[1:]) if pa and pa[0].count("%s") == len(pa) - 1 else "".join(pa[1:]) or "")
+                except (IndexError, ValueError): shell_vars.setdefault(words[i + 2], []).append("".join(pa[1:]))
+            if cmd_pos and w == "read":
+                k_ = next((k for k in range(i + 1, len(words)) if words[k] == "<<<"), len(words))
+                names = [x for x in words[i + 1:k_] if not x.startswith("-") and x not in SEP and re.fullmatch(r"[A-Za-z_]\w*", x)]
+                fields = words[k_ + 1].split() if k_ + 1 < len(words) else []
+                for n_, name_ in enumerate(names):
+                    shell_vars.setdefault(name_, []).append(" ".join(fields[n_:]) if n_ == len(names) - 1 else (fields[n_] if n_ < len(fields) else ""))
+            if cmd_pos and w in ("mapfile", "readarray"):
+                k_ = next((k for k in range(i + 1, len(words)) if words[k] == "<<<"), None)
+                names = [x for x in words[i + 1:k_ or len(words)] if re.fullmatch(r"[A-Za-z_]\w*", x)]
+                if names and k_ is not None and k_ + 1 < len(words): shell_vars.setdefault(names[-1], []).append(words[k_ + 1])
+            variants = [w] + [VAR_DEFAULT.sub(lambda m_: m_.group(1), w)] if VAR_DEFAULT.search(w) else [w]
+            if "$" in w:  # ${X}, $X, ${X%%zz} and the like: each value the command gave X (at most 8 spellings)
+                for name in dict.fromkeys(m_.group(1) or m_.group(2) for x_ in variants for m_ in VAR_REF.finditer(x_)):
+                    vals = shell_vars.get(name)
+                    if vals:
+                        if len(variants) * len(vals) > 16 or len(vals) > 8: return f"{w}: a path built from more variable values than the guard follows; write the path out", cands  # fail closed (round 3 review)
+                        variants = [VAR_REF.sub(lambda m_: v if (m_.group(1) or m_.group(2)) == name else m_.group(0), x) for x in variants for v in vals]
+            if "$" in w: variants = variants + [VAR_REF.sub("", x) for x in variants if VAR_REF.search(x)]  # a name the command never set expands to nothing (round 3 review)
+            if "{" in w and "," in w: variants = [b_ for x in variants for b_ in braces(x)]  # cat /p/.{critic,x}/...: as the shell expands it (round 2 review)
+            if i != skip and i not in text_words and "/" in w and OPAQUE.search(w):  # round 3 review: refuse what can't be evaluated exactly, instead of chasing each spelling
+                return f"{w}: a path spelled through parameter expansion ({OPAQUE.search(w).group(0)}); write the path out", cands
+            if i != skip and i not in text_words and PROC_ANY.search(w): return f"{w}: other agents' processes and command lines are not yours to read (audit P3)", cands
+            pieces = []
+            for w_ in ([] if i == skip or i in text_words else variants):
+                unurl = re.sub(r"(?i)file://", "", re.sub(r"(?i)\b(?!file:)[a-z][\w+.-]*://(?![^\s,;]*(?:\.\.|\.critic))[^\s,;]*", "", w_))  # a URL is no path (audit V22: http:// was read as /), unless it holds .. or .critic (a folder named "x:" makes x://../.. a path); file:// leaves its path
+                pieces += [p_ for p_ in re.split(r"[=:,]", unurl) if p_.strip()]
+                if unurl == w_ and re.search(r"[=:,]", w_): pieces.append(w_)  # the whole word too: a folder named "x:" makes x://../.. a real path
+            for piece in pieces:  # --file=../x, PATH-like lists
                 if not piece or piece.startswith("-") and "/" not in piece: continue
                 if not ("/" in piece or piece in (".", "..", "~") or piece.startswith("~") or any(ch in piece for ch in "*?[")): continue
+                if re.match(r"/proc/(?:\d+|thread-self)(?:/|$)", os.path.normpath("/" + piece.lstrip("/")) if piece.startswith("/") else ""): return f"{piece}: other agents' processes and command lines are not yours to read (audit P3)", cands
                 for c in cands:
                     q = pathlib.Path(os.path.expanduser(piece)); q = q if q.is_absolute() else c / q
                     if fold(os.path.normpath(str(q))) == own: return f"{piece}: the folder above your workspace (stay inside {payload})", cands
                     hits = _glob.glob(str(q), recursive=True)[:2000] if any(ch in piece for ch in "*?[") else [str(q)]
+                    if PROC_PID.match(os.path.normpath(str(q))): return f"{piece}: other agents' processes and command lines are not yours to read (audit P3)", cands
                     for h in hits:
+                        if PROC_PID.match(os.path.normpath(h)): return f"{piece}: other agents' processes and command lines are not yours to read (audit P3)", cands  # /proc/*/cmdline, ../../proc/1 (round 2 review)
                         try: real = pathlib.Path(h).resolve()
                         except (OSError, RuntimeError, ValueError): continue
                         why = judge(real, critic, role, me, "bash")
@@ -317,6 +543,8 @@ def main(data=None):
     if tool in ("Agent", "Task"):
         if str(ti.get("subagent_type") or "").lower() == "fork" and run_active(root):
             return deny("Curmudgeon: no forks during a review run. A fork inherits the whole conversation, so it can't review blind. Start the named agent (curmudgeon:curmudgeon-reviewer, -verifier, -dedup or -detector) instead.")
+        why = brief_problem(root, ti)
+        if why: return deny(f"Curmudgeon: {why}")
         return 0
     role = role_of(data.get("agent_type"))
     if tool == "Bash" and re.fullmatch(r"(?:curmudgeon:)?curmudgeon-[a-z]+", str(data.get("agent_type") or "")):
@@ -343,14 +571,22 @@ def main(data=None):
         start = resolve(ti.get("path") or str(here), here)
         why = judge(start, critic, role, me, "search")
         pat = str(ti.get("pattern") or "")
-        if not why and tool == "Glob" and (any(ch in pat for ch in "*?[") or "critic" in pat.casefold() or ".." in pat):  # expand it for real and judge what it matches
+        if not why and tool == "Glob" and (any(ch in pat for ch in "*?[{") or "critic" in pat.casefold() or ".." in pat):  # expand it for real and judge what it matches
             import glob as _glob, itertools
-            base_, pat_ = (pathlib.Path(pathlib.Path(pat).anchor), pat[len(pathlib.Path(pat).anchor):]) if os.path.isabs(pat) else (pathlib.Path(start), pat)
-            try: found = (str(x) for x in base_.glob(pat_))  # pathlib matches dot-folders on every Python, as Glob does
-            except (NotImplementedError, ValueError, OSError):
-                hidden = {"include_hidden": True} if sys.version_info >= (3, 11) else {}
-                found = iter(_glob.glob(os.path.join(str(start), pat), recursive=True, **hidden))
-            for h in itertools.islice(found, 5000):
+            def found_for(one):
+                base_, pat_ = (pathlib.Path(pathlib.Path(one).anchor), one[len(pathlib.Path(one).anchor):]) if os.path.isabs(one) else (pathlib.Path(start), one)
+                try: yield from (str(x) for x in base_.glob(pat_))  # pathlib matches dot-folders on every Python, as Glob does
+                except (NotImplementedError, ValueError, OSError):
+                    hidden = {"include_hidden": True} if sys.version_info >= (3, 11) else {}
+                    yield from _glob.glob(os.path.join(str(start), one), recursive=True, **hidden)
+            n = 0; alts = braces(pat)
+            leaves = bool(re.search(r"(?:^|[{,])(?:/|\\|[A-Za-z]:[\\/]|~)", pat)) or ".." in pat or bool(re.search(r"\.\{|\{\.|,\.", pat)) or above(start, critic) or fold(start) == fold(critic)  # the pattern, or any {a,b} alternative, can reach .critic/ (round 2 review)
+            if len(alts) >= 64 and leaves: why = "a Glob with 64 or more {a,b} alternatives that can reach .critic/ (split it, or search your workspace)"  # never judged on a cut-down list (batch 5 review)
+            for h in ([] if why else itertools.chain.from_iterable(found_for(x) for x in alts)):  # {a,b} alternatives, as the Glob tool expands them (audit V27)
+                n += 1
+                if n > 5000:  # audit Q17: never a silent cut-off when the pattern can reach .critic/
+                    if leaves: why = "a Glob with more than 5,000 matches that can reach .critic/ (narrow the pattern, or search your workspace)"
+                    break
                 hp = resolve(h, root); why = judge(hp, critic, role, me, "search")
                 if why: break
         if not why and tool == "Grep" and above(start, critic):  # a Glob is judged above by what it really matches
@@ -363,7 +599,9 @@ def main(data=None):
         cmd = ti.get("command")
         if isinstance(cmd, str) and cmd:
             if not rec: why = "anything with Bash: no private workspace was made for you, so review by reading (Read, Grep, Glob)"
-            else: why = bash_problem(cmd, rec, root, critic, role, me)
+            else:
+                try: why = bash_problem(cmd, rec, root, critic, role, me)
+                except Exception as e: why = f"a command the guard couldn't read ({type(e).__name__}); write it more plainly"  # fail closed for a review agent, never allow on a crash (round 3 review)
     if why: return deny(f"Curmudgeon blindness: a {role} may not read {why}.{where} Review only what your brief gives you.")
     return 0
 

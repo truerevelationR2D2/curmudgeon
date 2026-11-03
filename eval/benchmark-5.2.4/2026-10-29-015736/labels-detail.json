@@ -1430,133 +1430,133 @@
   },
   "code-review-best/suite1-clean~1/0": {
    "actionable": false,
-   "decided_by": "agreed",
+   "decided_by": "carried (V18 rekey)",
    "severity": null,
    "verdict": "none"
   },
   "code-review-best/suite1-clean~1/1": {
    "actionable": false,
-   "decided_by": "agreed",
+   "decided_by": "carried (V18 rekey)",
    "severity": null,
    "verdict": "none"
   },
+  "code-review-best/suite1-clean~1/2": {
+   "verdict": "none",
+   "actionable": false,
+   "severity": null,
+   "decided_by": "agreed (V18 rekey)"
+  },
   "code-review-best/suite1-clean~2/0": {
    "actionable": false,
-   "decided_by": "agreed",
+   "decided_by": "carried (V18 rekey)",
    "severity": null,
    "verdict": "none"
   },
   "code-review-best/suite1-clean~2/1": {
    "actionable": false,
-   "decided_by": "agreed",
-   "severity": null,
-   "verdict": "none"
-  },
-  "code-review-best/suite1-clean~2/2": {
-   "actionable": false,
-   "decided_by": "agreed",
+   "decided_by": "carried (V18 rekey)",
    "severity": null,
    "verdict": "none"
   },
   "code-review-best/suite1-clean~3/0": {
    "actionable": false,
-   "decided_by": "agreed",
+   "decided_by": "carried (V18 rekey)",
    "severity": null,
    "verdict": "none"
   },
   "code-review-best/suite1-clean~3/1": {
    "actionable": false,
-   "decided_by": "agreed",
+   "decided_by": "carried (V18 rekey)",
    "severity": null,
    "verdict": "none"
   },
   "code-review-best/suite1-clean~3/2": {
    "actionable": false,
-   "decided_by": "agreed",
+   "decided_by": "carried (V18 rekey)",
    "severity": null,
    "verdict": "none"
   },
   "code-review-best/suite1-clean~3/3": {
    "actionable": false,
-   "decided_by": "agreed",
+   "decided_by": "carried (V18 rekey)",
    "severity": null,
    "verdict": "none"
   },
   "code-review-best/suite1-clean~3/4": {
    "actionable": false,
-   "decided_by": "agreed",
+   "decided_by": "carried (V18 rekey)",
    "severity": null,
    "verdict": "none"
   },
   "code-review-best/suite1-clean~4/0": {
    "actionable": false,
-   "decided_by": "agreed",
+   "decided_by": "carried (V18 rekey)",
    "severity": null,
    "verdict": "none"
   },
   "code-review-best/suite1-clean~4/1": {
    "actionable": false,
-   "decided_by": "agreed",
+   "decided_by": "carried (V18 rekey)",
    "severity": null,
    "verdict": "none"
   },
   "code-review-best/suite1-clean~5/0": {
    "actionable": false,
-   "decided_by": "agreed",
+   "decided_by": "carried (V18 rekey)",
    "severity": null,
    "verdict": "none"
   },
   "code-review-best/suite1-clean~5/1": {
    "actionable": false,
-   "decided_by": "agreed",
+   "decided_by": "carried (V18 rekey)",
    "severity": null,
    "verdict": "none"
   },
   "code-review-best/suite1-clean~5/2": {
    "actionable": false,
-   "decided_by": "agreed",
+   "decided_by": "carried (V18 rekey)",
    "severity": null,
    "verdict": "none"
   },
   "code-review-best/suite1-clean~5/3": {
    "actionable": false,
-   "decided_by": "agreed",
+   "decided_by": "carried (V18 rekey)",
    "severity": null,
    "verdict": "none"
   },
   "code-review-best/suite1-clean~5/4": {
    "actionable": false,
-   "decided_by": "agreed",
+   "decided_by": "carried (V18 rekey)",
    "severity": null,
    "verdict": "none"
   },
   "code-review-best/suite1~1/0": {
    "actionable": false,
-   "decided_by": "agreed",
+   "decided_by": "carried (V18 rekey)",
    "severity": null,
    "verdict": "none"
   },
   "code-review-best/suite1~1/2": {
    "actionable": true,
-   "decided_by": "agreed",
+   "decided_by": "carried (V18 rekey)",
    "severity": "medium",
    "verdict": "real"
   },
   "code-review-best/suite1~1/6": {
    "actionable": true,
-   "decided_by": "agreed",
+   "decided_by": "carried (V18 rekey)",
    "severity": "medium",
    "verdict": "real"
   },
   "code-review-best/suite1~2/0": {
    "actionable": false,
-   "decided_by": "agreed",
+   "decided_by": "carried (V18 rekey)",
    "severity": null,
    "verdict": "none"
   },
   "code-review-best/suite1~2/2": {
    "actionable": true,
-   "decided_by": "agreed",
+   "decided_by": "carried (V18 rekey)",
    "severity": "high",
    "verdict": "real"
   },
@@ -1574,93 +1574,87 @@
   },
   "code-review-best/suite1~4/0": {
    "actionable": false,
-   "decided_by": "agreed",
+   "decided_by": "carried (V18 rekey)",
    "severity": null,
    "verdict": "none"
   },
   "code-review-best/suite1~4/2": {
    "actionable": true,
-   "decided_by": "agreed",
+   "decided_by": "carried (V18 rekey)",
    "severity": "medium",
    "verdict": "real"
   },
   "code-review-best/suite1~4/3": {
    "actionable": true,
-   "decided_by": "agreed",
+   "decided_by": "carried (V18 rekey)",
    "severity": "medium",
    "verdict": "real"
   },
   "code-review-best/suite1~5/0": {
    "actionable": false,
-   "decided_by": "agreed",
+   "decided_by": "carried (V18 rekey)",
    "severity": null,
    "verdict": "none"
   },
   "code-review-best/suite1~5/2": {
    "actionable": true,
-   "decided_by": "agreed",
+   "decided_by": "carried (V18 rekey)",
    "severity": "medium",
    "verdict": "real"
   },
   "code-review-best/suite1~5/3": {
    "actionable": true,
-   "decided_by": "agreed",
+   "decided_by": "carried (V18 rekey)",
    "severity": "medium",
    "verdict": "real"
   },
   "code-review-best/suite1~5/5": {
    "actionable": true,
-   "decided_by": "agreed",
+   "decided_by": "carried (V18 rekey)",
    "severity": "low",
    "verdict": "real"
   },
   "code-review-best/suite2-clean~1/0": {
    "actionable": false,
-   "decided_by": "agreed",
+   "decided_by": "carried (V18 rekey)",
    "severity": null,
    "verdict": "none"
   },
   "code-review-best/suite2-clean~1/1": {
    "actionable": false,
-   "decided_by": "agreed",
+   "decided_by": "carried (V18 rekey)",
    "severity": null,
    "verdict": "none"
   },
   "code-review-best/suite2-clean~1/2": {
    "actionable": false,
-   "decided_by": "agreed",
+   "decided_by": "carried (V18 rekey)",
    "severity": null,
    "verdict": "none"
   },
   "code-review-best/suite2-clean~1/3": {
    "actionable": false,
-   "decided_by": "agreed",
+   "decided_by": "carried (V18 rekey)",
    "severity": null,
    "verdict": "none"
   },
   "code-review-best/suite2-clean~2/0": {
    "actionable": false,
-   "decided_by": "agreed",
+   "decided_by": "carried (V18 rekey)",
    "severity": null,
    "verdict": "none"
   },
   "code-review-best/suite2-clean~2/1": {
    "actionable": false,
-   "decided_by": "agreed",
+   "decided_by": "carried (V18 rekey)",
    "severity": null,
    "verdict": "none"
   },
   "code-review-best/suite2-clean~2/2": {
    "actionable": false,
-   "decided_by": "agreed",
+   "decided_by": "carried (V18 rekey)",
    "severity": null,
    "verdict": "none"
-  },
-  "code-review-best/suite2-clean~2/3": {
-   "actionable": true,
-   "decided_by": "tiebreaker",
-   "severity": null,
-   "verdict": "trivial"
   },
   "code-review-best/suite2-clean~3/0": {
    "actionable": false,
@@ -1688,73 +1682,73 @@
   },
   "code-review-best/suite2-clean~4/0": {
    "actionable": false,
-   "decided_by": "agreed",
+   "decided_by": "carried (V18 rekey)",
    "severity": null,
    "verdict": "none"
   },
   "code-review-best/suite2-clean~5/0": {
    "actionable": false,
-   "decided_by": "agreed",
+   "decided_by": "carried (V18 rekey)",
    "severity": null,
    "verdict": "none"
   },
   "code-review-best/suite2-clean~5/1": {
    "actionable": false,
-   "decided_by": "agreed",
+   "decided_by": "carried (V18 rekey)",
    "severity": null,
    "verdict": "none"
   },
   "code-review-best/suite2-clean~5/2": {
    "actionable": false,
-   "decided_by": "agreed",
+   "decided_by": "carried (V18 rekey)",
    "severity": null,
    "verdict": "none"
   },
   "code-review-best/suite2-clean~5/3": {
    "actionable": true,
-   "decided_by": "tiebreaker",
+   "decided_by": "carried (V18 rekey)",
    "severity": "low",
    "verdict": "real"
   },
   "code-review-best/suite2~1/0": {
    "actionable": false,
-   "decided_by": "agreed",
+   "decided_by": "carried (V18 rekey)",
    "severity": null,
    "verdict": "none"
   },
   "code-review-best/suite2~1/10": {
    "actionable": true,
-   "decided_by": "agreed",
+   "decided_by": "carried (V18 rekey)",
    "severity": "medium",
    "verdict": "real"
   },
   "code-review-best/suite2~1/4": {
    "actionable": false,
-   "decided_by": "agreed",
+   "decided_by": "carried (V18 rekey)",
    "severity": null,
    "verdict": "none"
   },
   "code-review-best/suite2~1/7": {
    "actionable": true,
-   "decided_by": "agreed",
+   "decided_by": "carried (V18 rekey)",
    "severity": "low",
    "verdict": "real"
   },
   "code-review-best/suite2~2/0": {
    "actionable": false,
-   "decided_by": "agreed",
+   "decided_by": "carried (V18 rekey)",
    "severity": null,
    "verdict": "none"
   },
   "code-review-best/suite2~2/1": {
    "actionable": false,
-   "decided_by": "agreed",
+   "decided_by": "carried (V18 rekey)",
    "severity": null,
    "verdict": "none"
   },
   "code-review-best/suite2~2/6": {
    "actionable": true,
-   "decided_by": "agreed",
+   "decided_by": "carried (V18 rekey)",
    "severity": "medium",
    "verdict": "real"
   },
@@ -1790,181 +1784,169 @@
   },
   "code-review-best/suite2~4/0": {
    "actionable": false,
-   "decided_by": "agreed",
+   "decided_by": "carried (V18 rekey)",
    "severity": null,
    "verdict": "none"
   },
   "code-review-best/suite2~4/4": {
    "actionable": true,
-   "decided_by": "agreed",
+   "decided_by": "carried (V18 rekey)",
    "severity": "low",
    "verdict": "real"
   },
   "code-review-best/suite3~1/0": {
    "actionable": false,
-   "decided_by": "agreed",
+   "decided_by": "carried (V18 rekey)",
    "severity": null,
    "verdict": "none"
   },
   "code-review-best/suite3~1/1": {
    "actionable": false,
-   "decided_by": "agreed",
+   "decided_by": "carried (V18 rekey)",
    "severity": null,
    "verdict": "none"
   },
   "code-review-best/suite3~1/3": {
    "actionable": true,
-   "decided_by": "agreed",
+   "decided_by": "carried (V18 rekey)",
    "severity": "low",
    "verdict": "real"
   },
   "code-review-best/suite3~1/4": {
    "actionable": true,
-   "decided_by": "agreed",
+   "decided_by": "carried (V18 rekey)",
    "severity": null,
    "verdict": "trivial"
   },
   "code-review-best/suite3~2/0": {
    "actionable": false,
-   "decided_by": "agreed",
+   "decided_by": "carried (V18 rekey)",
    "severity": null,
    "verdict": "none"
   },
   "code-review-best/suite3~2/1": {
    "actionable": false,
-   "decided_by": "agreed",
+   "decided_by": "carried (V18 rekey)",
    "severity": null,
    "verdict": "none"
   },
   "code-review-best/suite3~2/2": {
    "actionable": false,
-   "decided_by": "agreed",
+   "decided_by": "carried (V18 rekey)",
    "severity": null,
    "verdict": "none"
   },
   "code-review-best/suite3~2/3": {
    "actionable": true,
-   "decided_by": "agreed",
+   "decided_by": "carried (V18 rekey)",
    "severity": "low",
    "verdict": "real"
   },
   "code-review-best/suite3~2/4": {
    "actionable": true,
-   "decided_by": "agreed",
+   "decided_by": "carried (V18 rekey)",
    "severity": "low",
    "verdict": "real"
   },
-  "code-review-best/suite3~2/5": {
-   "actionable": true,
-   "decided_by": "agreed",
-   "severity": null,
-   "verdict": "trivial"
-  },
   "code-review-best/suite3~3/0": {
    "actionable": false,
-   "decided_by": "agreed",
+   "decided_by": "carried (V18 rekey)",
    "severity": null,
    "verdict": "none"
   },
   "code-review-best/suite3~3/1": {
    "actionable": false,
-   "decided_by": "agreed",
+   "decided_by": "carried (V18 rekey)",
    "severity": null,
    "verdict": "none"
   },
   "code-review-best/suite3~3/2": {
    "actionable": true,
-   "decided_by": "tiebreaker",
+   "decided_by": "carried (V18 rekey)",
    "severity": null,
    "verdict": "trivial"
   },
   "code-review-best/suite3~3/3": {
    "actionable": true,
-   "decided_by": "agreed",
+   "decided_by": "carried (V18 rekey)",
    "severity": null,
    "verdict": "trivial"
   },
   "code-review-best/suite3~3/4": {
    "actionable": true,
-   "decided_by": "agreed",
+   "decided_by": "carried (V18 rekey)",
    "severity": null,
    "verdict": "trivial"
   },
   "code-review-best/suite3~4/0": {
    "actionable": false,
-   "decided_by": "agreed",
+   "decided_by": "carried (V18 rekey)",
    "severity": null,
    "verdict": "none"
   },
   "code-review-best/suite3~4/1": {
    "actionable": false,
-   "decided_by": "agreed",
+   "decided_by": "carried (V18 rekey)",
    "severity": null,
    "verdict": "none"
   },
   "code-review-best/suite3~4/2": {
-   "actionable": false,
-   "decided_by": "tiebreaker",
-   "severity": null,
-   "verdict": "none"
-  },
-  "code-review-best/suite3~4/3": {
    "actionable": true,
-   "decided_by": "agreed",
+   "decided_by": "carried (V18 rekey)",
    "severity": "low",
    "verdict": "real"
   },
   "code-review-best/suite3~5/0": {
    "actionable": false,
-   "decided_by": "agreed",
+   "decided_by": "carried (V18 rekey)",
    "severity": null,
    "verdict": "none"
   },
   "code-review-best/suite3~5/1": {
    "actionable": false,
-   "decided_by": "agreed",
+   "decided_by": "carried (V18 rekey)",
    "severity": null,
    "verdict": "none"
   },
   "code-review-best/suite3~5/2": {
    "actionable": false,
-   "decided_by": "agreed",
+   "decided_by": "carried (V18 rekey)",
    "severity": null,
    "verdict": "none"
   },
   "code-review-best/suite3~5/3": {
    "actionable": true,
-   "decided_by": "tiebreaker",
+   "decided_by": "carried (V18 rekey)",
    "severity": null,
    "verdict": "trivial"
   },
   "code-review-best/suite3~5/4": {
    "actionable": true,
-   "decided_by": "agreed",
+   "decided_by": "carried (V18 rekey)",
    "severity": null,
    "verdict": "trivial"
   },
   "code-review-best/suite4-clean~1/0": {
    "actionable": false,
-   "decided_by": "agreed",
+   "decided_by": "carried (V18 rekey)",
    "severity": null,
    "verdict": "none"
   },
   "code-review-best/suite4-clean~1/1": {
    "actionable": false,
-   "decided_by": "agreed",
+   "decided_by": "carried (V18 rekey)",
    "severity": null,
    "verdict": "none"
   },
   "code-review-best/suite4-clean~1/2": {
    "actionable": false,
-   "decided_by": "agreed",
+   "decided_by": "carried (V18 rekey)",
    "severity": null,
    "verdict": "none"
   },
   "code-review-best/suite4-clean~1/3": {
    "actionable": false,
-   "decided_by": "agreed",
+   "decided_by": "carried (V18 rekey)",
    "severity": null,
    "verdict": "none"
   },
@@ -2000,25 +1982,25 @@
   },
   "code-review-best/suite4-clean~4/0": {
    "actionable": false,
-   "decided_by": "agreed",
+   "decided_by": "carried (V18 rekey)",
    "severity": null,
    "verdict": "none"
   },
   "code-review-best/suite4-clean~4/1": {
    "actionable": false,
-   "decided_by": "agreed",
+   "decided_by": "carried (V18 rekey)",
    "severity": null,
    "verdict": "none"
   },
   "code-review-best/suite4-clean~4/2": {
    "actionable": false,
-   "decided_by": "agreed",
+   "decided_by": "carried (V18 rekey)",
    "severity": null,
    "verdict": "none"
   },
   "code-review-best/suite4-clean~4/3": {
    "actionable": false,
-   "decided_by": "agreed",
+   "decided_by": "carried (V18 rekey)",
    "severity": null,
    "verdict": "none"
   },
@@ -2042,31 +2024,31 @@
   },
   "code-review-best/suite4~1/0": {
    "actionable": false,
-   "decided_by": "agreed",
+   "decided_by": "carried (V18 rekey)",
    "severity": null,
    "verdict": "none"
   },
   "code-review-best/suite4~1/1": {
    "actionable": true,
-   "decided_by": "agreed",
+   "decided_by": "carried (V18 rekey)",
    "severity": "high",
    "verdict": "real"
   },
   "code-review-best/suite4~2/0": {
    "actionable": false,
-   "decided_by": "agreed",
+   "decided_by": "carried (V18 rekey)",
    "severity": null,
    "verdict": "none"
   },
   "code-review-best/suite4~4/0": {
    "actionable": false,
-   "decided_by": "agreed",
+   "decided_by": "carried (V18 rekey)",
    "severity": null,
    "verdict": "none"
   },
   "code-review-best/suite4~4/2": {
    "actionable": true,
-   "decided_by": "agreed",
+   "decided_by": "carried (V18 rekey)",
    "severity": "medium",
    "verdict": "real"
   },
@@ -2090,31 +2072,25 @@
   },
   "code-review/suite1-clean~1/0": {
    "actionable": false,
-   "decided_by": "agreed",
+   "decided_by": "carried (V18 rekey)",
    "severity": null,
    "verdict": "none"
   },
   "code-review/suite1-clean~1/1": {
    "actionable": false,
-   "decided_by": "agreed",
+   "decided_by": "carried (V18 rekey)",
    "severity": null,
    "verdict": "none"
   },
   "code-review/suite1-clean~2/0": {
    "actionable": false,
-   "decided_by": "agreed",
+   "decided_by": "carried (V18 rekey)",
    "severity": null,
    "verdict": "none"
   },
   "code-review/suite1-clean~2/1": {
    "actionable": false,
-   "decided_by": "agreed",
-   "severity": null,
-   "verdict": "none"
-  },
-  "code-review/suite1-clean~2/2": {
-   "actionable": false,
-   "decided_by": "agreed",
+   "decided_by": "carried (V18 rekey)",
    "severity": null,
    "verdict": "none"
   },
@@ -2144,169 +2120,73 @@
   },
   "code-review/suite1-clean~5/0": {
    "actionable": false,
-   "decided_by": "agreed",
+   "decided_by": "carried (V18 rekey)",
    "severity": null,
    "verdict": "none"
   },
   "code-review/suite1-clean~5/1": {
    "actionable": false,
-   "decided_by": "agreed",
+   "decided_by": "carried (V18 rekey)",
    "severity": null,
    "verdict": "none"
   },
   "code-review/suite1~1/0": {
    "actionable": true,
-   "decided_by": "agreed",
+   "decided_by": "carried (V18 rekey)",
    "severity": "high",
    "verdict": "real"
   },
-  "code-review/suite1~1/1": {
-   "actionable": true,
-   "decided_by": "agreed",
-   "severity": "high",
-   "verdict": "real"
-  },
-  "code-review/suite1~1/2": {
-   "actionable": true,
-   "decided_by": "agreed",
-   "severity": "high",
-   "verdict": "real"
-  },
-  "code-review/suite1~1/4": {
-   "actionable": true,
-   "decided_by": "agreed",
-   "severity": "medium",
-   "verdict": "real"
-  },
-  "code-review/suite1~1/5": {
+  "code-review/suite1~2/0": {
+   "verdict": "none",
    "actionable": false,
-   "decided_by": "agreed",
    "severity": null,
-   "verdict": "trivial"
+   "decided_by": "agreed (V18 rekey)"
   },
-  "code-review/suite1~1/6": {
+  "code-review/suite1~3/0": {
+   "verdict": "none",
    "actionable": false,
-   "decided_by": "agreed",
    "severity": null,
-   "verdict": "none"
-  },
-  "code-review/suite1~2/1": {
-   "actionable": true,
-   "decided_by": "agreed",
-   "severity": "medium",
-   "verdict": "real"
-  },
-  "code-review/suite1~2/2": {
-   "actionable": true,
-   "decided_by": "agreed",
-   "severity": "high",
-   "verdict": "real"
-  },
-  "code-review/suite1~2/3": {
-   "actionable": true,
-   "decided_by": "agreed",
-   "severity": "medium",
-   "verdict": "real"
-  },
-  "code-review/suite1~3/1": {
-   "actionable": true,
-   "decided_by": "agreed",
-   "severity": "low",
-   "verdict": "real"
-  },
-  "code-review/suite1~3/2": {
-   "actionable": true,
-   "decided_by": "tiebreaker",
-   "severity": "high",
-   "verdict": "real"
-  },
-  "code-review/suite1~3/3": {
-   "actionable": true,
-   "decided_by": "agreed",
-   "severity": "medium",
-   "verdict": "real"
-  },
-  "code-review/suite1~3/4": {
-   "actionable": true,
-   "decided_by": "agreed",
-   "severity": "medium",
-   "verdict": "real"
-  },
-  "code-review/suite1~3/6": {
-   "actionable": false,
-   "decided_by": "agreed",
-   "severity": null,
-   "verdict": "none"
+   "decided_by": "agreed (V18 rekey)"
   },
   "code-review/suite1~4/0": {
    "actionable": false,
-   "decided_by": "agreed",
+   "decided_by": "carried (V18 rekey)",
    "severity": null,
    "verdict": "none"
   },
   "code-review/suite1~4/1": {
    "actionable": false,
-   "decided_by": "agreed",
+   "decided_by": "carried (V18 rekey)",
    "severity": null,
    "verdict": "none"
   },
-  "code-review/suite1~5/1": {
-   "actionable": true,
-   "decided_by": "agreed",
-   "severity": "medium",
-   "verdict": "real"
-  },
-  "code-review/suite1~5/2": {
+  "code-review/suite1~5/0": {
+   "verdict": "none",
    "actionable": false,
-   "decided_by": "agreed",
-   "severity": "high",
-   "verdict": "real"
-  },
-  "code-review/suite1~5/3": {
-   "actionable": true,
-   "decided_by": "agreed",
-   "severity": "high",
-   "verdict": "real"
-  },
-  "code-review/suite1~5/4": {
-   "actionable": true,
-   "decided_by": "agreed",
-   "severity": "low",
-   "verdict": "real"
-  },
-  "code-review/suite1~5/5": {
-   "actionable": true,
-   "decided_by": "agreed",
-   "severity": "high",
-   "verdict": "real"
-  },
-  "code-review/suite1~5/6": {
-   "actionable": false,
-   "decided_by": "agreed",
    "severity": null,
-   "verdict": "none"
+   "decided_by": "agreed (V18 rekey)"
   },
   "code-review/suite2-clean~1/0": {
    "actionable": true,
-   "decided_by": "agreed",
+   "decided_by": "carried (V18 rekey)",
    "severity": "low",
    "verdict": "real"
   },
   "code-review/suite2-clean~1/1": {
    "actionable": true,
-   "decided_by": "tiebreaker",
+   "decided_by": "carried (V18 rekey)",
    "severity": null,
    "verdict": "trivial"
   },
   "code-review/suite2-clean~2/0": {
    "actionable": false,
-   "decided_by": "agreed",
+   "decided_by": "carried (V18 rekey)",
    "severity": null,
    "verdict": "none"
   },
   "code-review/suite2-clean~2/1": {
    "actionable": false,
-   "decided_by": "agreed",
+   "decided_by": "carried (V18 rekey)",
    "severity": null,
    "verdict": "none"
   },
@@ -2330,74 +2210,62 @@
   },
   "code-review/suite2-clean~5/0": {
    "actionable": false,
-   "decided_by": "agreed",
+   "decided_by": "carried (V18 rekey)",
    "severity": null,
    "verdict": "none"
   },
   "code-review/suite2-clean~5/1": {
    "actionable": false,
-   "decided_by": "agreed",
+   "decided_by": "carried (V18 rekey)",
    "severity": null,
    "verdict": "none"
   },
   "code-review/suite2-clean~5/2": {
    "actionable": false,
-   "decided_by": "agreed",
+   "decided_by": "carried (V18 rekey)",
    "severity": null,
    "verdict": "none"
   },
   "code-review/suite2-clean~5/3": {
    "actionable": false,
-   "decided_by": "agreed",
-   "severity": null,
-   "verdict": "none"
-  },
-  "code-review/suite2-clean~5/4": {
-   "actionable": false,
-   "decided_by": "agreed",
+   "decided_by": "carried (V18 rekey)",
    "severity": null,
    "verdict": "none"
   },
   "code-review/suite2~1/0": {
    "actionable": false,
-   "decided_by": "agreed",
+   "decided_by": "carried (V18 rekey)",
    "severity": null,
    "verdict": "none"
   },
   "code-review/suite2~1/10": {
    "actionable": true,
-   "decided_by": "agreed",
+   "decided_by": "carried (V18 rekey)",
    "severity": "low",
    "verdict": "real"
   },
   "code-review/suite2~1/5": {
    "actionable": true,
-   "decided_by": "agreed",
+   "decided_by": "carried (V18 rekey)",
    "severity": "low",
    "verdict": "real"
   },
   "code-review/suite2~2/0": {
    "actionable": false,
-   "decided_by": "agreed",
+   "decided_by": "carried (V18 rekey)",
    "severity": null,
    "verdict": "none"
   },
   "code-review/suite2~2/3": {
    "actionable": true,
-   "decided_by": "agreed",
+   "decided_by": "carried (V18 rekey)",
    "severity": "high",
    "verdict": "real"
   },
   "code-review/suite2~2/5": {
    "actionable": true,
-   "decided_by": "agreed",
+   "decided_by": "carried (V18 rekey)",
    "severity": "low",
-   "verdict": "real"
-  },
-  "code-review/suite2~2/8": {
-   "actionable": true,
-   "decided_by": "agreed",
-   "severity": "medium",
    "verdict": "real"
   },
   "code-review/suite2~3/0": {
@@ -2564,85 +2432,79 @@
   },
   "code-review/suite2~5/0": {
    "actionable": false,
-   "decided_by": "agreed",
+   "decided_by": "carried (V18 rekey)",
    "severity": null,
    "verdict": "none"
   },
   "code-review/suite2~5/1": {
    "actionable": true,
-   "decided_by": "agreed",
+   "decided_by": "carried (V18 rekey)",
    "severity": "high",
    "verdict": "real"
   },
   "code-review/suite2~5/2": {
    "actionable": true,
-   "decided_by": "agreed",
+   "decided_by": "carried (V18 rekey)",
    "severity": "high",
    "verdict": "real"
   },
   "code-review/suite2~5/3": {
    "actionable": true,
-   "decided_by": "agreed",
+   "decided_by": "carried (V18 rekey)",
    "severity": "high",
    "verdict": "real"
   },
   "code-review/suite2~5/4": {
    "actionable": true,
-   "decided_by": "agreed",
+   "decided_by": "carried (V18 rekey)",
    "severity": "low",
    "verdict": "real"
   },
   "code-review/suite2~5/5": {
    "actionable": true,
-   "decided_by": "agreed",
+   "decided_by": "carried (V18 rekey)",
    "severity": "critical",
    "verdict": "real"
   },
   "code-review/suite2~5/6": {
    "actionable": true,
-   "decided_by": "agreed",
+   "decided_by": "carried (V18 rekey)",
    "severity": "medium",
    "verdict": "real"
   },
   "code-review/suite2~5/7": {
    "actionable": true,
-   "decided_by": "agreed",
+   "decided_by": "carried (V18 rekey)",
    "severity": "high",
    "verdict": "real"
   },
   "code-review/suite2~5/8": {
    "actionable": true,
-   "decided_by": "agreed",
+   "decided_by": "carried (V18 rekey)",
    "severity": "low",
    "verdict": "real"
   },
   "code-review/suite2~5/9": {
    "actionable": true,
-   "decided_by": "agreed",
+   "decided_by": "carried (V18 rekey)",
    "severity": "medium",
    "verdict": "real"
   },
   "code-review/suite3~1/0": {
    "actionable": false,
-   "decided_by": "agreed",
+   "decided_by": "carried (V18 rekey)",
    "severity": null,
    "verdict": "wrong"
   },
   "code-review/suite3~1/1": {
-   "actionable": false,
-   "decided_by": "agreed",
-   "severity": null,
-   "verdict": "none"
-  },
-  "code-review/suite3~1/2": {
    "actionable": true,
-   "decided_by": "agreed",
+   "decided_by": "carried (V18 rekey)",
    "severity": null,
    "verdict": "trivial"
   },
-  "code-review/suite3~1/3": {
+  "code-review/suite3~1/2": {
    "actionable": true,
-   "decided_by": "agreed",
+   "decided_by": "carried (V18 rekey)",
    "severity": "low",
    "verdict": "real"
   },
@@ -2660,31 +2522,19 @@
   },
   "code-review/suite3~3/0": {
    "actionable": false,
-   "decided_by": "tiebreaker",
+   "decided_by": "carried (V18 rekey)",
    "severity": null,
    "verdict": "none"
   },
   "code-review/suite3~3/1": {
    "actionable": false,
-   "decided_by": "agreed",
+   "decided_by": "carried (V18 rekey)",
    "severity": null,
    "verdict": "wrong"
-  },
-  "code-review/suite3~3/2": {
-   "actionable": false,
-   "decided_by": "agreed",
-   "severity": null,
-   "verdict": "none"
   },
   "code-review/suite3~4/0": {
-   "actionable": false,
-   "decided_by": "agreed",
-   "severity": null,
-   "verdict": "wrong"
-  },
-  "code-review/suite3~4/1": {
    "actionable": true,
-   "decided_by": "agreed",
+   "decided_by": "carried (V18 rekey)",
    "severity": null,
    "verdict": "trivial"
   },
@@ -2702,19 +2552,19 @@
   },
   "code-review/suite4-clean~1/0": {
    "actionable": false,
-   "decided_by": "agreed",
+   "decided_by": "carried (V18 rekey)",
    "severity": null,
    "verdict": "none"
   },
   "code-review/suite4-clean~1/1": {
    "actionable": false,
-   "decided_by": "agreed",
+   "decided_by": "carried (V18 rekey)",
    "severity": null,
    "verdict": "none"
   },
   "code-review/suite4-clean~1/2": {
    "actionable": true,
-   "decided_by": "agreed",
+   "decided_by": "carried (V18 rekey)",
    "severity": "low",
    "verdict": "real"
   },
@@ -2744,31 +2594,25 @@
   },
   "code-review/suite4-clean~3/0": {
    "actionable": false,
-   "decided_by": "agreed",
+   "decided_by": "carried (V18 rekey)",
    "severity": null,
    "verdict": "none"
   },
   "code-review/suite4-clean~3/1": {
    "actionable": false,
-   "decided_by": "agreed",
+   "decided_by": "carried (V18 rekey)",
    "severity": null,
    "verdict": "none"
   },
   "code-review/suite4-clean~3/2": {
    "actionable": false,
-   "decided_by": "agreed",
+   "decided_by": "carried (V18 rekey)",
    "severity": null,
    "verdict": "none"
   },
   "code-review/suite4-clean~3/3": {
-   "actionable": false,
-   "decided_by": "agreed",
-   "severity": null,
-   "verdict": "none"
-  },
-  "code-review/suite4-clean~3/4": {
    "actionable": true,
-   "decided_by": "agreed",
+   "decided_by": "carried (V18 rekey)",
    "severity": "low",
    "verdict": "real"
   },
@@ -2786,105 +2630,15 @@
   },
   "code-review/suite4~1/0": {
    "actionable": true,
-   "decided_by": "agreed",
+   "decided_by": "carried (V18 rekey)",
    "severity": "high",
-   "verdict": "real"
-  },
-  "code-review/suite4~1/1": {
-   "actionable": true,
-   "decided_by": "agreed",
-   "severity": "high",
-   "verdict": "real"
-  },
-  "code-review/suite4~1/2": {
-   "actionable": true,
-   "decided_by": "agreed",
-   "severity": "high",
-   "verdict": "real"
-  },
-  "code-review/suite4~1/3": {
-   "actionable": true,
-   "decided_by": "agreed",
-   "severity": "high",
-   "verdict": "real"
-  },
-  "code-review/suite4~1/4": {
-   "actionable": true,
-   "decided_by": "agreed",
-   "severity": "high",
-   "verdict": "real"
-  },
-  "code-review/suite4~1/5": {
-   "actionable": true,
-   "decided_by": "agreed",
-   "severity": "medium",
-   "verdict": "real"
-  },
-  "code-review/suite4~1/6": {
-   "actionable": true,
-   "decided_by": "tiebreaker",
-   "severity": "low",
-   "verdict": "real"
-  },
-  "code-review/suite4~1/8": {
-   "actionable": true,
-   "decided_by": "agreed",
-   "severity": "medium",
-   "verdict": "real"
-  },
-  "code-review/suite4~1/9": {
-   "actionable": true,
-   "decided_by": "agreed",
-   "severity": "medium",
    "verdict": "real"
   },
   "code-review/suite4~2/0": {
    "actionable": true,
-   "decided_by": "agreed",
+   "decided_by": "carried (V18 rekey)",
    "severity": "high",
    "verdict": "real"
-  },
-  "code-review/suite4~2/1": {
-   "actionable": true,
-   "decided_by": "agreed",
-   "severity": "high",
-   "verdict": "real"
-  },
-  "code-review/suite4~2/2": {
-   "actionable": true,
-   "decided_by": "agreed",
-   "severity": "high",
-   "verdict": "real"
-  },
-  "code-review/suite4~2/3": {
-   "actionable": true,
-   "decided_by": "agreed",
-   "severity": "medium",
-   "verdict": "real"
-  },
-  "code-review/suite4~2/4": {
-   "actionable": true,
-   "decided_by": "agreed",
-   "severity": "medium",
-   "verdict": "real"
-  },
-  "code-review/suite4~2/6": {
-   "actionable": true,
-   "decided_by": "agreed",
-   "severity": "medium",
-   "verdict": "real"
-  },
-  "code-review/suite4~2/7": {
-   "actionable": true,
-   "decided_by": "tiebreaker",
-   "severity": "medium",
-   "verdict": "real"
-  },
-  "code-review/suite4~2/8": {
-   "actionable": false,
-   "decided_by": "agreed",
-   "severity": null,
-   "verdict": "none"
   },
   "code-review/suite4~3/0": {
    "actionable": false,
@@ -2894,129 +2648,39 @@
   },
   "code-review/suite4~4/0": {
    "actionable": true,
-   "decided_by": "tiebreaker",
+   "decided_by": "carried (V18 rekey)",
    "severity": "high",
-   "verdict": "real"
-  },
-  "code-review/suite4~4/1": {
-   "actionable": true,
-   "decided_by": "agreed",
-   "severity": "high",
-   "verdict": "real"
-  },
-  "code-review/suite4~4/10": {
-   "actionable": true,
-   "decided_by": "agreed",
-   "severity": "medium",
-   "verdict": "real"
-  },
-  "code-review/suite4~4/2": {
-   "actionable": true,
-   "decided_by": "agreed",
-   "severity": "high",
-   "verdict": "real"
-  },
-  "code-review/suite4~4/3": {
-   "actionable": false,
-   "decided_by": "agreed",
-   "severity": null,
-   "verdict": "none"
-  },
-  "code-review/suite4~4/4": {
-   "actionable": true,
-   "decided_by": "agreed",
-   "severity": "medium",
-   "verdict": "real"
-  },
-  "code-review/suite4~4/5": {
-   "actionable": true,
-   "decided_by": "agreed",
-   "severity": "medium",
-   "verdict": "real"
-  },
-  "code-review/suite4~4/6": {
-   "actionable": true,
-   "decided_by": "tiebreaker",
-   "severity": "medium",
-   "verdict": "real"
-  },
-  "code-review/suite4~4/8": {
-   "actionable": false,
-   "decided_by": "agreed",
-   "severity": null,
-   "verdict": "trivial"
-  },
-  "code-review/suite4~4/9": {
-   "actionable": true,
-   "decided_by": "agreed",
-   "severity": "medium",
    "verdict": "real"
   },
   "code-review/suite4~5/0": {
    "actionable": true,
-   "decided_by": "agreed",
+   "decided_by": "carried (V18 rekey)",
    "severity": "high",
    "verdict": "real"
   },
   "code-review/suite4~5/1": {
    "actionable": true,
-   "decided_by": "agreed",
+   "decided_by": "carried (V18 rekey)",
    "severity": "high",
    "verdict": "real"
   },
-  "code-review/suite4~5/10": {
-   "actionable": false,
-   "decided_by": "agreed",
-   "severity": null,
-   "verdict": "trivial"
-  },
   "code-review/suite4~5/2": {
    "actionable": true,
-   "decided_by": "agreed",
+   "decided_by": "carried (V18 rekey)",
    "severity": "high",
    "verdict": "real"
   },
   "code-review/suite4~5/3": {
-   "actionable": false,
-   "decided_by": "agreed",
-   "severity": null,
-   "verdict": "none"
+   "actionable": true,
+   "decided_by": "carried (V18 rekey)",
+   "severity": "medium",
+   "verdict": "real"
   },
   "code-review/suite4~5/4": {
-   "actionable": true,
-   "decided_by": "tiebreaker",
-   "severity": "medium",
-   "verdict": "real"
-  },
-  "code-review/suite4~5/5": {
-   "actionable": true,
-   "decided_by": "agreed",
-   "severity": "high",
-   "verdict": "real"
-  },
-  "code-review/suite4~5/6": {
-   "actionable": true,
-   "decided_by": "agreed",
-   "severity": "high",
-   "verdict": "real"
-  },
-  "code-review/suite4~5/7": {
-   "actionable": true,
-   "decided_by": "tiebreaker",
-   "severity": "medium",
-   "verdict": "real"
-  },
-  "code-review/suite4~5/8": {
-   "actionable": true,
-   "decided_by": "agreed",
-   "severity": "medium",
-   "verdict": "real"
-  },
-  "code-review/suite4~5/9": {
    "actionable": false,
-   "decided_by": "agreed",
+   "decided_by": "carried (V18 rekey)",
    "severity": null,
-   "verdict": "none"
+   "verdict": "trivial"
   },
   "curmudgeon-lite/suite1-clean~1/0": {
    "actionable": true,
@@ -5689,5 +5353,6 @@
    "verdict": "real"
   }
  },
- "tiebroken": 80
+ "tiebroken": 80,
+ "rekey_2026_11_03": "labels moved to the splitter's new block numbers (audit V18); see eval/benchmark-5.2.4/rekey_2026_11_03.py"
 }

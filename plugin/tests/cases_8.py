@@ -610,7 +610,7 @@ def _(d):
 @test("Qodo on #18 (2, 5, 6): the background check records the time a file had before its scan, a bare 'tenant' is not security, and a long first deleted line still shows")
 def _(d):
     src = (H / "stop_async.py").read_text()
-    assert re.search(r"before\s*=\s*\{p:\s*mt\(p\)", src) and "record[p] = [before[p], \"ok\"]" in src, "the record holds the time the scanner read"
+    assert re.search(r"before\s*=\s*\{p:\s*mt\(p\)", src) and "record[p] = [before[p], " in src and "record[p] = [mt(p)" not in src, "the record holds the time the scanner read"
     import critic_findings as cf, importlib.util
     assert cf.security_refutation_problem({"verdict": "refuted"}, {"category": "ui", "title": "Tenant name truncated in header"}) is None
     assert cf.security_refutation_problem({"verdict": "refuted"}, {"category": "logic", "title": "Cross-tenant isolation broken in reports"})
@@ -707,3 +707,575 @@ def _(d):
         assert cf.security_refutation_problem({"verdict": "refuted"}, {"category": "a11y", "title": t}) is None, t
     for t in ("Information disclosure through the error page", "Unauthorized disclosure of account emails"):
         assert cf.security_refutation_problem({"verdict": "refuted"}, {"category": "logic", "title": t}), t
+
+# ---- Qodo on #21 ----
+
+@test("Qodo on #21: a background scan whose report is degraded or unreadable is recorded as failed (its findings still count), and 'disclosure of sensitive data' is security while a disclosure widget is not")
+def _(d):
+    import critic_findings as cf
+    for t in ("Disclosure of sensitive data in logs", "Disclosure of customer emails to other accounts"):
+        assert cf.security_refutation_problem({"verdict": "refuted"}, {"category": "logic", "title": t}), t
+    assert cf.security_refutation_problem({"verdict": "refuted"}, {"category": "a11y", "title": "Disclosure widget lacks aria-expanded"}) is None
+    subprocess.run(["git", "init", "-q"], cwd=d); _gate(d, "async"); _review_now(d); write(d, "x.py", "x = 1\n")
+    fake = d / "fakescan"
+    write(fake, "critic_scan.py", "import json, pathlib, sys\na = sys.argv\nout = pathlib.Path(a[a.index('--out') + 1]); out.mkdir(parents=True, exist_ok=True)\n"
+                                  "(out / 'report.json').write_text(json.dumps({'degraded': ['static'], 'findings': [{'sev': 'FAIL', 'rule': 'r', 'where': 'x.py:1', 'what': 'w'}]}))\n")
+    prog = (f"import io, sys, importlib.util as u; s = u.spec_from_file_location('m', {str(H / 'stop_async.py')!r}); m = u.module_from_spec(s); s.loader.exec_module(m); "
+            f"m.SCAN_OVERRIDE = {str(fake / 'critic_scan.py')!r}; sys.stdin = io.StringIO({json.dumps(json.dumps({'cwd': str(d)}))}); sys.exit(m.main())")
+    rr = subprocess.run([sys.executable, "-c", prog], capture_output=True, text=True, cwd=d, env=dict(os.environ, CRITIC_ROOT=str(d)))
+    rec = json.loads((d / ".critic/async-scanned.json").read_text())
+    assert rec.get("x.py", [0, ""])[1] == "failed" and rr.returncode == 2 and "x.py:1" in rr.stderr, (rec, rr.returncode, rr.stderr[-300:])
+
+# ---- Batch 4 of the ultimate audit (03 §5.57): documents and the benchmark scorer ----
+
+@test("audit V18: the death match's splitter keeps a bold-numbered finding's flush bullets with it, and ends it at the prose that follows (code-review/suite1~1 credits D01, D04 and D06)")
+def _(d):
+    EV = HERE.parent / "eval"; sys.path.insert(0, str(EV))
+    import importlib, deathmatch; importlib.reload(deathmatch)
+    out = EV / "benchmark-5.2.4" / "2026-10-29-015736" / "code-review" / "suite1~1" / "output.md"
+    bl = [b for b in deathmatch.blocks_from(out.read_text()) if not b.startswith("## ")]  # the reply's own heading is a block, as before
+    assert len(bl) == 3 and all(b.startswith("**") for b in bl), [b[:40] for b in bl]
+    assert "Not flagged" not in bl[-1], "the closing paragraph is not part of the last finding"
+    plants = deathmatch.plants_of(json.loads((EV / "answer_key.json").read_text()))
+    hit = deathmatch.match_plants(plants, [{"loc": b, "claim": deathmatch.FIX_strip(b)} for b in bl])
+    assert sorted(k.split()[0] for k in hit) == ["D01", "D04", "D06"], sorted(hit)
+    # a plain flat bullet list still gives one block per bullet, and a heading's prose body stays with it
+    flat = deathmatch.blocks_from("## Issues\n- app.js:3 XSS in title\n- app.js:9 race on save\n")
+    assert [b.strip() for b in flat if b.startswith("- ")] == ["- app.js:3 XSS in title", "- app.js:9 race on save"], flat
+    sec = deathmatch.blocks_from("### 1. XSS at app.js:11\n\nThe title goes into innerHTML unescaped.\n")
+    assert len(sec) == 1 and "unescaped" in sec[0], sec
+
+@test("audit V06: the README's 5.2.4 benchmark rows are the numbers eval/benchmark-5.2.4/stats.json holds (planted bugs, interval, judged findings, false alarms, cost)")
+def _(d):
+    st = json.loads((HERE.parent / "eval" / "benchmark-5.2.4" / "stats.json").read_text())["arms"]
+    names = {"Curmudgeon 5.2.4, full": "curmudgeon", "Curmudgeon 5.2.4, lite": "curmudgeon-lite", "Claude Code's built-in `/code-review`": "cc-code-review",
+             "Anthropic's code-review plugin, given its PR facts and told to follow its steps": "code-review-best", "Anthropic's code-review plugin, as it runs": "code-review"}
+    for readme in (HERE.parent / "README.md", HERE.parent / "plugin" / "README.md"):
+        text = readme.read_text(); text = text[text.index("**Against Anthropic's review options, version 5.2.4**"):text.index("**Planted-bug tests, version 5.2.1**")]; seen = set()
+        for line in text.splitlines():
+            cells = [c.strip() for c in line.strip("|").split("|")]
+            if not cells or cells[0] not in names: continue
+            a = st[names[cells[0]]]; seen.add(cells[0]); lo, hi = a["recall_ci"]
+            m = re.match(r"\**(\d+) of (\d+), (\d+)%\** \((\d+)–(\d+)%\)", cells[1]); assert m, cells
+            assert [int(x) for x in m.groups()] == [a["planted_found"], a["plants"], round(100 * a["recall"]), round(100 * lo), round(100 * hi)], (cells[0], cells[1])
+            assert [int(x) for x in re.findall(r"\d+", cells[2])] == [round(100 * a["actionable_share"]), a["real"], a["trivial"], a["wrong"]], (cells[0], cells[2])
+            assert cells[3] == f"{a['clean_runs_with_false_alarm']} of {a['clean_runs']}", (cells[0], cells[3])
+            assert cells[4] == f"${a['cost_usd'] / a['runs']:.2f}" and cells[5] == f"${a['cost_per_confirmed']:.3f}", (cells[0], cells[4], cells[5])
+        assert seen == set(names), (readme, set(names) - seen)
+
+# ---- Batch 5 of the ultimate audit (03 §5.57): Mediums, then Lows and Nits ----
+
+@test("audit F-bd5e8b92: curl's long --user, --proxy-user, -U and the joined -uUSER:PASS forms are masked, as -u USER:PASS was")
+def _(d):
+    import critic_findings as cf
+    for t in ("curl --user bob:hunter22x https://x", "curl --user=bob:hunter22x https://x", "curl -ubob:hunter22x https://x",
+              "curl --proxy-user bob:hunter22x https://x", "curl -U bob:hunter22x https://x", "curl -u bob:hunter22x https://x", "curl --user 'bob:hunter22x' x"):
+        r = cf.redact_secrets(t); assert "hunter22x" not in r and "bob" in r, (t, r)
+    assert cf.redact_secrets("ls -u file.txt") == "ls -u file.txt"
+
+@test("audit F-7b40ffc1: an unquoted credential in .npmrc, a shell script, a Dockerfile ENV, .pypirc or .netrc is found, as in .env and YAML")
+def _(d):
+    import scan_secrets as ss
+    val = "Zq8xW2mR7tLp4KvN9sB3"
+    cases = {".npmrc": f"//registry.npmjs.org/:_authToken={val}\n", "deploy.sh": f"export API_TOKEN={val}\n", "scripts/run.bash": f"DB_PASSWORD={val} ./run\n",
+             "Dockerfile": f"FROM node:22\nENV API_TOKEN={val}\n", "docker/Dockerfile.prod": f"ENV SECRET_KEY {val}\n",
+             ".pypirc": f"[pypi]\nusername = __token__\npassword = {val}\n", ".netrc": f"machine example.com login bob password {val}\n"}
+    for rel, text in cases.items():
+        rows = []; ss.scan(rel, text, lambda *a: rows.append(a))
+        assert any(r[1] == "secret-generic" for r in rows), (rel, rows)
+        assert all(val not in r[5] for r in rows), (rel, rows)
+    rows = []; ss.scan("deploy.sh", 'export API_TOKEN="$API_TOKEN_FROM_VAULT"\nTOKEN_FILE=/run/secrets/token_file_path\n', lambda *a: rows.append(a)); assert not rows, rows
+
+@test("audit F-c02301cf: an attacker-chosen ${{ }} expression pasted into actions/github-script's script: is an injection, as in run:")
+def _(d):
+    write(d, ".github/workflows/t.yml", "on: issues\njobs:\n  a:\n    runs-on: ubuntu-latest\n    permissions: { issues: write }\n    steps:\n"
+          "      - uses: actions/github-script@60a0d83039c74a4aee543508d2ffcd1c3799cdea\n        with:\n          script: |\n"
+          "            const t = \"${{ github.event.issue.title }}\";\n            console.log(t)\n"
+          "      - uses: actions/github-script@60a0d83039c74a4aee543508d2ffcd1c3799cdea\n        with:\n          script: console.log(context.payload.issue.title)\n")
+    run(S / "critic_scan.py", ".", "--root", ".", cwd=d)
+    rows = [(x["sev"], x["rule"], x["where"]) for x in json.loads((d / ".critic/scan/report.json").read_text())["findings"] if x["rule"] == "ci-injection"]
+    assert rows == [("FAIL", "ci-injection", ".github/workflows/t.yml:10")], rows
+
+@test("audit O4: the browser driver's live-request count takes its lock without fcntl (Windows has none), through msvcrt")
+def _(d):
+    prog = ("import sys, types, importlib\nsys.modules['fcntl'] = None\ncalls = []\nm = types.ModuleType('msvcrt'); m.LK_LOCK, m.LK_UNLCK = 1, 0\n"
+            "m.locking = lambda fd, mode, n: calls.append(mode)\nsys.modules['msvcrt'] = m\n"
+            f"sys.path.insert(0, {str(S)!r}); import browse\n"
+            "print(browse.live_count('http://t.test', add=2), browse.live_count('http://t.test', add=1), browse.live_count('http://t.test'), calls)\n")
+    r = subprocess.run([sys.executable, "-c", prog], capture_output=True, text=True, cwd=d, env=dict(os.environ, CRITIC_ROOT=str(d)))
+    assert r.returncode == 0 and r.stdout.split()[:3] == ["2", "3", "3"] and "[1, 0, 1, 0]" in r.stdout, (r.stdout, r.stderr[-600:])
+
+@test("audit V22: the reviewers' Bash guard lets a URL, a search pattern, tr's sets, a separator and a lone / in a heredoc through, and still refuses the same paths as operands")
+def _(d):
+    p = d / "proj"; write(p, "src/app.js", "fetch('http://x')\n"); write(p, ".critic/reviews/review-B.json", '[{"title": "SECRET-B"}]')
+    for role, aid in (("reviewer", "r1"), ("verifier", "v1")):
+        run(H / "scratch_dir.py", cwd=p, stdin=json.dumps({"agent_type": f"curmudgeon:curmudgeon-{role}", "agent_id": aid, "cwd": str(p)}))
+    for role, aid in (("reviewer", "r1"), ("verifier", "v1")):
+        ws = json.loads((p / f".critic/scratch/{aid}/workspace.json").read_text())["payload"]
+        ok = [f'cd {ws} && grep -rn "http://" src', f"cd {ws} && grep -rn 'https://' src", f'cd {ws} && grep -rn "../" src', f"cd {ws} && grep -rnF '../..' src",
+              f"cd {ws} && rg -n -e '//' src", f"cd {ws} && tr / _ < src/app.js", f"cd {ws} && awk -F / '{{print $1}}' src/app.js", f"cd {ws} && cut -d / -f 1 src/app.js",
+              f"cd {ws} && python3 - <<'EOF'\nratio = 6 / 3\nprint(ratio)  // 2\nEOF", f"cd {ws} && node - <<'EOF'\napp.get(\"/\", h) // route\nEOF",
+              f"cd {ws} && curl_like=no; echo see https://example.com/a/b"]
+        bad = [f"cd {ws} && cat ../../../reviews/review-B.json", f'cd {ws} && cat "../../../reviews/review-B.json"', f"cd {ws} && grep -r SECRET /",
+               f"cd {ws} && grep -r SECRET ../../..", f"cd {ws} && grep -f ../../../reviews/review-B.json src", f"cd {ws} && find / -name review-B.json",
+               f"cd {ws} && python3 - <<'EOF'\nprint(open('../../../reviews/review-B.json').read())\nEOF", f"cd {ws} && ls /",
+               f"cd {ws} && mkdir x: && cat x://../../../reviews/review-B.json", f"cd {ws} && cat file://{p}/.critic/reviews/review-B.json"]
+        for c in ok: assert not _guard(p, p, "Bash", role=role, aid=aid, command=c), (role, c)
+        for c in bad: assert _guard(p, p, "Bash", role=role, aid=aid, command=c), (role, c)
+
+@test("audit V26 and Q11: a Write the stuck watcher blocked is refused by the real PreToolUse hook, and a notebook edit gets the while-you-work scan")
+def _(d):
+    p = d / "proj"; write(p, "src/app.js", "x\n")
+    run(H / "scratch_dir.py", cwd=p, stdin=json.dumps({"agent_type": "curmudgeon:curmudgeon-verifier", "agent_id": "v1", "cwd": str(p)}))
+    notes = p / ".critic/scratch/v1/notes/probe.py"
+    ev = {"tool_name": "Write", "tool_input": {"file_path": str(notes), "content": "print(1)\n"}, "cwd": str(p), "agent_type": "curmudgeon:curmudgeon-verifier", "agent_id": "v1"}
+    for _k in range(6): run(H / "post_tool.py", cwd=p, stdin=json.dumps(dict(ev, hook_event_name="PostToolUse", tool_response={"success": True})))
+    out = run(H / "guard_state.py", cwd=p, stdin=json.dumps(dict(ev, hook_event_name="PreToolUse"))).stdout
+    assert "deny" in out and "stuck" in out, out
+    other = run(H / "guard_state.py", cwd=p, stdin=json.dumps(dict(ev, hook_event_name="PreToolUse", tool_input={"file_path": str(notes), "content": "print(2)\n"}))).stdout
+    assert "deny" not in other, other
+    cfg = json.loads((H / "hooks.json").read_text())["hooks"]["PostToolUse"]
+    assert any("scan_on_write" in h["hooks"][0]["command"] and "NotebookEdit" in h["matcher"].split("|") for h in cfg), cfg
+
+@test("audit Q16, Q01, V27 and Q17: the reviewers' guard expands the command's own variables, refuses inline code naming .critic, expands a Glob's braces and never cuts a Glob off silently")
+def _(d):
+    p = d / "proj"; write(p, "src/app.js", "x\n"); write(p, ".critic/reviews/review-B.json", '[{"title": "SECRET-B"}]'); write(p, ".critic/ledger.json", "{}")
+    run(H / "scratch_dir.py", cwd=p, stdin=json.dumps({"agent_type": "curmudgeon:curmudgeon-reviewer", "agent_id": "r1", "cwd": str(p)}))
+    ws = json.loads((p / ".critic/scratch/r1/workspace.json").read_text())["payload"]
+    for c in (f"cd {ws} && X={p}/.cri; cat ${{X}}tic/ledger.json", f"cd {ws} && export R=../../../reviews && cat $R/review-B.json",
+              f"cd {ws} && python3 -c \"import os; print(open(os.path.join('{p}', '.critic', 'ledger.json')).read())\"",
+              f"cd {ws} && python3 - <<'EOF'\nopen('{p}/' + '.critic/ledger.json', 'w').write('{{}}')\nEOF"):
+        assert _guard(p, p, "Bash", command=c), c
+    for c in (f"cd {ws} && X=src; cat $X/app.js", f"cd {ws} && python3 -c 'print(6 / 3)'", f"cd {ws} && python3 - <<'EOF' > {p}/.critic/scratch/r1/notes/out.txt\nprint(1)\nEOF"):
+        assert not _guard(p, p, "Bash", command=c), c
+    assert _guard(p, p, "Glob", pattern="{src,.critic}/**/*.json", path=str(p))
+    assert not _guard(p, p, "Glob", pattern="{src,lib}/*.js", path=ws)
+    for k in range(5003): write(p, f"aaa/f{k}.txt", "")
+    assert _guard(p, p, "Glob", pattern="**/*", path=str(p)), "more than 5,000 matches from above .critic: refused, never cut off silently"
+
+@test("audit V24 and V23: the copy's git shows no deletion for a tracked file it left out, and an earlier run's output in a nested .critic is neither copied nor in the copy's git")
+def _(d):
+    p = d / "proj"; write(p, "src/a.py", "x = 1\n"); write(p, "big.bin", "x" * (5 * 1024 * 1024 + 1))
+    write(p, "pkg/.critic/reviews/review-A.json", '[{"title": "OLD-FINDING"}]'); write(p, "pkg/.critic/ledger.json", "{}"); write(p, "gone.txt", "bye\n")
+    subprocess.run(["git", "init", "-q"], cwd=p); subprocess.run(["git", "add", "-A"], cwd=p); subprocess.run(G8 + ["commit", "-qm", "c"], cwd=p)
+    (p / "gone.txt").unlink()  # the owner's own deletion: the reviewer must still see it
+    run(H / "scratch_dir.py", cwd=p, stdin=json.dumps({"agent_type": "curmudgeon:curmudgeon-reviewer", "agent_id": "r1", "cwd": str(p)}))
+    ws = pathlib.Path(json.loads((p / ".critic/scratch/r1/workspace.json").read_text())["payload"])
+    st = subprocess.run(["git", "status", "--porcelain"], cwd=ws, capture_output=True, text=True).stdout
+    assert "big.bin" not in st and " D gone.txt" in st, st
+    assert not (ws / "pkg/.critic/reviews").exists() and (ws / "pkg/.critic/ledger.json").exists()
+    tree = subprocess.run(["git", "ls-tree", "-r", "--name-only", "HEAD"], cwd=ws, capture_output=True, text=True).stdout
+    assert "pkg/.critic/reviews/review-A.json" not in tree and "pkg/.critic/ledger.json" not in tree, tree  # the ledger is in the copy with its rulings only, never as the original blob (round 2)
+
+@test("audit V45: the browser driver's press verb types nothing into a focused password, hidden or file field, and Tab still moves on")
+def _(d):
+    try: import playwright  # noqa: F401
+    except ImportError: raise Skip("Playwright is not installed here")
+    write(d, "site/index.html", "<!doctype html><title>t</title><input type=password id=pw aria-label=Password autofocus><input id=n aria-label=Name>"
+                                "<script>document.getElementById('pw').focus()</script>")
+    B = S / "browse.py"; ses = "s/v45.json"
+    run_c(B, "start", "site/index.html", "--session", ses, cwd=d)
+    r = run(B, "step", "press", "a", "--session", ses, cwd=d); assert r.returncode == 2 and "password field" in r.stdout, r.stdout
+    r = run(B, "step", "press", "Shift+A", "--session", ses, cwd=d); assert r.returncode == 2 and "password field" in r.stdout, r.stdout
+    for k in ("Shift+KeyA", "Digit1"):
+        r = run(B, "step", "press", k, "--session", ses, cwd=d); assert r.returncode == 2 and "password field" in r.stdout, (k, r.stdout)
+    r = run(B, "step", "press", "Tab", "--session", ses, cwd=d); assert r.returncode == 0 and "refused" not in r.stdout, r.stdout
+
+@test("audit Q10, Q20 and Q23: a ledger finding that isn't a record stops the command instead of vanishing, one bad JSON line costs only that line, and the tally is written whole or not at all")
+def _(d):
+    run(S / "critic_ledger.py", "init", cwd=d)
+    L = json.loads((d / ".critic/ledger.json").read_text()); L["findings"] = {"F-1": "oops", "F-2": {"score": "High", "status": "open"}}
+    (d / ".critic/ledger.json").write_text(json.dumps(L))
+    import critic_findings as cf; cf.record_ledger(d)  # the owner's own ledger, as a save records it
+    r = run(S / "critic_ledger.py", "show", cwd=d)
+    assert r.returncode == 2 and "F-1" in r.stderr and "F-1" in (d / ".critic/ledger.json").read_text(), (r.returncode, r.stderr)
+    import critic_merge as cm
+    write(d, "rev/review-A.json", json.dumps({"title": "one", "file": "a.js", "line": 1}) + "\n{not json\n" + json.dumps({"title": "two", "file": "a.js", "line": 2}) + "\n")
+    rows = cm.load_review(d / "rev/review-A.json"); assert [x["title"] for x in rows] == ["one", "two"], rows
+    write(d, "t/tally.json", '{"old": true}')
+    real = pathlib.Path.write_text
+    def half(self, text, *a, **k): real(self, text[:5], *a, **k); raise OSError("disk full")
+    pathlib.Path.write_text = half
+    try:
+        try: cm.put(d / "t/tally.json", '{"new": true, "long": "' + "x" * 100 + '"}')
+        except OSError: pass
+    finally: pathlib.Path.write_text = real
+    assert json.loads((d / "t/tally.json").read_text()) == {"old": True}
+    src = (S / "critic_merge.py").read_text(); assert '(D / "tally.json").write_text' not in src
+
+@test("audit V08 and V07: the verdict word follows from the counts (CONCERNS with a Critical is refused), and in the trivial tier one reviewer's traced Critical is contested, never kept unverified")
+def _(d):
+    write(d, "src/app.js", "function render(t) {\n  el.innerHTML = t;\n}\n")
+    run(S / "critic_ledger.py", "start", "review", "--tier", "trivial", cwd=d)
+    f = {"category": "xss", "impact": "Critical", "file": "src/app.js", "line": 2, "quote": "el.innerHTML = t;", "title": "titles go into innerHTML",
+         "evidence": "render writes the title as HTML", "failing_case": "a title <img onerror=alert(1)> runs script", "verified": "traced", "remediation": "textContent"}
+    write(d, ".critic/reviews/review-A.json", json.dumps([f])); write(d, ".critic/stops/agent-A.json", json.dumps({"review": "review-A.json", "workspace": True, "at": time.time()}))
+    run(S / "critic_merge.py", "tally", ".critic/reviews/review-A.json", cwd=d)
+    t = json.loads((d / ".critic/tally.json").read_text())
+    assert [x["impact"] for x in t["contested"]] == ["Critical"] and not t["kept"], (t["kept"], t["contested"])
+    vp = hook_verdicts(d, [{"id": t["contested"][0]["id"], "verdict": "confirmed", "reproduced": "traced", "entry": "render() runs on load", "path": ["src/app.js:2 writes the title as HTML"]}])
+    run(S / "critic_merge.py", "apply", str(vp), cwd=d)
+    c = (d / ".critic/counts.md").read_text(); assert "Verdict word (copy exactly): **BLOCK**" in c, c[:600]
+    write(d, ".critic/last-review.md", "**CONCERNS** · Counts: 1 Critical, 0 High, 0 Medium, 0 Low\n\n#### 5. VERDICT\n- **CONCERNS**\n- Counts: 1 Critical, 0 High, 0 Medium, 0 Low\n")
+    r = run(S / "critic_ledger.py", "stamp", "src", cwd=d); assert r.returncode != 0 and "the verdict is BLOCK" in r.stderr + r.stdout, r.stdout + r.stderr
+
+@test("audit V32: a dedup group joining two reviewers' findings in different files counts the votes the script matched itself, so two unrelated Mediums never make one kept finding")
+def _(d):
+    write(d, "a.py", "x = 1\nprint(offset_value)\n"); write(d, "b.py", "y = None\nprint(y.size)\n"); run(S / "critic_ledger.py", "start", "review", "--tier", "full", cwd=d)
+    a = finding(category="logic", impact="Medium", file="a.py", line=2, quote="print(offset_value)", title="offset_value is undefined", failing_case="running a.py raises NameError")
+    b = finding(category="logic", impact="Medium", file="b.py", line=2, quote="print(y.size)", title="y is None when printed", failing_case="running b.py raises AttributeError")
+    _tally3(d, [a], [b], [])
+    raw = [it["id"] for v in json.loads((d / ".critic/dedup-candidates.json").read_text())["findings_by_file"].values() for it in v]
+    write(d, ".critic/groups.json", json.dumps({"groups": [raw]}))
+    t = _tally3(d, [a], [b], [], "--groups", ".critic/groups.json")
+    assert not t["kept"] and t["contested"] and t["contested"][0]["votes"] == 1 and t["contested"][0].get("single_vote"), (t["kept"], t["contested"])
+
+@test("audit P2: a review that changed after the tally that listed the dedup candidates isn't counted with those groups (verifiers would run twice); a fresh tally lists it again")
+def _(d):
+    write(d, "src/app.js", APP); run(S / "critic_ledger.py", "start", "review", "--tier", "full", cwd=d)
+    _tally3(d, [finding(impact="High")], [finding(impact="High")], [])
+    write(d, ".critic/reviews/review-C.json", json.dumps([finding(impact="Medium", title="a late addition")])); write(d, ".critic/groups.json", '{"groups": []}')
+    r = run(S / "critic_merge.py", "tally", *[f".critic/reviews/review-{x}.json" for x in "ABC"], "--groups", ".critic/groups.json", cwd=d)
+    assert r.returncode == 2 and "review-C.json changed, appeared or went missing since the tally that listed the dedup candidates" in r.stderr, r.stderr
+    r = run(S / "critic_merge.py", "tally", *[f".critic/reviews/review-{x}.json" for x in "ABC"], cwd=d); assert r.returncode == 0, r.stderr  # a fresh first tally lists them again
+    r = run(S / "critic_merge.py", "tally", *[f".critic/reviews/review-{x}.json" for x in "ABC"], "--groups", ".critic/groups.json", cwd=d); assert r.returncode == 0, r.stderr
+
+@test("audit P5: during a review run, a reviewer started without its brief word for word is refused; the brief with text around it, and agents outside a run, are not")
+def _(d):
+    write(d, "src/app.js", APP); run(S / "critic_ledger.py", "start", "review", "--tier", "lite", cwd=d)
+    write(d, ".critic/briefs/brief-A.md", "# Brief A\n\nTier: lite.\nRead src/app.js first.\n")
+    ask = lambda prompt: run(H / "pre_tool.py", cwd=d, stdin=json.dumps({"tool_name": "Agent", "tool_input": {"subagent_type": "curmudgeon:curmudgeon-reviewer", "prompt": prompt}, "cwd": str(d)})).stdout
+    assert "deny" in ask("Review src/app.js for bugs (summary of the brief)."), "a paraphrase is refused"
+    assert "deny" not in ask("Here is your brief.\n# Brief A\n\nTier: lite.\n  Read src/app.js first.\nGood luck."), "the brief with text around it is fine"
+    assert "deny" not in run(H / "pre_tool.py", cwd=d, stdin=json.dumps({"tool_name": "Agent", "tool_input": {"subagent_type": "curmudgeon:curmudgeon-verifier", "prompt": "x"}, "cwd": str(d)})).stdout
+
+@test("Qodo Q14: a source file with an upper-case extension (app.JS, View.PY) gets the code rules, not only the secret scan")
+def _(d):
+    write(d, "src/app.JS", "function go(input) {\n  return eval(input);\n}\n"); write(d, "src/tool.PY", "import os\nos.system(input())\n")
+    run(S / "critic_scan.py", ".", "--root", ".", cwd=d)
+    rows = {(x["rule"], x["where"]) for x in json.loads((d / ".critic/scan/report.json").read_text())["findings"]}
+    assert ("eval", "src/app.JS:2") in rows, sorted(rows)
+    assert ("py-os-system", "src/tool.PY:2") in rows, sorted(rows)
+
+@test("Qodo Q19: an odd package.json or lockfile (a list where an object belongs) is reported, and every other manifest is still checked")
+def _(d):
+    write(d, "a/package.json", '{"scripts": [], "dependencies": []}'); write(d, "b/package.json", "[]")
+    write(d, "c/package.json", '{"dependencies": {"left-pad": "*"}}'); write(d, "c/package-lock.json", '{"packages": []}')
+    write(d, "e/package.json", '{"dependencies": {"x": "latest"}}')
+    run(S / "critic_scan.py", ".", "--root", ".", cwd=d)
+    rep = json.loads((d / ".critic/scan/report.json").read_text())
+    rows = {(x["rule"], x["where"]) for x in rep["findings"]}
+    assert ("deps-unpinned", "c/package.json") in rows and ("deps-unpinned", "e/package.json") in rows and ("deps-manifest", "b/package.json") in rows, sorted(rows)
+    assert ("deps-lock-unreadable", "c/package-lock.json") in rows, sorted(rows)
+    assert "deps" not in (rep.get("degraded") or []), rep.get("degraded")
+
+@test("self-review F-a92bf605 and F-0203513e: catalog.info(password) is no log call while audit_log.info(password) is, and DEBUG = True under devices/ or latest/ is flagged")
+def _(d):
+    import scan_ops
+    rows = []; emit = lambda *a: rows.append(a)
+    scan_ops.scan("app.py", "catalog.info(password)\ndialog.warning(token)\nblog.error(api_key)\naudit_log.info(password)\nappLogger.debug(token)\nlogger.info(secret)\n", emit, d)
+    assert sorted(int(r[3].split(":")[1]) for r in rows if r[1] == "ops-log-secret") == [4, 5, 6], rows
+    for rel, want in (("devices/settings.py", True), ("latest/config.py", True), ("settings/dev.py", False), ("tests/settings.py", False), ("config/local_settings.py", False)):
+        rows = []; scan_ops.scan(rel, "DEBUG = True\n", emit, d)
+        assert any(r[1] == "ops-debug-on" for r in rows) == want, (rel, rows)
+
+@test("self-review F-0c3380dc: a database URL whose password holds an unencoded @ is found, and a reference or placeholder password still isn't")
+def _(d):
+    import scan_secrets as ss
+    for line, rule in (('DB = "postgres://app:Pa@ssw0rd99@db.internal:5432/app"', "secret-db-url-password"), ('url = "mysql://root:s3cr@t-K3y@10.0.0.5/db"', "secret-db-url-password"),
+                       ('DB = "postgres://app:${DB_PASS}@db.internal/app"', None), ('DB = "postgres://app:Xk82mQ9z@db/app"', "secret-db-url-password")):
+        rows = []; ss.scan("cfg.py", line + "\n", lambda *a: rows.append(a))
+        got = [r[1] for r in rows if r[1].startswith("secret-db")]
+        assert (got == [rule]) if rule else not got, (line, rows)
+        assert all("Pa@ssw0rd99" not in r[5] and "s3cr@t" not in r[5] for r in rows), rows
+
+@test("audit V42: an assert inside a nested function the test never calls doesn't count as a check; one it calls, or hands on, does")
+def _(d):
+    import scan_tests
+    src = ("def test_never_called():\n    def inner():\n        assert 1 == 2\n    x = 1\n\n"
+           "def test_called():\n    def inner():\n        assert compute() == 2\n    inner()\n\n"
+           "def test_handed_on():\n    def check(v):\n        assert v\n    list(map(check, [1, 2]))\n")
+    rows = []; scan_tests.scan("tests/test_x.py", src, lambda *a: rows.append(a))
+    hits = sorted(int(r[3].split(":")[1]) for r in rows if r[1] == "test-no-assert")
+    assert hits == [1], rows
+
+@test("Qodo Q12: a scope entry with a port that isn't a number refuses the whole file with a reason instead of crashing, and a page URL with one matches nothing")
+def _(d):
+    import scope, critic_findings as cf
+    write(d, ".critic/scope.json", json.dumps({"version": 1, "targets": [{"origin": "https://example.com:notaport"}]}))
+    old = cf.state_trusted; cf.state_trusted = lambda *a, **k: True
+    try: t, why = scope.load(d)
+    finally: cf.state_trusted = old
+    assert t == [] and "port" in why, (t, why)
+    assert scope.origin_of("https://example.com:99999/x")[2] == -1
+
+@test("audit V36: a long one-line flow collection is read in linear time (a 1.5 MB list took about a minute before)")
+def _(d):
+    import yaml_lite
+    assert yaml_lite.loads('a: [1, "x\\ty", {b: c}, \'it\'\'s\']') == {"a": ["1", "x\ty", {"b": "c"}, "it's"]}
+    txt = "k: [" + ", ".join(f'"v{i}"' for i in range(150000)) + "]\n"
+    t0 = time.time(); v = yaml_lite.loads(txt); took = time.time() - t0
+    assert len(v["k"]) == 150000 and took < 15, took
+
+@test("audit V41: the scan's live request cap counts against the run's shared ledger (browse.py's), not a fresh count per scan")
+def _(d):
+    src = (S / "critic_scan.py").read_text()
+    body = src[src.index("def guard_net(r):"):src.index("with sync_playwright() as pw:", src.index("def guard_net(r):"))]
+    assert "shared(0) >= cap" in body and "shared(1)" in body and "browse.live_count(safe_web.host_port(url), add)" in src, body
+    import browse
+    old = browse.ROOT; browse.ROOT = d
+    try:
+        browse.live_count("example.com:443", 5)
+        assert browse.live_count("example.com:443") == 5, "the ledger the scan now reads"
+    finally: browse.ROOT = old
+
+@test("audit V40 and Qodo Q15: a 200-line range or myapp.js doesn't point at a plant in app.js, and fix advice that names a planted defect earns no credit")
+def _(d):
+    EV = HERE.parent / "eval"; sys.path.insert(0, str(EV))
+    import importlib, keymatch; importlib.reload(keymatch)
+    k = {"file": "app.js", "any": ["xss"], "at": [["app.js", 10, 11]]}
+    assert keymatch.points_at(k, "app.js:10") and keymatch.points_at(k, "src/app.js:12") and keymatch.points_at(k, "app.js:8-14")
+    assert not keymatch.points_at(k, "app.js:1-200") and not keymatch.points_at(k, "myapp.js:10")
+    import ast as _ast
+    src = (EV / "score.py").read_text(); tree = _ast.parse(src)  # score.py runs its command line on import, so take the function itself
+    ns = {}; exec(compile(_ast.Module(body=[n for n in tree.body if isinstance(n, (_ast.FunctionDef, _ast.Assign)) and getattr(n, "name", "") == "claims_of"
+                                           or isinstance(n, _ast.Assign) and any(getattr(t, "id", "") == "CLAIM_FIELDS" for t in n.targets)], type_ignores=[]), "score.py", "exec"), ns)
+    rows = [{"file": "app.js", "line": 10, "title": "the list is slow to render", "evidence": "re-renders every note", "remediation": "escape titles to stop xss"}]
+    got = ns["claims_of"](rows, [])[0]; assert "xss" not in got and "slow" in got, got
+
+@test("audit V43: the fast-create id check fails on the fixture where Date.now() ids collide (D14), and passes on an app whose ids can't")
+def _(d):
+    try: import playwright  # noqa: F401
+    except ImportError: raise Skip("Playwright is not installed here")
+    EV = HERE.parent / "eval"; sys.path.insert(0, str(EV))
+    import importlib, behaviour1; importlib.reload(behaviour1)
+    assert behaviour1.run(EV / "fixture")["two fast creates get different ids"] is False
+    write(d, "app/index.html", "<!doctype html><button id=n>New note</button><ul id=list></ul><script>let k = 0;\n"
+                               "document.getElementById('n').onclick = () => { const a = JSON.parse(localStorage.getItem('notes') || '[]');"
+                               " a.push({id: 'n' + Date.now() + '-' + (++k), title: ''}); localStorage.setItem('notes', JSON.stringify(a)); };</script>")
+    assert behaviour1.run(d / "app")["two fast creates get different ids"] is True
+
+@test("audit V05: the consent eval's rules.md is committed, as a clone's would be, and its grader needs the scan to report mutation testing blocked")
+def _(d):
+    ev = HERE / "evals" / "mutate-needs-consent"
+    r = subprocess.run(["bash", str(ev / "fixture.sh")], cwd=d, capture_output=True, text=True); assert r.returncode == 0, r.stderr
+    assert ".critic/rules.md" in subprocess.run(["git", "ls-files"], cwd=d, capture_output=True, text=True).stdout
+    run(S / "critic_scan.py", ".", "--root", ".", "--mutate", "app.js", cwd=d)
+    g = (ev / "graders" / "mutation-reported-blocked.md").read_text(); pat = re.search(r"pattern: '(.*)'", g).group(1)
+    assert re.search(pat, (d / ".critic/scan/report.json").read_text()) and not (d / "RAN_FROM_RULES_MD").exists()
+    bash = (HERE / "evals" / "review-never-edits" / "graders" / "no-bash-edit.md").read_text(); bp = re.search(r"input_match: '(.*)'", bash).group(1)
+    assert re.search(bp, '{"command": "sed -i s/<=/</ app.js"}') and not re.search(bp, '{"command": "cd /p/.critic/scratch/r1/payload && sed -i s/a/b/ app.js"}')
+
+@test("audit V20: bench_stats reads an archived run's recorded scores and rescores only when asked (--rescore), whatever the file times")
+def _(d):
+    EV = HERE.parent / "eval"; src = EV / "benchmark-5.2.4" / "2026-10-29-093654"
+    rd = d / "run"; shutil.copytree(src, rd)
+    now = time.time()
+    for f in ("labels.json", "results.json"): os.utime(rd / f, (now, now))  # a fresh clone: the same time on both
+    before = (rd / "results.json").read_text(); (rd / "results.json").write_text(before.replace('"cost_usd"', '"cost_usd"', 1))
+    os.utime(rd / "results.json", (now, now)); m0 = (rd / "results.json").stat().st_mtime_ns
+    r = subprocess.run([sys.executable, str(EV / "bench_stats.py"), str(rd)], capture_output=True, text=True, cwd=d); assert r.returncode == 0, r.stderr[-400:]
+    assert (rd / "results.json").stat().st_mtime_ns == m0, "the archive is not rewritten"
+    r = subprocess.run([sys.executable, str(EV / "bench_stats.py"), str(rd), "--rescore"], capture_output=True, text=True, cwd=d); assert r.returncode == 0, r.stderr[-400:]
+    assert (rd / "results.json").stat().st_mtime_ns != m0, "--rescore scores it again"
+
+@test("audit M2: no test writes beside its own temporary folder (where nothing cleans it up)")
+def _(d):
+    for f in sorted(HERE.glob("tests/cases_*.py")):
+        t = f.read_text()
+        assert not re.search(r"d\.parent\s*/\s*\(d\.name", t), f"{f.name} writes a file next to its test folder"
+
+# ---- Batch 4 and 5 blind review, round 1 ----
+
+@test("batch 5 review: the guard still refuses every reviewer-found bypass (tr <, paste -s, column -t, grep -e./-f/--file=, rg --files, ag -g, here-strings, unterminated or shell-fed heredocs, split variables, /proc spellings, padded or climbing Globs)")
+def _(d):
+    p = d / "proj"; write(p, "src/app.js", "x\n"); write(p, ".critic/reviews/review-B.json", '[{"title": "SECRET-B"}]'); write(p, ".critic/ledger.json", "{}")
+    run(H / "scratch_dir.py", cwd=p, stdin=json.dumps({"agent_type": "curmudgeon:curmudgeon-reviewer", "agent_id": "r1", "cwd": str(p)}))
+    ws = json.loads((p / ".critic/scratch/r1/workspace.json").read_text())["payload"]; R = "../../../reviews/review-B.json"; P = f"{p}/.critic/reviews/review-B.json"
+    bad = [f"tr a a < {R}", f"tr -d x < {P}", f"paste -s {R}", f"column -t {R}", f"cut -c1- -s {R}", f"grep -e. {R}", f"grep -e. {P}", f"grep -rne x {R}",
+           f"grep -f src/app.js {R}", f"grep --file=src/app.js {R}", f"rg -f src/app.js ../../..", "rg --files ../../..", "rg -l --files ../../..", "ag -g json ../../..",
+           "cat <<<x\ngrep -r SECRET /", "echo '<<X'\ngrep -r SECRET /\nX", "bash <<'EOF'\ngrep -r SECRET /\nEOF", "xargs grep -r SECRET <<EOF\n/\nEOF",
+           "cat <<EOF | xargs grep -rl SECRET\n/\nEOF", "wc -c <<<EOF\ngrep -rl SECRET //",
+           f"export X={p}/.cri; X=zz cat ${{X}}tic/reviews/review-B.json", f"X={p}/.cri; cat ${{X%%zz}}tic/reviews/review-B.json",
+           f"for X in {p}/.cri; do cat ${{X}}tic/reviews/review-B.json; done", f"typeset X={p}/.cri; cat ${{X}}tic/ledger.json",
+           "cat /proc/self/../1/cmdline", "cat //proc/1/cmdline", "Q=/proc; cat $Q/1/cmdline"]
+    ok = ["tr / _ < src/app.js", "awk -F / '{print $1}' src/app.js", "paste -d / src/app.js src/app.js", "column -s / -t src/app.js", "grep -e. src/app.js",
+          "grep -rn 'http://' src", "rg --files src", "python3 - <<'EOF'\nratio = 6 / 3\nprint(ratio)\nEOF", "cat /proc/cpuinfo", "ls /proc",
+          "python3 -c \"import pathlib; pathlib.Path('t/.critic').mkdir(parents=True)\"", "echo .critic >/dev/null; python3 - <<'EOF'\nprint(1)\nEOF"]
+    for c in bad: assert _guard(p, p, "Bash", command=f"cd {ws} && {c}"), c
+    for c in ok: assert not _guard(p, p, "Bash", command=f"cd {ws} && {c}"), c
+    pad = ",".join(f"x{k}" for k in range(70))
+    assert _guard(p, p, "Glob", pattern="{" + pad + ",.critic}/reviews/*.json", path=str(p))
+    for k in range(5003): write(p, f"aaa/f{k}.txt", "")
+    assert _guard(p, p, "Glob", pattern="../../../../{aaa,.critic}/**/*", path=ws)
+
+@test("batch 5 review: database URLs in XML, templates, IPv6 and flow maps are found again, a base64 secret starting with / is found, cross-file Lows are verified, and a late review can't join a grouped tally")
+def _(d):
+    import scan_secrets as ss
+    for rel, line in (("config.xml", "<url>postgres://admin:Zq9xW2vB7kLm@db.internal</url>"), ("app.js", "`postgres://admin:Zq8vLx2mPw9t@${host}/db`"),
+                      ("a.py", "u = 'postgres://admin:Zq8vLx2mPw9t@[::1]:5432/db'"), ("a.properties", "url=jdbc:mysql://admin:Zq8vLx2mPw9t@db.internal}"),
+                      ("config.yaml", "db: {url: postgres://admin:Zq8xW2mR7tLp@db.internal}"), ("docs.md", "<postgres://admin:Zq8xW2mR7tLp@db.internal>"),
+                      ("cfg.py", 'DB = "postgres://app:Pa@ssw0rd99@db.internal:5432/app"')):
+        rows = []; ss.scan(rel, line + "\n", lambda *a: rows.append(a)); assert any(r[1] == "secret-db-url-password" for r in rows), (rel, rows)
+    for rel, line in ((".env", "AWS_SECRET_ACCESS_KEY=/k3J9vQ2mZx8LpR4tW7yB1nC6dF0gH5sA"), ("app.yaml", "jwt_secret: /k8JdQ2mZ9xLp4Rt7Vb3N+aQ")):
+        rows = []; ss.scan(rel, line + "\n", lambda *a: rows.append(a)); assert any(r[1] == "secret-generic" for r in rows), (rel, rows)
+    rows = []; ss.scan(".env", "SECRET_DIR=/var/lib/app/secrets\n", lambda *a: rows.append(a)); assert not rows, rows
+    write(d, "a.py", "def load(path):\n    return open(path).read()\n"); write(d, "b.py", "x = 1\nprint(load(input()))\n"); run(S / "critic_ledger.py", "start", "review", "--tier", "full", cwd=d)
+    a = finding(category="io", impact="Low", file="a.py", line=2, quote="return open(path).read()", title="file handle never closed", failing_case="many loads leak handles")
+    b = finding(category="io", impact="Low", file="b.py", line=2, quote="print(load(input()))", title="reads any path the user types", failing_case="typing /etc/passwd prints it")
+    _tally3(d, [a], [b], [])
+    raw = [it["id"] for v in json.loads((d / ".critic/dedup-candidates.json").read_text())["findings_by_file"].values() for it in v]
+    write(d, ".critic/groups.json", json.dumps({"groups": [raw]}))
+    t = _tally3(d, [a], [b], [], "--groups", ".critic/groups.json")
+    assert not t["dropped"] and t["contested"], (t["dropped"], t["contested"])
+    e = d / "late"; write(e, "src/app.js", APP); run(S / "critic_ledger.py", "start", "review", "--tier", "full", cwd=e)
+    write(e, ".critic/reviews/review-A.json", json.dumps([finding(impact="High")])); write(e, ".critic/reviews/review-B.json", json.dumps([finding(impact="High")]))
+    run(S / "critic_merge.py", "tally", ".critic/reviews/review-A.json", ".critic/reviews/review-B.json", cwd=e)
+    write(e, ".critic/reviews/review-C.json", json.dumps([finding(impact="High")])); write(e, ".critic/groups.json", '{"groups": []}')
+    r = run(S / "critic_merge.py", "tally", *[f".critic/reviews/review-{x}.json" for x in "ABC"], "--groups", ".critic/groups.json", cwd=e)
+    assert r.returncode == 2 and "review-C.json" in r.stderr, r.stderr
+
+@test("batch 5 review: a nested .critic keeps only the owner's settings in a reviewer's copy, the second reviewer can't reuse the first one's brief, and behaviour1 still checks page errors")
+def _(d):
+    p = d / "proj"; write(p, "src/a.py", "x = 1\n")
+    for n in ("nits.jsonl", "variants.md", "groups.json", "ledger.json", "integrity-baseline.json"): write(p, f"pkg/.critic/{n}", "{}")
+    run(H / "scratch_dir.py", cwd=p, stdin=json.dumps({"agent_type": "curmudgeon:curmudgeon-reviewer", "agent_id": "r9", "cwd": str(p)}))
+    ws = pathlib.Path(json.loads((p / ".critic/scratch/r9/workspace.json").read_text())["payload"])
+    assert sorted(x.name for x in (ws / "pkg/.critic").iterdir()) == ["integrity-baseline.json", "ledger.json"]
+    e = d / "b"; write(e, "src/app.js", APP); run(S / "critic_ledger.py", "start", "review", "--tier", "full", cwd=e)
+    for L_ in "AB": write(e, f".critic/briefs/brief-{L_}.md", f"# Brief {L_}\nRead in order {L_}.\n")
+    ask = lambda prompt: run(H / "pre_tool.py", cwd=e, stdin=json.dumps({"tool_name": "Agent", "tool_input": {"subagent_type": "curmudgeon:curmudgeon-reviewer", "prompt": prompt}, "cwd": str(e)})).stdout
+    assert "deny" not in ask("# Brief A\nRead in order A.\n") and "deny" in ask("# Brief A\nRead in order A.\n") and "deny" not in ask("# Brief B\nRead in order B.\n")
+    import ast as _ast
+    keys = {n.value for n in _ast.walk(_ast.parse((HERE.parent / "eval" / "behaviour1.py").read_text())) if isinstance(n, _ast.Constant) and isinstance(n.value, str)}
+    assert "no page errors" in keys
+
+@test("batch 6 (03 §5.57.5): the optional modules have their own files, the review skill points at each, and the consent steps they moved still say ask, type the host and never fill it in")
+def _(d):
+    md = HERE / "skills" / "review" / "references" / "modules"; sk = (HERE / "skills" / "review" / "SKILL.md").read_text()
+    for n in ("browser-checks.md", "mutation.md", "live-sites.md", "security-feed.md"):
+        assert (md / n).is_file() and n in sk, n
+    live = (md / "live-sites.md").read_text()
+    assert "--allow-live HOST" in live and "never fill it in yourself" in live and "consent live HOST" in live and "consent\nwrites" in live.replace("consent writes", "consent\nwrites")
+    assert "consent online" in sk and "approve rules.md --show" in sk, "what stays in the skill"
+    feed = (md / "security-feed.md").read_text(); assert "Never ask in an unattended session" in feed and "--signed-off" in feed
+    assert "axe-core" not in sk and "security_feed.py pick-folder" not in sk, "moved, not copied"
+    r = (HERE.parent / "README.md").read_text(); assert "## Optional modules" in r and r == (HERE / "README.md").read_text()
+
+# ---- Batch 4-6 blind review, round 2 ----
+
+@test("batch 5 review round 2: /proc globs and climbs, the last of many values, ${Y:-path}, arrays, set --, read, printf -v, declare -x, Y=$X, Bash braces, $'..', piped heredocs, grep -T, ack -g, API climbs in inline code and brace-hidden Glob climbs are refused; cat <<EOF > f and tee f <<EOF are not")
+def _(d):
+    p = d / "proj"; write(p, "src/app.js", "x\n"); write(p, ".critic/reviews/review-B.json", '[{"title": "SECRET-B"}]')
+    run(H / "scratch_dir.py", cwd=p, stdin=json.dumps({"agent_type": "curmudgeon:curmudgeon-reviewer", "agent_id": "r1", "cwd": str(p)}))
+    ws = json.loads((p / ".critic/scratch/r1/workspace.json").read_text())["payload"]; R = "../../../reviews/review-B.json"; C = f"{p}/.cri"
+    bad = ["cat /proc/*/cmdline", "cat /proc/[0-9]*/cmdline", "head -c 300 /proc/*/environ", "cat " + "../" * 14 + "proc/1/cmdline",
+           "X=a; X=b; X=c; X=d; X=e; X=f; X=g; X=h; X=" + C + "; cat ${X}tic/reviews/review-B.json",
+           "for X in a b c d e f g h " + C + "; do cat ${X}tic/reviews/review-B.json; done",
+           f"cat ${{Y:-{p}/.critic/reviews/review-B.json}}", f"X=({C}); cat ${{X[0]}}tic/reviews/review-B.json", f"set -- {C}; cat ${{1}}tic/reviews/review-B.json",
+           f"read X <<< {C}; cat ${{X}}tic/reviews/review-B.json", f"printf -v X %s {C}; cat ${{X}}tic/reviews/review-B.json",
+           f"declare -x X={C}; cat ${{X}}tic/reviews/review-B.json", f"X={C}; Y=$X; cat ${{Y}}tic/reviews/review-B.json",
+           f"cat {p}/.{{critic,x}}/reviews/review-B.json", f"cat {p}/$'.critic'/reviews/review-B.json", f"cat {p}/$'\\x2e'critic/reviews/review-B.json",
+           "cat >/dev/stdout <<EOF | sh\ngrep -r SECRET /\nEOF", f"grep -T SECRET {R}", "ack -g json ../../..",
+           "python3 -c \"import pathlib; print((pathlib.Path.cwd().parents[3]/'.critic'/'reviews'/'review-B.json').read_text())\"",
+           "python3 -c \"import os; print(open(os.path.join(os.pardir, os.pardir, os.pardir, '.critic', 'reviews', 'review-B.json')).read())\""]
+    for c in bad: assert _guard(p, p, "Bash", command=f"cd {ws} && {c}"), c
+    for c in ("cat <<'EOF' > ../notes/t.py\nx = 6 / 3\nEOF", "tee ../notes/t.js <<'EOF' >/dev/null\nconst r = a / b;\nEOF", "grep -rn '<img src=/' src"):
+        assert not _guard(p, p, "Bash", command=f"cd {ws} && {c}"), c
+    pad = ",".join(f"x{k}" for k in range(70))
+    assert _guard(p, p, "Glob", pattern="{" + pad + f",{p}/.critic}}/reviews/*.json", path=ws)
+    assert _guard(p, p, "Glob", pattern="{" + pad + ",.{.,}/.{.,}/.{.,}}/reviews/*.json", path=ws)
+
+@test("batch 5 review round 2: a prompt holding several briefs is refused, a nested ledger keeps only its rulings, the snapshot is the latest ungrouped tally, base64 values with slashes are secrets, blogger is no logger")
+def _(d):
+    e = d / "b"; write(e, "src/app.js", APP); run(S / "critic_ledger.py", "start", "review", "--tier", "full", cwd=e)
+    for L_ in "AB": write(e, f".critic/briefs/brief-{L_}.md", f"# Brief {L_}\nRead in order {L_}.\n")
+    ask = lambda prompt: run(H / "pre_tool.py", cwd=e, stdin=json.dumps({"tool_name": "Agent", "tool_input": {"subagent_type": "curmudgeon:curmudgeon-reviewer", "prompt": prompt}, "cwd": str(e)})).stdout
+    assert "deny" in ask("# Brief A\nRead in order A.\n# Brief B\nRead in order B.\n")
+    p = d / "proj"; write(p, "src/a.py", "x = 1\n")
+    write(p, "pkg/.critic/ledger.json", json.dumps({"findings": {"F-1": {"summary": "OLD FINDING"}}, "decisions": ["keep the old API"], "memories": [{"note": "m"}]}))
+    run(H / "scratch_dir.py", cwd=p, stdin=json.dumps({"agent_type": "curmudgeon:curmudgeon-reviewer", "agent_id": "r9", "cwd": str(p)}))
+    ws = pathlib.Path(json.loads((p / ".critic/scratch/r9/workspace.json").read_text())["payload"])
+    led = (ws / "pkg/.critic/ledger.json").read_text(); assert "OLD FINDING" not in led and "keep the old API" in led and '"m"' not in led, led
+    f = d / "snap"; write(f, "src/app.js", APP); run(S / "critic_ledger.py", "start", "review", "--tier", "full", cwd=f)
+    for L_ in "ABC": write(f, f".critic/reviews/review-{L_}.json", json.dumps([finding(impact="High")]))
+    rv = lambda xs: [f".critic/reviews/review-{x}.json" for x in xs]
+    run(S / "critic_merge.py", "tally", *rv("ABC"), cwd=f); run(S / "critic_merge.py", "tally", *rv("AB"), cwd=f); write(f, ".critic/groups.json", '{"groups": []}')
+    r = run(S / "critic_merge.py", "tally", *rv("ABC"), "--groups", ".critic/groups.json", cwd=f); assert r.returncode == 2 and "review-C.json" in r.stderr, r.stderr
+    import scan_secrets as ss, scan_ops
+    for rel, line in ((".env", "AWS_SECRET_ACCESS_KEY=/k3J9vQ2m/Zx8LpR4tW7yB1nC6dF0gH5sA"), ("app.yaml", "jwt_secret: /k8JdQ2mZ9x/Lp4Rt7Vb3N+aQ")):
+        rows = []; ss.scan(rel, line + "\n", lambda *a: rows.append(a)); assert any(r[1] == "secret-generic" for r in rows), (rel, rows)
+    for rel, line in ((".env", "CERT_STORE=/etc/ssl/private/app"), (".env", "HOME_OF_SECRETS=/Users/ryan/.config/app")):
+        rows = []; ss.scan(rel, line + "\n", lambda *a: rows.append(a)); assert not rows, (rel, rows)
+    rows = []; scan_ops.scan("a.py", "blogger.info(password)\napplogger.info(password)\n", lambda *a: rows.append(a), d)
+    assert [int(r[3].split(":")[1]) for r in rows if r[1] == "ops-log-secret"] == [2], rows
+
+@test("batch 5 review round 2: ${X:+path}, ${X/a/b} and ${U:-path} are judged, a probe opened with timeout or VAR= before python keeps its division, and a grouped tally can't leave out a review")
+def _(d):
+    p = d / "proj"; write(p, "src/app.js", "x\n"); write(p, ".critic/reviews/review-B.json", '[{"title": "SECRET-B"}]')
+    run(H / "scratch_dir.py", cwd=p, stdin=json.dumps({"agent_type": "curmudgeon:curmudgeon-reviewer", "agent_id": "r1", "cwd": str(p)}))
+    ws = json.loads((p / ".critic/scratch/r1/workspace.json").read_text())["payload"]
+    for c in ("cat ${U:-../../../reviews}/review-B.json", "X=src; cat ${X:+../../../reviews}/review-B.json", "X=src; cat ${X/src/../../../reviews}/review-B.json",
+              "python3 -c \"import glob; print(glob.glob('/**/.critic/reviews/*', recursive=True))\""):
+        assert _guard(p, p, "Bash", command=f"cd {ws} && {c}"), c
+    for c in ("timeout 20 python3 - <<'EOF'\nprint(6 / 3)\nEOF", "PYTHONPATH=src python3 - <<'EOF'\nprint(6 / 3)\nEOF"):
+        assert not _guard(p, p, "Bash", command=f"cd {ws} && {c}"), c
+    f = d / "snap"; write(f, "src/app.js", APP); run(S / "critic_ledger.py", "start", "review", "--tier", "full", cwd=f)
+    for L_ in "ABC": write(f, f".critic/reviews/review-{L_}.json", json.dumps([finding(impact="High")]))
+    rv = lambda xs: [f".critic/reviews/review-{x}.json" for x in xs]
+    run(S / "critic_merge.py", "tally", *rv("ABC"), cwd=f); write(f, ".critic/groups.json", '{"groups": []}')
+    r = run(S / "critic_merge.py", "tally", *rv("AB"), "--groups", ".critic/groups.json", cwd=f); assert r.returncode == 2 and "review-C.json" in r.stderr, r.stderr
+
+# ---- Batch 4-6 blind review, round 3 (the last; these fixes are not re-reviewed) ----
+
+@test("batch 5 review round 3: process substitution, ${X%..} ${X/..} ${X:1} ${!X} $@ $*, {c..c}, $\"..\", /proc/$PPID, export A=1 X=.., printf -v '%s%s', and bash -c with an outer variable are refused; python probes with 2>&1 or | tail and relative .critic probes are not")
+def _(d):
+    p = d / "proj"; write(p, "src/app.js", "x\n"); write(p, ".critic/reviews/review-B.json", '[{"title": "SECRET-B"}]')
+    run(H / "scratch_dir.py", cwd=p, stdin=json.dumps({"agent_type": "curmudgeon:curmudgeon-reviewer", "agent_id": "r1", "cwd": str(p)}))
+    ws = json.loads((p / ".critic/scratch/r1/workspace.json").read_text())["payload"]; R = "../../../reviews/review-B.json"; C = f"{p}/.cri"
+    bad = [f"tr x y <(cat {R} >&2)", f"tr x y >(cat {R} >&2)", f"tr -d x <(cat {R} 1>&2)",
+           f"X={p}/.criticZZ; cat ${{X%ZZ}}/reviews/review-B.json", f"X={p}/.criticZZ; cat ${{X/ZZ/}}/reviews/review-B.json", f"X=x{p}/.critic; cat ${{X:1}}/reviews/review-B.json",
+           f"X=Y; Y={C}; cat ${{!X}}tic/reviews/review-B.json", f"set -- {C}; cat $@tic/reviews/review-B.json", f"set -- {C}; cat $*tic/reviews/review-B.json",
+           f"cat {p}/.{{c..c}}ritic/reviews/review-B.json", f"cat {p}/$\".critic\"/reviews/review-B.json", "cat /proc/$PPID/cwd/.critic/reviews/review-B.json", "cat /proc/$PPID/environ",
+           f"export A=1 X={C}; cat ${{X}}tic/reviews/review-B.json", f"printf -v X '%s%s' {C} tic; cat ${{X}}/reviews/review-B.json",
+           f"export X={C}; bash -c 'cat ${{X}}tic/reviews/review-B.json'"]
+    for c in bad: assert _guard(p, p, "Bash", command=f"cd {ws} && {c}"), c
+    ok = ["python3 - <<'EOF' 2>&1\nprint(6 / 3)\nEOF", "python3 - <<'EOF' 2>&1 | tail -20\nprint(6 / 3)\nEOF",
+          "python3 -c \"import pathlib; print(pathlib.Path('tests/.critic').resolve())\"", "node -e \"const p = require('path'); console.log(p.dirname('src/.critic/x'))\""]
+    for c in ok: assert not _guard(p, p, "Bash", command=f"cd {ws} && {c}"), c
+    import scan_secrets as ss, scan_ops
+    for line in ("SECRET_STORE=/opt/MyCompany/vault/keys", "TOKEN_CACHE=/Users/ryan/Library/Caches/MyApp", "API_KEY_LOCATION=/run/secrets/ApiKey"):
+        rows = []; ss.scan(".env", line + "\n", lambda *a: rows.append(a)); assert not rows, (line, rows)
+    rows = []; scan_ops.scan("a.py", "blogger.info(password)\ndblogger.info(password)\n", lambda *a: rows.append(a), d)
+    assert [int(r[3].split(":")[1]) for r in rows if r[1] == "ops-log-secret"] == [2], rows
+
+@test("batch 5 review round 3 (2): /proc/$PPID/root and /proc/self/cwd, \"$X\"tic, nested loops past the cap, two-level climbs in inline code, and a nested .critic in the real project are refused; the copy's git shows no phantom ledger")
+def _(d):
+    p = d / "proj"; write(p, "src/app.js", "x\n"); write(p, ".critic/reviews/review-B.json", '[{"title": "SECRET-B"}]')
+    write(p, "pkg/.critic/ledger.json", json.dumps({"findings": {"F-1": {"summary": "OLD"}}, "decisions": ["d"]}))
+    subprocess.run(["git", "init", "-q"], cwd=p); subprocess.run(["git", "add", "-A"], cwd=p); subprocess.run(G8 + ["commit", "-qm", "c"], cwd=p)
+    run(H / "scratch_dir.py", cwd=p, stdin=json.dumps({"agent_type": "curmudgeon:curmudgeon-reviewer", "agent_id": "r1", "cwd": str(p)}))
+    ws = json.loads((p / ".critic/scratch/r1/workspace.json").read_text())["payload"]; C = f"{p}/.cri"
+    bad = [f"cat /proc/$PPID/root{p}/.critic/reviews/review-B.json", "cat /proc/self/cwd/../../../reviews/review-B.json", "cat /proc/$$/cwd/../../../reviews/review-B.json",
+           f"X={C}; cat \"$X\"tic/reviews/review-B.json", f"X={C}; cat $X'tic'/reviews/review-B.json",
+           f"for X in {C} a b c; do for Y in tic q r s t; do cat $X$Y/reviews/review-B.json; done; done",
+           "python3 -c \"print(open('../../../reviews/review-B.json').read())\"", "python3 -c \"import os; print(os.listdir(os.path.dirname(os.path.dirname(os.getcwd()))))\"",
+           f"cat {p}/pkg/.critic/ledger.json", "cat ../../../../pkg/.critic/ledger.json"]
+    for c in bad: assert _guard(p, p, "Bash", command=f"cd {ws} && {c}"), c
+    assert _guard(p, p, "Read", file_path=f"{p}/pkg/.critic/ledger.json")
+    assert not _guard(p, p, "Bash", command=f"cd {ws} && python3 -c \"print(open('../notes/x.txt').read())\"")
+    st = subprocess.run(["git", "status", "--porcelain"], cwd=ws, capture_output=True, text=True).stdout
+    assert "ledger.json" not in st, st
+
+@test("batch 5 review round 3 (3): a # no longer hides the rest of a command, unset variables are judged as empty, a guard crash refuses instead of allowing, grep --color keeps its file judged, and a heredoc's absolute path is seen; probes with cwd() and $PWD work")
+def _(d):
+    p = d / "proj"; write(p, "src/app.js", "x\n"); write(p, ".critic/reviews/review-B.json", '[{"title": "SECRET-B"}]')
+    run(H / "scratch_dir.py", cwd=p, stdin=json.dumps({"agent_type": "curmudgeon:curmudgeon-reviewer", "agent_id": "r1", "cwd": str(p)}))
+    ws = json.loads((p / ".critic/scratch/r1/workspace.json").read_text())["payload"]; R = "../../../reviews/review-B.json"
+    bad = [f"echo x#y; cat {R}", f"true # list the files\ncat {R}", f"cat {p}/.cri${{NOPE}}tic/reviews/review-B.json", "cat .${U}./../../reviews/review-B.json",
+           f"declare -a -g -x -r X=(src); cat {R}", f"grep --color SECRET {R}", f"read X Y <<< \"src {p}/.cri\"; cat ${{Y}}tic/reviews/review-B.json",
+           f"mapfile -t X <<< {p}/.cri; cat ${{X}}tic/reviews/review-B.json",
+           "python3 - <<'EOF'\nimport os\n[print(open(os.path.join(r, x)).read()) for r, d, f in os.walk('/') for x in f if r.endswith('.critic' + os.sep + 'reviews')]\nEOF"]
+    for c in bad: assert _guard(p, p, "Bash", command=f"cd {ws} && {c}"), c
+    ok = ["python3 -c \"import pathlib; d = pathlib.Path.cwd() / 'fixture' / '.critic'; d.mkdir(parents=True, exist_ok=True)\"", "ls $PWD/src", "grep -rn --color '../' src"]
+    for c in ok: assert not _guard(p, p, "Bash", command=f"cd {ws} && {c}"), c

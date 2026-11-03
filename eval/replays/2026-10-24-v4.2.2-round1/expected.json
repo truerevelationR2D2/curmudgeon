@@ -26,7 +26,7 @@
    "impact": "Medium",
    "file": "plugin/skills/review/scripts/critic_merge.py",
    "line": 137,
-   "votes": 2,
+   "votes": 1,
    "of": 3,
    "verifier": "confirmed",
    "confidence": "confirmed"

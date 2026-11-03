@@ -1,0 +1,7 @@
+[
+ {
+  "id": "Rc1abb9af",
+  "app": "app-7f2339",
+  "finding": "The REQ-3 test only checks Python's own formatting.\ntest_rounding is tagged # REQ-3: two decimals and applies :.2f inside the test body to total([0.1, 0.2]).\nNo code in src/cart.py shows or formats prices, so REQ-3 (\"Prices are shown with two decimal places\") is not implemented. The test would pass if it never was."
+ }
+]

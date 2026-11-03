@@ -1,0 +1,7 @@
+[
+ {
+  "id": "R3c33b45a",
+  "app": "app-f0f514",
+  "finding": "safe.yml, \"Download and check\": sha256sum -c tool.sha256 has the same problem. tool.sha256 is absent, so the step always fails."
+ }
+]

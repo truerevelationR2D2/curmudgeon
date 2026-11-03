@@ -2,7 +2,10 @@
 """Statistics for the 5.2.4 benchmark (ruling §5.53), from one or more death-match run folders after scoring and
 labelling (deathmatch.py score, label.py final). Nothing here calls a model.
 
-usage: bench_stats.py RUN_DIR [RUN_DIR ...] [--out FILE.md] [--base ARM] [--seed N]
+usage: bench_stats.py RUN_DIR [RUN_DIR ...] [--out FILE.md] [--base ARM] [--seed N] [--rescore]
+
+The recorded scores (results.json) are read as they are, unless labels.json was saved after them; --rescore scores the
+runs again with the current answer keys and scorer first, which rewrites results.json and report.md in each run folder.
 
 Per arm:
 - completion: runs that finished, of runs made (a run voided by a usage limit and run again counts once);
@@ -78,7 +81,8 @@ def load(run_dirs):
     cfg = deathmatch.load_cfg(); tasks = {t["id"]: t for t in cfg["tasks"]}; runs = []
     for rd in map(pathlib.Path, run_dirs):
         lab, res_f = rd / "labels.json", rd / "results.json"
-        if not res_f.exists() or (lab.exists() and lab.stat().st_mtime >= res_f.stat().st_mtime):  # labels newer than the scores: score again
+        newer = lab.exists() and lab.stat().st_mtime > res_f.stat().st_mtime + 0.01 if res_f.exists() else False  # labels saved after the scores: score again (5.2.4 benchmark review)
+        if not res_f.exists() or RESCORE or newer:  # equal times (a fresh clone) read the recorded scores as they are (audit V20); --rescore forces it
             with contextlib.redirect_stdout(io.StringIO()): deathmatch.score(rd)
         res = json.loads((rd / "results.json").read_text())
         detail = (json.loads((rd / "labels-detail.json").read_text()) if (rd / "labels-detail.json").exists() else {}).get("labels", {})
@@ -202,8 +206,12 @@ def report(run_dirs, base="curmudgeon", seed=0):
         md.append(f"| {a} | n/a | n/a | n/a | n/a |" if not p else f"| {a} | {p['pairs']} | {p['confirmed_diff_mean']:+.2f} ({fmt_ci(p['confirmed_diff_ci'])}) | {p['base_better']} / {p['other_better']} / {p['tied']} | {p['cost_diff_mean']:+.3f} ({fmt_ci(p['cost_diff_ci'], 3)}) |")
     return "\n".join(md) + "\n", {"arms": S, "paired": P, "agreement": [m["_agreement"] for m in meta], "voided": sum(m["_voids"] for m in meta)}
 
+RESCORE = False
+
 def main(a):
+    global RESCORE
     if not a or a[0] in ("-h", "--help"): print(__doc__); return 0
+    RESCORE = "--rescore" in a; a = [x for x in a if x != "--rescore"]
     opt = lambda n, d=None: a[a.index(n) + 1] if n in a else d
     dirs = [x for i, x in enumerate(a) if not x.startswith("--") and (i == 0 or not a[i - 1].startswith("--"))]
     md, js = report(dirs, opt("--base", "curmudgeon"), int(opt("--seed", "0")))

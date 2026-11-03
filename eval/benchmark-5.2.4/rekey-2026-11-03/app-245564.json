@@ -1,0 +1,17 @@
+[
+ {
+  "id": "R0296f73c",
+  "app": "app-245564",
+  "finding": "Code review\n\nBranch main...HEAD, commit b1cc2d5, four new files. There is no CLAUDE.md in the repo, so I checked for bugs only. The change is small, so I read the diff myself and did not launch the subagent pipeline."
+ },
+ {
+  "id": "Raaeae673",
+  "app": "app-245564",
+  "finding": "Code review: git diff main...HEAD (commit cc7a3a5, \"task\")\n\nI found 3 issues. The branch adds a new notes app (index.html, app.js, store.js, styles.css). There is no CLAUDE.md in the repo, so I checked only for bugs. I read the code and traced each issue by hand. I did not run the app or launch the validation subagents."
+ },
+ {
+  "id": "R1835e6a5",
+  "app": "app-245564",
+  "finding": "Code review: git diff main...HEAD (1 commit, 4 new files)\n\nNo CLAUDE.md files exist in the repo, so I checked bugs only. I read the diff myself and did not launch the agent pipeline, because 126 lines was small enough to trace directly. I found 3 high-signal issues."
+ }
+]

@@ -14,13 +14,14 @@ def _lock_npm(p):
     except (OSError, ValueError) as e: raise ValueError(f"not readable as JSON: {type(e).__name__}") from None
     if not isinstance(j, dict): raise ValueError("not a lockfile object")
     out = []
+    if j.get("packages") is not None and not isinstance(j.get("packages"), dict): raise ValueError("its \"packages\" is not an object")
     for path, meta in (j.get("packages") or {}).items():
         if not path or not isinstance(meta, dict) or not meta.get("version"): continue
         if "node_modules/" not in path or meta.get("link"): continue  # a workspace folder (packages/internal-x) is not a registry package, and its path never goes to OSV
         out.append(("npm", meta.get("name") or path.split("node_modules/")[-1], meta["version"], meta.get("dev", False)))  # an alias (mylodash: npm:lodash@4) records its real name
     if not out:  # lockfile version 1: nested dependencies, each possibly an alias ("npm:real@1.0.0" in version)
         def walk(deps):
-            for name, meta in (deps or {}).items():
+            for name, meta in (deps.items() if isinstance(deps, dict) else ()):
                 if not isinstance(meta, dict): continue
                 v = str(meta.get("version") or "")
                 m = re.match(r"^npm:((?:@[^/@]+/)?[^@]+)@(.+)$", v)
@@ -93,11 +94,13 @@ def licences(root, emit):
         if _skip(pj, root): continue
         try: j = json.loads(pj.read_text())
         except Exception: continue
+        if not isinstance(j, dict): continue
         if not j.get("private") and not j.get("license"): emit("NOTE", "licence-missing-own", "deps", str(pj.relative_to(root)), "the package declares no licence: others can't legally reuse it", "")
     for lf in _inside(root, "package-lock.json", emit):
         if _skip(lf, root): continue
         try: j = json.loads(lf.read_text())
         except Exception: continue
+        if not isinstance(j, dict) or not isinstance(j.get("packages") or {}, dict): continue
         missing, strong, weak, unknown = [], [], [], []
         if not j.get("packages") and j.get("dependencies"):
             emit("NOTE", "licence-not-checked", "deps", str(lf.relative_to(root)), "an old (v1) lockfile records no licences, so dependency licences were not checked (npm 7+ writes them)", ""); continue
@@ -145,16 +148,18 @@ def scan(root, emit, online=False, state=None):
         found_manifest = True; rel = str(pj.relative_to(root))
         try: j = json.loads(pj.read_text())
         except Exception: emit("WARN", "deps-manifest", "deps", rel, "package.json is not valid JSON", ""); continue
+        if not isinstance(j, dict): emit("WARN", "deps-manifest", "deps", rel, "package.json is not a JSON object", ""); continue  # Qodo Q19: one odd manifest never stops the others' checks
+        d_ = lambda k: j.get(k) if isinstance(j.get(k), dict) else {}
         for k in ("preinstall", "install", "postinstall", "prepare"):
-            if (j.get("scripts") or {}).get(k): emit("NOTE", "deps-install-script", "deps", rel, f"`{k}` script runs on every install: check what it does", j["scripts"][k][:100])
-        both = set(j.get("dependencies") or {}) & set(j.get("devDependencies") or {})
+            if d_("scripts").get(k): emit("NOTE", "deps-install-script", "deps", rel, f"`{k}` script runs on every install: check what it does", str(j["scripts"][k])[:100])
+        both = set(d_("dependencies")) & set(d_("devDependencies"))
         for n in sorted(both): emit("NOTE", "deps-duplicate", "deps", rel, f"`{n}` is in both dependencies and devDependencies", "")
         for sect in ("dependencies", "devDependencies", "optionalDependencies"):
-            for n, v in (j.get(sect) or {}).items():
+            for n, v in d_(sect).items():
                 v = str(v)
                 if v in ("*", "latest", "") or (v.startswith(">") and "<" not in v): emit("WARN", "deps-unpinned", "deps", rel, f"`{n}` accepts any future version ({v or 'empty'}): a bad release goes straight in", "")
                 elif re.match(r"^(git|https?|github:|file:)", v) or "/" in v and not v.startswith(("@", "npm:")): emit("NOTE", "deps-url", "deps", rel, f"`{n}` comes from a URL or repo ({v[:60]}), not the registry", "")
-        if not (pj.parent / "package-lock.json").exists() and not (pj.parent / "yarn.lock").exists() and not (pj.parent / "pnpm-lock.yaml").exists() and (j.get("dependencies") or j.get("devDependencies")):
+        if not (pj.parent / "package-lock.json").exists() and not (pj.parent / "yarn.lock").exists() and not (pj.parent / "pnpm-lock.yaml").exists() and (d_("dependencies") or d_("devDependencies")):
             emit("NOTE", "deps-no-lock", "deps", rel, "no lockfile: installs can differ from machine to machine", "")
     pkgs = []; unread = []; wild = []
     for lf in _inside(root, "package-lock.json", emit):

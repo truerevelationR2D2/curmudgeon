@@ -7,7 +7,9 @@ independently confirmed as actionable, by severity. Budget rulings §5.54 and §
 
 Every number below is recomputed by `python3 eval/bench_stats.py eval/benchmark-5.2.4/2026-10-29-015736
 eval/benchmark-5.2.4/2026-10-29-093654` and `python3 eval/label.py recheck eval/benchmark-5.2.4/2026-10-29-015736
-eval/benchmark-5.2.4/recheck` (no model calls); `stats.md` and `stats.json` here are the first command's output.
+eval/benchmark-5.2.4/recheck` (no model calls); `stats.md` and `stats.json` here are the first command's output. The
+first command reads each run's recorded scores (`results.json`); add `--rescore` to score the runs again with the
+current answer keys and scorer first, which rewrites those files (it gives the same numbers as of 3 November 2026).
 
 ## Conditions
 
@@ -35,14 +37,26 @@ eval/benchmark-5.2.4/recheck` (no model calls); `stats.md` and `stats.json` here
 | Curmudgeon, full | **225 of 245, 92%** (86% to 100%) | 245 / 6 / 6 | 95% | 6 of 23 (45%) | $1.42 | $0.130 ($0.103 to $0.194) | 273 s | 43 of 43 |
 | Curmudgeon, lite | **222 of 245, 91%** (85% to 100%) | 199 / 9 / 3 | 94% | 1 of 23 (19%) | $0.75 | $0.077 ($0.060 to $0.117) | 236 s | 43 of 43 |
 | Built-in `/code-review` | 76 of 245, 31% (20% to 68%) | 215 / 69 / 16 | 72% | 9 of 23 (58%) | $0.10 | $0.015 ($0.011 to $0.022) | 38 s | not visible (see Limits) |
-| Code-review plugin, best effort | 64 of 245, 26% (14% to 48%) | 35 / 9 / 0 | 80% | 0 of 23 (13%) | $1.00 | $0.435 ($0.307 to $0.915) | 74 s | 43 of 43 |
-| Code-review plugin, as it runs | 34 of 245, 14% (6% to 27%) | 113 / 10 / 7 | 86% | 3 of 23 (30%) | $0.09 | $0.027 ($0.015 to $0.077) | 22 s | **0 of 43** |
+| Code-review plugin, best effort | 64 of 245, 26% (14% to 48%) | 36 / 7 / 0 | 84% | 0 of 23 (13%) | $1.00 | $0.431 ($0.305 to $0.887) | 74 s | 43 of 43 |
+| Code-review plugin, as it runs | 48 of 245, 20% (8% to 53%) | 72 / 8 / 5 | 85% | 2 of 23 (25%) | $0.09 | $0.032 ($0.018 to $0.087) | 22 s | **0 of 43** |
 
 Rescored on 30 Oct 2026 with the answer key's widened E02 patterns (03 §5.56, batch 3): four findings that said
 the query went into the URL "not URL-encoded" or "without encoding" at `api.js:6` (three Curmudgeon full runs, one
 code-review run) are now credited to that plant, so full rose from 222 to 225 and the plugin as it runs from 33 to 34;
 those four had been labelled real, so they now count once, as the plant, and the confirmed totals are unchanged. The
 scores before the change are kept beside the new ones as `results.before-key.json`.
+
+Rescored again on 3 Nov 2026 with the free-form splitter fixed (audit V18). The code-review plugin writes each finding
+as a bold numbered title followed by flush bullets; the old splitter made every bullet a finding of its own and glued
+each title to the bullet before it, so a finding's claim and its location often landed in different blocks and
+neither matched its plant. A numbered finding now keeps its bullets, and prose after a list ("Not flagged: ...") is no
+part of its last item. The plugin as it runs rose from 34 to 48 planted bugs; the best-effort plugin, the built-in
+`/code-review` (JSON) and Curmudgeon (structured rows) are unchanged. Labels moved to the new block numbers wherever
+a block's text was already labelled (`rekey_2026_11_03.py`); the 7 blocks with no carried label (three summaries,
+one block whose parts disagreed, three new texts) were labelled blind by two Sonnet 5.5 labellers under the same
+brief, who agreed on all 7 (`rekey-2026-11-03/`). One finding that used to count as several bullets now counts once,
+so the plugin's judged findings fell from 130 to 85 and its confirmed bugs from 146 to 120. Scores before:
+`results.before-splitter.json`; labels as first given, by the old block numbers: `labels-detail.as-labelled.json`.
 
 The 95% intervals are cluster bootstraps (03 §5.56 item 21): they resample the apps, then the runs within each app,
 because the 20 planted runs come from only four apps and the runs of one app share its plants. They are wider than the
@@ -55,7 +69,7 @@ resample drawn only from apps where every plant was found. Planted recall for ea
 | Curmudgeon, lite | 77 of 80 | 115 of 135 | 10 of 10 | 20 of 20 |
 | Built-in `/code-review` | 29 of 80 | 27 of 135 | 4 of 10 | 16 of 20 |
 | Code-review plugin, best effort | 12 of 80 | 38 of 135 | 1 of 10 | 13 of 20 |
-| Code-review plugin, as it runs | 10 of 80 | 17 of 135 | 0 of 10 | 7 of 20 |
+| Code-review plugin, as it runs | 15 of 80 | 17 of 135 | 0 of 10 | 16 of 20 |
 
 Real and actionable findings by severity, as a share of each arm's judged findings:
 
@@ -64,8 +78,8 @@ Real and actionable findings by severity, as a share of each arm's judged findin
 | Curmudgeon, full | 1 (0.4%) | 18 (7%) | 128 (50%) | 98 (38%) |
 | Curmudgeon, lite | 1 (0.5%) | 16 (8%) | 106 (50%) | 76 (36%) |
 | Built-in `/code-review` | 2 (0.7%) | 25 (8%) | 93 (31%) | 95 (32%) |
-| Code-review plugin, best effort | 1 (2%) | 8 (18%) | 18 (41%) | 8 (18%) |
-| Code-review plugin, as it runs | 3 (2%) | 43 (33%) | 41 (32%) | 25 (19%) |
+| Code-review plugin, best effort | 1 (2%) | 8 (19%) | 19 (44%) | 8 (19%) |
+| Code-review plugin, as it runs | 3 (4%) | 25 (29%) | 22 (26%) | 22 (26%) |
 
 Paired on the same task and run (43 pairs each), Curmudgeon full against:
 
@@ -73,8 +87,8 @@ Paired on the same task and run (43 pairs each), Curmudgeon full against:
 |---|---|---|---|
 | Curmudgeon, lite | +1.14 (0.45 to 1.80) | 24 / 9 / 10 | +$0.67 ($0.59 to $0.75) |
 | Built-in `/code-review` | +4.16 (0.67 to 7.67) | 34 / 9 / 0 | +$1.33 ($1.13 to $1.52) |
-| Code-review plugin, best effort | +8.63 (5.26 to 11.79) | 41 / 0 / 2 | +$0.42 ($0.20 to $0.60) |
-| Code-review plugin, as it runs | +7.53 (4.31 to 10.44) | 41 / 2 / 0 | +$1.33 ($1.15 to $1.52) |
+| Code-review plugin, best effort | +8.60 (5.23 to 11.77) | 41 / 0 / 2 | +$0.42 ($0.20 to $0.60) |
+| Code-review plugin, as it runs | +8.14 (4.97 to 11.11) | 41 / 1 / 1 | +$1.33 ($1.15 to $1.52) |
 
 What the numbers say:
 
@@ -83,9 +97,9 @@ What the numbers say:
 2. **The code-review plugin's agent launch.** As it runs, the plugin launched no agent in any of its 43 runs,
    though its instructions name several; it read the diff itself and replied in about 20 seconds. Given the facts
    its first step asks for and told to follow its steps, it launched agents in all 43 runs (8.8 a run) and found
-   nearly twice as many planted bugs (64 against 34), at eleven times the cost.
+   a third more planted bugs (64 against 48), at eleven times the cost.
 3. **Real findings beyond the plants.** Of the findings that matched no planted bug, the labellers judged 95%
-   (full) and 94% (lite) of Curmudgeon's real and actionable, against 72% to 86% for the others. Most of
+   (full) and 94% (lite) of Curmudgeon's real and actionable, against 72% to 85% for the others. Most of
    Curmudgeon's are Medium.
 4. **Full against lite.** Full found 1.14 more confirmed bugs a run for $0.67 more, about $0.59 per extra
    confirmed bug, and raised a false alarm on more clean runs (6 of 23 against 1 of 23).
@@ -137,6 +151,16 @@ What the numbers say:
   limit reset and are recorded in `2026-10-29-015736/voided.jsonl`. That is over the 20% kill line; Ryan ruled to
   rerun and go on (§5.55).
 - **Small apps.** Each of the 15 apps is 2 to 11 files and 18 to 354 lines; treat the shares as indicative.
+- **These are Curmudgeon's own tuning apps (audit V17).** The four planted apps are the ones Curmudgeon's release gate
+  has used since 4.x, and its shipped checklist (`plugin/skills/review/references/rubrics.md`) and agent examples
+  name several of their planted defect classes (an unguarded `JSON.parse` of saved data, `Date.now()` ids, an
+  animation that ignores reduced motion, an unannounced toast, the WCAG level of 2.5.5). Plain Claude given that
+  checklist found 165 of 245 planted bugs, against 89 without it (`arms/`), so the checklist accounts for much of
+  Curmudgeon's lead on these apps. Those plain arms ran on the harness's default model, which `run.json` does not
+  record. A benchmark on apps Curmudgeon has never been tuned on has not been run; until it is, read the planted-bug
+  comparison as an upper bound for Curmudgeon on unfamiliar code.
+- **The older death matches (24 and 27 Oct 2026)** were scored with the free-form splitter before the V18 fix, and
+  their raw replies were not kept, so they can't be rescored; their free-form arms may be under-credited.
 
 ## Harness defects found while running it
 

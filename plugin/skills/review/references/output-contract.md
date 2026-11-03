@@ -34,7 +34,7 @@ After the Lows, a **Nits** line lists the Nits from `.critic/counts.md` (one sho
 #### 4. CLAIMS, NUMBERS AND CONSISTENCY
 - **D1** `file:line` | **IMPACT: …** | only when documents, READMEs or plans are in the payload: the claim, its **Evidence** (the source it needs, or the recomputed arithmetic), and the correction.
 #### 5. VERDICT
-- One line: **BLOCK**, **CONCERNS** or **CLEAN**, in bold, and only one of the three in bold anywhere in this section (a past verdict such as "as delivered it was a block" is written in plain words). CLEAN is impossible while any Critical or High is open or deferred.
+- One line: **BLOCK**, **CONCERNS** or **CLEAN**, in bold, and only one of the three in bold anywhere in this section (a past verdict such as "as delivered it was a block" is written in plain words). The word follows from the counts, and `counts.md` prints it: **BLOCK** when a Critical or High is counted, **CONCERNS** when only Medium or Low findings are, **CLEAN** when nothing is (nits don't count). The stamp refuses any other word.
 - A line starting `Counts:` with the counts by impact, copied from `.critic/counts.md` (they must add up to the findings listed). Put no other impact numbers on that line.
 - Panel: how many reviewers, how many findings were dropped, retracted, refuted, hidden by the owner's rulings, or noted as like past dismissals (from `counts.md`).
 - A finding with a memory note keeps its place and its count; add one line under it: `Like past dismissals: <reason> (memory N). Close with critic_ledger.py dismiss --like N, or keep.` Never drop or move a finding because of a note.

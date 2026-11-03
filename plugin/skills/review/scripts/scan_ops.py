@@ -20,6 +20,8 @@ SECRETISH = re.compile(r"(?i)^(?:.*_)?(pass(?:word|wd)?|secret|token|api_?key|ap
 NOT_SECRET = re.compile(r"(?i)_(counts?|types?|len|length|policy|expiry|expires(_at)?|url|uri|endpoint|field|name|required|valid|ttl|lifetime|format|kind|prefix|index|idx|num|number|hint|label|min|max|strength|reset_at|hash(ed)?|digest|fingerprint|method|mode|backend|provider|scheme|file|path|dir|header_name|source|status|state|error)$|^(is|has|num|n|max|min)_")
 def secretish(name): return bool(SECRETISH.match(name)) and not NOT_SECRET.search(name)
 MASKER = re.compile(r"(?i)^_?(?:mask|redact|obfuscate)(?:_?(?:secret|token|password|value|sensitive|key))?$")  # mask(password) logs no secret; sanitize() only strips control characters
+LOGGER_NAME = re.compile(r"(?i:(?:^|_)(?:log|logger|logging)(?:_|$)|(?<!^b)logger$)|[a-z0-9]Log(?:ger)?$")  # log, app_logger, audit_log, auditLog; never catalog, dialog or blog (self-review F-a92bf605)
+NON_PROD = {"dev", "devel", "development", "local", "test", "tests", "testing", "example", "examples", "sample", "samples"}
 LOG_CALLS = {"debug", "info", "warning", "warn", "error", "exception", "critical", "log", "print"}
 PEDANTIC = {"ops-k8s-no-probes", "ops-k8s-no-limits"}
 
@@ -57,13 +59,13 @@ def scan_python(rel, text, emit):
             rv = f.value if isinstance(f, ast.Attribute) else None
             owner = (rv.id if isinstance(rv, ast.Name) else rv.attr if isinstance(rv, ast.Attribute)
                      else ("log" if isinstance(rv, ast.Call) and getattr(rv.func, "attr", getattr(rv.func, "id", "")) in ("getLogger", "get_logger") else "")) if rv is not None else ""
-            if fname in LOG_CALLS and (fname == "print" or re.search(r"(?i)log", owner) or owner in ("logging",)):
+            if fname in LOG_CALLS and (fname == "print" or LOGGER_NAME.search(owner) or owner in ("logging",)):
                 hits = [n for a in list(node.args) + [k.value for k in node.keywords] for n in _names(a) if secretish(n)]
                 if hits:
                     emit("WARN", "ops-log-secret", "operations", f"{rel}:{node.lineno}", f"{hits[0]} is written to the log: secrets in logs end up in log files and log services (log that it exists, or its last 4 characters)", lines[node.lineno - 1])
         if isinstance(node, ast.Assign) and any(isinstance(t, ast.Name) and t.id == "DEBUG" for t in node.targets) and isinstance(node.value, ast.Constant) and node.value.value is True:
             p = rel.replace("\\", "/").lower()
-            if re.search(r"settings|config", p) and not re.search(r"dev|local|test|example|sample", p):
+            if re.search(r"settings|config", p) and not NON_PROD & set(re.split(r"[/_.\-]+", p)):  # whole words of the path: devices/ or latest/ is no dev folder (self-review F-0203513e)
                 emit("WARN", "ops-debug-on", "operations", f"{rel}:{node.lineno}", "DEBUG = True in a settings file that isn't for development or tests: error pages leak code, settings and data", lines[node.lineno - 1])
 
 JS_LOG = re.compile(r"\b(?:console|logger|log)\.(?:log|info|debug|warn|error|trace)\s*\((.*)\)")

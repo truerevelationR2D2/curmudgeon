@@ -54,6 +54,16 @@ MEASURED = re.compile(r"^(axe-(?!incomplete)|no-focus-style|not-focusable|focus-
 
 def die(m): print(f"critic_merge: {m}", file=sys.stderr); sys.exit(2)
 
+def verdict_word(cnt):
+    """The verdict follows from the counts, never from the lead's choice (audit V08): the release gate's clean-twin floor
+    keys on BLOCK, so the word has to mean one thing."""
+    return "BLOCK" if cnt.get("Critical", 0) + cnt.get("High", 0) else "CONCERNS" if cnt.get("Medium", 0) + cnt.get("Low", 0) else "CLEAN"
+
+def put(path, text):
+    """Write a whole file so a crash never leaves half of it (audit Q23): a temporary file beside it, then a rename."""
+    path = pathlib.Path(path); tmp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    tmp.write_text(text, encoding="utf-8"); os.replace(tmp, path)
+
 def norm_path(p):
     p = strip_workspace_path(str(p or "").strip()).replace("\\", "/")
     try:
@@ -73,9 +83,13 @@ def load_review(path):
         if not isinstance(rows, list): rows = []
     except json.JSONDecodeError:
         rows = extract_findings(text)
-        if not rows:
-            try: rows = read_jsonl(p)
-            except ValueError: rows = []
+        if not rows:  # JSON lines: one bad line costs that line, never the whole review (audit Q20), and it is named
+            rows, bad = [], []
+            for i, line in enumerate(text.splitlines(), 1):
+                if not line.strip(): continue
+                try: rows.append(json.loads(line))
+                except json.JSONDecodeError: bad.append(i)
+            if bad: print(f"critic_merge: {p.name}: line(s) {', '.join(map(str, bad[:10]))}{' and more' if len(bad) > 10 else ''} are not JSON and were left out; the rest of the review counts", file=sys.stderr)
     src = p.stem if p.stem not in ("scan", "outside") else f"file-{p.stem}"  # only scan_rows() and the outside loader name those channels (batch 1 review: a file called scan.json)
     return [dict(r, source=src) for r in rows if isinstance(r, dict)]  # the channel names the source, never the row: a reviewer's "source": "scan" would skip the quote check (ultimate audit Q05)
 
@@ -254,6 +268,17 @@ def tally(paths):
         stale = [p for p in paths if pathlib.Path(p).resolve().parent == (D / "reviews").resolve() and pathlib.Path(p).exists()
                  and pathlib.Path(p).stat().st_mtime < started - 2]
         if stale: die(f"refusing to count {', '.join(stale)}: written before this run started, so it is from an earlier run. Remove it, or have a fresh reviewer write it again")
+    snap_f = D / "tally-reviews.json"; snap = {}  # audit P2: the reviews as the first tally of this run counted them
+    try: snap = json.loads(snap_f.read_text()) if snap_f.is_file() and not snap_f.is_symlink() else {}
+    except (OSError, ValueError): snap = {}
+    if not isinstance(snap, dict) or snap.get("started") != started or not isinstance(snap.get("hashes"), dict): snap = {"started": started, "hashes": {}}
+    now = {pathlib.Path(p).name: hashlib.sha256(pathlib.Path(p).read_bytes()).hexdigest() for p in paths if pathlib.Path(p).is_file()}
+    changed = sorted({k for k, h in now.items() if snap["hashes"].get(k) != h} | (set(snap["hashes"]) - set(now))) if groups is not None and snap["hashes"] else []  # changed, new, or left out since that tally (batch 5 review, round 2)
+    if changed: die(f"{', '.join(changed)} changed, appeared or went missing since the tally that listed the dedup candidates, so these groups no longer match the reviews and every verifier would run twice. "
+                    "Tally again without --groups and redo the dedup step, or start the round again with critic_ledger.py round")
+    if groups is None: snap["hashes"] = now  # the tally that wrote dedup-candidates.json: the grouped tally must count the same reviews
+    try: put(snap_f, json.dumps(snap, indent=1))
+    except OSError: pass
     reviews = [load_review(p) for p in paths]
     blind = set()  # 03 §5.56 item 15: reviews whose agent the stop hook saw working in its private copy
     for st_ in (D / "stops").glob("*.json") if (D / "stops").is_dir() and not (D / "stops").is_symlink() else []:  # written by the stop hook; agents can't write there
@@ -376,7 +401,7 @@ def tally(paths):
         by_file.setdefault(f["file"] or "(no file)", []).append({"id": r, "also": [x for x, _, _ in mem[1:]], "line": f["line"], "title": f["title"], "quote": f.get("quote", "")[:200]})
     cands = sum(len(v) for v in by_file.values()) if len(parts) > 1 else 0
     (D).mkdir(parents=True, exist_ok=True)
-    (D / "dedup-candidates.json").write_text(json.dumps({"instructions": "Group findings that describe the same underlying issue (same cause, one fix resolves both), within a file or across files. Return {\"groups\": [[id, ...], ...]} listing only merged sets; use the 'id' values.", "findings_by_file": scrub(by_file)}, indent=1, ensure_ascii=False))
+    put((D / "dedup-candidates.json"), json.dumps({"instructions": "Group findings that describe the same underlying issue (same cause, one fix resolves both), within a file or across files. Return {\"groups\": [[id, ...], ...]} listing only merged sets; use the 'id' values.", "findings_by_file": scrub(by_file)}, indent=1, ensure_ascii=False))
     clusters = []
     for mem in parts:
         c = {"members": [], "reviewers": set(), "scan": False, "outside": False}
@@ -386,6 +411,11 @@ def tally(paths):
             elif ri == OUTSIDE_RI: c["outside"] = True
             else: c["reviewers"].add(ri)
         c["votes_matched"] = matched_votes([(ri, f) for _, ri, f in mem if ri is not None and ri != OUTSIDE_RI])  # reviewers the script itself matched within this group, without the dedup agent
+        by_file = {}
+        for _r, ri, f in mem:
+            if ri is not None and ri != OUTSIDE_RI: by_file.setdefault(norm_path(f.get("file")), set()).add(ri)
+        if len(c["reviewers"]) > 1 and not any(len(v) > 1 for v in by_file.values()):  # audit V32: a dedup group across files with no file two reviewers share
+            c["cross_file"] = True  # merged for the report, but its votes are the ones the script matched itself, so two unrelated findings never make one kept finding
         clusters.append(c)
     of = n + (1 if outside else 0)
     if outside:
@@ -394,7 +424,7 @@ def tally(paths):
                           "matched_ours": sum(1 for c in clusters if c["outside"] and (c["reviewers"] or c["scan"])),
                           "only_outside": sum(1 for c in clusters if c["outside"] and not c["reviewers"] and not c["scan"])}
     for c in clusters:
-        m = c["members"]; votes = len(c["reviewers"]) + (1 if c["outside"] else 0)
+        m = c["members"]; votes = (max(c["votes_matched"], 1) if c.get("cross_file") else len(c["reviewers"])) + (1 if c["outside"] else 0)
         if c["outside"] and not c["reviewers"] and not c["scan"]:  # only the outside reviewer saw it: always verified blind
             best = sorted(m, key=lambda x: IMP_RANK[x["impact"]])[0]
             out["contested"].append(dict(best, votes=1, of=of, outside_only=True, scan_confirmed=False, locations=[f"{best['file']}:{best.get('line', '')}"], raised_by=["outside"])); continue
@@ -423,9 +453,9 @@ def tally(paths):
         if unanchored and not executed and len(c["reviewers"]) < 2 and f["impact"] in ("Critical", "High", "Medium"):
             if f["impact"] == "Medium" and n > 1: f["single_vote"] = True  # 03 §5.57.6 holds without a quote too (batch 1 review round 2)
             out["contested"].append(f)  # an outside vote never stands in for a check  # nothing the script could check: verify it, even on one reviewer
-        elif votes >= need or executed: out["kept"].append(f)
+        elif (votes >= need and not (out["tier"] == "trivial" and n == 1 and f["impact"] in ("Critical", "High"))) or executed: out["kept"].append(f)  # audit V07: in the trivial tier one reviewer's traced Critical or High is contested, as the docs say, never kept unverified
         elif f["impact"] in ("Critical", "High"): out["contested"].append(f)
-        elif f["impact"] == "Medium" and n > 1:  # 03 §5.57.6: one reviewer's Medium goes to a blind verifier and is kept only if confirmed (the self-review lost a real High this way)
+        elif f["impact"] == "Medium" and n > 1 or c.get("cross_file"):  # 03 §5.57.6: one reviewer's Medium goes to a blind verifier and is kept only if confirmed (the self-review lost a real High this way); so does a cross-file group whatever its impact (batch 5 review: two reviewers' Lows were dropped unverified)
             f["single_vote"] = True; out["contested"].append(f)
         else: out["dropped"].append({"finding": f, "why": f"raised by {votes} of {n} reviewers, not executed"})
     vd = D / "verify"; vd.mkdir(parents=True, exist_ok=True)
@@ -435,8 +465,8 @@ def tally(paths):
         if f.get("raised_by") == ["scan"] and f.get("verified") == "executed" and MEASURED.match(str(f.get("category"))): continue  # a measurement, not an interpretation: nothing to reproduce
         packet = {k: f.get(k) for k in ("id", "category", "impact", "file", "line", "quote", "title", "failing_case", "preconditions", "root_cause") if k in f}
         if is_security(f): packet["security"] = True  # the verifier is told the security rules apply (collected round review)
-        (vd / f"{f['id']}.json").write_text(json.dumps(scrub(packet), indent=1, ensure_ascii=False))
-    (D / "tally.json").write_text(json.dumps(scrub(out), indent=1, ensure_ascii=False))
+        put((vd / f"{f['id']}.json"), json.dumps(scrub(packet), indent=1, ensure_ascii=False))
+    put((D / "tally.json"), json.dumps(scrub(out), indent=1, ensure_ascii=False))
     if MEMORY_HITS and (D / "ledger.json").exists():  # keep memories that are in use from retiring
         led = pathlib.Path(__file__).resolve().parent / "critic_ledger.py"
         for n_ in sorted(set(MEMORY_HITS)): subprocess.run([sys.executable, str(led), "memories", "--hit", str(n_)], cwd=ROOT, env=dict(os.environ, CRITIC_ROOT=str(ROOT)), capture_output=True)
@@ -590,13 +620,14 @@ def apply(paths):
     write_jsonl(D / "nits.jsonl", nits)  # SC-79: listed, never counted; the eval still credits a planted bug found here (as an impact miss)
     write_jsonl(D / "findings.jsonl", final)
     write_verifier_log()
-    (D / "findings.sarif").write_text(json.dumps(to_sarif(final), indent=1))
+    put((D / "findings.sarif"), json.dumps(to_sarif(final), indent=1))
     cnt = {k: sum(1 for f in final if f["impact"] == k) for k in IMPACTS}
     why_degraded = list(T.get("degraded") or []) + ([f"{len(missing)} verdict(s) the {tier} tier requires never came back ({', '.join(missing[:8])}{' ...' if len(missing) > 8 else ''})"] if missing else []) \
         + ([f"verdicts not saved by the verifier's stop hook (written or edited outside .critic/verdicts/, so no record shows a verifier returned them): {', '.join(by_hand[:8])}"] if by_hand else [])
     md = ["# Curmudgeon merged findings", ""] + ([f"DEGRADED: {'; '.join(why_degraded)}", "(Copy that line as the teardown's first line, before the verdict.)", ""] if why_degraded else []) + [
           f"Reviewers: {T['reviewers']} (votes needed: {T['votes_needed']}; {tier} tier).",
-          "Counts for the VERDICT (copy exactly): " + " · ".join(f"{k} {v}" for k, v in cnt.items()) + f" · total {len(final)}", "",
+          "Counts for the VERDICT (copy exactly): " + " · ".join(f"{k} {v}" for k, v in cnt.items()) + f" · total {len(final)}",
+          f"Verdict word (copy exactly): **{verdict_word(cnt)}** (BLOCK: a Critical or High is counted; CONCERNS: only Medium or Low; CLEAN: nothing counted)", "",
           "| ID | Impact | Confidence | Votes | Verifier | Where | Title |", "| --- | --- | --- | --- | --- | --- | --- |"]
     def where_(f):  # every place the merged reviewers cited, first the one the finding is filed under: a reader (and the teardown) sees them all
         first = f"{f['file']}:{f.get('line', '')}"; more = [x for x in (f.get("locations") or []) if x != first]
@@ -649,7 +680,7 @@ def apply(paths):
     if unverified: md += ["", "## Outside findings not verified (not counted above; run the verifier on their packets, then apply again)"] + \
                         [f"- {f['id']} {f['impact']} {f['file']}:{f.get('line', '')} {f['title'].replace('|', '/')}" for f in unverified]
     if notes: md += ["", "## Notes"] + [f"- {x}" for x in notes]
-    (D / "counts.md").write_text("\n".join(redact_finding_text(x) for x in md) + "\n")
+    put((D / "counts.md"), "\n".join(redact_finding_text(x) for x in md) + "\n")
     led = pathlib.Path(__file__).resolve().parent / "critic_ledger.py"
     if (D / "ledger.json").exists():
         tmp = D / "findings-import.jsonl"; write_jsonl(tmp, final)
@@ -666,7 +697,7 @@ def apply(paths):
                 subprocess.run([sys.executable, str(led), "status", fid, "refuted", "refuted by verification: " + r["why"][:200]], cwd=ROOT, env=env, capture_output=True)  # not the owner's wontfix: it opens again if a later run raises it
     print(f"final: {len(final)} finding(s) — " + ", ".join(f"{k} {v}" for k, v in cnt.items()) + f"; refuted {len(refuted)}")
     rev = revision_stamp(final)
-    (D / "revision.json").write_text(json.dumps(rev, indent=1) + "\n")
+    put((D / "revision.json"), json.dumps(rev, indent=1) + "\n")
     with open(D / "counts.md", "a", encoding="utf-8") as fh:
         fh.write(f"\nRevision reviewed: {rev['sha'] or 'not a git repository'}{' (with uncommitted changes)' if rev['dirty'] else ''}; cited files sha256 {rev['payload_sha256'][:16]}.\n")
     write_manifest(D)  # a sha256 of every output, so a later hand edit shows (critic_ledger.py integrity)

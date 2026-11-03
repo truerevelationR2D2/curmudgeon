@@ -7,8 +7,8 @@ Labeller agreement: 2026-10-29-015736: 865 of 945 agreed, kappa 0.861, labeller 
 |---|---|---|---|---|---|---|---|---|---|---|
 | curmudgeon | 43 of 43 | 225 of 245 (0.86 to 1.00) | 245 / 6 / 6 | 95% | 6 of 23 (45%) | $61.26 | 470 | $0.130 (0.103 to 0.194) | 273.2 | 100% (43 known) |
 | cc-code-review | 43 of 43 | 76 of 245 (0.20 to 0.68) | 215 / 69 / 16 | 72% | 9 of 23 (58%) | $4.23 | 291 | $0.015 (0.011 to 0.022) | 37.5 | 0% (43 known) |
-| code-review | 43 of 43 | 34 of 245 (0.06 to 0.27) | 113 / 10 / 7 | 86% | 3 of 23 (30%) | $3.89 | 146 | $0.027 (0.015 to 0.077) | 21.9 | 0% (43 known) |
-| code-review-best | 43 of 43 | 64 of 245 (0.14 to 0.48) | 35 / 9 / 0 | 80% | 0 of 23 (13%) | $43.10 | 99 | $0.435 (0.307 to 0.915) | 73.8 | 100% (43 known) |
+| code-review | 43 of 43 | 48 of 245 (0.08 to 0.53) | 72 / 8 / 5 | 85% | 2 of 23 (25%) | $3.89 | 120 | $0.032 (0.018 to 0.087) | 21.9 | 0% (43 known) |
+| code-review-best | 43 of 43 | 64 of 245 (0.14 to 0.48) | 36 / 7 / 0 | 84% | 0 of 23 (13%) | $43.10 | 100 | $0.431 (0.305 to 0.887) | 73.8 | 100% (43 known) |
 | curmudgeon-lite | 43 of 43 | 222 of 245 (0.85 to 1.00) | 199 / 9 / 3 | 94% | 1 of 23 (19%) | $32.27 | 421 | $0.077 (0.060 to 0.117) | 235.6 | 100% (43 known) |
 
 Real and actionable findings by severity (share of each arm's assessed findings):
@@ -17,8 +17,8 @@ Real and actionable findings by severity (share of each arm's assessed findings)
 |---|---|---|---|---|
 | curmudgeon | 1 (0%) | 18 (7%) | 128 (50%) | 98 (38%) |
 | cc-code-review | 2 (1%) | 25 (8%) | 93 (31%) | 95 (32%) |
-| code-review | 3 (2%) | 43 (33%) | 41 (32%) | 25 (19%) |
-| code-review-best | 1 (2%) | 8 (18%) | 18 (41%) | 8 (18%) |
+| code-review | 3 (4%) | 25 (29%) | 22 (26%) | 22 (26%) |
+| code-review-best | 1 (2%) | 8 (19%) | 19 (44%) | 8 (19%) |
 | curmudgeon-lite | 1 (0%) | 16 (8%) | 106 (50%) | 76 (36%) |
 
 Planted recall by app (the interval above resamples these apps, then the runs within each):
@@ -27,7 +27,7 @@ Planted recall by app (the interval above resamples these apps, then the runs wi
 |---|---|---|---|---|
 | curmudgeon | 79 of 80 | 116 of 135 | 10 of 10 | 20 of 20 |
 | cc-code-review | 29 of 80 | 27 of 135 | 4 of 10 | 16 of 20 |
-| code-review | 10 of 80 | 17 of 135 | 0 of 10 | 7 of 20 |
+| code-review | 15 of 80 | 17 of 135 | 0 of 10 | 16 of 20 |
 | code-review-best | 12 of 80 | 38 of 135 | 1 of 10 | 13 of 20 |
 | curmudgeon-lite | 77 of 80 | 115 of 135 | 10 of 10 | 20 of 20 |
 
@@ -36,6 +36,6 @@ Paired against curmudgeon (same task and repeat; positive means curmudgeon found
 | Arm | Pairs | Confirmed bugs per run, difference (95% CI) | Runs: base better / other better / tied | Cost per run, difference (95% CI) |
 |---|---|---|---|---|
 | cc-code-review | 43 | +4.16 (0.67 to 7.67) | 34 / 9 / 0 | +1.326 (1.132 to 1.515) |
-| code-review | 43 | +7.53 (4.31 to 10.44) | 41 / 2 / 0 | +1.334 (1.147 to 1.516) |
-| code-review-best | 43 | +8.63 (5.26 to 11.79) | 41 / 0 / 2 | +0.422 (0.200 to 0.597) |
+| code-review | 43 | +8.14 (4.97 to 11.11) | 41 / 1 / 1 | +1.334 (1.147 to 1.516) |
+| code-review-best | 43 | +8.60 (5.23 to 11.77) | 41 / 0 / 2 | +0.422 (0.200 to 0.597) |
 | curmudgeon-lite | 43 | +1.14 (0.45 to 1.80) | 24 / 9 / 10 | +0.674 (0.590 to 0.751) |

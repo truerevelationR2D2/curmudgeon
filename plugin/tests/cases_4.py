@@ -159,7 +159,7 @@ def _(d):
     run(S / "critic_merge.py", "apply", str(vp), cwd=d)
     tear = lambda first, sec: write(d, ".critic/last-review.md", f"{first}\n\n#### 5. VERDICT\n- **BLOCK**\n- {sec}\n")
     tear("**CLEAN** · Counts: 0 Critical, 1 High, 0 Medium, 0 Low", "Counts: 0 Critical, 1 High, 0 Medium, 0 Low")
-    r = run(S / "critic_ledger.py", "stamp", "src", cwd=d); assert r.returncode != 0 and "CLEAN with an open Critical or High" in r.stderr + r.stdout, r.stdout + r.stderr
+    r = run(S / "critic_ledger.py", "stamp", "src", cwd=d); assert r.returncode != 0 and "the verdict is BLOCK for these counts" in r.stderr + r.stdout, r.stdout + r.stderr
     tear("**BLOCK** · Counts: 0 Critical, 0 High, 0 Medium, 0 Low", "Counts: 0 Critical, 1 High, 0 Medium, 0 Low")
     r = run(S / "critic_ledger.py", "stamp", "src", cwd=d); assert r.returncode != 0 and "are not counts.md's" in r.stderr + r.stdout, r.stdout + r.stderr
     tear("**BLOCK** · Counts: 0 Critical, 1 High, 0 Medium, 0 Low", "Counts: 0 Critical, 2 High, 0 Medium, 0 Low")

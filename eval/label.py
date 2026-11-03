@@ -221,7 +221,8 @@ def recheck(run_dir, rdir):
     export and one labeller write them) and RUN_DIR's final labels, beside how the first labeller (labelling/A.json)
     agreed with the same final labels on the same sample; and the relabel's accuracy on its controls."""
     run_dir, rdir = pathlib.Path(run_dir), pathlib.Path(rdir)
-    final = json.loads((run_dir / "labels-detail.json").read_text())["labels"]
+    as_labelled = run_dir / "labels-detail.as-labelled.json"  # the labels keyed by the block numbers the packets were cut from, kept when a scorer change moved them (audit V18)
+    final = json.loads((as_labelled if as_labelled.exists() else run_dir / "labels-detail.json").read_text())["labels"]
     idmap = json.loads((rdir / "map.json").read_text()); ctl = json.loads((rdir / "controls.json").read_text())
     new = load_labels(rdir / "labels.json")
     omap = json.loads((run_dir / "labelling" / "map.json").read_text()); first = {omap[k]: v for k, v in load_labels(run_dir / "labelling" / "A.json").items() if k in omap}

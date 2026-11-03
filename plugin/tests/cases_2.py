@@ -132,9 +132,10 @@ def _(d):
                      ("Bash", {"command": "cat .critic/scratch/me/r/review-B.json"}), ("Bash", {"command": "rg --hidden title ."})]:
         assert ask(tool, **ti), f"should be denied: {tool} {ti}"
     for tool, ti in [("Grep", {"pattern": "x", "path": ".", "glob": "!.critic/**"}), ("Grep", {"pattern": "\\.critic/reviews", "path": "plugin"}), ("Grep", {"pattern": "x", "path": "src"}),
-                     ("Read", {"file_path": "eval/fixture3/.critic/ledger.json"}), ("Read", {"file_path": "src/a.py"}), ("Glob", {"pattern": "**/*.py"}),
+                     ("Read", {"file_path": "src/a.py"}), ("Glob", {"pattern": "**/*.py"}),
                      ("Read", {"file_path": ".critic/rules.md"})]:
         assert not ask(tool, **ti), f"should be allowed: {tool} {ti}"
+    assert ask("Read", file_path="eval/fixture3/.critic/ledger.json"), "a nested .critic in the real project is an earlier run's record (round 3 review); a reviewer's copy holds its rulings"
     assert not ask("Read", agent="curmudgeon:curmudgeon-verifier", file_path=".critic/verify/F-1.json")
     assert ask("Read", agent="curmudgeon:curmudgeon-verifier", file_path=".critic/reviews/review-B.json")
     r = run(S / "critic_ledger.py", "start", "review", "--tier", "full", cwd=d)
@@ -250,7 +251,7 @@ def _(d):
 @test("5.0 §5.29 structural blindness: each reviewer works in a private frozen copy without .critic, its Bash runs there, and the copy is gone at stop")
 def _(d):
     p = d / "proj"; write(p, ".critic/reviews/review-B.json", '[{"title": "SECRET-B"}]'); write(p, ".critic/scan/report.md", "SCAN"); write(p, ".critic/rules.md", "r")
-    write(p, "src/a.py", "x = 1\n"); write(p, "eval/fx/.critic/reviews/r.json", "{}"); write(p, ".git/config", "[core]"); write(p, "node_modules/lib/index.js", "1")
+    write(p, "src/a.py", "x = 1\n"); write(p, "eval/fx/.critic/reviews/r.json", "{}"); write(p, "eval/fx/.critic/ledger.json", "{}"); write(p, ".git/config", "[core]"); write(p, "node_modules/lib/index.js", "1")
     run(S / "critic_ledger.py", "approve", "rules.md", cwd=p)  # not a git work tree: its rules.md is read once approved (03 §5.56 item 9)
     write(p, "big.bin", "x" * (5 * 1024 * 1024 + 1)); os.symlink(p / ".critic", p / "src/link"); os.symlink(p, p / "src/up"); os.symlink(p / "src/a.py", p / "src/alias.py")
     def start(agent, aid):
@@ -259,7 +260,8 @@ def _(d):
     msg = start("curmudgeon:curmudgeon-reviewer", "me")
     rec = json.loads((p / ".critic/scratch/me/workspace.json").read_text()); ws = pathlib.Path(rec["payload"])
     assert ws.is_dir() and str(ws) in msg and "cd " in msg and ws == (p / ".critic/scratch/me/payload").resolve(), msg
-    assert (ws / "src/a.py").read_text() == "x = 1\n" and (ws / "eval/fx/.critic/reviews/r.json").exists(), "the payload, fixtures' own .critic folders included, is copied"
+    assert (ws / "src/a.py").read_text() == "x = 1\n" and (ws / "eval/fx/.critic/ledger.json").exists(), "the payload, fixtures' own .critic ledger included, is copied"
+    assert not (ws / "eval/fx/.critic/reviews").exists(), "an earlier run's reviews in a nested .critic are not (audit V23)"
     assert not (ws / ".critic").exists() and (ws / ".git").is_file() and not (ws / "big.bin").exists() and "big.bin" in msg, "a broken .git becomes a stub that stops git walking up"
     assert not os.path.lexists(ws / "src/link") and not os.path.lexists(ws / "src/up"), "links back into .critic or to the project itself are dropped"
     assert (ws / "src/alias.py").resolve() == (ws / "src/a.py").resolve(), "a link inside the project points at the same file in the copy"

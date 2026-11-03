@@ -442,169 +442,175 @@
   },
   "code-review-best/lens10-clean/0": {
    "actionable": false,
-   "decided_by": "agreed",
+   "decided_by": "carried (V18 rekey)",
    "severity": null,
    "verdict": "none"
   },
   "code-review-best/lens10-clean/1": {
    "actionable": true,
-   "decided_by": "agreed",
+   "decided_by": "carried (V18 rekey)",
    "severity": "critical",
    "verdict": "real"
   },
   "code-review-best/lens10-clean/2": {
    "actionable": true,
-   "decided_by": "agreed",
+   "decided_by": "carried (V18 rekey)",
    "severity": "high",
    "verdict": "real"
   },
   "code-review-best/lens10-clean/3": {
    "actionable": true,
-   "decided_by": "agreed",
+   "decided_by": "carried (V18 rekey)",
    "severity": "medium",
    "verdict": "real"
   },
   "code-review-best/lens10-clean/4": {
    "actionable": false,
-   "decided_by": "agreed",
+   "decided_by": "carried (V18 rekey)",
    "severity": null,
    "verdict": "none"
   },
   "code-review-best/lens10-clean/5": {
    "actionable": false,
-   "decided_by": "agreed",
+   "decided_by": "carried (V18 rekey)",
    "severity": null,
    "verdict": "none"
   },
   "code-review-best/lens10-clean/6": {
    "actionable": true,
-   "decided_by": "agreed",
+   "decided_by": "carried (V18 rekey)",
    "severity": null,
    "verdict": "trivial"
   },
   "code-review-best/lens11-clean/0": {
    "actionable": true,
-   "decided_by": "agreed",
+   "decided_by": "carried (V18 rekey)",
    "severity": "high",
    "verdict": "real"
   },
   "code-review-best/lens5-clean/0": {
    "actionable": false,
-   "decided_by": "agreed",
+   "decided_by": "carried (V18 rekey)",
    "severity": null,
    "verdict": "none"
   },
   "code-review-best/lens5-clean/1": {
    "actionable": true,
-   "decided_by": "agreed",
+   "decided_by": "carried (V18 rekey)",
    "severity": "medium",
    "verdict": "real"
   },
   "code-review-best/lens6-clean/0": {
    "actionable": true,
-   "decided_by": "agreed",
+   "decided_by": "carried (V18 rekey)",
    "severity": "medium",
    "verdict": "real"
   },
   "code-review-best/lens6-clean/1": {
    "actionable": true,
-   "decided_by": "agreed",
+   "decided_by": "carried (V18 rekey)",
    "severity": "low",
    "verdict": "real"
   },
   "code-review-best/lens6-clean/2": {
    "actionable": true,
-   "decided_by": "agreed",
+   "decided_by": "carried (V18 rekey)",
    "severity": "high",
    "verdict": "real"
   },
   "code-review-best/lens6-clean/3": {
    "actionable": true,
-   "decided_by": "agreed",
+   "decided_by": "carried (V18 rekey)",
    "severity": "medium",
    "verdict": "real"
   },
   "code-review-best/lens7-clean/0": {
    "actionable": true,
-   "decided_by": "agreed",
+   "decided_by": "carried (V18 rekey)",
    "severity": "medium",
    "verdict": "real"
   },
   "code-review-best/lens7-clean/1": {
    "actionable": false,
-   "decided_by": "agreed",
+   "decided_by": "carried (V18 rekey)",
    "severity": null,
    "verdict": "none"
   },
   "code-review-best/lens7-clean/2": {
    "actionable": false,
-   "decided_by": "agreed",
+   "decided_by": "carried (V18 rekey)",
    "severity": null,
    "verdict": "none"
   },
   "code-review-best/lens8-clean/0": {
    "actionable": true,
-   "decided_by": "agreed",
+   "decided_by": "carried (V18 rekey)",
    "severity": "high",
    "verdict": "real"
   },
   "code-review-best/lens8-clean/1": {
    "actionable": true,
-   "decided_by": "agreed",
+   "decided_by": "carried (V18 rekey)",
    "severity": "high",
    "verdict": "real"
   },
   "code-review-best/lens8-clean/2": {
    "actionable": true,
-   "decided_by": "agreed",
+   "decided_by": "carried (V18 rekey)",
    "severity": "high",
    "verdict": "real"
   },
   "code-review-best/lens8-clean/3": {
    "actionable": false,
-   "decided_by": "agreed",
+   "decided_by": "carried (V18 rekey)",
    "severity": null,
    "verdict": "none"
   },
   "code-review-best/lens8-clean/4": {
    "actionable": false,
-   "decided_by": "agreed",
+   "decided_by": "carried (V18 rekey)",
    "severity": null,
    "verdict": "none"
   },
   "code-review-best/lens9-clean/0": {
    "actionable": false,
-   "decided_by": "agreed",
+   "decided_by": "carried (V18 rekey)",
    "severity": null,
    "verdict": "none"
   },
   "code-review-best/lens9-clean/1": {
    "actionable": true,
-   "decided_by": "agreed",
+   "decided_by": "carried (V18 rekey)",
    "severity": "medium",
    "verdict": "real"
   },
+  "code-review-best/lens9-clean/2": {
+   "verdict": "real",
+   "actionable": true,
+   "severity": "medium",
+   "decided_by": "agreed (V18 rekey)"
+  },
   "code-review/lens10-clean/0": {
    "actionable": false,
-   "decided_by": "agreed",
+   "decided_by": "carried (V18 rekey)",
    "severity": null,
    "verdict": "none"
   },
   "code-review/lens10-clean/1": {
    "actionable": true,
-   "decided_by": "agreed",
+   "decided_by": "carried (V18 rekey)",
    "severity": "critical",
    "verdict": "real"
   },
   "code-review/lens10-clean/2": {
    "actionable": true,
-   "decided_by": "agreed",
+   "decided_by": "carried (V18 rekey)",
    "severity": "medium",
    "verdict": "real"
   },
   "code-review/lens10-clean/3": {
    "actionable": true,
-   "decided_by": "agreed",
+   "decided_by": "carried (V18 rekey)",
    "severity": "low",
    "verdict": "real"
   },
@@ -622,187 +628,169 @@
   },
   "code-review/lens12-clean/0": {
    "actionable": false,
-   "decided_by": "agreed",
+   "decided_by": "carried (V18 rekey)",
    "severity": null,
    "verdict": "none"
   },
   "code-review/lens12-clean/1": {
    "actionable": true,
-   "decided_by": "agreed",
+   "decided_by": "carried (V18 rekey)",
    "severity": "medium",
    "verdict": "real"
   },
   "code-review/lens12-clean/2": {
    "actionable": true,
-   "decided_by": "agreed",
+   "decided_by": "carried (V18 rekey)",
    "severity": "medium",
    "verdict": "real"
   },
   "code-review/lens12-clean/3": {
    "actionable": true,
-   "decided_by": "agreed",
+   "decided_by": "carried (V18 rekey)",
    "severity": "medium",
    "verdict": "real"
   },
   "code-review/lens12-clean/4": {
    "actionable": true,
-   "decided_by": "agreed",
+   "decided_by": "carried (V18 rekey)",
    "severity": "low",
    "verdict": "real"
   },
   "code-review/lens12-clean/5": {
    "actionable": false,
-   "decided_by": "tiebreaker",
+   "decided_by": "carried (V18 rekey)",
    "severity": null,
    "verdict": "wrong"
   },
   "code-review/lens12-clean/6": {
    "actionable": true,
-   "decided_by": "agreed",
+   "decided_by": "carried (V18 rekey)",
    "severity": "low",
    "verdict": "real"
   },
   "code-review/lens5-clean/0": {
    "actionable": false,
-   "decided_by": "agreed",
+   "decided_by": "carried (V18 rekey)",
    "severity": null,
    "verdict": "none"
   },
   "code-review/lens5-clean/1": {
    "actionable": true,
-   "decided_by": "agreed",
+   "decided_by": "carried (V18 rekey)",
    "severity": "medium",
    "verdict": "real"
   },
   "code-review/lens5-clean/2": {
    "actionable": false,
-   "decided_by": "agreed",
+   "decided_by": "carried (V18 rekey)",
    "severity": null,
    "verdict": "none"
   },
   "code-review/lens5-clean/3": {
    "actionable": false,
-   "decided_by": "agreed",
+   "decided_by": "carried (V18 rekey)",
    "severity": null,
    "verdict": "none"
   },
   "code-review/lens6-clean/0": {
    "actionable": false,
-   "decided_by": "agreed",
+   "decided_by": "carried (V18 rekey)",
    "severity": null,
    "verdict": "none"
   },
   "code-review/lens6-clean/1": {
    "actionable": true,
-   "decided_by": "agreed",
+   "decided_by": "carried (V18 rekey)",
    "severity": "medium",
    "verdict": "real"
   },
   "code-review/lens6-clean/2": {
    "actionable": true,
-   "decided_by": "agreed",
+   "decided_by": "carried (V18 rekey)",
    "severity": "high",
    "verdict": "real"
   },
   "code-review/lens6-clean/3": {
+   "verdict": "real",
+   "actionable": true,
+   "severity": "medium",
+   "decided_by": "agreed (V18 rekey)"
+  },
+  "code-review/lens6-clean/4": {
    "actionable": false,
-   "decided_by": "agreed",
+   "decided_by": "carried (V18 rekey)",
    "severity": null,
    "verdict": "wrong"
   },
   "code-review/lens7-clean/0": {
    "actionable": false,
-   "decided_by": "agreed",
+   "decided_by": "carried (V18 rekey)",
    "severity": null,
    "verdict": "none"
   },
   "code-review/lens7-clean/1": {
    "actionable": true,
-   "decided_by": "agreed",
+   "decided_by": "carried (V18 rekey)",
    "severity": "medium",
    "verdict": "real"
   },
   "code-review/lens7-clean/2": {
    "actionable": true,
-   "decided_by": "agreed",
+   "decided_by": "carried (V18 rekey)",
    "severity": "low",
    "verdict": "real"
   },
   "code-review/lens7-clean/3": {
    "actionable": true,
-   "decided_by": "agreed",
+   "decided_by": "carried (V18 rekey)",
    "severity": "low",
    "verdict": "real"
   },
   "code-review/lens7-clean/4": {
    "actionable": true,
-   "decided_by": "agreed",
+   "decided_by": "carried (V18 rekey)",
    "severity": "medium",
    "verdict": "real"
   },
   "code-review/lens8-clean/0": {
    "actionable": false,
-   "decided_by": "agreed",
+   "decided_by": "carried (V18 rekey)",
    "severity": null,
    "verdict": "none"
   },
   "code-review/lens8-clean/1": {
    "actionable": true,
-   "decided_by": "agreed",
+   "decided_by": "carried (V18 rekey)",
    "severity": "high",
    "verdict": "real"
   },
   "code-review/lens8-clean/2": {
+   "verdict": "real",
    "actionable": true,
-   "decided_by": "agreed",
    "severity": "high",
-   "verdict": "real"
+   "decided_by": "agreed (V18 rekey)"
   },
   "code-review/lens8-clean/3": {
-   "actionable": false,
-   "decided_by": "tiebreaker",
-   "severity": null,
-   "verdict": "wrong"
-  },
-  "code-review/lens8-clean/4": {
    "actionable": true,
-   "decided_by": "agreed",
+   "decided_by": "carried (V18 rekey)",
    "severity": "high",
    "verdict": "real"
-  },
-  "code-review/lens8-clean/5": {
-   "actionable": true,
-   "decided_by": "agreed",
-   "severity": "high",
-   "verdict": "real"
-  },
-  "code-review/lens8-clean/6": {
-   "actionable": true,
-   "decided_by": "agreed",
-   "severity": "high",
-   "verdict": "real"
-  },
-  "code-review/lens8-clean/7": {
-   "actionable": false,
-   "decided_by": "agreed",
-   "severity": null,
-   "verdict": "none"
   },
   "code-review/lens9-clean/0": {
    "actionable": false,
-   "decided_by": "agreed",
+   "decided_by": "carried (V18 rekey)",
    "severity": null,
    "verdict": "none"
   },
   "code-review/lens9-clean/1": {
    "actionable": true,
-   "decided_by": "agreed",
+   "decided_by": "carried (V18 rekey)",
    "severity": "medium",
    "verdict": "real"
   },
   "code-review/lens9-clean/2": {
    "actionable": true,
-   "decided_by": "agreed",
+   "decided_by": "carried (V18 rekey)",
    "severity": "medium",
    "verdict": "real"
   },
@@ -1239,5 +1227,6 @@
    "verdict": "real"
   }
  },
- "tiebroken": 9
+ "tiebroken": 9,
+ "rekey_2026_11_03": "labels moved to the splitter's new block numbers (audit V18); see eval/benchmark-5.2.4/rekey_2026_11_03.py"
 }

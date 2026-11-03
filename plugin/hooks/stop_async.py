@@ -108,8 +108,10 @@ def main():
         if res.returncode != 0 or not rp.is_file():  # the scanner failed: never recorded as done (Qodo on #20)
             for p in part: record[p] = [before[p], "failed"]
             continue
-        reports.append(rp); scanned |= set(part)
-        for p in part: record[p] = [before[p], "ok"]
+        try: degraded = json.loads(rp.read_text()).get("degraded")
+        except (OSError, ValueError, AttributeError): degraded = ["unreadable report"]
+        reports.append(rp); scanned |= set(part)  # what it did find still counts
+        for p in part: record[p] = [before[p], "failed" if degraded else "ok"]  # a check that didn't run: retried, never recorded as done (Qodo on #21)
     try: rec_f.write_text(json.dumps(record)) if not rec_f.is_symlink() else None
     except OSError: pass
     new = []

@@ -574,7 +574,9 @@ def _(d):
     cands = json.loads((d / ".critic/dedup-candidates.json").read_text())["findings_by_file"]
     write(d, ".critic/groups.json", json.dumps({"groups": [[x["id"] for v in cands.values() for x in v]]}))
     run(S / "critic_merge.py", "tally", "a.json", "b.json", "--groups", ".critic/groups.json", cwd=d)
-    write(d, "v.json", "[]"); assert run(S / "critic_merge.py", "apply", "v.json", cwd=d).returncode == 0
+    ids = [p.stem for p in (d / ".critic/verify").glob("*.json")]  # a group across two files counts the votes the script matched (audit V32): verified, then kept
+    vp = hook_verdicts(d, [{"id": i, "verdict": "confirmed", "reproduced": "traced", "entry": "the page loads and the toast appears", "path": ["styles.css:1 animates the toast forever, with no reduced-motion rule"]} for i in ids])
+    assert run(S / "critic_merge.py", "apply", str(vp), cwd=d).returncode == 0
     cm = (d / ".critic/counts.md").read_text(); assert "(also at " in cm, cm[:900]
     r = d / "run"; write(r, ".critic/teardown.md", "**CONCERNS** · Counts: 0 Critical, 0 High, 1 Medium, 0 Low\n")
     write(r, ".critic/findings.jsonl", json.dumps({"id": "F-1", "file": "index.html", "line": 23, "quote": '<div id="toast" class="toast"></div>', "category": "a11y", "impact": "Medium",
@@ -656,7 +658,7 @@ def _(d):
     r = d / "run"; write(r, ".critic/teardown.md", "**CLEAN** · Counts: 0 Critical, 0 High, 0 Medium, 0 Low\n"); write(r, ".critic/findings.jsonl", "")
     write(r, ".critic/nits.jsonl", json.dumps({"id": "F-9", "file": "app.js", "line": 10, "quote": "list.innerHTML += `<li>${n.title}", "category": "xss", "title": "Title is put into innerHTML without escaping (XSS)"}) + "\n" + json.dumps({"id": "F-8", "file": "app.js", "line": 1, "quote": "x", "category": "style", "title": "Rename a variable"}) + "\n")
     out = subprocess.run([sys.executable, str(HERE.parent / "eval" / "score.py"), str(r / ".critic/teardown.md"), "--suite", "1", "--baseline", str(d / "none.json"), "--labels", str(d / "none.json")], capture_output=True, text=True).stdout
-    assert "impact miss" in out and "unlabelled 0" in out, out[:900]
+    assert "impact miss" in out and "unlabelled 1" in out, out[:900]  # the unmatched Nit needs a label like any finding (audit V38)
 
 @test("5.1 SC-79 measured fix: the stricter Low never covers a data loss, a wrong result or a failure shown as success, however rare the path")
 def _(d):

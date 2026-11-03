@@ -46,16 +46,24 @@ def pick(items, names):
 
 def blocks_from(text):
     """Finding blocks from a free-form review: top-level list items and headed sections, each with its text."""
-    lines = text.split("\n"); out = []; cur = []
+    lines = text.split("\n"); out = []; cur = []; numbered = False; last = ""; blank = False
+    def flush():
+        if cur and "".join(cur).strip(): out.append("\n".join(cur))
     for l in lines:
-        if re.match(r"^\s?(?:[-*+]|\d+[.)])\s+\S", l) or re.match(r"^#{2,6}\s+\S", l):  # a top-level item; an indented sub-bullet stays part of its item
-            if cur and "".join(cur).strip(): out.append("\n".join(cur))
-            cur = [l]
+        is_num = bool(NUMBERED.match(l)); is_bullet = bool(re.match(r"^\s?[-*+]\s+\S", l)); is_head = bool(re.match(r"^#{2,6}\s+\S", l))
+        if is_head or is_num or (is_bullet and not numbered):  # a top-level item; an indented sub-bullet stays part of its item
+            flush(); cur = [l]; numbered = is_num
+        elif cur and l.strip() and not l[0].isspace() and blank and not is_bullet and LIST_LINE.match(last):
+            flush(); cur = []; numbered = False  # prose after a blank line ends a list (audit V18): a closing "Not flagged: ..." is no part of the last finding
         elif cur: cur.append(l)
-    if cur and "".join(cur).strip(): out.append("\n".join(cur))
+        if l.strip(): last = l
+        blank = not l.strip()
+    flush()
     keep = [b for b in out if re.search(r"[\w./-]+\.\w+(:\d+)?", b) or re.search(r"(?i)\b(bug|defect|issue|vulnerab|incorrect|wrong|fails?|leak|race|inject)", b)]
     return [b for b in keep if not (NONE_FOUND.search(b) and not CITES.search(b))]  # "No issues found." is not a finding
 
+NUMBERED = re.compile(r"^\s?(?:\*\*|__)?\d+[.)](?:\*\*|__)?\s+\S")  # "1. x", "**1. Title**", "**1.** Title": its flush "- " bullets stay with it (audit V18)
+LIST_LINE = re.compile(r"^\s*(?:[-*+]|(?:\*\*|__)?\d+[.)])\s+\S")
 NONE_FOUND = re.compile(r"(?i)\bno\s+(?:\w+\s+){0,2}(issues?|bugs?|defects?|problems?|findings?|vulnerabilit\w*)\b")
 
 def FIX_strip(text):

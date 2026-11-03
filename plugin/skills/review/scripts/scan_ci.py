@@ -165,7 +165,10 @@ def scan_workflow(rel, text, emit, lock_text=""):
                     if _upload_takes_hidden(u, w) and (path in (".", "./", "*", "**", "${{ github.workspace }}") or path.startswith(("./**", "**"))):
                         emit("WARN", "ci-upload-checkout", "supply-chain", f"{rel}:{uses.line}", "the whole workspace is uploaded after a checkout that kept its credentials: the token in .git/config ships in the artifact (set persist-credentials: false, or upload only the build output)", raw[uses.line - 1])
                 pin_check(u, uses.line)
-            run = st.get("run")
+            run = st.get("run"); kind = "a shell script"
+            if not isinstance(run, str) and isinstance(uses, str) and uses.strip().startswith("actions/github-script@") and isinstance(st.get("with"), dict):
+                run = st["with"].get("script"); kind = "a JavaScript the step runs (actions/github-script)"  # audit F-c02301cf: the same injection, in JavaScript
+                if not isinstance(run, str): run = None
             if isinstance(run, str):
                 for expr in _exprs(run):
                     boolean = bool(BOOLEAN_EXPR.fullmatch(expr))  # startsWith(...), a == b: only true or false reaches the script
@@ -177,12 +180,12 @@ def scan_workflow(rel, text, emit, lock_text=""):
                         if not hit: continue
                         sev = "FAIL" if hit & PRIVILEGED else "WARN"
                         ln = _line_of(raw, run.line, m.group(0))
-                        emit(sev, "ci-injection", "supply-chain", f"{rel}:{ln}", f"{m.group(0)} is chosen by whoever opens the pull request, issue or comment, and it is pasted into a shell script: pass it through env: and quote \"$VAR\"", raw[ln - 1] if ln <= len(raw) else "")
+                        emit(sev, "ci-injection", "supply-chain", f"{rel}:{ln}", f"{m.group(0)} is chosen by whoever opens the pull request, issue or comment, and it is pasted into {kind}: pass it through env: and quote \"$VAR\" (in a script, read process.env)", raw[ln - 1] if ln <= len(raw) else "")
                         break
-                    if re.search(r"\bsecrets\.", expr) and not boolean:  # secrets.K != '' reaches the script as true or false
+                    if re.search(r"\bsecrets\.", expr) and not boolean and kind == "a shell script":  # secrets.K != '' reaches the script as true or false
                         ln = _line_of(raw, run.line, expr.strip())
                         emit("WARN", "ci-secret-in-run", "supply-chain", f"{rel}:{ln}", "a secret pasted into a run: script can leak through command echo or error output: pass it through env:", raw[ln - 1] if ln <= len(raw) else "")
-                for rid, sev, rx, msg in LINE_RULES:
+                for rid, sev, rx, msg in (LINE_RULES if kind == "a shell script" else ()):
                     m = rx.search(run)
                     if m: ln = _line_of(raw, run.line, m.group(0)[:20]); emit(sev, rid, "supply-chain", f"{rel}:{ln}", msg, raw[ln - 1] if ln <= len(raw) else "")
 

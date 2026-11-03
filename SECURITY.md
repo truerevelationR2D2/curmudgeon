@@ -4,7 +4,7 @@
 
 Please report security problems privately, so they can be fixed before they are public. Don't put any details of a security problem in a public issue.
 
-Use GitHub's private vulnerability reporting: on the repository's **Security** tab, choose **Report a vulnerability**, or open https://github.com/truerevelationR2D2/curmudgeon/security/advisories/new. Only you and the maintainer can see the report. Include the version (`/plugin` shows it, or `.claude-plugin/plugin.json`) and the steps or files that show the problem.
+Use GitHub's private vulnerability reporting: on the repository's **Security** tab, choose **Report a vulnerability**, or open https://github.com/truerevelationR2D2/curmudgeon/security/advisories/new. Only you and the maintainer can see the report. Include the version (`/plugin` shows it; in this repository it's in `plugin/.claude-plugin/plugin.json`) and the steps or files that show the problem.
 
 If you can't use that form, open an issue at https://github.com/truerevelationR2D2/curmudgeon/issues/new with the title **Security contact request** and no details of the problem, and the maintainer will reply with another private way to send it.
 
