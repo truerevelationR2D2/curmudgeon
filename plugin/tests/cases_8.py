@@ -1650,3 +1650,18 @@ def _(d):
         calls.clear(); (d / "t").mkdir(); os.symlink(d / "t", d / "link")
         assert not privacy.make_private(d / "link", windows=True) and not calls, "a link is refused before anything runs"
     finally: sp.run = orig; privacy._system_dir = osd; privacy._sid = osid; os.environ.clear(); os.environ.update(old)
+
+@test("Qodo on #29 (4): every entry in the saved access list counts, conditional ones too (XA, ZA, with their nested expressions), an entry the lock can't read refuses it, and a temp file that can't be made fails the lock instead of crashing")
+def _(d):
+    import privacy, subprocess as sp, tempfile as tf
+    assert privacy._trustees("D:PAI(A;OICI;FA;;;SY)(XA;;FA;;;S-1-5-21-7-7-7-1100;(@User.Project == \"x\"))(ZA;;FA;;;WD;(Member_of {SID(BA)}))") == ["S-1-5-18", "S-1-5-21-7-7-7-1100", "S-1-1-0"]
+    assert privacy._trustees("D:(QQ;;FA;;;SY)") is None and privacy._trustees("D:(A;;FA;;;SY") is None, "an entry it can't read refuses"
+    orig, osd, osid, omk = sp.run, privacy._system_dir, privacy._sid, tf.mkstemp; old = dict(os.environ)
+    try:
+        os.environ.update({"USERNAME": "ryan", "USERDOMAIN": "BOX"}); privacy._system_dir = lambda: "C:\\Windows\\System32"; privacy._sid = lambda n: "S-1-5-21-1"
+        calls = []; sp.run = _icacls_fake(calls, "D:PAI(A;OICI;FA;;;S-1-5-21-1)(XA;OICI;FA;;;S-1-5-21-7-7-7-1100;(@User.Dept == \"x\"))")
+        (d / "x").mkdir(); assert privacy.make_private(d / "x", windows=True)
+        assert [c[c.index("/remove:g") + 1] for c in calls if "/remove:g" in c] == ["*S-1-5-21-7-7-7-1100"], calls
+        tf.mkstemp = lambda *a, **k: (_ for _ in ()).throw(OSError(28, "No space left on device"))
+        assert privacy.make_private(d / "x", windows=True) is False, "a temp file that can't be made fails the lock"
+    finally: sp.run = orig; privacy._system_dir = osd; privacy._sid = osid; tf.mkstemp = omk; os.environ.clear(); os.environ.update(old)

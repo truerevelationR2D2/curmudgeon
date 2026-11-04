@@ -42,14 +42,28 @@ SDDL_ALIASES = {"SY": "S-1-5-18", "WD": "S-1-1-0", "AU": "S-1-5-11", "BU": "S-1-
                 "PU": "S-1-5-32-547", "IU": "S-1-5-4", "NU": "S-1-5-2", "AN": "S-1-5-7", "LS": "S-1-5-19", "NS": "S-1-5-20", "CO": "S-1-3-0",
                 "OW": "S-1-3-4", "AC": "S-1-15-2-1", "RD": "S-1-5-32-555", "RU": "S-1-5-32-554", "SU": "S-1-5-6", "PS": "S-1-5-10", "ED": "S-1-5-9"}
 
+ACE_TYPES = {"A", "D", "OA", "OD", "AU", "AL", "OU", "OL", "ML", "XA", "XD", "ZA", "XU", "SP", "RA", "SA", "TL", "FL", "SC"}  # every ACE type SDDL can write
+
 def _trustees(sddl):
-    """The security ids an SDDL access list grants or denies, aliases expanded (SY is SYSTEM). None for an alias this
-    table doesn't know, so the lock refuses rather than guesses."""
-    out = []
-    for t in re.findall(r"\((?:A|D|OA|OD);[^;]*;[^;]*;[^;]*;[^;]*;([^);]+)", sddl.split("S:", 1)[0]):
+    """The security ids every entry of an SDDL access list names, aliases expanded (SY is SYSTEM): allow, deny,
+    object and conditional entries alike (XA and ZA carry an expression in nested parentheses: Qodo on #29). None
+    when an entry can't be read, its type isn't known or its alias isn't in the table, so the lock refuses rather than
+    reporting a folder private while an entry it skipped still grants access."""
+    dacl = sddl.split("S:", 1)[0]
+    i = dacl.find("("); out = []
+    while i != -1:
+        depth, j = 0, i
+        while j < len(dacl):  # the entry runs to its matching ), past a conditional expression's own parentheses
+            depth += dacl[j] == "("; depth -= dacl[j] == ")"
+            if depth == 0: break
+            j += 1
+        if depth != 0: return None  # an entry that never closes
+        f = dacl[i + 1:j].split(";", 6)
+        if len(f) < 6 or f[0] not in ACE_TYPES or not f[5]: return None
+        t = f[5]
         sid = t if t.startswith("S-") else SDDL_ALIASES.get(t)
         if sid is None: return None
-        out.append(sid)
+        out.append(sid); i = dacl.find("(", j + 1)
     return out
 
 def _is_link(path):
@@ -83,7 +97,8 @@ def make_private(path, windows=None):
         if not r or r.returncode != 0: return False
     me = _sid(who)
     if not me: return False
-    fd, save = tempfile.mkstemp(suffix=".acl"); os.close(fd)  # 3. the folder's own grants, as security ids (SDDL): no names, so no translation or code page (Qodo on #29)
+    try: fd, save = tempfile.mkstemp(suffix=".acl"); os.close(fd)  # 3. the folder's own grants, as security ids (SDDL): no names, so no translation or code page (Qodo on #29)
+    except OSError: return False  # no temp file (a full disk): the lock failed, never an exception (Qodo on #29)
     try:
         r = ok([p, "/save", save, "/Q"])
         if not r or r.returncode != 0: return False
