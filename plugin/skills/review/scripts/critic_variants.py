@@ -68,7 +68,7 @@ def find():
         if not rx or not ext: continue
         hits = 0
         for p in files_like(ext):
-            rel = str(p.relative_to(ROOT))
+            rel = p.relative_to(ROOT).as_posix()
             try: lines = p.read_text(encoding="utf-8", errors="replace").split("\n")
             except OSError: continue
             for i, l in enumerate(lines, 1):
@@ -88,7 +88,7 @@ def find():
     print(f"variant hunt: {n} possible variant(s) in .critic/verify-variants")
     try: tier = json.loads((D / "ledger.json").read_text(encoding="utf-8")).get("tier") or "full"
     except (OSError, ValueError, AttributeError): tier = "full"  # as critic_run.py next: an unknown tier is treated as the full one
-    for i, b in enumerate(verifier_batches(packets, tier), 1): print(f"  verifier {i}: " + " ".join(str(p.relative_to(ROOT)) for p in b))
+    for i, b in enumerate(verifier_batches(packets, tier), 1): print(f"  verifier {i}: " + " ".join(p.relative_to(ROOT).as_posix() for p in b))
     if n: print("next: start curmudgeon:curmudgeon-verifier agents on these packets (blind, as in step 4); the stop hook saves each verifier's ```json list in .critic/verdicts-variants/ (never retype one), then critic_variants.py apply .critic/verdicts-variants/*.json")
     return 0
 

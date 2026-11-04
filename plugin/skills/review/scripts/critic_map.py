@@ -182,8 +182,8 @@ def main(a):
             p = (ROOT / x).resolve()
             try: p.relative_to(ROOT)
             except ValueError: print(f"critic_map: {x} is outside the project root {ROOT}; skipped", file=sys.stderr); continue
-            if p.is_dir(): out += [str(q.relative_to(ROOT)) for q in p.rglob("*") if q.is_file() and not q.is_symlink() and not ({".critic", ".git", "node_modules", "__pycache__"} & set(q.relative_to(ROOT).parts)) and not is_binary(q)]  # every text file: workflows, scripts, SQL and config too
-            elif p.is_file(): out.append(str(p.relative_to(ROOT)))
+            if p.is_dir(): out += [q.relative_to(ROOT).as_posix() for q in p.rglob("*") if q.is_file() and not q.is_symlink() and not ({".critic", ".git", "node_modules", "__pycache__"} & set(q.relative_to(ROOT).parts)) and not is_binary(q)]  # every text file: workflows, scripts, SQL and config too
+            elif p.is_file(): out.append(p.relative_to(ROOT).as_posix())
             else: print(f"critic_map: {x} does not exist; skipped", file=sys.stderr)
         files = out
         for x in files: lines[x] = count_lines(ROOT / x)
@@ -211,7 +211,7 @@ def main(a):
     texts = {}
     for q in all_code:
         try:
-            if q.stat().st_size < 2_000_000: texts[str(q.relative_to(ROOT))] = q.read_text(errors="replace", encoding="utf-8")
+            if q.stat().st_size < 2_000_000: texts[q.relative_to(ROOT).as_posix()] = q.read_text(errors="replace", encoding="utf-8")
         except OSError: pass
     radius = {}
     defined_in = {}

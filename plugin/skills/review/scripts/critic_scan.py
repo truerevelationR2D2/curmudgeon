@@ -35,7 +35,7 @@ import utf8io  # UTF-8 output on Windows too (03 §5.57 item 20)
 import scan_secrets, scan_html, scan_graph, scan_deps, scan_rules_extra, scan_mutation, scan_ci, scan_agentcfg, scan_migrations, scan_reqs, scan_ops, scan_integrity
 import scope as scope_file
 import safe_web
-from critic_findings import log_run, refuse_linked_state
+from critic_findings import log_run, refuse_linked_state, kill_tree
 from scan_rules_extra import guarded as G
 
 CODE = {".js", ".mjs", ".cjs", ".ts", ".jsx", ".tsx", ".vue", ".svelte", ".html", ".htm"}
@@ -165,7 +165,7 @@ def walk(src, excludes):
             if set(rel_parts) & SKIP or p.resolve() == SELF: continue
             if any(fnmatch.fnmatch(str(p), g) or fnmatch.fnmatch(p.name, g) for g in excludes): continue
             if not p.resolve().is_relative_to(top):  # a link out of the project (id_rsa.js -> ~/.ssh/id_rsa) is never read into a report
-                LINKS_OUT.append(str(p.relative_to(SCAN_ROOT)) if p.is_relative_to(SCAN_ROOT) else str(p)); continue
+                LINKS_OUT.append(p.relative_to(SCAN_ROOT).as_posix() if p.is_relative_to(SCAN_ROOT) else str(p)); continue
             if p.stat().st_size > MAX_BYTES: NOT_READ.append((p, "over 2 MB")); continue
             yield p
         except OSError: continue
@@ -273,7 +273,7 @@ def static(src, root, excludes):
         try: text = read_text(p)
         except UnicodeDecodeError: NOT_READ.append((p, "not UTF-8 or UTF-16 text")); continue
         except OSError: continue
-        try: rel = str(p.resolve().relative_to(root))
+        try: rel = p.resolve().relative_to(root).as_posix()
         except ValueError: rel = str(p)
         lines = text.split("\n"); texts += 1
         G("scan_secrets", scan_secrets.scan, rel, f, rel, text, f)  # every text file, dotfiles and configs included
@@ -319,7 +319,7 @@ def static(src, root, excludes):
     for lk in sorted(set(LINKS_OUT))[:20]: f("NOTE", "link-not-followed", "structure", lk, "a link pointing outside the project; not followed, so nothing outside the project is read into this report")
     if len(set(LINKS_OUT)) > 20: f("NOTE", "link-not-followed", "structure", "links", f"{len(set(LINKS_OUT)) - 20} more links outside the project not followed")
     for q, why in NOT_READ[:50]:
-        try: rel = str(q.resolve().relative_to(root))
+        try: rel = q.resolve().relative_to(root).as_posix()
         except ValueError: rel = str(q)
         if why.startswith("over"): G("scan_secrets", big_file_secrets, rel, f, q, rel, f)
         f("NOTE", "files-not-read", "structure", rel, f"not read by the checks ({why})" + ("; read for secrets only" if why.startswith("over") else ""))
@@ -388,7 +388,7 @@ def ci_evidence(root, out=None):
     from critic_findings import leaves_root
     def mine(p): return ".critic" in p.parts or (out is not None and p.resolve().is_relative_to(out.resolve()))  # by place, not by name: a project's own reports/findings.sarif is read (ultimate audit Q13)
     def linked_out(p):  # a link out of the project is never read (ultimate audit Q03)
-        if leaves_root(p, root): f("NOTE", "link-not-followed", "ci", str(p.relative_to(root)), "a link pointing outside the project; not followed, so nothing outside the project is read into this report"); return True
+        if leaves_root(p, root): f("NOTE", "link-not-followed", "ci", p.relative_to(root).as_posix(), "a link pointing outside the project; not followed, so nothing outside the project is read into this report"); return True
         return False
     def rel_skip(p):  # the project's own parts: a project that lives under /build/ or /dist/ is still read
         try: return bool(set(p.relative_to(root).parts) & SKIP)
@@ -418,7 +418,7 @@ def ci_evidence(root, out=None):
             for tc in t.iter("testcase"):
                 bad = tc.find("failure") if tc.find("failure") is not None else tc.find("error")
                 if bad is not None:
-                    f("WARN", "ci-test-failure", "ci", str(p.relative_to(root)), f"test failing in the last recorded run: {tc.get('classname', '')} {tc.get('name', '')}", (bad.get("message") or "")[:120]); seen += 1
+                    f("WARN", "ci-test-failure", "ci", p.relative_to(root).as_posix(), f"test failing in the last recorded run: {tc.get('classname', '')} {tc.get('name', '')}", (bad.get("message") or "")[:120]); seen += 1
         except Exception: continue
     sg = semgrep_presence(root)
     if sg:
@@ -449,9 +449,7 @@ def project_checks(root, timeout=600):
             pr = subprocess.Popen(cmd, shell=True, cwd=root, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, start_new_session=True, encoding="utf-8")
             try: outp, _ = pr.communicate(timeout=timeout)
             except subprocess.TimeoutExpired:
-                try: os.killpg(pr.pid, signal.SIGKILL)
-                except (ProcessLookupError, PermissionError): pass
-                pr.communicate(); raise
+                kill_tree(pr); pr.communicate(); raise
             if pr.returncode != 0:
                 bad += 1; tail = (outp or "").strip().splitlines()[-3:]
                 f("FAIL", f"project-check-{name}", "ci", f"rules.md: {name}", f"project check “{name}” failed (exit {pr.returncode})", " / ".join(tail))
@@ -817,7 +815,7 @@ def integrity_record(src, root, excludes):
         print("critic_scan: git tracks .critic/integrity-baseline.json, so the scan never trusts it. Untrack it first (git rm --cached .critic/integrity-baseline.json) and add it to .critic/.gitignore", file=sys.stderr); return 2
     files = {}
     for p in walk(src, excludes):
-        try: rel = str(p.resolve().relative_to(root)).replace("\\", "/")
+        try: rel = p.resolve().relative_to(root).as_posix().replace("\\", "/")
         except ValueError: continue
         if not scan_integrity.wants(rel) or scan_integrity.HEADER_FILES.search(rel): continue
         try: files[rel] = scan_integrity.record(rel, read_text(p))

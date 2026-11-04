@@ -484,10 +484,10 @@ def main(argv):
         unread = []
         for lf in root.rglob("package-lock.json"):
             if scan_deps._skip(lf, root): continue
-            try: pkgs += [(str(lf.relative_to(root)), *x) for x in scan_deps._lock_npm(lf)]
+            try: pkgs += [(lf.relative_to(root).as_posix(), *x) for x in scan_deps._lock_npm(lf)]
             except ValueError as e: unread.append(f"{lf.relative_to(root)} ({e})")
         for rf in root.rglob("requirements*.txt"):
-            if not scan_deps._skip(rf, root): pkgs += [(str(rf.relative_to(root)), *x) for x in scan_deps._reqs(rf)]
+            if not scan_deps._skip(rf, root): pkgs += [(rf.relative_to(root).as_posix(), *x) for x in scan_deps._reqs(rf)]
         unread += [f"{x.relative_to(root)} (this lockfile format is not read)" for n in scan_deps.UNREAD_LOCKS for x in root.rglob(n) if not scan_deps._skip(x, root) and not (x.parent / "package-lock.json").exists()]
         for x in unread: print(f"not checked: {x}")
         got = match(pkgs)

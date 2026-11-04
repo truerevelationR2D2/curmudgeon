@@ -69,7 +69,7 @@ def norm_path(p):
     p = strip_workspace_path(str(p or "").strip()).replace("\\", "/")
     try:
         q = pathlib.Path(p)
-        if q.is_absolute(): p = str(q.resolve().relative_to(ROOT))
+        if q.is_absolute(): p = q.resolve().relative_to(ROOT).as_posix()
     except (ValueError, OSError): pass
     while p.startswith("./"): p = p[2:]
     return p

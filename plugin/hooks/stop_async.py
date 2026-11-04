@@ -30,7 +30,7 @@ def walk_changed(root, since, limit=500_000):
             n += 1
             p = pathlib.Path(dp) / fn
             try:
-                if not p.is_symlink() and (m := p.stat().st_mtime) > since: out.append((m, str(p.relative_to(root)).replace(os.sep, "/")))
+                if not p.is_symlink() and (m := p.stat().st_mtime) > since: out.append((m, p.relative_to(root).as_posix().replace(os.sep, "/")))
             except OSError: continue
         if n >= limit: break
     return [x for _, x in out]

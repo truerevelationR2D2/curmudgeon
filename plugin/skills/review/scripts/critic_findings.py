@@ -324,7 +324,7 @@ def state_links(root):
     for dirpath, dirs, files in os.walk(d):  # os.walk never follows a link to a folder
         here = pathlib.Path(dirpath); rel = here.relative_to(d).parts
         for name in dirs + files:
-            if (here / name).is_symlink(): bad.append(str((here / name).relative_to(root)))
+            if (here / name).is_symlink(): bad.append((here / name).relative_to(root).as_posix())
         # An agent's own scratch folder (.critic/scratch/<id>/, or an archived one under history/) holds its private copy
         # and notes, and no script writes inside it. A link an agent made there that stays inside that same folder is
         # its own business (reviewers build test repos in their notes); one that reaches out of it is refused.
@@ -339,7 +339,7 @@ def state_links(root):
                         if q.is_symlink():
                             t = os.path.realpath(q); proj = os.path.realpath(root); crit = os.path.realpath(d)
                             dep = (t == proj or t.startswith(proj + os.sep)) and not (t == crit or t.startswith(crit + os.sep))  # a copy's node_modules link to the project's own (workspace.py): no script writes through it
-                            if t != top and not t.startswith(top + os.sep) and not dep: bad.append(str(q.relative_to(root)))
+                            if t != top and not t.startswith(top + os.sep) and not dep: bad.append(q.relative_to(root).as_posix())
                     if len(bad) >= 5: break
             dirs[:] = []; continue
         dirs[:] = [x for x in dirs if not (here / x).is_symlink()]
@@ -808,6 +808,19 @@ def warn_tracked_state(root):
               "don't cover tracked files, so new text in them would go into your next commit. To stop tracking them "
               "(your copies stay): git rm -r --cached " + " ".join(sorted({h if h.count('/') == 1 else '/'.join(h.split('/')[:2]) for h in hit})),
               file=sys.stderr)
+
+def kill_tree(pr):
+    """Stop a command and everything it started. POSIX: kill its process group (it was started with
+    start_new_session=True). Windows has no os.killpg or SIGKILL (03 §5.57 item 20): taskkill /T /F stops the tree,
+    and Popen.kill() is the last resort."""
+    try:
+        if hasattr(os, "killpg"):
+            import signal
+            os.killpg(pr.pid, signal.SIGKILL); return
+        subprocess.run(["taskkill", "/F", "/T", "/PID", str(pr.pid)], capture_output=True, timeout=30)
+    except (OSError, subprocess.SubprocessError): pass
+    try: pr.kill()
+    except OSError: pass
 
 def log_run(root, what, detail=""):
     """Append one line to .critic/runlog.jsonl: every script the plugin starts and every outside command it runs, so a

@@ -246,6 +246,17 @@ def heredoc_operators(text):
     return "".join(out) + text[pos:]
 
 TRAVERSE = re.compile(r"\b(?:walk|listdir|scandir|iterdir|r?glob|iglob|readdir\w*|opendir\w*|read_dir|find_files|Find\.find|Dir\.(?:glob|entries|children|each_child|\[))\s*[(\[]")  # code that lists or searches folders
+def own_paths(own, root):
+    """Every spelling of an agent's own scratch folder: as recorded (resolved), through the link the project was opened
+    by (macOS's /var is /private/var), and the reverse (03 §5.57 item 20). Inline code that names any of them names
+    the agent's own folder, never the project's records."""
+    out = {str(own), os.path.realpath(str(own))}
+    for base in {str(root), os.path.realpath(str(root))}:
+        real_base = os.path.realpath(base)
+        for o in list(out):
+            if o == real_base or o.startswith(real_base + os.sep): out.add(base + o[len(real_base):])
+    return out
+
 def _top(g):  # the root as code writes it: '/', '\\', 'C:\\' or os.sep (g: the number of its quote group)
     return r"(?:[rbuRBU]{0,2}(['\"])(?:[/\\]+|[A-Za-z]:[/\\]*)\%d(?!\s*\.)|os\.(?:path\.)?(?:sep|altsep)\b|path\.sep\b|File::SEPARATOR\b)" % g
 _LIST = r"\b(?:walk|listdir|scandir|iterdir|r?glob|iglob|readdir\w*|opendir\w*|read_dir|Path|PurePath|abspath|realpath|normpath|resolve|chdir|Find\.find|Dir\.\w+)\s*[(\[]\s*"  # a call whose first argument is where it starts
@@ -395,6 +406,7 @@ def bash_problem(cmd, rec, root, critic, role, me):
             code = [args[k + 1] for k in range(len(args) - 1) if args[k] in INLINE] + [x for k, x in enumerate(args) if k and args[k - 1] in ("<<<",)]
             if "<<" in args or "<<-" in args: code.append(flat_orig)  # the body as written, before its lone slashes were blanked (round 3 review)  # the body is on the lines after, in the same command text
             if any(NET_CODE.search(c) for c in code): return f"{n} with network code: reviewers and verifiers work offline"
+            own_spellings = sorted(own_paths(pay.parent, root), key=len, reverse=True)
             def starts_from(c, raw=False):
                 """A listing whose starting argument is built from character codes or escapes (os.walk(chr(47)): 03
                 §5.57 item 18), or is a name that holds the root or such a value at that point: root = '/' then
@@ -423,7 +435,7 @@ def bash_problem(cmd, rec, root, critic, role, me):
                 if not TRAVERSE.search(c): return False
                 return bool(TOP_START.search(c) or HOME_START.search(c) or starts_from(c))  # from the root or home, or an absolute wildcard ('/**/x')
             def reaches(c):  # names .critic or ~/.curmudgeon and can leave the copy: the project's own path or a "..", never a .critic folder a probe makes inside the copy (batch 5 review)
-                c = c.replace(str(pay.parent), "")
+                for own_ in own_spellings: c = c.replace(own_, "")
                 if re.search(r"(?i)\.curmudgeon\b", c): return True
                 if re.search(r"\.\.[/\\]+\.\.|\bdirname\s*\(\s*(?:os\.path\.)?dirname|\.parent\.parent|parents\[\s*[1-9]|os\.walk\s*\(\s*['\"]/['\"]", c): return True  # two levels up from the copy is the scratch folder, three is .critic/ (round 3 review)
                 if from_top(c): return True
@@ -603,6 +615,8 @@ def main(data=None):
         why = owner_problem(str(ti.get("command") or ""), not role)
         if why: return deny(f"Curmudgeon: {why} (03 §5.56 item 12).")
     if not role: return 0
+    if tool in ("PowerShell", "Monitor"):  # the guard reads bash; Windows turns the PowerShell tool on by itself when Git Bash isn't there (03 §5.57 item 20)
+        return deny(f"Curmudgeon blindness: a {role} runs shell commands through the Bash tool only, where they are checked; {tool} commands aren't. Use Bash, starting with cd into your workspace.")
     me = workspace.clean_id(data.get("agent_id"))
     try: critic = (root / ".critic").resolve()
     except OSError: critic = root / ".critic"

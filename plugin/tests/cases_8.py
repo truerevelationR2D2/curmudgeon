@@ -1445,3 +1445,66 @@ def _(d):
     for f in list((R / "plugin/hooks").glob("*.py")) + list((R / "plugin/skills/review/scripts").glob("*.py")):
         t = f.read_text(encoding="utf-8")
         if '__name__ == "__main__"' in t: assert "import utf8io" in t, f"{f.name} runs as a script but doesn't set up UTF-8 output"
+
+@test("platforms: a project-relative path is written with / on every platform (str() of a relative path gives src\\a.js on Windows, and reports, ledgers and finding ids must match across platforms)")
+def _(d):
+    import ast as _ast
+    R = HERE.parent; miss = []
+    for root in (R / "plugin/hooks", R / "plugin/skills/review/scripts"):
+        for f in sorted(root.glob("*.py")):
+            t = f.read_text(encoding="utf-8")
+            for n in _ast.walk(_ast.parse(t)):
+                if isinstance(n, _ast.Call) and getattr(n.func, "id", "") == "str" and len(n.args) == 1 and isinstance(n.args[0], _ast.Call) \
+                   and isinstance(n.args[0].func, _ast.Attribute) and n.args[0].func.attr == "relative_to": miss.append(f"{f.name}:{n.lineno}")
+    assert not miss, f"{len(miss)} str(... .relative_to(...)) calls, first: {miss[:5]}"
+
+@test("platforms: stopping a hung command works without os.killpg and signal.SIGKILL (Windows has neither), and the mutation run registers only the signals the platform has")
+def _(d):
+    import critic_findings as cf
+    killed = []
+    class P:
+        pid = 4242
+        def kill(self): killed.append("kill")
+    old = getattr(os, "killpg", None)
+    try:
+        if old: del os.killpg
+        runs = []
+        import subprocess as sp; orig = sp.run; sp.run = lambda a, **k: runs.append(a) or sp.CompletedProcess(a, 0)
+        try: cf.kill_tree(P())
+        finally: sp.run = orig
+        assert (runs and runs[0][:4] == ["taskkill", "/F", "/T", "/PID"]) or killed, (runs, killed)
+    finally:
+        if old: os.killpg = old
+    for f in ("scan_mutation.py", "critic_scan.py"):
+        t = (S / f).read_text(encoding="utf-8")
+        assert "signal.SIGHUP" not in t and "os.killpg(" not in t, f"{f} names a POSIX-only signal or killpg directly"
+
+@test("platforms: the repository checks text out with LF line endings on every platform, so a Windows checkout has the same bytes as the hash and fixture tests expect")
+def _(d):
+    t = (HERE.parent / ".gitattributes").read_text(encoding="utf-8") if (HERE.parent / ".gitattributes").is_file() else ""
+    assert re.search(r"(?m)^\*\s+text=auto\s+eol=lf\s*$", t), t
+    for b in ("*.png",): assert re.search(rf"(?m)^{re.escape(b)}\s+binary\s*$", t), b
+
+@test("platforms: the reviewers' guard judges a project reached through a link (macOS's /var is /private/var) the same as one that isn't: an honest write to the agent's notes runs, the same reads stay refused")
+def _(d):
+    (d / "real").mkdir(); os.symlink(d / "real", d / "link")
+    p = d / "link" / "proj"; write(p, "src/app.js", "x\n"); write(p, ".critic/reviews/review-B.json", '[{"title": "SECRET-B"}]'); write(p, ".critic/ledger.json", "{}")
+    run(H / "scratch_dir.py", cwd=p, stdin=json.dumps({"agent_type": "curmudgeon:curmudgeon-reviewer", "agent_id": "r1", "cwd": str(p)}))
+    ws = json.loads((p / ".critic/scratch/r1/workspace.json").read_text(encoding="utf-8"))["payload"]
+    for wsp in {ws, os.path.realpath(ws)}:
+        for c in (f"cd {wsp} && python3 - <<'EOF' > {p}/.critic/scratch/r1/notes/out.txt\nprint(1)\nEOF",
+                  f"cd {wsp} && python3 - <<'EOF' > {os.path.realpath(p)}/.critic/scratch/r1/notes/out.txt\nprint(1)\nEOF", f"cd {wsp} && cat src/app.js"):
+            assert not _guard(p, p, "Bash", command=c), c
+        for c in (f"cd {wsp} && cat {p}/.critic/ledger.json", f"cd {wsp} && cat {os.path.realpath(p)}/.critic/ledger.json",
+                  f"cd {wsp} && python3 -c \"print(open('{os.path.realpath(p)}/.critic/ledger.json').read())\""):
+            assert _guard(p, p, "Bash", command=c), c
+
+@test("platforms: a reviewer's or verifier's PowerShell or Monitor command is refused (Windows turns the PowerShell tool on without Git Bash, and the guard reads only bash), and the hook is registered for both tools")
+def _(d):
+    p, ws = _q22_proj(d)
+    for tool in ("PowerShell", "Monitor"):
+        assert _guard(p, p, tool, command=f"cd {ws}; Get-Content ../../../reviews/review-B.json"), tool
+        assert _guard(p, p, tool, role="verifier", aid="v1", command="Get-ChildItem"), tool
+    cfg = json.loads((H / "hooks.json").read_text(encoding="utf-8"))["hooks"]["PreToolUse"]
+    m = next(h["matcher"] for h in cfg if any("pre_tool" in x["command"] for x in h["hooks"])).split("|")
+    assert "PowerShell" in m and "Monitor" in m, m

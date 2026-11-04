@@ -61,10 +61,10 @@ def tally_extra(started, reviews=()):
     """What a tally gets besides the reviews (§5.56): the scan's FAILs and the outside review, when this run has them,
     and the dedup agent's groups when they were made for these reviews. A scan or an outside answer that arrives after
     the dedup step reruns the tally; without the groups that rerun would drop every issue the dedup agent merged."""
-    extra = ["--scan", str(SCAN.relative_to(ROOT))] if is_fresh(SCAN, started) else ["--no-scan"]
-    extra += ["--outside", str(OUTSIDE.relative_to(ROOT))] if is_fresh(OUTSIDE, started) else []
+    extra = ["--scan", SCAN.relative_to(ROOT).as_posix()] if is_fresh(SCAN, started) else ["--no-scan"]
+    extra += ["--outside", OUTSIDE.relative_to(ROOT).as_posix()] if is_fresh(OUTSIDE, started) else []
     G = D / "groups.json"
-    if is_fresh(G, started) and reviews and mtime(G) >= max(mtime(p) for p in reviews): extra += ["--groups", str(G.relative_to(ROOT))]
+    if is_fresh(G, started) and reviews and mtime(G) >= max(mtime(p) for p in reviews): extra += ["--groups", G.relative_to(ROOT).as_posix()]
     return extra
 
 def state():
@@ -141,7 +141,7 @@ def early(force=False):
     return True
 
 def say_next(st, tier, items):
-    rel = lambda p: str(p.relative_to(ROOT))
+    rel = lambda p: p.relative_to(ROOT).as_posix()
     if st == "scan":
         print(f"next: the scripted checks have not written a report for this run (or round) yet. If the background scan is running, wait for it; if none was started "
               f"(a new round, say), run it now: {scan_cmd()} Then run critic_run.py next again. "
@@ -251,7 +251,7 @@ def main(a):
             elif st == "apply":
                 if not items:  # nothing needed a verdict, or --apply-now with none back: apply with an empty verdict list
                     (D / "verdicts").mkdir(exist_ok=True); none = D / "verdicts" / f"none-{int(time.time())}.json"; none.write_text("[]\n", encoding="utf-8"); items = [none]
-                sh("critic_ledger.py", "acted"); sh("critic_merge.py", "apply", *[str(p.relative_to(ROOT)) for p in items])
+                sh("critic_ledger.py", "acted"); sh("critic_merge.py", "apply", *[p.relative_to(ROOT).as_posix() for p in items])
             else: break
             st, L, tier, items = state()
         say_next(st, tier, items); return 0

@@ -144,7 +144,7 @@ def save(L):
 
 def rel(p):
     p = pathlib.Path(p).resolve()
-    try: return str(p.relative_to(ROOT))
+    try: return p.relative_to(ROOT).as_posix()
     except ValueError: die(f"{p} is outside the project root {ROOT}")
 
 def need(rest, n, usage):
@@ -716,7 +716,7 @@ def main(a):
                 r = rel(p); (d / r).parent.mkdir(parents=True, exist_ok=True); shutil.copy2(p, d / r); files.append(r)
             if any(SECRET.search((d / r).read_text(encoding="utf-8", errors="replace")) for r in files):
                 print("warning: a saved file holds a secret-looking key. The restore copy is exact (so rollback is exact), private and git-ignored. Rotate the key: it has already shipped.", file=sys.stderr)
-            L["restore"].append({"at": time.strftime("%Y-%m-%d %H:%M"), "dir": str(d.relative_to(ROOT)), "files": files, "ids": ids}); msg = f"saved {len(files)} file(s) to {d.relative_to(ROOT)}"
+            L["restore"].append({"at": time.strftime("%Y-%m-%d %H:%M"), "dir": d.relative_to(ROOT).as_posix(), "files": files, "ids": ids}); msg = f"saved {len(files)} file(s) to {d.relative_to(ROOT)}"
         elif rest[0] == "apply":
             if not L["restore"]: die("no restore point recorded")
             r = L["restore"][-1]; manual = []
