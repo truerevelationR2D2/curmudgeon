@@ -431,6 +431,8 @@ def bash_problem(cmd, rec, root, critic, role, me):
                     m_ = re.match(r"\s*([A-Za-z_]\w*)\s*=(?!=)\s*(.*?)\s*$", st)
                     if m_:
                         v = m_.group(2)
+                        tv = TOP_VALUE.match(v)
+                        if tv and re.fullmatch(r"\s*(?:#.*)?", v[tv.end():]): v = tv.group(0)  # root = '/'  # a comment (Qodo on #27)
                         if TOP_VALUE.fullmatch(v) or v in held: held.add(m_.group(1))
                         else: held.discard(m_.group(1))
                 return False
@@ -448,6 +450,7 @@ def bash_problem(cmd, rec, root, critic, role, me):
                 owns = [re.compile(re.escape(o_) + r"(?=[/\\'\"\s,)]|$)") for o_ in own_spellings]  # the folder itself, never scratch/r10 when it is r1 (guard review)
                 for lit in re.findall(r"(['\"])([^'\"\n]*)\1", c):  # a path written out from the agent's folder that stays inside it (notes/../notes/x) is its own (Qodo on #27)
                     for o_ in own_spellings:
+                        if (lit[1].startswith(o_ + "/") or lit[1].startswith(o_ + os.sep)) and "\\" in lit[1][len(o_):]: return True  # escapes (\x2e\x2e) change the path when the code runs (Qodo on #27)
                         if lit[1].startswith(o_ + "/") or lit[1].startswith(o_ + os.sep):
                             q_ = os.path.normpath(lit[1])
                             if q_ == o_ or q_.startswith(o_ + os.sep): c = c.replace(lit[0] + lit[1] + lit[0], "''"); break

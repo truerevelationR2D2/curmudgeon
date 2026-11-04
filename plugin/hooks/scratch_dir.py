@@ -21,7 +21,7 @@ def main():
     if c.is_symlink() or (c / "scratch").is_symlink(): return 0  # never create through a link a cloned repo planted
     d = c / "scratch" / agent_id
     d.mkdir(parents=True, exist_ok=True)
-    try: os.chmod(d, 0o700)
+    try: workspace._privacy().make_private(d)
     except OSError: pass
     msg = f"Your private scratch folder is {d}. Put any notes there and nowhere else; other agents can't read it, and you can't read theirs."
     if m.group(1) in ("reviewer", "verifier"):

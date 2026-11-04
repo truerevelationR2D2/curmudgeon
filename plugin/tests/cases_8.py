@@ -1555,3 +1555,32 @@ def _(d):
     assert 'errors="surrogateescape"' in [l for l in src.splitlines() if "ls-files" in l][0], "a name that isn't UTF-8 round-trips"
     ci = (HERE.parent / ".github/workflows/ci.yml").read_text(encoding="utf-8")
     assert "'python3 probe.py || python probe.py'" not in ci and "if (-not $?)" in ci, "PowerShell 5.1 has no ||"
+
+@test("platforms: a private folder (restore copies, scratch copies, the browser's key) is 0700 where POSIX modes exist and locked to the current user with icacls on Windows, through one helper")
+def _(d):
+    import privacy, subprocess as sp
+    calls = []; orig = sp.run; sp.run = lambda a, **k: calls.append(a) or sp.CompletedProcess(a, 0, "", "")
+    try:
+        old = dict(os.environ); os.environ["USERNAME"] = "ryan"; os.environ["USERDOMAIN"] = "BOX"
+        (d / "x").mkdir(); assert privacy.make_private(d / "x", windows=True)
+    finally: sp.run = orig; os.environ.clear(); os.environ.update(old)
+    assert calls and calls[0][0] == "icacls" and "/inheritance:r" in calls[0] and any("BOX\\ryan:(OI)(CI)F" == a for a in calls[0]), calls
+    (d / "y").mkdir(); privacy.make_private(d / "y", windows=False); assert oct((d / "y").stat().st_mode & 0o777) == "0o700"
+    R = HERE.parent; bare = []
+    for f in list((R / "plugin/hooks").glob("*.py")) + list((R / "plugin/skills/review/scripts").glob("*.py")):
+        if f.name == "privacy.py": continue
+        bare += [f"{f.name}:{i}" for i, l in enumerate(f.read_text(encoding="utf-8").splitlines(), 1) if re.search(r"os\.chmod\([^)]*0o700", l)]
+    assert not bare, f"a private folder made without the helper: {bare}"
+
+@test("Qodo on #27 (2): a root set with a trailing comment is still followed, an own-folder path with escapes in it is never taken as staying inside, and a code file whose name isn't UTF-8 still blocks the stop")
+def _(d):
+    p, ws = _q22_proj(d); own = str(pathlib.Path(ws).parent)
+    bad = ["python3 -c \"import os\nroot = '/'  # the top\nprint(os.listdir(root))\"",
+           "python3 - <<'EOF'\nimport os\nroot = '/'  # the top\nprint(os.listdir(root))\nEOF",
+           f"python3 -c \"print(open('{own}/notes/\\\\x2e\\\\x2e/\\\\x2e\\\\x2e/\\\\x2e\\\\x2e/ledger.json').read())\""]
+    for c in bad: assert _guard(p, p, "Bash", command=f"cd {ws} && {c}"), c
+    if os.name != "nt" and sys.platform != "darwin":  # a name that isn't UTF-8 can't be made on Windows or macOS
+        _gate(d); run(S / "critic_ledger.py", "stamp", cwd=d); time.sleep(1.1)
+        (d / os.fsdecode(b"bad\xff.py")).write_text("x = 1\n", encoding="utf-8")
+        r = run(H / "stop_gate.py", cwd=d, stdin=json.dumps({"cwd": str(d)}))
+        assert '"block"' in r.stdout, (r.stdout, r.stderr[-400:])
