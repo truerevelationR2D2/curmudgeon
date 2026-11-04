@@ -18,6 +18,17 @@ Every release of Curmudgeon, newest first. The repository's history starts at 4.
 - A path written out from the agent's own folder that holds escapes (`\x2e\x2e`) is refused. When the code runs, those escapes become `..`.
 - The stop gate hashes a file name that isn't UTF-8 by its bytes. Before, the hash raised and the gate let the stop through.
 
+**Qodo on #28** (five findings, each with a test that fails on the code before it, "Qodo on #28"):
+- `icacls.exe` runs from Windows' System32 folder, so a project's own `icacls.exe` can never run instead.
+- The lock resets the folder's existing permissions first, including its contents. It then removes inheritance and grants only the current user and SYSTEM, so an explicit broad grant already on the folder doesn't survive.
+- `make_private()` reports a failed lock, a failed `chmod` included. What happens then depends on the caller:
+  - the reviewer copy isn't made;
+  - the browser driver refuses to write its signing key;
+  - a restore copy, which can hold keys, isn't saved;
+  - the scratch-folder message stops calling the folder private.
+- The browser driver's key folder is locked when it already exists too, once per run.
+- Only an escape that makes `.`, `/` or `\` counts as one in an own-folder path (`\x2e`, `\u002e`, `\056`, `\N{...}`), so a Windows separator or `notes\2024` doesn't.
+
 **Windows guard paths:** the folder-above-the-project check now reads Windows paths (`C:\Users\x`, `C:/Users/x`, `\\server\share`) as well as `/home/x`, and compares the long form Windows resolves a short name to (`RUNNER~1` → `runneradmin`). An absolute path from the agent's own folder that is written in another form is known as its own, unless it holds `..`, which resolving would hide. Two tests stopped replacing the real Windows `msvcrt` and checking POSIX modes on Windows.
 
 **Private folders on Windows** (03 §5.57 item 23): restore copies, reviewers' scratch folders and the browser driver's key folder are made through one helper, `privacy.make_private()`. It sets 0700, and on native Windows, which ignores POSIX modes, it also removes inherited permissions and grants only the current user (`icacls`). A test checks the `icacls` call and refuses any private folder made without the helper.

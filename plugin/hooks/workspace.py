@@ -214,7 +214,8 @@ def make(root, agent_id):
     """Build the workspace and write its record. Returns the record, or None when no workspace could be made."""
     root = pathlib.Path(root).resolve(); h = home_for(root, agent_id)
     if not h: return None
-    h.mkdir(parents=True, exist_ok=True); _privacy().make_private(h)
+    h.mkdir(parents=True, exist_ok=True)
+    if not _privacy().make_private(h): raise OSError(f"{h} could not be made private")  # no copy in a folder others can read (Qodo on #28)
     payload = h / "payload"; notes = h / "notes"
     if payload.is_symlink(): payload.unlink()
     elif payload.exists(): shutil.rmtree(payload, ignore_errors=True)

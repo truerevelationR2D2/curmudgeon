@@ -1566,7 +1566,7 @@ def _(d):
         old = dict(os.environ); os.environ["USERNAME"] = "ryan"; os.environ["USERDOMAIN"] = "BOX"
         (d / "x").mkdir(); assert privacy.make_private(d / "x", windows=True)
     finally: sp.run = orig; os.environ.clear(); os.environ.update(old)
-    assert calls and calls[0][0] == "icacls" and "/inheritance:r" in calls[0] and any("BOX\\ryan:(OI)(CI)F" == a for a in calls[0]), calls
+    assert calls and calls[-1][0].endswith("icacls.exe") and "/inheritance:r" in calls[-1] and any("BOX\\ryan:(OI)(CI)F" == a for a in calls[-1]), calls  # the grant is the last step, after the reset (Qodo on #28)
     (d / "y").mkdir(); privacy.make_private(d / "y", windows=False)
     if os.name != "nt": assert oct((d / "y").stat().st_mode & 0o777) == "0o700"  # POSIX modes exist only off Windows
     R = HERE.parent; bare = []
@@ -1587,3 +1587,36 @@ def _(d):
         (d / os.fsdecode(b"bad\xff.py")).write_text("x = 1\n", encoding="utf-8")
         r = run(H / "stop_gate.py", cwd=d, stdin=json.dumps({"cwd": str(d)}))
         assert '"block"' in r.stdout, (r.stdout, r.stderr[-400:])
+
+@test("Qodo on #28: icacls runs from System32, never a project's icacls.exe; existing grants are reset first; a folder that can't be locked stops the copy, the browser key and restore copies; an existing key folder is locked too; Windows separators aren't escapes")
+def _(d):
+    import privacy, subprocess as sp, browse
+    calls = []; rc = [0]; orig = sp.run; sp.run = lambda a, **k: calls.append(a) or sp.CompletedProcess(a, rc[0], "", "")
+    old = dict(os.environ)
+    try:
+        os.environ.update({"USERNAME": "ryan", "USERDOMAIN": "BOX", "SystemRoot": "C:\\Windows"})
+        (d / "x").mkdir(); assert privacy.make_private(d / "x", windows=True)
+        exe = calls[0][0]; assert exe != "icacls" and exe.endswith("icacls.exe") and "System32" in exe and exe.startswith("C:\\Windows"), calls
+        assert "/reset" in calls[0], ("existing explicit grants are reset before the lock", calls)
+        assert any("BOX\\ryan:(OI)(CI)F" in c for c in calls[-1]) and "/inheritance:r" in calls[-1], calls
+        rc[0] = 1; assert not privacy.make_private(d / "x", windows=True), "a failed icacls is a failure"
+    finally: sp.run = orig; os.environ.clear(); os.environ.update(old)
+    och = os.chmod
+    try:
+        os.chmod = lambda *a, **k: (_ for _ in ()).throw(PermissionError("no"))
+        assert not privacy.make_private(d / "x", windows=False), "a failed chmod is a failure"
+    finally: os.chmod = och
+    om = privacy.make_private; seen = []
+    try:
+        privacy.make_private = lambda p, windows=None: seen.append(str(p)) or False
+        broot = browse.ROOT; browse.ROOT = d / "b"; (d / "b/.critic/private").mkdir(parents=True)
+        try:
+            browse._LOCKED.clear() if hasattr(browse, "_LOCKED") else None
+            try: browse._private(); raised = False
+            except SystemExit: raised = True
+            assert raised and seen, ("an existing key folder is locked, and a failed lock refuses", seen)
+        finally: browse.ROOT = broot
+    finally: privacy.make_private = om
+    p, ws = _q22_proj(d); own = str(pathlib.Path(ws).parent)
+    assert not _guard(p, p, "Bash", command=f"cd {ws} && python3 -c \"open(r'{own}\\\\notes\\\\out.txt', 'w').write('x')\""), "a Windows separator is not an escape"
+    assert _guard(p, p, "Bash", command=f"cd {ws} && python3 -c \"print(open('{own}/notes/\\\\u002e\\\\u002e/\\\\056\\\\056/x').read())\""), "unicode and octal escapes"

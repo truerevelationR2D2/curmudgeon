@@ -456,7 +456,7 @@ def bash_problem(cmd, rec, root, critic, role, me):
                 owns = [re.compile(re.escape(o_) + r"(?=[/\\'\"\s,)]|$)") for o_ in own_spellings]  # the folder itself, never scratch/r10 when it is r1 (guard review)
                 for lit in re.findall(r"(['\"])([^'\"\n]*)\1", c):  # a path written out from the agent's folder that stays inside it (notes/../notes/x) is its own (Qodo on #27)
                     for o_ in own_spellings:
-                        if (lit[1].startswith(o_ + "/") or lit[1].startswith(o_ + os.sep)) and "\\" in lit[1][len(o_):]: return True  # escapes (\x2e\x2e) change the path when the code runs (Qodo on #27)
+                        if (lit[1].startswith(o_ + "/") or lit[1].startswith(o_ + os.sep)) and re.search(r"\\(?:x(?:2[EeFf]|5[Cc])|u00(?:2[EeFf]|5[Cc])|U0000(?:2[EeFf]|5[Cc])|N\{|0?5[67]|134)", lit[1][len(o_):]): return True  # escapes that make . / or \\ (\x2e, \056) change the path when the code runs (Qodo on #27); a Windows separator or notes\\2024 doesn't (Qodo on #28)
                         if lit[1].startswith(o_ + "/") or lit[1].startswith(o_ + os.sep):
                             q_ = os.path.normpath(lit[1])
                             if q_ == o_ or q_.startswith(o_ + os.sep): c = c.replace(lit[0] + lit[1] + lit[0], "''"); break

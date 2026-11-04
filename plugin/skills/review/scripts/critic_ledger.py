@@ -705,8 +705,8 @@ def main(a):
             # (every redaction scheme we tried broke rollback in some case). The keys in them are no more exposed than
             # the live files they copy: the folder is private to the user (0700) and git-ignored, and no report reads it.
             base = D / "restore"; base.mkdir(parents=True, exist_ok=True)
-            try: import privacy; privacy.make_private(base)
-            except OSError: pass
+            import privacy
+            if not privacy.make_private(base): sys.exit("critic_ledger: .critic/restore could not be made private to you (its permissions could not be set); no restore copy was saved, since it can hold keys")  # Qodo on #28
             gi = base / ".gitignore"
             if not gi.exists(): gi.write_text("# Curmudgeon restore points: exact copies of your files, possibly with keys. Never commit.\n*\n", encoding="utf-8")
             d = base / time.strftime("%Y%m%d-%H%M%S"); files = []
