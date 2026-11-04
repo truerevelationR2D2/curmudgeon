@@ -11,6 +11,8 @@ files elsewhere. make_private() returns False when the lock could not be applied
 sensitive refuses instead of writing it into an unlocked folder."""
 import os, re, tempfile
 
+WHY = ""  # why the last make_private() failed, for the caller's message
+
 def _system_dir():
     """The Windows System32 folder, as Windows reports it (GetSystemDirectoryW), never from SystemRoot or PATH, which a
     project's code could set. None when it can't be asked."""
@@ -46,24 +48,33 @@ ACE_TYPES = {"A", "D", "OA", "OD", "AU", "AL", "OU", "OL", "ML", "XA", "XD", "ZA
 
 def _trustees(sddl):
     """The security ids every entry of an SDDL access list names, aliases expanded (SY is SYSTEM): allow, deny,
-    object and conditional entries alike (XA and ZA carry an expression in nested parentheses: Qodo on #29). None
-    when an entry can't be read, its type isn't known or its alias isn't in the table, so the lock refuses rather than
-    reporting a folder private while an entry it skipped still grants access."""
-    dacl = sddl.split("S:", 1)[0]
-    i = dacl.find("("); out = []
-    while i != -1:
-        depth, j = 0, i
-        while j < len(dacl):  # the entry runs to its matching ), past a conditional expression's own parentheses
-            depth += dacl[j] == "("; depth -= dacl[j] == ")"
-            if depth == 0: break
+    object and conditional entries alike. A conditional entry (XA, ZA) carries an expression in nested parentheses
+    that may hold quoted text, ")" or "S:" included, so the list is scanned with quotes and depth tracked, never split
+    on text (Qodo on #29). None when an entry can't be read, its type isn't known or its alias isn't in the table, so
+    the lock refuses rather than reporting a folder private while an entry it skipped still grants access."""
+    i = sddl.find("D:")
+    if i < 0: return []
+    i += 2; out = []
+    while i < len(sddl) and sddl[i] not in "(": 
+        if sddl.startswith("S:", i): return out  # flags only (D:PAI), then the system list
+        i += 1
+    while i < len(sddl):
+        if sddl[i] != "(":
+            if sddl.startswith("S:", i): break  # the system access list starts at the top level only
+            i += 1; continue
+        depth, q, j = 0, False, i
+        while j < len(sddl):
+            c = sddl[j]
+            if c == '"': q = not q
+            elif not q: depth += c == "("; depth -= c == ")"
+            if depth == 0 and not q: break
             j += 1
-        if depth != 0: return None  # an entry that never closes
-        f = dacl[i + 1:j].split(";", 6)
+        if depth != 0 or q: return None  # an entry that never closes
+        f = sddl[i + 1:j].split(";", 6)
         if len(f) < 6 or f[0] not in ACE_TYPES or not f[5]: return None
-        t = f[5]
-        sid = t if t.startswith("S-") else SDDL_ALIASES.get(t)
+        sid = f[5] if f[5].startswith("S-") else SDDL_ALIASES.get(f[5])
         if sid is None: return None
-        out.append(sid); i = dacl.find("(", j + 1)
+        out.append(sid); i = j + 1
     return out
 
 def _is_link(path):
@@ -76,14 +87,19 @@ def _is_link(path):
 
 def make_private(path, windows=None):
     """Lock a folder to the current user. True when the platform's own lock was applied."""
+    global WHY
+    WHY = ""
+    def no(why):
+        global WHY
+        WHY = why; return False
     windows = (os.name == "nt") if windows is None else windows
-    if _is_link(path): return False
+    if _is_link(path): return no("it is a link or junction, or can't be read")
     try: os.chmod(path, 0o700)
     except OSError:
-        if not windows: return False  # POSIX: the mode is the lock
+        if not windows: return no("its mode could not be set to 0700")  # POSIX: the mode is the lock
     if not windows: return True
     user, sysdir = os.environ.get("USERNAME", ""), _system_dir()
-    if not user or not sysdir: return False
+    if not user or not sysdir: return no("the user name or the System32 folder is unknown")
     import subprocess  # only here: Windows is the only platform that needs it
     who = f"{os.environ['USERDOMAIN']}\\{user}" if os.environ.get("USERDOMAIN") else user
     exe, p = os.path.join(sysdir, "icacls.exe"), str(path)
@@ -91,28 +107,28 @@ def make_private(path, windows=None):
         try: return subprocess.run([exe, *args], capture_output=True, timeout=120, **k)
         except (OSError, subprocess.SubprocessError): return None
     r = ok([p, "/inheritance:r", "/grant:r", f"{who}:(OI)(CI)F", "*S-1-5-18:(OI)(CI)F", "/L", "/Q"])  # 1. tighter first
-    if not r or r.returncode != 0: return False
+    if not r or r.returncode != 0: return no(f"icacls could not grant the user ({getattr(r, 'returncode', 'not run')})")
     if any(os.scandir(p)):
         r = ok([os.path.join(p, "*"), "/reset", "/T", "/C", "/L", "/Q"])  # 2. the contents inherit the locked folder
-        if not r or r.returncode != 0: return False
+        if not r or r.returncode != 0: return no(f"icacls could not reset the folder's contents ({getattr(r, 'returncode', 'not run')})")
     me = _sid(who)
-    if not me: return False
+    if not me: return no(f"the security id of {who} could not be looked up")
     try: fd, save = tempfile.mkstemp(suffix=".acl"); os.close(fd)  # 3. the folder's own grants, as security ids (SDDL): no names, so no translation or code page (Qodo on #29)
-    except OSError: return False  # no temp file (a full disk): the lock failed, never an exception (Qodo on #29)
+    except OSError: return no("no temp file could be made for the saved access list")  # no temp file (a full disk): the lock failed, never an exception (Qodo on #29)
     try:
         r = ok([p, "/save", save, "/Q"])
-        if not r or r.returncode != 0: return False
+        if not r or r.returncode != 0: return no(f"icacls /save failed ({getattr(r, 'returncode', 'not run')})")
         raw = open(save, "rb").read()
-    except OSError: return False
+    except OSError: return no("the saved access list could not be read")
     finally:
         try: os.unlink(save)
         except OSError: pass
     text = raw.decode("utf-16") if raw[:2] in (b"\xff\xfe", b"\xfe\xff") or b"\x00" in raw[:8] else raw.decode("utf-8", "replace")
     lines = [l for l in text.splitlines() if l.strip()]
     sids = _trustees(lines[-1]) if lines else None
-    if sids is None: return False
+    if sids is None: return no(f"the saved access list has an entry the lock can't read: {(lines[-1] if lines else '')[:200]}")
     for sid in dict.fromkeys(sids):
         if sid in ("S-1-5-18", me): continue  # SYSTEM and this user, by id
         rr = ok([p, "/remove:g", "*" + sid, "/L", "/Q"])
-        if not rr or rr.returncode != 0: return False
+        if not rr or rr.returncode != 0: return no(f"icacls could not remove {sid} ({getattr(rr, 'returncode', 'not run')})")
     return True

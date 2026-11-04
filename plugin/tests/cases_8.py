@@ -1665,3 +1665,9 @@ def _(d):
         tf.mkstemp = lambda *a, **k: (_ for _ in ()).throw(OSError(28, "No space left on device"))
         assert privacy.make_private(d / "x", windows=True) is False, "a temp file that can't be made fails the lock"
     finally: sp.run = orig; privacy._system_dir = osd; privacy._sid = osid; tf.mkstemp = omk; os.environ.clear(); os.environ.update(old)
+
+@test("Qodo on #29 (5): a quoted S: inside a conditional entry doesn't end the access list, a quoted ) doesn't end the entry, and a failed lock says why")
+def _(d):
+    import privacy
+    assert privacy._trustees('D:PAI(A;OICI;FA;;;SY)(XA;;FA;;;S-1-5-21-7-7-7-1100;(@User.Title == "S:contractor"))(ZA;;FA;;;WD;(@User.x == ")"))S:(ML;;NW;;;LW)') == ["S-1-5-18", "S-1-5-21-7-7-7-1100", "S-1-1-0"]
+    assert privacy.make_private(d / "missing", windows=False) is False and privacy.WHY, "a failed lock leaves its reason"

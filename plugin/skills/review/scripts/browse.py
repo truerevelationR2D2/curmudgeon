@@ -96,7 +96,7 @@ def _private():
     fresh = not d.exists()
     if fresh: d.mkdir(parents=True)
     if str(d) not in _LOCKED:  # a folder made before Windows locking existed is locked too, once per run (Qodo on #28)
-        if not privacy.make_private(d): sys.exit("browse: .critic/private could not be made private to you (its permissions could not be set); the signing key is not written there")
+        if not privacy.make_private(d): sys.exit("browse: .critic/private could not be made private to you (its permissions could not be set); the signing key is not written there" + (f" ({privacy.WHY})" if privacy.WHY else ""))
         _LOCKED.add(str(d))
     if fresh:
         (d / ".gitignore").write_text("# Curmudgeon's private signing key and request ledger. Never commit.\n*\n", encoding="utf-8")
