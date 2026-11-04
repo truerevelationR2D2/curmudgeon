@@ -27,6 +27,7 @@ Every release of Curmudgeon, newest first. The repository's history starts at 4.
 
   Before this, the folder was reset first, so a failed grant left existing keys under broader permissions.
 - The System32 folder comes from Windows (`GetSystemDirectoryW`), not from `SystemRoot`, which a project's code could set.
+- The lock now identifies SYSTEM and the user by their security ids (SYSTEM is `S-1-5-18`), not by a name ending in `SYSTEM`. A foreign domain's account named `SYSTEM` used to keep its grant, and a translated Windows (`AUTORITE NT\Système`) used to lose the real SYSTEM's. An account whose id can't be resolved is removed (Qodo on #29, second review).
 
 **Windows CI round** (402 of 407 on 3f936a7, up from 393):
 - The guard reads `/proc` paths after a drive letter, since Git Bash serves `/proc`, and reads a bare `//` as the root.

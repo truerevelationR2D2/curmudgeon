@@ -1643,3 +1643,22 @@ def _(d):
         calls.clear(); (d / "t").mkdir(); os.symlink(d / "t", d / "link")
         assert not privacy.make_private(d / "link", windows=True) and not calls, "a link is refused before anything runs"
     finally: sp.run = orig; os.environ.clear(); os.environ.update(old); privacy._system_dir = osd if osd else privacy.__dict__.get("_system_dir")
+
+@test("Qodo on #29 (2): only the real SYSTEM account and the user keep access, by security id, never an account that is merely named SYSTEM")
+def _(d):
+    import privacy, subprocess as sp
+    calls = []
+    listing = (f"{d / 'x'} BOX\\ryan:(OI)(CI)(F)\n      NT AUTHORITY\\SYSTEM:(OI)(CI)(F)\n      EVILDOM\\SYSTEM:(OI)(CI)(R)\n"
+               "      AUTORITE NT\\Syst\u00e8me:(OI)(CI)(F)\nSuccessfully processed 1 files")
+    def fake(a, **k): calls.append(a); return sp.CompletedProcess(a, 0, listing if len(a) == 2 else "", "")
+    sids = {"BOX\\ryan": "S-1-5-21-1-2-3-1001", "NT AUTHORITY\\SYSTEM": "S-1-5-18", "AUTORITE NT\\Syst\u00e8me": "S-1-5-18", "EVILDOM\\SYSTEM": "S-1-5-21-9-9-9-500"}
+    orig, osd, osid = sp.run, privacy._system_dir, getattr(privacy, "_sid", None); old = dict(os.environ)
+    try:
+        sp.run = fake; privacy._system_dir = lambda: "C:\\Windows\\System32"; privacy._sid = lambda n: sids.get(n)
+        os.environ.update({"USERNAME": "ryan", "USERDOMAIN": "BOX"}); (d / "x").mkdir()
+        assert privacy.make_private(d / "x", windows=True)
+    finally:
+        sp.run = orig; privacy._system_dir = osd; os.environ.clear(); os.environ.update(old)
+        if osid: privacy._sid = osid
+    removed = [c[c.index("/remove:g") + 1] for c in calls if "/remove:g" in c]
+    assert removed == ["EVILDOM\\SYSTEM"], removed

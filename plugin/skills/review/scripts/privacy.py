@@ -20,6 +20,23 @@ def _system_dir():
         return buf.value if 0 < n < len(buf) else None
     except (AttributeError, OSError, ImportError): return None
 
+def _sid(name):
+    """An account's security id (S-1-5-18 for SYSTEM), as Windows resolves the name icacls printed. None when it can't
+    be resolved; such an account is never kept. SYSTEM is known by its id, never by a name ending in SYSTEM, which a
+    foreign domain's account can carry and which a translated Windows spells otherwise (Qodo on #29)."""
+    try:
+        import ctypes
+        from ctypes import wintypes
+        a = ctypes.windll.advapi32
+        sid, size = ctypes.create_string_buffer(256), wintypes.DWORD(256)
+        dom, dsize, use = ctypes.create_unicode_buffer(256), wintypes.DWORD(256), wintypes.DWORD()
+        if not a.LookupAccountNameW(None, name, sid, ctypes.byref(size), dom, ctypes.byref(dsize), ctypes.byref(use)): return None
+        out = wintypes.LPWSTR()
+        if not a.ConvertSidToStringSidW(sid, ctypes.byref(out)): return None
+        try: return out.value
+        finally: ctypes.windll.kernel32.LocalFree(out)
+    except (AttributeError, OSError, ImportError, ValueError): return None
+
 def _is_link(path):
     """A symbolic link or a Windows junction (a reparse point): never locked, since the change would land elsewhere."""
     try:
@@ -51,12 +68,13 @@ def make_private(path, windows=None):
         if not r or r.returncode != 0: return False
     r = ok([p], text=True, encoding="utf-8", errors="replace")  # 3. the folder's own grants, listed
     if not r or r.returncode != 0: return False
-    keep = {who.casefold(), user.casefold()}
+    me = _sid(who)
     for line in (r.stdout or "").splitlines():
         line = line[len(p):] if line.startswith(p) else line
         if ":(" not in line: continue
         name = line.strip().split(":(", 1)[0].strip()
-        if name.casefold() in keep or name.casefold().endswith("\\system") or name.casefold() == "system": continue
+        sid = _sid(name)
+        if sid == "S-1-5-18" or (me and sid == me) or name.casefold() == who.casefold(): continue  # SYSTEM by its id, and this user
         rr = ok([p, "/remove:g", name, "/L", "/Q"])
         if not rr or rr.returncode != 0: return False
     return True
