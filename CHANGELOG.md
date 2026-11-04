@@ -10,7 +10,7 @@ Five of six findings fixed, each with a test that fails on the code before it (`
 - **Test lens:** a nested subclass's methods count only when a framework calls them (`do_GET`, `setUp`, `handle`, `__call__` and the like) or the test names them. An unused helper with an assert is not a check, and a handler defined under a class-level `if` or `try` is found.
 - **Live request cap:** in a review run, a scan whose shared ledger can't be read or locked sends nothing, as the browser driver already did.
 
-Not fixed: computing the root at run time (`os.walk(chr(47))`). Qodo's finding is correct; it is the deliberate-evasion class the guard does not try to cover, and the ruling on where that line sits is with the owner.
+Not fixed, by ruling (03 §5.57 item 17): computing the root at run time (`os.walk(chr(47))`). The finding is correct; code that builds a path or the protected name as it runs is deliberate evasion, outside what the text guard covers, and it is documented as a known limit (PRIVACY.md). Claude Code's built-in sandbox, which the operating system enforces, is to be the real boundary where it runs; how to fit it to a review is on the backlog.
 
 ## Unreleased: Qodo on #22
 
