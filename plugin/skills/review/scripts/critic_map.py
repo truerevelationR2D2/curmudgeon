@@ -10,6 +10,7 @@ lines), else lite. The tier sets the review size: trivial = one reviewer, with v
 plus verification of Critical/High; full = three blind reviewers, verification and the full sandbox."""
 import json, os, pathlib, posixpath, re, subprocess, sys
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+import utf8io  # UTF-8 output on Windows too (03 §5.57 item 20)
 from critic_findings import log_run, refuse_linked_state, one_line, redact_finding_text
 import safegit  # git without the repository's own commands (03 §5.57 review)
 
@@ -23,7 +24,7 @@ DEF = re.compile(r"^\s*(?:export\s+)?(?:async\s+)?(?:function\*?\s+([A-Za-z_$][\
 
 def git(*a):
     log_run(ROOT, "command", "git " + " ".join(a))
-    try: return safegit.run(["-c", "core.quotepath=off", *a], cwd=ROOT, capture_output=True, text=True, timeout=20).stdout
+    try: return safegit.run(["-c", "core.quotepath=off", *a], cwd=ROOT, capture_output=True, text=True, timeout=20, encoding="utf-8", errors="replace").stdout
     except Exception: return ""
 
 READ_CAP = 20_000  # characters read from one file for the sensitivity check; nothing is ever read whole
@@ -181,8 +182,8 @@ def main(a):
             p = (ROOT / x).resolve()
             try: p.relative_to(ROOT)
             except ValueError: print(f"critic_map: {x} is outside the project root {ROOT}; skipped", file=sys.stderr); continue
-            if p.is_dir(): out += [str(q.relative_to(ROOT)) for q in p.rglob("*") if q.is_file() and not q.is_symlink() and not ({".critic", ".git", "node_modules", "__pycache__"} & set(q.relative_to(ROOT).parts)) and not is_binary(q)]  # every text file: workflows, scripts, SQL and config too
-            elif p.is_file(): out.append(str(p.relative_to(ROOT)))
+            if p.is_dir(): out += [q.relative_to(ROOT).as_posix() for q in p.rglob("*") if q.is_file() and not q.is_symlink() and not ({".critic", ".git", "node_modules", "__pycache__"} & set(q.relative_to(ROOT).parts)) and not is_binary(q)]  # every text file: workflows, scripts, SQL and config too
+            elif p.is_file(): out.append(p.relative_to(ROOT).as_posix())
             else: print(f"critic_map: {x} does not exist; skipped", file=sys.stderr)
         files = out
         for x in files: lines[x] = count_lines(ROOT / x)
@@ -210,7 +211,7 @@ def main(a):
     texts = {}
     for q in all_code:
         try:
-            if q.stat().st_size < 2_000_000: texts[str(q.relative_to(ROOT))] = q.read_text(errors="replace")
+            if q.stat().st_size < 2_000_000: texts[q.relative_to(ROOT).as_posix()] = q.read_text(errors="replace", encoding="utf-8")
         except OSError: pass
     radius = {}
     defined_in = {}
@@ -237,13 +238,13 @@ def main(a):
     if edges:
         md += ["", "## Map", "```mermaid", "graph LR"] + [f'  "{u}" --> "{t}"' for u, t in edges] + ["```"]
     md += ["", "## Not reviewed", "_Filled in by Curmudgeon: files skipped for budget, binary or generated files, checks that could not run._"]
-    D.mkdir(parents=True, exist_ok=True); (D / "change-map.md").write_text("\n".join(md) + "\n")
+    D.mkdir(parents=True, exist_ok=True); (D / "change-map.md").write_text("\n".join(md) + "\n", encoding="utf-8")
     from_git = "--files" not in a
     untracked = set(git("ls-files", "-z", "--others", "--exclude-standard").split("\0")) if from_git else set()  # NUL-separated: names with spaces or quotes stay whole (audit F-a9c4ecf9)
     # deleted_text is masked: a deleted file can hold a secret (Qodo on #17)
     (D / "change-map.json").write_text(json.dumps({"tier": tier, "files": order, "deleted": deleted, "deleted_text": {x: masked_head(touched.get(x, "")) for x in deleted}, "lines": total, "sensitive": {x: sens[x] for x in files + deleted}, "radius": radius, "intent": intent,
         "mode": "diff" if from_git else "files", "base": base if from_git else None,
-        "hunks": hunks(base, files) if from_git else {}, "new_files": sorted(x for x in files if x in untracked)}, indent=1))
+        "hunks": hunks(base, files) if from_git else {}, "new_files": sorted(x for x in files if x in untracked)}, indent=1), encoding="utf-8")
     print(json.dumps({"tier": tier, "files": len(files), "lines": total, "sensitive": any_sens, "radius": len(radius)}))
     return 0
 

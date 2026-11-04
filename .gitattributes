@@ -1,0 +1,8 @@
+# Text files are checked out with LF line endings on every platform (03 §5.57 item 20). Git for Windows otherwise
+# converts them to CRLF, which changed the bytes that hash, brief and fixture tests compare.
+* text=auto eol=lf
+*.png binary
+*.jpg binary
+*.gif binary
+*.pdf binary
+*.har binary

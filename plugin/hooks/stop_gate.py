@@ -11,6 +11,7 @@ After the third it lets stops through for that batch for good (it says so once);
 Fails open, but never silently: an unexpected error lets the stop through with a message saying the gate is off."""
 import hashlib, json, os, pathlib, shlex, sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import utf8io  # UTF-8 output on Windows too (03 §5.57 item 20)
 import workspace
 
 SKIP = {".git", "node_modules", "dist", "build", ".critic", "__pycache__", ".next", "coverage", "vendor", ".venv", "venv",
@@ -40,7 +41,7 @@ def candidates(root, stamps=()):
     sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent / "skills" / "review" / "scripts"))
     try:
         import safegit
-        r = safegit.run(["ls-files", "-z", "-co", "--exclude-standard"], cwd=root, capture_output=True, text=True, timeout=10)
+        r = safegit.run(["ls-files", "-z", "-co", "--exclude-standard"], cwd=root, capture_output=True, text=True, timeout=10, encoding="utf-8", errors="surrogateescape")  # a name that isn't UTF-8 round-trips (Qodo on #27)
         if r.returncode == 0:
             out, seen = [], {}
             for rel in r.stdout.split("\0"):
@@ -85,7 +86,7 @@ def main():
         from critic_findings import gate_owned
         if not gate_owned(root, "on"): return out({"systemMessage": "Curmudgeon stop gate skipped: .critic/gate is there, but the owner's record doesn't show it turned on here (a repository may have committed it). Run /curmudgeon:gate on to turn it on."})
     except Exception as e: return out({"systemMessage": f"Curmudgeon stop gate skipped: couldn't check the owner's record that the gate is on here ({type(e).__name__}: {e}). A marker in the project alone never turns it on (Qodo on PR #14)."})
-    try: L = json.loads((c / "ledger.json").read_text())
+    try: L = json.loads((c / "ledger.json").read_text(encoding="utf-8"))
     except FileNotFoundError: L = {}
     except Exception as e: return out({"systemMessage": f"Curmudgeon gate is off for this stop: the ledger can't be read ({e}). Fix .critic/ledger.json or run critic_ledger.py init."})
     if not isinstance(L, dict): L = {}
@@ -103,7 +104,7 @@ def main():
                      f" (if the last review did cover it, say so: critic_ledger.py stamp --add {' '.join(shlex.quote(g) for g in gone[:5])}).")  # quoted: a file name is never shell syntax to copy (Qodo on #19)  # the time of a deletion is only a best guess (Qodo on #18)
     if p is not None and not (review.exists() and review.stat().st_mtime >= m):
         keys.append(hashlib.sha1(f"{p}:{m}".encode()).hexdigest()[:12])
-        where = p.relative_to(root) if str(p).startswith(str(root)) else p
+        where = p.relative_to(root).as_posix() if str(p).startswith(str(root)) else p  # src/b.py on Windows too (03 §5.57 item 20)
         parts.append("No Curmudgeon review exists yet for this project's edits." if not review.exists() else f"{where} was edited after the last Curmudgeon review.")
     if parts:
         batch = "|".join(keys)
@@ -116,14 +117,14 @@ def main():
                       "critic_ledger.py defer ID impossible|conflicts|worse \"note\". Then re-check and update .critic/last-review.md.")
     cnt = c / "gate-count"
     if not reason: cnt.unlink(missing_ok=True); return 0
-    try: prev = json.loads(cnt.read_text())
+    try: prev = json.loads(cnt.read_text(encoding="utf-8"))
     except Exception: prev = {}
     if prev.get("batch") == batch and prev.get("released"): return 0  # already handed back for this batch
     n = prev.get("n", 0) + 1 if prev.get("batch") == batch else 1
     if n > 3:
-        cnt.write_text(json.dumps({"batch": batch, "n": n, "released": True}))
+        cnt.write_text(json.dumps({"batch": batch, "n": n, "released": True}), encoding="utf-8")
         return out({"systemMessage": f"Curmudgeon gate let this stop through after 3 blocks on the same work, and won't block it again until something changes. Still unresolved: {reason.split('. ')[0]}. Over to you: fix, defer with a reason, or /curmudgeon:gate off."})
-    cnt.write_text(json.dumps({"batch": batch, "n": n}))
+    cnt.write_text(json.dumps({"batch": batch, "n": n}), encoding="utf-8")
     return out({"decision": "block", "reason": f"Curmudgeon gate ({n} of 3 for this work): {reason} Turn the gate off with /curmudgeon:gate off."})
 
 if __name__ == "__main__":

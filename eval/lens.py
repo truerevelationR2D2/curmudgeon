@@ -12,6 +12,7 @@ It copies the fixture and the clean twin to a temporary folder, runs critic_scan
   decoys      regular rows from this lens in a decoy file (must be 0)
   clean twin  regular rows from this lens in the clean twin (must be 0)
 Exit 0 when recall and precision are both 100% and decoys and clean-twin rows are 0; 1 otherwise; 2 on bad usage."""
+import os as _os, sys as _sys; _sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__))); import utf8io  # UTF-8 output on Windows too (03 §5.57 item 20)
 import json, os, pathlib, re, shutil, subprocess, sys, tempfile
 
 HERE = pathlib.Path(__file__).resolve().parent
@@ -22,19 +23,19 @@ def rows(folder, area):
         dst = pathlib.Path(t) / "p"; shutil.copytree(folder, dst)
         env = dict(os.environ, CURMUDGEON_STATE_DIR=str(pathlib.Path(t) / "state"))  # the measurer's own record, never the user's
         if (dst / ".critic" / "integrity-baseline.json").is_file():  # a fixture's recorded copy came with the code: the measurer adopts it, as an owner would (audit Q04)
-            shown = subprocess.run([sys.executable, str(SCAN), ".", "--root", ".", "--integrity-adopt"], cwd=dst, capture_output=True, text=True, timeout=60, env=env).stdout
+            shown = subprocess.run([sys.executable, str(SCAN), ".", "--root", ".", "--integrity-adopt"], cwd=dst, capture_output=True, text=True, timeout=60, env=env, encoding="utf-8").stdout
             code = re.search(r"--confirm ([0-9a-f]{32})", shown)  # the measurer checked the fixture's hosts when writing it: confirm the code shown
-            if code: subprocess.run([sys.executable, str(SCAN), ".", "--root", ".", "--integrity-adopt", "--confirm", code.group(1)], cwd=dst, capture_output=True, text=True, timeout=60, env=env)
-        try: r = subprocess.run([sys.executable, str(SCAN), ".", "--root", ".", "--no-project-rules"], cwd=dst, capture_output=True, text=True, timeout=300, env=env)
+            if code: subprocess.run([sys.executable, str(SCAN), ".", "--root", ".", "--integrity-adopt", "--confirm", code.group(1)], cwd=dst, capture_output=True, text=True, timeout=60, env=env, encoding="utf-8")
+        try: r = subprocess.run([sys.executable, str(SCAN), ".", "--root", ".", "--no-project-rules"], cwd=dst, capture_output=True, text=True, timeout=300, env=env, encoding="utf-8")
         except subprocess.TimeoutExpired: sys.exit(f"lens: the scan of {folder} took over 300 s and was stopped; nothing measured")
         rep = dst / ".critic" / "scan" / "report.json"
         if not rep.exists(): sys.exit(f"lens: the scan wrote no report ({r.stderr.strip()[-300:]})")
         areas = set(area) if isinstance(area, list) else {area}
-        return [x for x in json.loads(rep.read_text())["findings"] if x.get("area") in areas]
+        return [x for x in json.loads(rep.read_text(encoding="utf-8"))["findings"] if x.get("area") in areas]
 
 def main(a):
     if not a or a[0] in ("-h", "--help"): print(__doc__); return 0 if a else 2
-    key = json.loads(pathlib.Path(a[0]).read_text()); area = key["area"]
+    key = json.loads(pathlib.Path(a[0]).read_text(encoding="utf-8")); area = key["area"]
     got = rows(HERE / key["fixture"], area); clean = rows(HERE / key["clean"], area)
     reg = [x for x in got if x.get("tier") != "pedantic"]
     hits = {p["id"]: any(x["rule"] == p["rule"] and x["where"] == p["where"] for x in reg) for p in key["planted"]}

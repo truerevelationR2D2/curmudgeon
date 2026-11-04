@@ -41,6 +41,7 @@ usage (run from the project root, or set CRITIC_ROOT):
   show | check                           check exits 1 if a Critical/High is open"""
 import hashlib, json, os, pathlib, re, shutil, sys, time
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+import utf8io  # UTF-8 output on Windows too (03 §5.57 item 20)
 from critic_findings import log_run, norm_code, read_jsonl, record_ledger, refuse_linked_state, tokens
 RANK = {"Critical": 0, "High": 1, "Medium": 2, "Low": 3}
 
@@ -143,7 +144,7 @@ def save(L):
 
 def rel(p):
     p = pathlib.Path(p).resolve()
-    try: return str(p.relative_to(ROOT))
+    try: return p.relative_to(ROOT).as_posix()
     except ValueError: die(f"{p} is outside the project root {ROOT}")
 
 def need(rest, n, usage):
@@ -366,7 +367,7 @@ def main(a):
             else:
                 ex.update(base); ex["history"].append(f"run {L['run']}: still there"); known += 1
         try:  # anything a reviewer raised this run counts as seen, even if it was dropped, retracted or hidden by a ruling
-            T_ = json.loads((D / "tally.json").read_text())
+            T_ = json.loads((D / "tally.json").read_text(encoding="utf-8"))
             for k_ in ("kept", "contested", "dropped", "retracted", "suppressed", "rejected"):
                 for x_ in T_.get(k_, []):
                     f_ = x_.get("finding") or x_
@@ -513,11 +514,11 @@ def main(a):
     elif cmd == "gate":
         need(rest, 1, "gate on|async|off")
         D.mkdir(parents=True, exist_ok=True)
-        if rest[0] == "on": (D / "gate").write_text(""); (D / "watch-off").unlink(missing_ok=True); msg = "stop gate on"
-        elif rest[0] == "async": (D / "gate-async").write_text(""); (D / "watch-off").unlink(missing_ok=True); msg = "background stop check on"
+        if rest[0] == "on": (D / "gate").write_text("", encoding="utf-8"); (D / "watch-off").unlink(missing_ok=True); msg = "stop gate on"
+        elif rest[0] == "async": (D / "gate-async").write_text("", encoding="utf-8"); (D / "watch-off").unlink(missing_ok=True); msg = "background stop check on"
         elif rest[0] == "off":
             for n_ in ("gate", "gate-async", "gate-count"): (D / n_).unlink(missing_ok=True)
-            (D / "watch-off").write_text("")  # also silences the while-you-work scan (SC-62)
+            (D / "watch-off").write_text("", encoding="utf-8")  # also silences the while-you-work scan (SC-62)
             msg = "stop checks off, and the while-you-work scan"
         else: die("gate on|async|off")
         import critic_findings as cf_  # the owner's own record, outside the project: a marker a repository commits turns nothing on (ultimate audit V12)
@@ -715,7 +716,7 @@ def main(a):
                 r = rel(p); (d / r).parent.mkdir(parents=True, exist_ok=True); shutil.copy2(p, d / r); files.append(r)
             if any(SECRET.search((d / r).read_text(encoding="utf-8", errors="replace")) for r in files):
                 print("warning: a saved file holds a secret-looking key. The restore copy is exact (so rollback is exact), private and git-ignored. Rotate the key: it has already shipped.", file=sys.stderr)
-            L["restore"].append({"at": time.strftime("%Y-%m-%d %H:%M"), "dir": str(d.relative_to(ROOT)), "files": files, "ids": ids}); msg = f"saved {len(files)} file(s) to {d.relative_to(ROOT)}"
+            L["restore"].append({"at": time.strftime("%Y-%m-%d %H:%M"), "dir": d.relative_to(ROOT).as_posix(), "files": files, "ids": ids}); msg = f"saved {len(files)} file(s) to {d.relative_to(ROOT)}"
         elif rest[0] == "apply":
             if not L["restore"]: die("no restore point recorded")
             r = L["restore"][-1]; manual = []

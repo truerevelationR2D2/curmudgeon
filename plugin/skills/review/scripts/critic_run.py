@@ -22,6 +22,7 @@ usage:
 
 Steps it never takes: starting agents (only the lead can), writing a review or a verdict, or deciding anything a model
 decides. Each script it runs is logged in .critic/runlog.jsonl like any other."""
+import os as _os, sys as _sys; _sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__))); import utf8io  # UTF-8 output on Windows too (03 §5.57 item 20)
 import json, os, pathlib, subprocess, sys, re, time
 from critic_findings import verifier_batches  # one rule for critic_run next and the variant hunt (Qodo on PR #14)
 import safegit  # git without the repository's own commands (03 §5.57 review)
@@ -33,13 +34,13 @@ from critic_findings import VERIFY_BATCH  # packets per verifier agent (03 §5.3
 FORCE = False  # next --apply-now: apply with the verdicts there are (a finding with no verdict stays at lower confidence, except single-vote Mediums and outside-only findings, which are left out)
 
 def sh(script, *a):
-    r = subprocess.run([sys.executable, str(HERE / script), *a], cwd=ROOT, capture_output=True, text=True)
+    r = subprocess.run([sys.executable, str(HERE / script), *a], cwd=ROOT, capture_output=True, text=True, encoding="utf-8", errors="replace")
     sys.stdout.write(r.stdout); sys.stderr.write(r.stderr)
     if r.returncode not in (0, 3): sys.exit(f"critic_run: {script} {' '.join(a)} failed (exit {r.returncode}); fix that, then run next again")
     return r
 
 def ledger():
-    try: return json.loads((D / "ledger.json").read_text())
+    try: return json.loads((D / "ledger.json").read_text(encoding="utf-8"))
     except (OSError, ValueError): return {}
 
 def mtime(p): return p.stat().st_mtime if p.exists() else 0
@@ -50,7 +51,7 @@ def scan_cmd():
     """The scan command for this run, as begin prints it: limited to the change's files (scan-only.txt) and to security in
     the security scan mode, so a scan started later (a new round) covers the same ground (§5.56 round 3)."""
     only = " --only .critic/scan-only.txt" if (D / "scan-only.txt").is_file() and not (D / "scan-only.txt").is_symlink() else ""
-    try: sec = json.loads((D / "focus.json").read_text()).get("focus") == "security" if (D / "focus.json").is_file() else False
+    try: sec = json.loads((D / "focus.json").read_text(encoding="utf-8")).get("focus") == "security" if (D / "focus.json").is_file() else False
     except (OSError, ValueError): sec = False
     return f"python3 {HERE / 'critic_scan.py'} . --root .{only}{' --focus security' if sec else ''}"
 
@@ -60,10 +61,10 @@ def tally_extra(started, reviews=()):
     """What a tally gets besides the reviews (§5.56): the scan's FAILs and the outside review, when this run has them,
     and the dedup agent's groups when they were made for these reviews. A scan or an outside answer that arrives after
     the dedup step reruns the tally; without the groups that rerun would drop every issue the dedup agent merged."""
-    extra = ["--scan", str(SCAN.relative_to(ROOT))] if is_fresh(SCAN, started) else ["--no-scan"]
-    extra += ["--outside", str(OUTSIDE.relative_to(ROOT))] if is_fresh(OUTSIDE, started) else []
+    extra = ["--scan", SCAN.relative_to(ROOT).as_posix()] if is_fresh(SCAN, started) else ["--no-scan"]
+    extra += ["--outside", OUTSIDE.relative_to(ROOT).as_posix()] if is_fresh(OUTSIDE, started) else []
     G = D / "groups.json"
-    if is_fresh(G, started) and reviews and mtime(G) >= max(mtime(p) for p in reviews): extra += ["--groups", str(G.relative_to(ROOT))]
+    if is_fresh(G, started) and reviews and mtime(G) >= max(mtime(p) for p in reviews): extra += ["--groups", G.relative_to(ROOT).as_posix()]
     return extra
 
 def state():
@@ -79,7 +80,7 @@ def state():
     inputs = reviews + [p for p in (SCAN, OUTSIDE) if is_fresh(p, started)]
     if mtime(tally) < max(mtime(p) for p in inputs): return "tally", L, tier, reviews
     cands = D / "dedup-candidates.json"
-    try: listed = json.loads(cands.read_text() or "{}").get("findings_by_file") or {} if cands.exists() and mtime(cands) >= started else {}
+    try: listed = json.loads(cands.read_text(encoding="utf-8") or "{}").get("findings_by_file") or {} if cands.exists() and mtime(cands) >= started else {}
     except (OSError, ValueError): listed = {}
     need_dedup = sum(len(v) for v in listed.values()) > 1  # the merge script's own rule: one issue has nothing to group with
     newest_review = max(mtime(p) for p in reviews + ([OUTSIDE] if is_fresh(OUTSIDE, started) else []))  # a late outside answer brings new candidates: the dedup agent judges them too (SKILL.md 3b)
@@ -90,10 +91,10 @@ def state():
     packets = sorted((D / "verify").glob("*.json")) if (D / "verify").is_dir() else []
     covered = set()
     for v in fresh:
-        try: rows = json.loads(v.read_text())
+        try: rows = json.loads(v.read_text(encoding="utf-8"))
         except (OSError, ValueError): continue
         covered |= {str(r.get("id")) for r in (rows if isinstance(rows, list) else [rows]) if isinstance(r, dict)}
-    try: t = json.loads(tally.read_text())
+    try: t = json.loads(tally.read_text(encoding="utf-8"))
     except (OSError, ValueError): t = {}
     contested = {str(f.get("id")) for f in t.get("contested", []) if isinstance(f, dict)}
     found = {str(f.get("id")): f for f in t.get("kept", []) + t.get("contested", []) if isinstance(f, dict)}
@@ -104,7 +105,7 @@ def state():
     if missing and not FORCE: return "verify", L, tier, missing
     if mtime(D / "findings.jsonl") < max([mtime(tally)] + [mtime(v) for v in fresh]): return "apply", L, tier, fresh
     if tier == "full":  # SKILL.md step 4.5, the variant hunt: the full tier runs it before the teardown (ultimate audit Q07)
-        try: rows = [json.loads(x) for x in (D / "findings.jsonl").read_text().splitlines() if x.strip()]
+        try: rows = [json.loads(x) for x in (D / "findings.jsonl").read_text(encoding="utf-8").splitlines() if x.strip()]
         except (OSError, ValueError): rows = []
         if any(isinstance(f, dict) and f.get("impact") in ("Critical", "High") and f.get("confidence") in ("confirmed", "likely") for f in rows):
             found_mark = D / "variants-found.json"
@@ -113,7 +114,7 @@ def state():
             vv = [v for v in (sorted((D / "verdicts-variants").glob("*.json")) if (D / "verdicts-variants").is_dir() else []) if mtime(v) >= mtime(found_mark)]
             got = set()
             for v in vv:
-                try: rr = json.loads(v.read_text())
+                try: rr = json.loads(v.read_text(encoding="utf-8"))
                 except (OSError, ValueError): continue
                 got |= {str(r.get("id")) for r in (rr if isinstance(rr, list) else [rr]) if isinstance(r, dict)}
             vmiss = [p for p in vpk if p.stem not in got]
@@ -126,21 +127,21 @@ def early(force=False):
     rp = D / "scan" / "report.json"; mark = D / "early-shown"
     L = ledger(); started = L.get("started_at") or 0
     if not rp.is_file() or mtime(rp) < started: return False
-    try: shown = float(mark.read_text().strip() or 0)
+    try: shown = float(mark.read_text(encoding="utf-8").strip() or 0)
     except (OSError, ValueError): shown = 0
     if not force and shown >= mtime(rp): return False
-    try: j = json.loads(rp.read_text())
+    try: j = json.loads(rp.read_text(encoding="utf-8"))
     except (OSError, ValueError): return False
     fails = [x for x in j.get("findings", []) if x.get("sev") == "FAIL"]
     deg = j.get("degraded") or []
     print(f"early results (scripted checks, not yet reviewed; the teardown repeats them): {len(fails)} FAIL" + (f"; could not run: {', '.join(deg)}" if deg else ""))
     for x in fails[:10]: print(f"  - {x.get('id', '')} {x.get('where', '')}: {x.get('what', '')}")
     if len(fails) > 10: print(f"  - and {len(fails) - 10} more in .critic/scan/report.md")
-    if not mark.is_symlink(): mark.write_text(str(mtime(rp)) + "\n")
+    if not mark.is_symlink(): mark.write_text(str(mtime(rp)) + "\n", encoding="utf-8")
     return True
 
 def say_next(st, tier, items):
-    rel = lambda p: str(p.relative_to(ROOT))
+    rel = lambda p: p.relative_to(ROOT).as_posix()
     if st == "scan":
         print(f"next: the scripted checks have not written a report for this run (or round) yet. If the background scan is running, wait for it; if none was started "
               f"(a new round, say), run it now: {scan_cmd()} Then run critic_run.py next again. "
@@ -178,7 +179,7 @@ def main(a):
         rest = [x for x in rest if x not in ("--audit", "--fix", "--security")]
         D.mkdir(parents=True, exist_ok=True); fp = D / "focus.json"
         if fp.is_symlink(): sys.exit("critic_run: .critic/focus.json is a link; refusing")
-        if security: fp.write_text(json.dumps({"focus": "security"}) + "\n")
+        if security: fp.write_text(json.dumps({"focus": "security"}) + "\n", encoding="utf-8")
         elif fp.exists(): fp.unlink()  # a plain run never inherits an earlier run's focus
         tier = rest[rest.index("--tier") + 1] if "--tier" in rest and rest.index("--tier") + 1 < len(rest) else ""
         if audit:
@@ -191,7 +192,7 @@ def main(a):
                 aside = D / "history" / ("audited-repo-" + time.strftime("%Y%m%d-%H%M%S")); aside.mkdir(parents=True, exist_ok=True)
                 for n in foreign: (D / n).rename(aside / n)
                 print(f"set aside the audited repository's own {', '.join(foreign)} (moved to {aside.relative_to(ROOT)}): its decisions, false-positive rulings and scope are its owner's, not yours. Write your own .critic/scope.json for any live checks.")
-            D.mkdir(parents=True, exist_ok=True); mine.write_text(json.dumps({"audit_started": time.strftime("%Y-%m-%d %H:%M:%S")}) + "\n")
+            D.mkdir(parents=True, exist_ok=True); mine.write_text(json.dumps({"audit_started": time.strftime("%Y-%m-%d %H:%M:%S")}) + "\n", encoding="utf-8")
             print("audit mode (someone else's system): audit, not repair; nothing is changed. Rules of engagement:")
             print("  - active checks beyond this computer only for origins in .critic/scope.json, confirmed per run with --allow-live HOST" + (" (scope.json present)" if (D / "scope.json").is_file() else " (no scope.json: nothing beyond this computer is loaded)"))
             print("  - every requirement is stated (with its file:line) or inferred (capped at Medium)")
@@ -203,11 +204,11 @@ def main(a):
         sh("critic_map.py", *map_args)
         sh("critic_plan.py", *(["--tier", tier] if tier else []))  # SC-69: the job plan (tier, agents, lenses, expected cost), showing the tier in force
         if not tier:
-            try: tier = json.loads((D / "plan.json").read_text()).get("tier") or "full"
+            try: tier = json.loads((D / "plan.json").read_text(encoding="utf-8")).get("tier") or "full"
             except (OSError, ValueError): tier = "full"
         sh("critic_ledger.py", "start", "audit" if audit else ("full" if fix else "review"), "--tier", tier)
         sh("critic_brief.py", "--letters", ",".join(REVIEWERS.get(tier, REVIEWERS["full"])))
-        cmj = json.loads((D / "change-map.json").read_text()) if (D / "change-map.json").exists() else {}
+        cmj = json.loads((D / "change-map.json").read_text(encoding="utf-8")) if (D / "change-map.json").exists() else {}
         files = [str(f) for f in (cmj.get("files") or [])]
         if cmj.get("deleted"):  # a deletion: scan the callers it may have broken too, with or without other changes (Qodo on #17 and #20)
             files = sorted(set(files) | {u for k, v in (cmj.get("radius") or {}).items() if k.partition(": ")[0] in cmj["deleted"] for u in v})
@@ -218,7 +219,7 @@ def main(a):
             if cmj.get("deleted") and not cmj.get("files"): (D / "scan-only.txt").write_text("", encoding="utf-8"); only = " --only .critic/scan-only.txt"  # a deletion nothing calls: scan nothing, never the whole project (Qodo on #18)
             else: (D / "scan-only.txt").unlink(missing_ok=True)  # never an earlier run's list
         if security:
-            r = subprocess.run([sys.executable, str(HERE / "security_feed.py"), "status"], capture_output=True, text=True)
+            r = subprocess.run([sys.executable, str(HERE / "security_feed.py"), "status"], capture_output=True, text=True, encoding="utf-8", errors="replace")
             print(r.stdout.strip().splitlines()[0] if r.stdout.strip() else "security feed: status unreadable")
             print(f"  feed step (03 §5.38, §5.40), only if it says never switched on and the user is present; never ask unattended (it stays off): "
                   f"1. ask once, default off: \"Build a local security database (OSV and CISA's exploited list) so dependency checks send nothing about your project?\" No: python3 {HERE / 'security_feed.py'} set --cadence off. "
@@ -238,7 +239,7 @@ def main(a):
         st, L, tier, items = state(); print(f"run {L.get('run', 0)}, tier {tier}, round {L.get('round', 0)}: {st}"); say_next(st, tier, items); return 0
     if cmd == "next":
         global FORCE; FORCE = "--apply-now" in rest
-        if "--no-scan" in rest and not NO_SCAN.is_symlink(): D.mkdir(parents=True, exist_ok=True); NO_SCAN.write_text("the tally went on without the scan (critic_run.py next --no-scan)\n")
+        if "--no-scan" in rest and not NO_SCAN.is_symlink(): D.mkdir(parents=True, exist_ok=True); NO_SCAN.write_text("the tally went on without the scan (critic_run.py next --no-scan)\n", encoding="utf-8")
         early()  # fastest results first: the scan's FAILs as soon as they exist, once
         st, L, tier, items = state()
         letters = [f".critic/reviews/review-{x}.json" for x in REVIEWERS.get(tier, REVIEWERS["full"])]
@@ -249,8 +250,8 @@ def main(a):
                 sh("critic_merge.py", "tally", *letters, *tally_extra(L.get("started_at") or 0, [ROOT / x for x in letters]))
             elif st == "apply":
                 if not items:  # nothing needed a verdict, or --apply-now with none back: apply with an empty verdict list
-                    (D / "verdicts").mkdir(exist_ok=True); none = D / "verdicts" / f"none-{int(time.time())}.json"; none.write_text("[]\n"); items = [none]
-                sh("critic_ledger.py", "acted"); sh("critic_merge.py", "apply", *[str(p.relative_to(ROOT)) for p in items])
+                    (D / "verdicts").mkdir(exist_ok=True); none = D / "verdicts" / f"none-{int(time.time())}.json"; none.write_text("[]\n", encoding="utf-8"); items = [none]
+                sh("critic_ledger.py", "acted"); sh("critic_merge.py", "apply", *[p.relative_to(ROOT).as_posix() for p in items])
             else: break
             st, L, tier, items = state()
         say_next(st, tier, items); return 0

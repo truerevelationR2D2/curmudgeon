@@ -29,6 +29,7 @@ most 12 hours. The main conversation and every other agent are never limited. A 
 (a broken guard must not stop the user's work); the merge script's own checks still apply."""
 import json, os, pathlib, re, sys, time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import utf8io  # UTF-8 output on Windows too (03 §5.57 item 20)
 import workspace
 
 ALLOW = {"reviewer": {"rules", "rules.md", "change-map.md", "change-map.json", "risk-map.md", ".gitignore", "briefs"},  # a brief holds no findings, so reading one by path (a lead that passed the path, not the text) breaks no blindness
@@ -79,12 +80,12 @@ def packet_ok(critic, me, rel):
     """Record the packets this verifier opens, in .critic/verify-opened/ (no agent may write there, and a verifier may
     not read it); the sixth distinct one is refused."""
     f = pathlib.Path(critic) / "verify-opened" / f"{me}.json"
-    try: seen = json.loads(f.read_text()) if f.is_file() and not f.is_symlink() else []
+    try: seen = json.loads(f.read_text(encoding="utf-8")) if f.is_file() and not f.is_symlink() else []
     except (OSError, ValueError): seen = []
     if rel in seen: return True
     if len(seen) >= PACKETS: return False
     try:
-        if not f.is_symlink(): f.parent.mkdir(parents=True, exist_ok=True); f.write_text(json.dumps(seen + [rel]))
+        if not f.is_symlink(): f.parent.mkdir(parents=True, exist_ok=True); f.write_text(json.dumps(seen + [rel]), encoding="utf-8")
     except OSError: pass
     return True
 
@@ -104,7 +105,7 @@ def brief_problem(root, ti):
     aside). Text around it is allowed. None when it does, or when there is nothing to check."""
     if not re.fullmatch(r"(?:curmudgeon:)?curmudgeon-reviewer", str(ti.get("subagent_type") or "")) or not run_active(root): return None
     bd = root / ".critic" / "briefs"
-    try: started = json.loads((root / ".critic" / "ledger.json").read_text()).get("started_at") or 0
+    try: started = json.loads((root / ".critic" / "ledger.json").read_text(encoding="utf-8")).get("started_at") or 0
     except Exception: return None
     briefs = [p for p in (sorted(bd.glob("brief-*.md")) if bd.is_dir() and not bd.is_symlink() else []) if p.is_file() and not p.is_symlink() and p.stat().st_mtime >= started - 2]
     if not briefs: return None
@@ -124,14 +125,14 @@ def brief_problem(root, ti):
                 time.sleep(0.02)
             except OSError: break
         try:
-            try: used = json.loads(used_f.read_text()) if used_f.is_file() and not used_f.is_symlink() else {}
+            try: used = json.loads(used_f.read_text(encoding="utf-8")) if used_f.is_file() and not used_f.is_symlink() else {}
             except (OSError, ValueError): used = {}
             if used.get("started") != started: used = {"started": started, "briefs": []}
             name = hit[0].name; unused = [p.name for p in briefs if p.name not in used["briefs"]]
             if name in used["briefs"] and unused:  # a reviewer that failed to start gets its brief again once the others have theirs
                 return f"{name} was already given to a reviewer; give this one its own brief ({', '.join(unused)}). To start a reviewer again after a failed start, start the others first"
             used["briefs"].append(name)
-            try: used_f.write_text(json.dumps(used))
+            try: used_f.write_text(json.dumps(used), encoding="utf-8")
             except OSError: pass
             return None
         finally:
@@ -144,7 +145,7 @@ def brief_problem(root, ti):
 
 def run_active(root):
     led = root / ".critic" / "ledger.json"
-    try: started = json.loads(led.read_text()).get("started_at") if led.is_file() and not led.is_symlink() else None
+    try: started = json.loads(led.read_text(encoding="utf-8")).get("started_at") if led.is_file() and not led.is_symlink() else None
     except Exception: started = None
     if not started or time.time() - started > 12 * 3600: return False
     last = root / ".critic" / "last-review.md"
@@ -245,15 +246,37 @@ def heredoc_operators(text):
     return "".join(out) + text[pos:]
 
 TRAVERSE = re.compile(r"\b(?:walk|listdir|scandir|iterdir|r?glob|iglob|readdir\w*|opendir\w*|read_dir|find_files|Find\.find|Dir\.(?:glob|entries|children|each_child|\[))\s*[(\[]")  # code that lists or searches folders
+def own_paths(own, root):
+    """Every spelling of an agent's own scratch folder: as recorded (resolved), through the link the project was opened
+    by (macOS's /var is /private/var), and the reverse (03 §5.57 item 20). Inline code that names any of them names
+    the agent's own folder, never the project's records."""
+    out = {str(own), os.path.realpath(str(own))}
+    for base in {str(root), os.path.realpath(str(root))}:
+        real_base = os.path.realpath(base)
+        for o in list(out):
+            if o == real_base or o.startswith(real_base + os.sep): out.add(base + o[len(real_base):])
+    return out
+
 def _top(g):  # the root as code writes it: '/', '\\', 'C:\\' or os.sep (g: the number of its quote group)
     return r"(?:[rbuRBU]{0,2}(['\"])(?:[/\\]+|[A-Za-z]:[/\\]*)\%d(?!\s*\.)|os\.(?:path\.)?(?:sep|altsep)\b|path\.sep\b|File::SEPARATOR\b)" % g
 _LIST = r"\b(?:walk|listdir|scandir|iterdir|r?glob|iglob|readdir\w*|opendir\w*|read_dir|Path|PurePath|abspath|realpath|normpath|resolve|chdir|Find\.find|Dir\.\w+)\s*[(\[]\s*"  # a call whose first argument is where it starts
 TOP_START = re.compile(_LIST + r"(?:(?:os\.)?path\.join\s*\(\s*)?" + _top(1)  # the root as that argument, or as the first part of a path.join there
                        + r"|" + _LIST + r"[rbuRBU]{0,2}['\"]/[^'\"\n]*[*?\[]"  # an absolute wildcard as that argument ('/**/x'), never '/*' counted in a file
                        + r"|\.anchor\b|\bparents\s*\[\s*-")  # the root by API: Path.cwd().anchor, .parents[-1]
-TOP_NAME = re.compile(r"(?:^|[;\n:])\s*([A-Za-z_]\w*)\s*=\s*" + _top(2) + r"\s*(?:$|[;\n#)])")  # a name set to the root on its own line (never a keyword argument: sep='/')
-ALIAS = re.compile(r"(?:^|[;\n:])\s*([A-Za-z_]\w*)\s*=\s*([A-Za-z_]\w*)\s*(?=$|[;\n#)])")  # a = b on its own
-COMPUTED = re.compile(r"(?i)\bchr\s*\(|fromCharCode|\\x2f|\\u002f|\\057|\bSOLIDUS\b|\bbytes\s*\(\s*\[|b64decode|unhexlify|codecs\.decode|\batob\s*\(|Buffer\.from\s*\(")  # characters made as the code runs
+_COMPUTED = r"\bchr\s*\(|fromCharCode|\\x2f|\\u002f|\\057|\bSOLIDUS\b|\bbytes\s*\(\s*\[|b64decode|unhexlify|codecs\.decode|\batob\s*\(|Buffer\.from\s*\("  # characters made as the code runs
+COMPUTED = re.compile(_COMPUTED, re.I)
+def computed_root(text):
+    """Code that lists folders and builds characters as it runs ('\\x2f', chr(47), base64, bytes([...])): the built
+    value can reach the listing through a name, a tuple, a loop, a return value or a keyword (Qodo on #27), so only a
+    chr or fromCharCode of literal codes that are neither / nor \\ (chr(65)) is let through (Qodo on #25)."""
+    if not TRAVERSE.search(text): return False
+    for m in COMPUTED.finditer(text):
+        if re.match(r"(?i)chr|fromCharCode", m.group(0)):
+            codes = re.match(r"\s*\(?\s*([0-9][0-9\s,]*)\)", text[m.end() - (1 if m.group(0).endswith("(") else 0):])
+            if codes and all(int(x) not in (47, 92) for x in re.findall(r"\d+", codes.group(1))): continue
+        return True
+    return False
+TOP_VALUE = re.compile(_top(1))  # the root, as a whole value
 HOME_START = re.compile(r"\bgetenv\s*\(\s*['\"](?:HOME|USERPROFILE)|\bPath\.home\s*\(|\bexpanduser\s*\(|\bhomedir\s*\(|\bgethome\w*|environ(?:\.get\s*\(|\[)\s*['\"](?:HOME|USERPROFILE)|process\.env\.(?:HOME|USERPROFILE)|ENV\[['\"]HOME|\bDir\.home\b")
 PATTERN_CMDS = {"grep", "egrep", "fgrep", "rg", "ag", "ack", "zgrep"}  # the first operand is a pattern, never a file
 SEPARATOR_OPTS = {"awk": {"-F"}, "gawk": {"-F"}, "mawk": {"-F"}, "cut": {"-d"}, "paste": {"-d"}, "column": {"-s", "-o"}}  # options that take a separator, per command
@@ -393,6 +416,24 @@ def bash_problem(cmd, rec, root, critic, role, me):
             code = [args[k + 1] for k in range(len(args) - 1) if args[k] in INLINE] + [x for k, x in enumerate(args) if k and args[k - 1] in ("<<<",)]
             if "<<" in args or "<<-" in args: code.append(flat_orig)  # the body as written, before its lone slashes were blanked (round 3 review)  # the body is on the lines after, in the same command text
             if any(NET_CODE.search(c) for c in code): return f"{n} with network code: reviewers and verifiers work offline"
+            own_spellings = sorted(own_paths(pay.parent, root), key=len, reverse=True)
+            def starts_from(c, raw=False):
+                """A listing whose starting argument is built from character codes or escapes (os.walk(chr(47)): 03
+                §5.57 item 18), or is a name that holds the root or such a value at that point: root = '/' then
+                os.walk(root) (Qodo on #23), start = root (#24), but not after start = 'src', and never an unrelated
+                chr(65) elsewhere in the code (#25). Read statement by statement, in order; raw: the command as typed,
+                whose escapes ('\\x2f') the split words lose."""
+                if computed_root(c): return True
+                if raw: return False  # root literals in names are followed in the split words
+                held = set()
+                for st in re.split(r"[;\n]", c):
+                    if any(re.search(_LIST + re.escape(n_) + r"\b", st) for n_ in held): return True
+                    m_ = re.match(r"\s*([A-Za-z_]\w*)\s*=(?!=)\s*(.*?)\s*$", st)
+                    if m_:
+                        v = m_.group(2)
+                        if TOP_VALUE.fullmatch(v) or v in held: held.add(m_.group(1))
+                        else: held.discard(m_.group(1))
+                return False
             def from_top(c):
                 """Code that searches the disk from its root, the home folder or a folder at or above the project can
                 find .critic/ under a name it builds as it runs ('.cri' + 'tic'), so the name never shows (Qodo on
@@ -402,15 +443,16 @@ def bash_problem(cmd, rec, root, critic, role, me):
                     q = os.path.normpath(lit)
                     if q.strip("/") and any(r_ == q or r_.startswith(q.rstrip("/") + "/") for r_ in (str(root), os.path.realpath(str(root)))): return True
                 if not TRAVERSE.search(c): return False
-                if TOP_START.search(c) or HOME_START.search(c) or COMPUTED.search(c): return True  # chr(47), '\x2f', fromCharCode: a root spelled as it runs (03 §5.57 item 18)
-                names = {m_.group(1) for m_ in TOP_NAME.finditer(c)}  # root = '/' then os.walk(root): only when that name is where a listing starts (Qodo on #23)
-                while True:  # start = root: the alias holds the root too (Qodo on #24)
-                    more = {a for a, b in ALIAS.findall(c) if b in names} - names
-                    if not more: break
-                    names |= more
-                return any(re.search(_LIST + re.escape(n_) + r"\b", c) for n_ in names)  # from the root or home, or an absolute wildcard ('/**/x')
+                return bool(TOP_START.search(c) or HOME_START.search(c) or starts_from(c))  # from the root or home, or an absolute wildcard ('/**/x')
             def reaches(c):  # names .critic or ~/.curmudgeon and can leave the copy: the project's own path or a "..", never a .critic folder a probe makes inside the copy (batch 5 review)
-                c = c.replace(str(pay.parent), "")
+                owns = [re.compile(re.escape(o_) + r"(?=[/\\'\"\s,)]|$)") for o_ in own_spellings]  # the folder itself, never scratch/r10 when it is r1 (guard review)
+                for lit in re.findall(r"(['\"])([^'\"\n]*)\1", c):  # a path written out from the agent's folder that stays inside it (notes/../notes/x) is its own (Qodo on #27)
+                    for o_ in own_spellings:
+                        if lit[1].startswith(o_ + "/") or lit[1].startswith(o_ + os.sep):
+                            q_ = os.path.normpath(lit[1])
+                            if q_ == o_ or q_.startswith(o_ + os.sep): c = c.replace(lit[0] + lit[1] + lit[0], "''"); break
+                if any(o_.search(c) for o_ in owns) and ".." in c: return True  # a climb out of the agent's own folder, joined in pieces or not (guard review)
+                for o_ in owns: c = o_.sub("", c)
                 if re.search(r"(?i)\.curmudgeon\b", c): return True
                 if re.search(r"\.\.[/\\]+\.\.|\bdirname\s*\(\s*(?:os\.path\.)?dirname|\.parent\.parent|parents\[\s*[1-9]|os\.walk\s*\(\s*['\"]/['\"]", c): return True  # two levels up from the copy is the scratch folder, three is .critic/ (round 3 review)
                 if from_top(c): return True
@@ -418,7 +460,7 @@ def bash_problem(cmd, rec, root, critic, role, me):
                 if str(root) in c or os.path.realpath(str(root)) in c or ".." in c or "~" in c: return True
                 if re.search(r"(?i)\.parents?\b|\bpardir\b|\bchdir\b|\bexpanduser\b|\bglob\b|\bos\.sep\b", c): return True  # a climb by API (round 2 review)
                 return any(not os.path.normpath(os.path.join(str(pay), lit)).startswith(str(pay) + os.sep) for lit in re.findall(r"['\"]([^'\"\n]*\.critic[^'\"\n]*)['\"]", c))  # a .critic path written out that leads outside the copy (round 3 review: 'tests/.critic' is fine)
-            if code and TRAVERSE.search(cmd) and COMPUTED.search(cmd): return f"{n} with code that lists folders from a path it builds out of character codes or escapes (chr(47), '\\x2f'): reviewers and verifiers work on code in their copy (03 §5.57 item 18)"  # the raw text: the words lose their backslashes before they are split
+            if code and starts_from(cmd, raw=True): return f"{n} with code that lists folders from a path it builds out of character codes or escapes (chr(47), '\\x2f'): reviewers and verifiers work on code in their copy (03 §5.57 item 18)"  # the raw text: the words lose their backslashes before they are split
             if any(reaches(c) for c in code): return f"{n} with code that names the project's .critic/ or Curmudgeon's own records: reviewers and verifiers work on code in their copy (audit Q01)"
         return None
     real_root = fold(pathlib.Path(root).resolve()); real_notes = fold((pay.parent / "notes").resolve())
@@ -589,6 +631,8 @@ def main(data=None):
     if tool == "Bash" and re.fullmatch(r"(?:curmudgeon:)?curmudgeon-[a-z]+", str(data.get("agent_type") or "")):
         why = owner_problem(str(ti.get("command") or ""), not role)
         if why: return deny(f"Curmudgeon: {why} (03 §5.56 item 12).")
+    if tool in ("PowerShell", "Monitor") and re.fullmatch(r"(?:curmudgeon:)?curmudgeon-[a-z]+", str(data.get("agent_type") or "")):  # every Curmudgeon agent, the detector too: the guard and the owner tripwire read bash only, and Windows turns the PowerShell tool on by itself when Git Bash isn't there (03 §5.57 item 20; Qodo on #27)
+        return deny(f"Curmudgeon: Curmudgeon's agents run shell commands through the Bash tool only, where they are checked; {tool} commands aren't. Use Bash.")
     if not role: return 0
     me = workspace.clean_id(data.get("agent_id"))
     try: critic = (root / ".critic").resolve()

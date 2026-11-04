@@ -20,6 +20,7 @@ means the same; actions are compared exactly, so a search in a new folder is nev
 Fails open: a broken check never stops an agent."""
 import hashlib, json, os, pathlib, re, sys, time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import utf8io  # UTF-8 output on Windows too (03 §5.57 item 20)
 
 WINDOW = 12
 NORM = [(re.compile(r"\d{4}-\d\d-\d\d[T ]\d\d:\d\d(:\d\d(\.\d+)?)?Z?"), "<time>"), (re.compile(r"\b\d\d:\d\d:\d\d\b"), "<time>"),
@@ -44,7 +45,7 @@ def state_path(root, agent_id):
     return (h / "actions.json") if h else None
 
 def load(p):
-    try: return json.loads(p.read_text()) if p and p.is_file() and not p.is_symlink() else {"calls": [], "roped": [], "stuck": [], "blocked": []}
+    try: return json.loads(p.read_text(encoding="utf-8")) if p and p.is_file() and not p.is_symlink() else {"calls": [], "roped": [], "stuck": [], "blocked": []}
     except Exception: return {"calls": [], "roped": [], "stuck": [], "blocked": []}
 
 def signal(calls):
@@ -89,7 +90,7 @@ def main(data=None):
     elif sig:
         st.setdefault("stuck", []).append(sig); st.setdefault("blocked", []).append(act); st["calls"] = []  # one STUCK row per episode
         led = {}
-        try: led = json.loads((root / ".critic" / "ledger.json").read_text())
+        try: led = json.loads((root / ".critic" / "ledger.json").read_text(encoding="utf-8"))
         except Exception: pass
         row = {"at": time.strftime("%Y-%m-%d %H:%M:%S"), "run": led.get("run"), "round": led.get("round"), "role": kind.split(":")[-1].replace("curmudgeon-", ""), "agent_id": aid, "type": sig, "tool": data.get("tool_name")}
         sj = root / ".critic" / "stuck.jsonl"
@@ -97,7 +98,7 @@ def main(data=None):
             with open(sj, "a", encoding="utf-8") as fh: fh.write(json.dumps(row) + "\n")
         msg = (f"STUCK ({sig}): the same pattern again after your rope. Stop this scenario now: write 'cannot verify: <why>' for it in your output (with what you tried), "
                "and move on to the next thing you were going to check. This exact action is now refused. The stuck record is kept so the cause can be fixed.")
-    try: p.write_text(json.dumps(st))
+    try: p.write_text(json.dumps(st), encoding="utf-8")
     except OSError: pass
     if msg: print(json.dumps({"hookSpecificOutput": {"hookEventName": "PostToolUse", "additionalContext": msg}}))
     return 0

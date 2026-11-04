@@ -9,6 +9,7 @@ state. That is compared with eval/golden/<fixture>.json.
 
 A stale expected file (for a fixture that no longer exists) also fails. The idea of on-purpose snapshot updates and
 stale-snapshot failures comes from syrupy (MIT); this is our own code."""
+import os as _os, sys as _sys; _sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__))); import utf8io  # UTF-8 output on Windows too (03 §5.57 item 20)
 import difflib, json, os, pathlib, re, shutil, subprocess, sys, tempfile
 OPTIONAL = ("semgrep",)  # the one outside tool the scan reports on when present (critic_scan.py); hiding its folder keeps the golden output the same on every machine
 OWN_TOOLS_HIDDEN = [d for d in os.environ.get("PATH", "").split(os.pathsep) if d and not any(os.path.exists(os.path.join(d, t)) or os.path.exists(os.path.join(d, t + ".exe")) for t in OPTIONAL)]
@@ -25,7 +26,7 @@ def snapshot(name):
         plant_keys.fill(dst)
         env = dict(os.environ, PYTHONDONTWRITEBYTECODE="1", PATH=os.pathsep.join(OWN_TOOLS_HIDDEN))  # the golden output can't depend on what this machine has installed
         subprocess.run([sys.executable, "-I", str(SCAN), ".", "--root", ".", "--no-project-rules"], cwd=dst, capture_output=True, timeout=300, env=env)
-        rep = json.loads((dst / ".critic" / "scan" / "report.json").read_text())
+        rep = json.loads((dst / ".critic" / "scan" / "report.json").read_text(encoding="utf-8"))
     rows = sorted((r["sev"], r["rule"], r["area"], r["where"], r["what"]) for r in rep["findings"])  # a list, so a doubled row shows
     checks = {k: v["state"] for k, v in sorted(rep["checks"].items())}
     return {"checks": checks, "rows": [list(r) for r in rows]}

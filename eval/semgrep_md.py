@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Turn `semgrep scan --json` output (stdin) into one list item per result, `- file:line [rule] message`, so the death
 match's single scorer reads Semgrep's findings the way it reads every other arm's. Development benchmark only."""
+import os as _os, sys as _sys; _sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__))); import utf8io  # UTF-8 output on Windows too (03 §5.57 item 20)
 import json, sys
 try: j = json.load(sys.stdin)
 except ValueError: print("semgrep produced no JSON"); sys.exit(2)

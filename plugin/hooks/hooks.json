@@ -52,7 +52,7 @@
         ]
       },
       {
-        "matcher": "Read|Grep|Glob|Bash|LSP|Agent|Task",
+        "matcher": "Read|Grep|Glob|Bash|PowerShell|Monitor|LSP|Agent|Task",
         "hooks": [
           {
             "type": "command",

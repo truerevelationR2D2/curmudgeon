@@ -33,7 +33,7 @@ def plan(old_path, run_dirs, apps):
     old = _load_old(old_path); tasks = {t["id"]: t for t in new.load_cfg()["tasks"]}
     rng = random.Random(20261103); packets = {}; idmap = {}; alias = {}; report = []
     for rd in map(pathlib.Path, run_dirs):
-        detail = json.loads((rd / "labels-detail.json").read_text())["labels"]
+        detail = json.loads((rd / "labels-detail.json").read_text(encoding="utf-8"))["labels"]
         carried = {k: v for k, v in detail.items()}; moved = 0
         for td in sorted(p for p in rd.glob("*/*") if p.is_dir() and p.parent.name != "labelling"):
             t = tasks.get(td.name.split("~")[0])
@@ -42,7 +42,7 @@ def plan(old_path, run_dirs, apps):
             if bo is None or bn is None or [b["claim"] for b in bo] == [b["claim"] for b in bn]: continue
             pre = f"{td.parent.name}/{td.name}"
             for k in [k for k in carried if k.startswith(pre + "/")]: del carried[k]
-            used = set() if t.get("clean") else set(new.match_plants(new.plants_of(json.loads((EV / t["key"]).read_text())), bn).values())
+            used = set() if t.get("clean") else set(new.match_plants(new.plants_of(json.loads((EV / t["key"]).read_text(encoding="utf-8"))), bn).values())
             for i, b in enumerate(bn):
                 if i in used: continue
                 parts = ([j for j, o in enumerate(bo) if o["loc"].strip() and o["loc"].strip() in b["loc"]]
@@ -58,21 +58,21 @@ def plan(old_path, run_dirs, apps):
                 pid = "R" + "".join(rng.choice("0123456789abcdef") for _ in range(8))
                 idmap[pid] = f"{rd.name}|{pre}/{i}"
                 packets.setdefault(t["fixture"], []).append({"id": pid, "app": alias[t["fixture"]], "finding": label.plain(b["claim"] if b["claim"].strip() else b["loc"])})
-        (rd / "labels.rekey.json").write_text(json.dumps(carried, indent=1, sort_keys=True))
+        (rd / "labels.rekey.json").write_text(json.dumps(carried, indent=1, sort_keys=True), encoding="utf-8")
         report.append(f"{rd.name}: {moved} label(s) carried to new block numbers")
     out = HERE / "rekey-2026-11-03"; out.mkdir(exist_ok=True)
     apps = pathlib.Path(apps)
     if apps.resolve().is_relative_to(EV.resolve()): sys.exit("--apps must be outside eval/, so a labeller can't reach the answer keys")
     for fx, ps in packets.items():
         rng.shuffle(ps); label.neutral_copy(EV / fx, apps / alias[fx])
-        (out / f"{alias[fx]}.json").write_text(json.dumps(ps, indent=1))
-    (out / "map.json").write_text(json.dumps(idmap, indent=1, sort_keys=True)); (out / "apps.json").write_text(json.dumps({v: k for k, v in alias.items()}, indent=1))
+        (out / f"{alias[fx]}.json").write_text(json.dumps(ps, indent=1), encoding="utf-8")
+    (out / "map.json").write_text(json.dumps(idmap, indent=1, sort_keys=True), encoding="utf-8"); (out / "apps.json").write_text(json.dumps({v: k for k, v in alias.items()}, indent=1), encoding="utf-8")
     print("\n".join(report)); print(f"{len(idmap)} block(s) to label blindly, in {len(packets)} packet file(s) in {out}; apps copied to {apps}")
 
 def apply(run_dirs, a, b, t=None):
-    out = HERE / "rekey-2026-11-03"; idmap = json.loads((out / "map.json").read_text())
-    A, B = ({x["id"]: x for x in json.loads(pathlib.Path(f).read_text())} for f in (a, b))
-    T = {x["id"]: x for x in json.loads(pathlib.Path(t).read_text())} if t else {}
+    out = HERE / "rekey-2026-11-03"; idmap = json.loads((out / "map.json").read_text(encoding="utf-8"))
+    A, B = ({x["id"]: x for x in json.loads(pathlib.Path(f).read_text(encoding="utf-8"))} for f in (a, b))
+    T = {x["id"]: x for x in json.loads(pathlib.Path(t).read_text(encoding="utf-8"))} if t else {}
     new_labels = {}; ties = []
     for pid, where in idmap.items():
         x, y = A[pid], B[pid]
@@ -83,15 +83,15 @@ def apply(run_dirs, a, b, t=None):
         else: ties.append(pid)
     if ties: sys.exit(f"{len(ties)} tie(s) need the tiebreaker: {', '.join(sorted(ties))}")
     for rd in map(pathlib.Path, run_dirs):
-        lab = json.loads((rd / "labels.rekey.json").read_text())
+        lab = json.loads((rd / "labels.rekey.json").read_text(encoding="utf-8"))
         lab.update({w.split("|", 1)[1]: v for w, v in new_labels.items() if w.split("|", 1)[0] == rd.name})
-        dfile = rd / "labels-detail.json"; full = json.loads(dfile.read_text())
+        dfile = rd / "labels-detail.json"; full = json.loads(dfile.read_text(encoding="utf-8"))
         keep = rd / "labels-detail.as-labelled.json"  # the labels as labelled, keyed as the packets were cut: label.py recheck reads these
-        if not keep.exists(): keep.write_text(dfile.read_text())
+        if not keep.exists(): keep.write_text(dfile.read_text(encoding="utf-8"), encoding="utf-8")
         full["labels"] = dict(sorted(lab.items()))
         full["rekey_2026_11_03"] = "labels moved to the splitter's new block numbers (audit V18); see eval/benchmark-5.2.4/rekey_2026_11_03.py"
-        dfile.write_text(json.dumps(full, indent=1))
-        (rd / "labels.json").write_text(json.dumps({k: {"wrong": "false"}.get(v["verdict"], v["verdict"]) for k, v in sorted(lab.items())}, indent=1))
+        dfile.write_text(json.dumps(full, indent=1), encoding="utf-8")
+        (rd / "labels.json").write_text(json.dumps({k: {"wrong": "false"}.get(v["verdict"], v["verdict"]) for k, v in sorted(lab.items())}, indent=1), encoding="utf-8")
         (rd / "labels.rekey.json").unlink()
     print(f"{len(new_labels)} new label(s) merged")
 

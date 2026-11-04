@@ -79,7 +79,7 @@ def inside_root(rel):
     except (ValueError, OSError): return False
 
 def ledger():
-    try: return json.loads((D / "ledger.json").read_text())
+    try: return json.loads((D / "ledger.json").read_text(encoding="utf-8"))
     except Exception: return {}
 
 MEMORY_HITS = []
@@ -110,7 +110,7 @@ def median_impact(xs):
     return IMPACTS[r[len(r) // 2]] if r else "Low"
 
 def scan_rows(path):
-    try: rep = json.loads(pathlib.Path(path).read_text())
+    try: rep = json.loads(pathlib.Path(path).read_text(encoding="utf-8"))
     except Exception as e: die(f"can't read scan report {path}: {e}")
     out = []
     for r in rep.get("findings", []):
@@ -125,7 +125,7 @@ def tally(paths):
     scan = groups = None
     if "--groups" in paths:
         i = paths.index("--groups"); gp = paths[i + 1] if i + 1 < len(paths) else die("--groups needs a file"); paths = paths[:i] + paths[i + 2:]
-        try: groups = json.loads(pathlib.Path(gp).read_text()).get("groups", [])
+        try: groups = json.loads(pathlib.Path(gp).read_text(encoding="utf-8")).get("groups", [])
         except Exception as e: die(f"can't read groups {gp}: {e}")
     outside = None
     if "--outside" in paths:
@@ -213,7 +213,7 @@ def tally(paths):
         by_file.setdefault(f["file"] or "(no file)", []).append({"id": r, "also": [x for x, _ in mem[1:]], "line": f["line"], "title": f["title"], "quote": f.get("quote", "")[:200]})
     cands = sum(len(v) for v in by_file.values()) if len(roots) > 1 else 0
     (D).mkdir(parents=True, exist_ok=True)
-    (D / "dedup-candidates.json").write_text(json.dumps({"instructions": "Group findings that describe the same underlying issue (same cause, one fix resolves both), within a file or across files. Return {\"groups\": [[id, ...], ...]} listing only merged sets; use the 'id' values.", "findings_by_file": scrub(by_file)}, indent=1, ensure_ascii=False))
+    (D / "dedup-candidates.json").write_text(json.dumps({"instructions": "Group findings that describe the same underlying issue (same cause, one fix resolves both), within a file or across files. Return {\"groups\": [[id, ...], ...]} listing only merged sets; use the 'id' values.", "findings_by_file": scrub(by_file)}, indent=1, ensure_ascii=False), encoding="utf-8")
     clusters = {}
     for r, ri, f in accepted:
         c = clusters.setdefault(find(r), {"members": [], "reviewers": set(), "scan": False, "outside": False})
@@ -258,8 +258,8 @@ def tally(paths):
         if f["impact"] == "Low" and f.get("votes_ours", f["votes"]) >= need and not f.get("outside_only"): continue  # agreed by OUR reviewers; an outside vote alone never skips verification  # agreed Low findings skip verification to save usage
         if f.get("raised_by") == ["scan"] and f.get("verified") == "executed" and MEASURED.match(str(f.get("category"))): continue  # a measurement, not an interpretation: nothing to reproduce
         packet = {k: f.get(k) for k in ("id", "category", "impact", "file", "line", "quote", "title", "failing_case")}
-        (vd / f"{f['id']}.json").write_text(json.dumps(scrub(packet), indent=1, ensure_ascii=False))
-    (D / "tally.json").write_text(json.dumps(scrub(out), indent=1, ensure_ascii=False))
+        (vd / f"{f['id']}.json").write_text(json.dumps(scrub(packet), indent=1, ensure_ascii=False), encoding="utf-8")
+    (D / "tally.json").write_text(json.dumps(scrub(out), indent=1, ensure_ascii=False), encoding="utf-8")
     if MEMORY_HITS and (D / "ledger.json").exists():  # keep memories that are in use from retiring
         led = pathlib.Path(__file__).resolve().parent / "critic_ledger.py"
         for n_ in sorted(set(MEMORY_HITS)): subprocess.run([sys.executable, str(led), "memories", "--hit", str(n_)], cwd=ROOT, env=dict(os.environ, CRITIC_ROOT=str(ROOT)), capture_output=True)
@@ -276,7 +276,7 @@ def write_verifier_log():
     """Every refutation and downgrade is kept in .critic/refutations.jsonl, so a verifier that talks the review out of
     real bugs can be caught: the spot-check (critic_ledger.py spotcheck) and the eval kit sample these."""
     if not VERIFIER_LOG: return
-    try: run_no = json.loads((D / "ledger.json").read_text()).get("run", 0)
+    try: run_no = json.loads((D / "ledger.json").read_text(encoding="utf-8")).get("run", 0)
     except Exception: run_no = 0
     seen = set()
     try: old = (D / "refutations.jsonl").read_text(encoding="utf-8", errors="replace").splitlines() if (D / "refutations.jsonl").exists() else []
@@ -291,7 +291,7 @@ def write_verifier_log():
                              "why": redact_finding_text(why), "reproduced": rep, "votes": f.get("votes"), "of": f.get("of")}), ensure_ascii=False) + "\n")
 
 def apply(paths):
-    try: T = json.loads((D / "tally.json").read_text())
+    try: T = json.loads((D / "tally.json").read_text(encoding="utf-8"))
     except Exception as e: die(f"run tally first ({e})")
     verdicts = {}
     for p in paths:
@@ -328,7 +328,7 @@ def apply(paths):
     final = scrub(final); unverified = scrub(unverified)  # a verifier's note can quote a secret too: mask before anything is written
     write_jsonl(D / "findings.jsonl", final)
     write_verifier_log()
-    (D / "findings.sarif").write_text(json.dumps(to_sarif(final), indent=1))
+    (D / "findings.sarif").write_text(json.dumps(to_sarif(final), indent=1), encoding="utf-8")
     cnt = {k: sum(1 for f in final if f["impact"] == k) for k in IMPACTS}
     md = ["# Curmudgeon merged findings", "", f"Reviewers: {T['reviewers']} (votes needed: {T['votes_needed']}).",
           "Counts for the VERDICT (copy exactly): " + " · ".join(f"{k} {v}" for k, v in cnt.items()) + f" · total {len(final)}", "",
@@ -350,7 +350,7 @@ def apply(paths):
     if unverified: md += ["", "## Outside findings not verified (not counted above; run the verifier on their packets, then apply again)"] + \
                         [f"- {f['id']} {f['impact']} {f['file']}:{f.get('line', '')} {f['title'].replace('|', '/')}" for f in unverified]
     if notes: md += ["", "## Notes"] + [f"- {x}" for x in notes]
-    (D / "counts.md").write_text("\n".join(md) + "\n")
+    (D / "counts.md").write_text("\n".join(md) + "\n", encoding="utf-8")
     led = pathlib.Path(__file__).resolve().parent / "critic_ledger.py"
     if (D / "ledger.json").exists():
         tmp = D / "findings-import.jsonl"; write_jsonl(tmp, final)
@@ -359,7 +359,7 @@ def apply(paths):
         if imp.returncode != 0:
             print("critic_merge: the findings were written, but recording them in the ledger FAILED (see the message above); stable ids and history are not updated", file=sys.stderr)
             return 1
-        try: known = json.loads((D / "ledger.json").read_text()).get("findings", {})
+        try: known = json.loads((D / "ledger.json").read_text(encoding="utf-8")).get("findings", {})
         except Exception: known = {}
         for r in refuted:
             fid = r["finding"].get("id")

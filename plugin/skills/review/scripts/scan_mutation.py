@@ -14,7 +14,7 @@ The test command comes from --test-cmd, or from a line "Test command: ..." in .c
 approved that file (--project-checks): a cloned repository can ship its own rules.md, and its command must never run
 without consent."""
 import atexit, hashlib, json, os, pathlib, re, shutil, signal, subprocess, time
-from critic_findings import log_run
+from critic_findings import log_run, kill_tree
 import safegit  # git without the repository's own commands (03 §5.57 review)
 
 # Comparisons need a space on both sides, so TypeScript generics (Array<string>) and arrows are never mutated.
@@ -79,7 +79,7 @@ def code_view(path, src):
 def changed_lines(root, rel):
     """Line numbers changed against git HEAD, or None when git can't say (no repo, an untracked file, no changes)."""
     try:
-        r = safegit.run(["diff", "-U0", "HEAD", "--", rel], cwd=root, capture_output=True, text=True, timeout=10)
+        r = safegit.run(["diff", "-U0", "HEAD", "--", rel], cwd=root, capture_output=True, text=True, timeout=10, encoding="utf-8", errors="replace")
     except (OSError, subprocess.TimeoutExpired): return None
     got = set()
     for m in re.finditer(r"^@@ -\S+ \+(\d+)(?:,(\d+))? @@", r.stdout, re.M):
@@ -170,12 +170,12 @@ def recover(root, emit):
     if entries: _write_record(root, [])
     for b in root.rglob("*" + BACKUP_SUFFIX):
         if ".git" in b.relative_to(root).parts: continue
-        emit("NOTE", "mutation-backup-unlisted", "tests", str(b.relative_to(root)), "a file named like a mutation backup that this tool did not record; it was not used", "")
+        emit("NOTE", "mutation-backup-unlisted", "tests", b.relative_to(root).as_posix(), "a file named like a mutation backup that this tool did not record; it was not used", "")
 
 def run(root, files, emit, state, given_cmd=None, cap=30, timeout=120, allow_rules=False):
     files = list(files)
     atexit.register(_restore_pending)
-    for sig in (signal.SIGTERM, signal.SIGHUP, signal.SIGINT):
+    for sig in [getattr(signal, n_) for n_ in ("SIGTERM", "SIGHUP", "SIGINT") if hasattr(signal, n_)]:  # Windows has no SIGHUP (03 §5.57 item 20)
         try: signal.signal(sig, lambda *a: (_restore_pending(), (_ for _ in ()).throw(SystemExit(130))))
         except (ValueError, OSError): pass
     cmd = test_cmd(root, given_cmd, allow_rules)
@@ -196,9 +196,7 @@ def run(root, files, emit, state, given_cmd=None, cap=30, timeout=120, allow_rul
         pr = subprocess.Popen(cmd, shell=True, cwd=root, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, env=env, start_new_session=True)
         try: return pr.wait(timeout=limit) != 0
         except subprocess.TimeoutExpired:
-            try: os.killpg(pr.pid, signal.SIGKILL)
-            except OSError: pass
-            pr.wait(); return True
+            kill_tree(pr); pr.wait(); return True
     t0 = time.time()
     try: base = subprocess.run(cmd, shell=True, cwd=root, capture_output=True, timeout=timeout, env=env)
     except subprocess.TimeoutExpired: state("mutation", "blocked", f"the test command took over {timeout} s before any mutation"); return

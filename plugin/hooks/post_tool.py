@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """PostToolUse for the stuck detector (stuck.py): calls by anything but a Curmudgeon agent, which are almost all of
 them, return before stuck.py and its imports load (03 §5.56 item 22). Fails open, as stuck.py does."""
+import os as _os, sys as _sys; _sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__))); import utf8io  # UTF-8 output on Windows too (03 §5.57 item 20)
 import json, re, sys
 
 def main():

@@ -26,6 +26,7 @@ usage:
   security_feed.py due                     exit 0 when an update is due, 1 when not (or off)
   security_feed.py update [--force]        download, check and build; refuses unless switched on
   security_feed.py match ROOT [--json]     check ROOT's lockfiles against the local database (no network)"""
+import os as _os, sys as _sys; _sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__))); import utf8io  # UTF-8 output on Windows too (03 §5.57 item 20)
 import argparse, contextlib, datetime as dt, time, hashlib, io, json, os, pathlib, platform, re, shlex, shutil, sqlite3, subprocess, sys, tempfile, urllib.request, zipfile, zlib
 
 HERE = pathlib.Path(__file__).resolve().parent
@@ -184,12 +185,12 @@ def pick_folder():
         return None, "no folder window can open here (no one at the screen: CI or a remote session)"
     try:
         if sysname == "Darwin" and shutil.which("osascript"):
-            r = subprocess.run(["osascript", "-e", f'POSIX path of (choose folder with prompt "{title}")'], capture_output=True, text=True, timeout=600)
+            r = subprocess.run(["osascript", "-e", f'POSIX path of (choose folder with prompt "{title}")'], capture_output=True, text=True, timeout=600, encoding="utf-8", errors="replace")
         elif sysname == "Windows" and shutil.which("powershell"):
-            r = subprocess.run(["powershell", "-NoProfile", "-STA", "-Command", windows_dialog_script(title)], capture_output=True, text=True, timeout=600)
+            r = subprocess.run(["powershell", "-NoProfile", "-STA", "-Command", windows_dialog_script(title)], capture_output=True, text=True, timeout=600, encoding="utf-8", errors="replace")
         elif sysname == "Linux" and (os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY")) and (shutil.which("zenity") or shutil.which("kdialog")):
             cmd = ["zenity", "--file-selection", "--directory", f"--title={title}"] if shutil.which("zenity") else ["kdialog", "--getexistingdirectory", os.path.expanduser("~"), "--title", title]
-            r = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
+            r = subprocess.run(cmd, capture_output=True, text=True, timeout=600, encoding="utf-8", errors="replace")
         else: return None, "no folder window can open here (no display, or no dialog tool already installed)"
     except (OSError, subprocess.TimeoutExpired) as e: return None, f"the folder window failed ({type(e).__name__})"
     path = r.stdout.strip().splitlines()[-1].strip() if r.stdout.strip() else ""
@@ -203,7 +204,8 @@ def windows_dialog_script(title):
     """The PowerShell for the folder window. The title goes in a single-quoted string, where a quote is written twice
     (Curmudgeon's would otherwise end the string and the script would not run)."""
     t = title.replace("'", "''")
-    return ("Add-Type -AssemblyName System.Windows.Forms; $d = New-Object System.Windows.Forms.FolderBrowserDialog; "
+    return ("[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; "  # the path is written as UTF-8, as pick_folder reads it (Qodo on #27)
+            "Add-Type -AssemblyName System.Windows.Forms; $d = New-Object System.Windows.Forms.FolderBrowserDialog; "
             f"$d.Description = '{t}'; $d.ShowNewFolderButton = $true; if ($d.ShowDialog() -eq 'OK') {{ $d.SelectedPath }}")
 
 def check_folder(folder):
@@ -483,10 +485,10 @@ def main(argv):
         unread = []
         for lf in root.rglob("package-lock.json"):
             if scan_deps._skip(lf, root): continue
-            try: pkgs += [(str(lf.relative_to(root)), *x) for x in scan_deps._lock_npm(lf)]
+            try: pkgs += [(lf.relative_to(root).as_posix(), *x) for x in scan_deps._lock_npm(lf)]
             except ValueError as e: unread.append(f"{lf.relative_to(root)} ({e})")
         for rf in root.rglob("requirements*.txt"):
-            if not scan_deps._skip(rf, root): pkgs += [(str(rf.relative_to(root)), *x) for x in scan_deps._reqs(rf)]
+            if not scan_deps._skip(rf, root): pkgs += [(rf.relative_to(root).as_posix(), *x) for x in scan_deps._reqs(rf)]
         unread += [f"{x.relative_to(root)} (this lockfile format is not read)" for n in scan_deps.UNREAD_LOCKS for x in root.rglob(n) if not scan_deps._skip(x, root) and not (x.parent / "package-lock.json").exists()]
         for x in unread: print(f"not checked: {x}")
         got = match(pkgs)

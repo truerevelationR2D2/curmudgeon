@@ -81,7 +81,7 @@ def _inside(root, pattern, emit):
     from critic_findings import leaves_root
     for p in root.rglob(pattern):
         if leaves_root(p, root):
-            if p not in _SKIPPED: _SKIPPED.add(p); emit("NOTE", "link-not-followed", "deps", str(p.relative_to(root)), "a link pointing outside the project; not followed, so nothing outside the project is read", "")
+            if p not in _SKIPPED: _SKIPPED.add(p); emit("NOTE", "link-not-followed", "deps", p.relative_to(root).as_posix(), "a link pointing outside the project; not followed, so nothing outside the project is read", "")
             continue
         yield p
 _SKIPPED = set()  # listed once, though the licence and vulnerability passes both walk the lockfiles
@@ -92,18 +92,18 @@ def licences(root, emit):
     code has obligations. Informational, never legal advice. Idea from license checkers such as licensee (MIT)."""
     for pj in _inside(root, "package.json", emit):
         if _skip(pj, root): continue
-        try: j = json.loads(pj.read_text())
+        try: j = json.loads(pj.read_text(encoding="utf-8"))
         except Exception: continue
         if not isinstance(j, dict): continue
-        if not j.get("private") and not j.get("license"): emit("NOTE", "licence-missing-own", "deps", str(pj.relative_to(root)), "the package declares no licence: others can't legally reuse it", "")
+        if not j.get("private") and not j.get("license"): emit("NOTE", "licence-missing-own", "deps", pj.relative_to(root).as_posix(), "the package declares no licence: others can't legally reuse it", "")
     for lf in _inside(root, "package-lock.json", emit):
         if _skip(lf, root): continue
-        try: j = json.loads(lf.read_text())
+        try: j = json.loads(lf.read_text(encoding="utf-8"))
         except Exception: continue
         if not isinstance(j, dict) or not isinstance(j.get("packages") or {}, dict): continue
         missing, strong, weak, unknown = [], [], [], []
         if not j.get("packages") and j.get("dependencies"):
-            emit("NOTE", "licence-not-checked", "deps", str(lf.relative_to(root)), "an old (v1) lockfile records no licences, so dependency licences were not checked (npm 7+ writes them)", ""); continue
+            emit("NOTE", "licence-not-checked", "deps", lf.relative_to(root).as_posix(), "an old (v1) lockfile records no licences, so dependency licences were not checked (npm 7+ writes them)", ""); continue
         for path, meta in (j.get("packages") or {}).items():
             if not path or not isinstance(meta, dict): continue
             if meta.get("link") or "node_modules/" not in path: continue  # workspace links and the project itself aren't third-party packages
@@ -114,7 +114,7 @@ def licences(root, emit):
             if kind == "strong": strong.append(f"{name} ({lic})")
             elif kind == "weak": weak.append(f"{name} ({lic})")
             elif kind == "unknown": unknown.append(f"{name} ({lic})")
-        rel = str(lf.relative_to(root))
+        rel = lf.relative_to(root).as_posix()
         if strong: emit("WARN", "licence-copyleft", "deps", rel, f"{len(strong)} package(s) under a strong copyleft licence: {', '.join(strong[:5])}{' …' if len(strong) > 5 else ''} (check the obligations before shipping)", "")
         if weak: emit("NOTE", "licence-weak-copyleft", "deps", rel, f"{len(weak)} package(s) under a weak copyleft licence: {', '.join(weak[:5])}{' …' if len(weak) > 5 else ''}", "")
         if unknown: emit("NOTE", "licence-unknown", "deps", rel, f"{len(unknown)} package(s) under a licence that isn't a recognised open-source one (check the terms): {', '.join(unknown[:5])}{' …' if len(unknown) > 5 else ''}", "")
@@ -145,8 +145,8 @@ def scan(root, emit, online=False, state=None):
     except Exception: pass  # informational; never blocks the dependency check
     for pj in _inside(root, "package.json", emit):
         if _skip(pj, root): continue
-        found_manifest = True; rel = str(pj.relative_to(root))
-        try: j = json.loads(pj.read_text())
+        found_manifest = True; rel = pj.relative_to(root).as_posix()
+        try: j = json.loads(pj.read_text(encoding="utf-8"))
         except Exception: emit("WARN", "deps-manifest", "deps", rel, "package.json is not valid JSON", ""); continue
         if not isinstance(j, dict): emit("WARN", "deps-manifest", "deps", rel, "package.json is not a JSON object", ""); continue  # Qodo Q19: one odd manifest never stops the others' checks
         d_ = lambda k: j.get(k) if isinstance(j.get(k), dict) else {}
@@ -167,13 +167,13 @@ def scan(root, emit, online=False, state=None):
         found_manifest = True
         try: pkgs += [(lf, *x) for x in _lock_npm(lf)]
         except ValueError as e:
-            unread.append(str(lf.relative_to(root)))
-            emit("WARN", "deps-lock-unreadable", "deps", str(lf.relative_to(root)), f"the lockfile can't be read ({e}): none of its packages were checked", "")
+            unread.append(lf.relative_to(root).as_posix())
+            emit("WARN", "deps-lock-unreadable", "deps", lf.relative_to(root).as_posix(), f"the lockfile can't be read ({e}): none of its packages were checked", "")
     for n in UNREAD_LOCKS:
         for x in _inside(root, n, emit):
             if _skip(x, root) or (x.parent / "package-lock.json").exists(): continue
-            found_manifest = True; unread.append(str(x.relative_to(root)))
-            emit("WARN", "deps-lock-unread", "deps", str(x.relative_to(root)), f"{n} is not a format the dependency check reads: none of its packages were checked for known vulnerabilities", "")
+            found_manifest = True; unread.append(x.relative_to(root).as_posix())
+            emit("WARN", "deps-lock-unread", "deps", x.relative_to(root).as_posix(), f"{n} is not a format the dependency check reads: none of its packages were checked for known vulnerabilities", "")
     for rf in _inside(root, "requirements*.txt", emit):
         if not _skip(rf, root): pkgs += [(rf, *x) for x in _reqs(rf, wild)]; found_manifest = True
     if wild: emit("NOTE", "deps-not-exact", "deps", "requirements", f"{len(wild)} wildcard pin(s) are not exact versions, so they were not looked up: {', '.join(wild[:5])}{' …' if len(wild) > 5 else ''}", "")
@@ -197,7 +197,7 @@ def scan(root, emit, online=False, state=None):
         if unchecked: emit("NOTE", "deps-feed-gap", "deps", "lockfiles", f"{unchecked} package(s) were not checked: the local security feed has no readable table for their ecosystem (run security_feed.py update, or add the ecosystem)", "")
         for lf, eco, n, v, dev, ids, exploited in rows:  # SC-75: the local feed copy; nothing about the project left the machine
             sev = "FAIL" if exploited and not dev else "NOTE" if dev else "WARN"
-            emit(sev, "deps-vulnerable", "deps", str(lf.relative_to(root)), f"{n} {v} has known vulnerabilities: {', '.join(ids[:5])}{' — exploited in the wild (CISA KEV)' if exploited else ''}{' (dev only)' if dev else ''}", "")
+            emit(sev, "deps-vulnerable", "deps", lf.relative_to(root).as_posix(), f"{n} {v} has known vulnerabilities: {', '.join(ids[:5])}{' — exploited in the wild (CISA KEV)' if exploited else ''}{' (dev only)' if dev else ''}", "")
         worst = "fail" if any(not dev for *_, dev, _ids, _x in rows) else "pass"  # a dev-only package is a NOTE, so it doesn't fail the check
         if unread and worst == "pass": worst = "unavailable"  # a lockfile nobody read is not a pass
         if state: state("deps", worst, f"{checked} of {len(pkgs)} packages checked against the local security feed of {str(cfg.get('last_update', ''))[:10]} (nothing sent), {len(rows)} vulnerable"
@@ -218,7 +218,7 @@ def scan(root, emit, online=False, state=None):
                 ids = [x.get("id") for x in (r.get("vulns") or [])]
                 if ids:
                     vulns += not dev
-                    emit("NOTE" if dev else "WARN", "deps-vulnerable", "deps", str(lf.relative_to(root)), f"{n} {v} has known vulnerabilities: {', '.join(ids[:5])}{' (dev only)' if dev else ''}", "")
+                    emit("NOTE" if dev else "WARN", "deps-vulnerable", "deps", lf.relative_to(root).as_posix(), f"{n} {v} has known vulnerabilities: {', '.join(ids[:5])}{' (dev only)' if dev else ''}", "")
         if state: state("deps", "fail" if vulns else "unavailable" if unread else "pass", f"{len(pkgs)} packages looked up in OSV, {vulns} vulnerable outside dev" + gap)
     except Exception as e:
         if state: state("deps", "unavailable", f"OSV lookup failed ({type(e).__name__}); offline checks still ran")

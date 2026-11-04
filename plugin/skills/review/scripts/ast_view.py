@@ -8,6 +8,7 @@ usage:
 
 Only Python has a parser here (Python's own `ast`). For any other language it says "no parser" and exits 3, rather
 than pretend. A file that doesn't parse prints the syntax error and exits 2."""
+import os as _os, sys as _sys; _sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__))); import utf8io  # UTF-8 output on Windows too (03 §5.57 item 20)
 import ast, pathlib, sys
 
 def fmt(node, depth, indent=0, limit=6):

@@ -16,6 +16,7 @@ usage:
         guess is not a finding (precision first). Writes .critic/variants.jsonl and .critic/variants.md.
 
 Variants never change the main counts: the teardown lists them in their own section, from variants.md."""
+import os as _os, sys as _sys; _sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__))); import utf8io  # UTF-8 output on Windows too (03 §5.57 item 20)
 import json, os, pathlib, re, sys
 
 HERE = pathlib.Path(__file__).resolve().parent
@@ -67,7 +68,7 @@ def find():
         if not rx or not ext: continue
         hits = 0
         for p in files_like(ext):
-            rel = str(p.relative_to(ROOT))
+            rel = p.relative_to(ROOT).as_posix()
             try: lines = p.read_text(encoding="utf-8", errors="replace").split("\n")
             except OSError: continue
             for i, l in enumerate(lines, 1):
@@ -76,26 +77,26 @@ def find():
                 vid = f"V-{f['id'][2:8]}-{hits + 1}"
                 packet = {"id": vid, "variant_of": f["id"], "category": f.get("category"), "impact": f.get("impact"), "file": rel, "line": i, "quote": l.strip()[:300],
                           "title": f"Possible variant of {f['id']}: {f.get('title', '')}"[:200], "failing_case": f"The same failure as {f['id']}: {f.get('failing_case', '')}"[:600]}
-                (out / f"{vid}.json").write_text(json.dumps(scrub(packet), indent=1, ensure_ascii=False))
+                (out / f"{vid}.json").write_text(json.dumps(scrub(packet), indent=1, ensure_ascii=False), encoding="utf-8")
                 hits += 1; n += 1
                 if hits >= PER or n >= TOTAL: break
             if hits >= PER or n >= TOTAL: break
         if n >= TOTAL: break
     packets = sorted(out.glob("*.json"))
     mark = D / "variants-found.json"  # critic_run.py next reads this: the hunt ran for these findings, even when it found nothing
-    if not mark.is_symlink(): mark.write_text(json.dumps({"variants": n}) + "\n")
+    if not mark.is_symlink(): mark.write_text(json.dumps({"variants": n}) + "\n", encoding="utf-8")
     print(f"variant hunt: {n} possible variant(s) in .critic/verify-variants")
-    try: tier = json.loads((D / "ledger.json").read_text()).get("tier") or "full"
+    try: tier = json.loads((D / "ledger.json").read_text(encoding="utf-8")).get("tier") or "full"
     except (OSError, ValueError, AttributeError): tier = "full"  # as critic_run.py next: an unknown tier is treated as the full one
-    for i, b in enumerate(verifier_batches(packets, tier), 1): print(f"  verifier {i}: " + " ".join(str(p.relative_to(ROOT)) for p in b))
+    for i, b in enumerate(verifier_batches(packets, tier), 1): print(f"  verifier {i}: " + " ".join(p.relative_to(ROOT).as_posix() for p in b))
     if n: print("next: start curmudgeon:curmudgeon-verifier agents on these packets (blind, as in step 4); the stop hook saves each verifier's ```json list in .critic/verdicts-variants/ (never retype one), then critic_variants.py apply .critic/verdicts-variants/*.json")
     return 0
 
 def apply(paths):
-    packets = {p.stem: json.loads(p.read_text()) for p in sorted((D / "verify-variants").glob("*.json"))} if (D / "verify-variants").is_dir() else {}
+    packets = {p.stem: json.loads(p.read_text(encoding="utf-8")) for p in sorted((D / "verify-variants").glob("*.json"))} if (D / "verify-variants").is_dir() else {}
     verdicts = {}; by_hand = []
     for p in paths:
-        try: rows = json.loads(pathlib.Path(p).read_text())
+        try: rows = json.loads(pathlib.Path(p).read_text(encoding="utf-8"))
         except (OSError, ValueError) as e: sys.exit(f"critic_variants: can't read {p}: {e}")
         if pathlib.Path(p).resolve().parent != (D / "verdicts-variants").resolve(): by_hand.append(pathlib.Path(p).name)  # not saved by the verifier's stop hook (batch 1 review, as critic_merge.py apply)
         for v in rows if isinstance(rows, list) else [rows]:
@@ -118,7 +119,7 @@ def apply(paths):
                 else: f = dict(f, confidence="likely"); ignored.append(f"{vid}: downgrade to {new_} ignored ({dp}); kept at {f['impact']}")  # as critic_merge.py apply: not a clean confirmation
         if kind == "confirmed": kept.append(dict(f, confidence=f.get("confidence", "confirmed"), source="variant", verifier_note=redact_finding_text(str(v.get("note") or ""))[:300]))
         else: open_.append((f, "unclear"))
-    (D / "variants.jsonl").write_text("".join(json.dumps(scrub(x), ensure_ascii=False) + "\n" for x in kept))
+    (D / "variants.jsonl").write_text("".join(json.dumps(scrub(x), ensure_ascii=False) + "\n" for x in kept), encoding="utf-8")
     md = ["# Variants (the variant hunt; listed apart, never in the main counts)", ""]
     if by_hand: md += [f"DEGRADED: verdicts not saved by the verifier's stop hook (written or edited outside .critic/verdicts-variants/): {', '.join(by_hand[:8])}", ""]
     md += [f"Confirmed by blind verification: {len(kept)}" + (f" ({sum(x['confidence'] == 'likely' for x in kept)} of them likely: a downgrade was ignored)" if any(x["confidence"] == "likely" for x in kept) else "")]

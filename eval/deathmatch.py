@@ -29,6 +29,7 @@ there and on the planted suites, is UNLABELLED until someone labels it in RUN_DI
 n>": "real"|"false"}), and precision is NOT MEASURED while any are unlabelled: nothing is guessed. A run that failed,
 timed out or wrote nothing is shown with its error and scored NOT MEASURED, never as a clean result. Cost, tokens and wall
 time come from Claude Code's own JSON result. Results: RUN_DIR/results.json and RUN_DIR/report.md."""
+import os as _os, sys as _sys; _sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__))); import utf8io  # UTF-8 output on Windows too (03 §5.57 item 20)
 import json, os, pathlib, re, shutil, subprocess, sys, tempfile, time
 
 HERE = pathlib.Path(__file__).resolve().parent
@@ -37,7 +38,7 @@ import keymatch, plant_keys
 PLUGIN = HERE.parent / "plugin"
 CFG = HERE / "deathmatch.json"
 
-def load_cfg(): return json.loads(CFG.read_text())
+def load_cfg(): return json.loads(CFG.read_text(encoding="utf-8"))
 
 def pick(items, names):
     if not names: return items
@@ -86,7 +87,7 @@ def blocks_for(arm_dir):
     the arm wrote nothing at all."""
     fj = arm_dir / "findings.jsonl"
     if fj.exists():
-        rows = [json.loads(x) for x in fj.read_text().splitlines() if x.strip()]
+        rows = [json.loads(x) for x in fj.read_text(encoding="utf-8").splitlines() if x.strip()]
         out = []
         for r in rows:
             at = f"{r.get('file', '')}:{r.get('line')}" if r.get("line") not in (None, "") else str(r.get("file", ""))
@@ -94,10 +95,10 @@ def blocks_for(arm_dir):
                         "claim": f"{at} {r.get('title', '')}. {r.get('evidence', '')} {r.get('failing_case', '')}"})  # all it says is wrong, never its fix: the same as a free-form arm's item minus its Fix: line
         return out
     md = arm_dir / "output.md"
-    if not md.exists() or not md.read_text().strip(): return None
-    js = json_findings(md.read_text())
+    if not md.exists() or not md.read_text(encoding="utf-8").strip(): return None
+    js = json_findings(md.read_text(encoding="utf-8"))
     if js is not None: return js
-    return [{"loc": b, "claim": FIX_strip(b)} for b in blocks_from(md.read_text())]
+    return [{"loc": b, "claim": FIX_strip(b)} for b in blocks_from(md.read_text(encoding="utf-8"))]
 
 def json_findings(text):
     """A reply that is a JSON list of findings ({file, line, summary or title, failure_scenario ...}), as Claude Code's
@@ -143,7 +144,7 @@ def score_task(task, blocks, labels, prefix):
         fa = [i for i, b in enumerate(blocks) if lab(i) == "false" or (CITES.search(b["loc"]) and lab(i) is None)]  # labelled trivial (true but minor) or none (not a finding) is no false alarm
         unl = [i for i, b in enumerate(blocks) if i not in fa and lab(i) is None]
         return {"false_alarms": len(fa), "blocks": len(blocks), "unlabelled": len(unl), "precision": None if unl else (f"0 of {len(fa)}" if fa else "no findings")}
-    plants = plants_of(json.loads((HERE / task["key"]).read_text()))
+    plants = plants_of(json.loads((HERE / task["key"]).read_text(encoding="utf-8")))
     hit = match_plants(plants, blocks); used = set(hit.values())
     unl = [i for i in range(len(blocks)) if i not in used and f"{prefix}/{i}" not in labels]
     real = sum(1 for i in range(len(blocks)) if i not in used and labels.get(f"{prefix}/{i}") == "real")
@@ -153,27 +154,27 @@ def score_task(task, blocks, labels, prefix):
 
 def score(run_dir):
     run_dir = pathlib.Path(run_dir); cfg = load_cfg()
-    labels = json.loads((run_dir / "labels.json").read_text()) if (run_dir / "labels.json").exists() else {}
+    labels = json.loads((run_dir / "labels.json").read_text(encoding="utf-8")) if (run_dir / "labels.json").exists() else {}
     tasks = {t["id"]: t for t in cfg["tasks"]}; res = []
     for arm_dir in sorted(p for p in run_dir.iterdir() if p.is_dir()):
         for td in sorted(p for p in arm_dir.iterdir() if p.is_dir()):
             tid = td.name.split("~")[0]
             if tid not in tasks: continue
-            meta = json.loads((td / "meta.json").read_text()) if (td / "meta.json").exists() else {}
+            meta = json.loads((td / "meta.json").read_text(encoding="utf-8")) if (td / "meta.json").exists() else {}
             blocks = blocks_for(td)
             out = td / "output.md"
-            err = failed(meta, out.read_text(errors="replace") if out.exists() else "") or (None if blocks is not None else "no output")
+            err = failed(meta, out.read_text(errors="replace", encoding="utf-8") if out.exists() else "") or (None if blocks is not None else "no output")
             if err: r = {"recall": "NOT MEASURED", "found": None, "precision": None, "false_alarms": None if tasks[tid].get("clean") else "-", "unlabelled": "-"}  # a failed run is never a clean result
             else: r = score_task(tasks[tid], blocks, labels, f"{arm_dir.name}/{td.name}")
             r.update(arm=arm_dir.name, task=td.name, cost_usd=meta.get("total_cost_usd"), wall_s=meta.get("wall_s"), tokens=meta.get("tokens"), error=err)
             res.append(r)
-    (run_dir / "results.json").write_text(json.dumps(res, indent=1))
+    (run_dir / "results.json").write_text(json.dumps(res, indent=1), encoding="utf-8")
     md = ["# Death match results", "", "One scorer for every arm. Precision is NOT MEASURED while any block is unlabelled.", "",
           "| Arm | Task | Recall | False alarms (clean twin) | Unlabelled | Precision | Cost (USD) | Tokens | Wall (s) | Error |", "|---|---|---|---|---|---|---|---|---|---|"]
     for r in res:
         fa = r.get("false_alarms", "-"); fa = "NOT MEASURED" if fa is None else fa
         md.append(f"| {r['arm']} | {r['task']} | {r.get('recall', '-')} | {fa} | {r.get('unlabelled', '-')} | {r.get('precision') or 'NOT MEASURED' if 'precision' in r else '-'} | {r.get('cost_usd') if r.get('cost_usd') is not None else '?'} | {r.get('tokens') or '?'} | {r.get('wall_s') or '?'} | {(r.get('error') or '').replace('|', '/')[:80]} |")
-    (run_dir / "report.md").write_text("\n".join(md) + "\n")
+    (run_dir / "report.md").write_text("\n".join(md) + "\n", encoding="utf-8")
     print("\n".join(md)); return 0
 
 def plan(arms, tasks):
@@ -187,7 +188,7 @@ def plan(arms, tasks):
 def installed_plugins():
     """Every plugin Claude Code would load here (name@marketplace). Each arm runs with all of them switched off except
     its own, so no arm borrows another reviewer (a synced copy of Curmudgeon, say) without anyone noticing."""
-    try: out = subprocess.run(["claude", "plugin", "list"], capture_output=True, text=True, timeout=60).stdout
+    try: out = subprocess.run(["claude", "plugin", "list"], capture_output=True, text=True, timeout=60, encoding="utf-8").stdout
     except (OSError, subprocess.TimeoutExpired): return []
     return sorted(set(re.findall(r"^\s*>\s*(\S+@\S+)", out, re.M)))
 
@@ -195,8 +196,8 @@ def one_run(a, w, td, model):
     """One arm on one task in the work folder w; returns its meta (an error is recorded, never raised past here except
     a timeout, which the caller records)."""
     if a.get("command"):
-        r = subprocess.run(a["command"], shell=True, cwd=w, capture_output=True, text=True, timeout=1800, env=dict(os.environ, DM_EVAL=str(HERE)))
-        (td / "output.md").write_text(r.stdout); meta = {"exit": r.returncode}
+        r = subprocess.run(a["command"], shell=True, cwd=w, capture_output=True, text=True, timeout=1800, env=dict(os.environ, DM_EVAL=str(HERE)), encoding="utf-8")
+        (td / "output.md").write_text(r.stdout, encoding="utf-8"); meta = {"exit": r.returncode}
         if r.returncode not in (0, 1): meta["error"] = f"exit {r.returncode}: {(r.stderr or '')[-200:]}"
         return meta
     prompt = a["prompt"].replace("{plugin}", str(PLUGIN))  # an arm given part of Curmudgeon's material names it here (03 §5.56 item 20)
@@ -210,10 +211,10 @@ def one_run(a, w, td, model):
         cmd += ["--plugin-dir", str(d)]
     keep = set(a.get("plugin_enable") or [])
     cmd += ["--settings", json.dumps({"enabledPlugins": {p: (p in keep) for p in PLUGINS}})]
-    r = subprocess.run(cmd, cwd=w, capture_output=True, text=True, timeout=3600, stdin=subprocess.DEVNULL)
+    r = subprocess.run(cmd, cwd=w, capture_output=True, text=True, timeout=3600, stdin=subprocess.DEVNULL, encoding="utf-8")
     try:
         j = json.loads(r.stdout); u = j.get("usage") or {}
-        (td / "output.md").write_text(str(j.get("result") or ""))
+        (td / "output.md").write_text(str(j.get("result") or ""), encoding="utf-8")
         qc = quote_filter(td, w) if a.get("quote_check") else {}
         return {**qc, "total_cost_usd": j.get("total_cost_usd"), "tokens": sum(int(u.get(x) or 0) for x in ("input_tokens", "cache_creation_input_tokens", "cache_read_input_tokens", "output_tokens")),
                 "is_error": j.get("is_error"), "num_turns": j.get("num_turns"), "agents_launched": agents_launched(w),
@@ -224,7 +225,7 @@ def quote_filter(td, w):
     """For an arm that is plain Claude plus Curmudgeon's quote check (03 §5.56 item 20): read the reply's JSON list of
     findings, keep those whose quote is at their file:line by the plugin's own quote_check, and score only those. The
     reply as given is kept in output-raw.md. A reply with no JSON list is scored as it is, and says so."""
-    raw = (td / "output.md").read_text(); (td / "output-raw.md").write_text(raw)
+    raw = (td / "output.md").read_text(encoding="utf-8"); (td / "output-raw.md").write_text(raw, encoding="utf-8")
     blocks = re.findall(r"```(?:json)?\s*\n(.*?)```", raw, re.S) or [raw]
     rows = None
     for b in reversed(blocks):
@@ -236,7 +237,7 @@ def quote_filter(td, w):
     sys.path.insert(0, str(PLUGIN / "skills" / "review" / "scripts"))
     import importlib, critic_findings; importlib.reload(critic_findings)
     kept = [r for r in rows if isinstance(r, dict) and critic_findings.quote_check(r, w) is True]
-    (td / "output.md").write_text("```json\n" + json.dumps(kept, indent=1, ensure_ascii=False) + "\n```\n")
+    (td / "output.md").write_text("```json\n" + json.dumps(kept, indent=1, ensure_ascii=False) + "\n```\n", encoding="utf-8")
     return {"quote_check": f"kept {len(kept)} of {len(rows)}", "quote_dropped": len(rows) - len(kept)}
 
 def agents_launched(work, root=None):
@@ -252,7 +253,7 @@ def agents_launched(work, root=None):
     if not files: return None
     n = 0
     for f in files:
-        for line in f.read_text(errors="replace").splitlines():
+        for line in f.read_text(errors="replace", encoding="utf-8").splitlines():
             try: rec = json.loads(line)
             except ValueError: continue
             content = (rec.get("message") or {}).get("content") if isinstance(rec, dict) else None
@@ -279,7 +280,7 @@ def one_job(a, t, k, repeat, out, model):
         meta["wall_s"] = round(time.time() - t0, 1)
         for f_ in ("findings.jsonl", "last-review.md"):
             if (w / ".critic" / f_).exists(): shutil.copy2(w / ".critic" / f_, td / f_)
-        (td / "meta.json").write_text(json.dumps(meta, indent=1))
+        (td / "meta.json").write_text(json.dumps(meta, indent=1), encoding="utf-8")
     return f"done {a['id']} / {td.name} ({meta.get('wall_s')} s)" + (f" error: {str(meta['error'])[:80]}" if meta.get("error") else "")
 
 VOID = re.compile(r"(?i)usage limit|rate.?limit|limit reached|hit your [\w -]*limit|\b429\b|overloaded|credit balance|quota")
@@ -314,7 +315,7 @@ def run(arms, tasks, model, repeat, parallel=1):
     PLUGINS[:] = installed_plugins()
     out = HERE / "runs" / time.strftime("%Y-%m-%d-%H%M%S"); out.mkdir(parents=True)
     (out / "run.json").write_text(json.dumps({"model": model, "repeat": repeat, "plugin": str(PLUGIN), "arms": [a["id"] for a in arms],
-                                               "tasks": [t["id"] for t in tasks], "plugins_off": PLUGINS, "started": time.strftime("%Y-%m-%d %H:%M:%S")}, indent=1))
+                                               "tasks": [t["id"] for t in tasks], "plugins_off": PLUGINS, "started": time.strftime("%Y-%m-%d %H:%M:%S")}, indent=1), encoding="utf-8")
     jobs = []
     for a in arms:
         if a.get("requires") and not shutil.which(a["requires"]): print(f"skip {a['id']}: {a['requires']} not installed"); continue
@@ -331,14 +332,14 @@ def rerun(run_dir, all_errors=False, parallel=1):
     global PLUGIN
     run_dir = pathlib.Path(run_dir)
     if not (run_dir / "run.json").exists(): raise SystemExit(f"{run_dir}: no run.json (a run folder made before 29 Oct 2026); rerun needs the settings it records")
-    info = json.loads((run_dir / "run.json").read_text())
+    info = json.loads((run_dir / "run.json").read_text(encoding="utf-8"))
     PLUGIN = pathlib.Path(info["plugin"]); PLUGINS[:] = info.get("plugins_off") or installed_plugins()
     cfg = load_cfg(); arms = {x["id"]: x for x in cfg["arms"]}; tasks = {x["id"]: x for x in cfg["tasks"]}; jobs = []
     for td in sorted(run_dir.glob("*/*/meta.json")):
-        meta = json.loads(td.read_text()); out = td.parent / "output.md"; reply = out.read_text(errors="replace") if out.exists() else ""
+        meta = json.loads(td.read_text(encoding="utf-8")); out = td.parent / "output.md"; reply = out.read_text(errors="replace", encoding="utf-8") if out.exists() else ""
         if not (voided(meta, reply) or (all_errors and failed(meta, reply))): continue
         arm, name = td.parent.parent.name, td.parent.name; tid, _, k = name.partition("~")
-        with open(run_dir / "voided.jsonl", "a") as f: f.write(json.dumps({"run": f"{arm}/{name}", "voided_by_limit": voided(meta, reply), "meta": meta, "reply_tail": reply[-300:]}) + "\n")
+        with open(run_dir / "voided.jsonl", "a", encoding="utf-8") as f: f.write(json.dumps({"run": f"{arm}/{name}", "voided_by_limit": voided(meta, reply), "meta": meta, "reply_tail": reply[-300:]}) + "\n")
         shutil.rmtree(td.parent); jobs.append((arms[arm], tasks[tid], int(k or 1) - 1))
     with cf.ThreadPoolExecutor(max(1, parallel)) as ex:
         for f in cf.as_completed([ex.submit(one_job, a, t, k, info.get("repeat") or 1, run_dir, info.get("model")) for a, t, k in jobs]): print(f.result(), flush=True)

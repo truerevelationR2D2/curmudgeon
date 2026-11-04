@@ -297,7 +297,7 @@ def downgrade_problem(old, new, reproduced, note, root=None, finding=None, verdi
 
 SARIF_LEVEL = {"Critical": "error", "High": "error", "Medium": "warning", "Low": "note"}
 def plugin_version():
-    try: return json.loads((pathlib.Path(__file__).resolve().parents[3] / ".claude-plugin" / "plugin.json").read_text()).get("version", "unknown")
+    try: return json.loads((pathlib.Path(__file__).resolve().parents[3] / ".claude-plugin" / "plugin.json").read_text(encoding="utf-8")).get("version", "unknown")
     except (OSError, ValueError, IndexError): return "unknown"
 
 def to_sarif(findings, tool="critic", version=None):
@@ -324,7 +324,7 @@ def state_links(root):
     for dirpath, dirs, files in os.walk(d):  # os.walk never follows a link to a folder
         here = pathlib.Path(dirpath); rel = here.relative_to(d).parts
         for name in dirs + files:
-            if (here / name).is_symlink(): bad.append(str((here / name).relative_to(root)))
+            if (here / name).is_symlink(): bad.append((here / name).relative_to(root).as_posix())
         # An agent's own scratch folder (.critic/scratch/<id>/, or an archived one under history/) holds its private copy
         # and notes, and no script writes inside it. A link an agent made there that stays inside that same folder is
         # its own business (reviewers build test repos in their notes); one that reaches out of it is refused.
@@ -339,7 +339,7 @@ def state_links(root):
                         if q.is_symlink():
                             t = os.path.realpath(q); proj = os.path.realpath(root); crit = os.path.realpath(d)
                             dep = (t == proj or t.startswith(proj + os.sep)) and not (t == crit or t.startswith(crit + os.sep))  # a copy's node_modules link to the project's own (workspace.py): no script writes through it
-                            if t != top and not t.startswith(top + os.sep) and not dep: bad.append(str(q.relative_to(root)))
+                            if t != top and not t.startswith(top + os.sep) and not dep: bad.append(q.relative_to(root).as_posix())
                     if len(bad) >= 5: break
             dirs[:] = []; continue
         dirs[:] = [x for x in dirs if not (here / x).is_symlink()]
@@ -542,19 +542,19 @@ def write_manifest(d):
     tampering detectable, not impossible: anyone who can edit the outputs can also rewrite the manifest, which is why
     the manifest also records its own time and the run, and why `integrity` is a check, not a lock."""
     d = pathlib.Path(d); man = {"written": time.strftime("%Y-%m-%d %H:%M:%S"), "files": {}}
-    try: man["run"] = json.loads((d / "ledger.json").read_text()).get("run")
+    try: man["run"] = json.loads((d / "ledger.json").read_text(encoding="utf-8")).get("run")
     except Exception: man["run"] = None
     for name in MANIFEST_FILES:
         p = d / name
         if p.is_file() and not p.is_symlink(): man["files"][name] = hashlib.sha256(p.read_bytes()).hexdigest()
-    if not (d / "manifest.json").is_symlink(): (d / "manifest.json").write_text(json.dumps(man, indent=1) + "\n")
+    if not (d / "manifest.json").is_symlink(): (d / "manifest.json").write_text(json.dumps(man, indent=1) + "\n", encoding="utf-8")
     return man
 
 def check_manifest(d):
     """Files changed, added or removed since the last manifest: [(name, what)]. None when there is no manifest."""
     d = pathlib.Path(d); mp = d / "manifest.json"
     if not mp.is_file() or mp.is_symlink(): return None
-    try: man = json.loads(mp.read_text())
+    try: man = json.loads(mp.read_text(encoding="utf-8"))
     except ValueError: return [("manifest.json", "unreadable")]
     out = []
     for name, h in man.get("files", {}).items():
@@ -623,7 +623,7 @@ def approved_state(root, rel):
     return (read_owner_state(root, "approvals").get("files") or {}).get(rel) == _sha(p)
 
 def is_git_work_tree(root):
-    try: return safegit.run(["rev-parse", "--is-inside-work-tree"], cwd=root, capture_output=True, text=True, timeout=5).stdout.strip() == "true"
+    try: return safegit.run(["rev-parse", "--is-inside-work-tree"], cwd=root, capture_output=True, text=True, timeout=5, encoding="utf-8", errors="replace").stdout.strip() == "true"
     except (OSError, subprocess.SubprocessError): return False
 
 def state_trusted(root, rel):
@@ -641,9 +641,9 @@ def owner_untracked(root, rel):
     r = pathlib.Path(root); c = r / ".critic"
     if c.is_symlink() or not c.is_dir() or (c / ".git").exists(): return False
     try:
-        top = safegit.run(["rev-parse", "--show-toplevel"], cwd=r, capture_output=True, text=True, timeout=5)
+        top = safegit.run(["rev-parse", "--show-toplevel"], cwd=r, capture_output=True, text=True, timeout=5, encoding="utf-8", errors="replace")
         if top.returncode or os.path.normcase(os.path.realpath(top.stdout.strip())) != os.path.normcase(os.path.realpath(r)): return False
-        ls = safegit.run(["ls-files", "-z", "-s", "--", ":(icase).critic"], cwd=r, capture_output=True, text=True, timeout=10)
+        ls = safegit.run(["ls-files", "-z", "-s", "--", ":(icase).critic"], cwd=r, capture_output=True, text=True, timeout=10, encoding="utf-8", errors="replace")
         if ls.returncode: return False
     except (OSError, subprocess.SubprocessError): return False
     want = f".critic/{rel}".casefold()
@@ -658,7 +658,7 @@ def consent_given(root, kind, host=None):
     or "writes". Written by critic_ledger.py consent, which the lead runs after the owner says yes, into the owner's
     own record outside the project; a flag on its own is never consent."""
     j = read_owner_state(root, "consent")
-    try: led = json.loads((pathlib.Path(root) / ".critic" / "ledger.json").read_text())
+    try: led = json.loads((pathlib.Path(root) / ".critic" / "ledger.json").read_text(encoding="utf-8"))
     except (OSError, ValueError): return False
     if not j or j.get("run") != led.get("run") or j.get("started_at") != led.get("started_at") or not led.get("started_at"): return False  # consent is per run (and round)
     if kind == "writes": return j.get("writes") is True
@@ -809,6 +809,19 @@ def warn_tracked_state(root):
               "(your copies stay): git rm -r --cached " + " ".join(sorted({h if h.count('/') == 1 else '/'.join(h.split('/')[:2]) for h in hit})),
               file=sys.stderr)
 
+def kill_tree(pr):
+    """Stop a command and everything it started. POSIX: kill its process group (it was started with
+    start_new_session=True). Windows has no os.killpg or SIGKILL (03 §5.57 item 20): taskkill /T /F stops the tree,
+    and Popen.kill() is the last resort."""
+    try:
+        if hasattr(os, "killpg"):
+            import signal
+            os.killpg(pr.pid, signal.SIGKILL); return
+        subprocess.run(["taskkill", "/F", "/T", "/PID", str(pr.pid)], capture_output=True, timeout=30)
+    except (OSError, subprocess.SubprocessError): pass
+    try: pr.kill()
+    except OSError: pass
+
 def log_run(root, what, detail=""):
     """Append one line to .critic/runlog.jsonl: every script the plugin starts and every outside command it runs, so a
     user can see exactly what ran on their machine. Never fails the caller; trims itself past about 1 MB."""
@@ -837,7 +850,7 @@ def verifier_batches(items, tier, size=VERIFY_BATCH):
     own (SKILL.md step 4.2; ultimate audit Q08: they used to share a batch of five). Shared by critic_run.py next and
     critic_variants.py find, so the two never print different batches (Qodo on PR #14)."""
     def impact(p):
-        try: return json.loads(pathlib.Path(p).read_text()).get("impact")
+        try: return json.loads(pathlib.Path(p).read_text(encoding="utf-8")).get("impact")
         except (OSError, ValueError, AttributeError): return None
     crit = [p for p in items if tier == "full" and impact(p) == "Critical"]
     rest = [p for p in items if p not in crit]

@@ -1,5 +1,6 @@
 """Behaviour tests for a refactored fixture (notes app): corrupted storage, hostile titles, empty state, phone width,
 zoom, labels, a labelled delete button, and unique ids on fast creates."""
+import os as _os, sys as _sys; _sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__))); import utf8io  # UTF-8 output on Windows too (03 §5.57 item 20)
 import json, pathlib, re
 def run(d):
     d = pathlib.Path(d).resolve()

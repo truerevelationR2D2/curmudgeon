@@ -20,12 +20,13 @@ as one line, a new file whole. Reviewers can still open whole files in their cop
 spans hunks could be missed; Ryan's A/B run on the kit decides whether it becomes the default."""
 import json, os, pathlib, random, sys, re
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+import utf8io  # UTF-8 output on Windows too (03 §5.57 item 20)
 
 HERE = pathlib.Path(__file__).resolve().parent
 ROOT = pathlib.Path(os.environ.get("CRITIC_ROOT") or re.sub(r"[\\/]\.critic[\\/]scratch(?:[\\/].*)?$", "", os.getcwd()) or os.getcwd()).resolve(); D = ROOT / ".critic"
 
 def load(p, default):
-    try: return json.loads(p.read_text()) if p.is_file() and not p.is_symlink() else default
+    try: return json.loads(p.read_text(encoding="utf-8")) if p.is_file() and not p.is_symlink() else default
     except (OSError, ValueError): return default
 
 def order_for(letter, files, run):

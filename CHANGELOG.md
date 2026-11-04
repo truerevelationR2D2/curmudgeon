@@ -2,6 +2,41 @@
 
 Every release of Curmudgeon, newest first. The repository's history starts at 4.2.1; earlier versions are summarised from the project's own build and review records. Numbers are the ones measured at the time; the README's Benchmarks section has the current ones and how they were measured.
 
+## Unreleased: native Windows and macOS (03 §5.57 item 20)
+
+**Qodo on #27** (eight findings, each with a test that fails on the code before it, "Qodo on #27"):
+- **Reviewers' guard (High):** `r = '\x2f'; os.listdir(r)` got past the guard again after the #25 change. The rule is now the one Qodo proposed. Code that lists folders and also builds characters as it runs is refused, unless every built character is clearly harmless (`chr` or `fromCharCode` of codes that are neither `/` nor `\`). That covers a name, a tuple, a loop, a return value and a keyword, and an unrelated `chr(65)` still runs.
+- A path written out from the agent's own folder that stays inside it (`<own>/notes/../notes/out.txt`) is no longer refused.
+- Every Curmudgeon agent's PowerShell and Monitor commands are refused, the detector's included, so the owner-consent tripwire can't be skipped through PowerShell.
+- The Windows folder dialog writes its path as UTF-8.
+- The stop gate decodes git's file list with `surrogateescape`, so a name that isn't UTF-8 keeps its bytes.
+- The CI probe uses PowerShell 5.1 syntax, not `||`.
+- The link test reports SKIP where links can't be made, such as Windows without Developer Mode.
+
+- **Text encoding.** On native Windows, Python reads and writes text in the ANSI code page (cp1252) unless told otherwise. That includes a hook's output to Claude Code, which goes through a pipe. A report line with an arrow or an accented name crashed there, and the Windows CI job stopped after 305 of 396 tests (run 41749011233, still shown as passed because the job may fail). Every text read, write and subprocess call in the plugin, the eval kit and the tests now names `encoding="utf-8"`: 959 calls, added by a rewriter that edits the parsed code and touches nothing else. Every entry script imports `utf8io.py`, which switches stdout and stderr to UTF-8. One file sits in `hooks/`, `skills/review/scripts/` and `eval/`, the same in each. Tests: no text I/O call may omit its encoding, and a script printing non-ASCII text to a cp1252 pipe doesn't crash. On Linux and macOS, which already default to UTF-8, nothing changes.
+- **Paths with `/`.** A project-relative path was written with `str()`, which gives `src\a.js` on Windows. 36 places now use `.as_posix()`, so reports, ledgers and finding ids match across platforms. A test refuses `str(... .relative_to(...))`.
+- **Stopping a hung command.** Windows has no `os.killpg`, `signal.SIGKILL` or `signal.SIGHUP`, and the mutation and project-check runners raised on them. `kill_tree()` uses the process group where there is one and `taskkill /T /F` on Windows. The mutation run registers only the signals the platform has.
+- **Line endings.** A `.gitattributes` checks text out with LF on every platform, so a Windows checkout has the bytes the hash and fixture tests compare.
+- **The reviewers' guard through a link.** On macOS, `/var` is `/private/var`, and an honest heredoc writing to the agent's own notes through the unresolved path was refused, because the guard removed only the resolved spelling of the agent's folder (the macOS CI job's one failure). Every spelling is now removed. Reads of the project's records stay refused either way.
+- **PowerShell and Monitor.** On Windows without Git Bash, Claude Code turns the PowerShell tool on by itself, and its docs say hooks that inspect shell commands should match `Bash|PowerShell`. The reviewers' tool lists don't include PowerShell. As a second line of defence, the guard now also watches PowerShell and Monitor and refuses them for reviewers and verifiers, since it reads bash only.
+- **Blind review of these fixes** (two reviewers; their findings are fixed with failing-first tests):
+  - The guard now treats `..` in code that names the agent's own folder, in any spelling, as a climb, and removes that folder's path only up to a boundary. Stripping the link spelling had let code start there and climb to the review records. A version of the climb from the resolved spelling was older than this change. The agent `r1` no longer covers `scratch/r10`.
+  - `utf8io` reconfigures stdin too. With Python's default at cp1252, a hook reading Claude Code's input for a project under `Ásgeir` failed to decode and let the call through.
+  - Output from outside programs (project checks, git, PowerShell's folder dialog) is decoded as UTF-8 with `errors="replace"`, so a tool writing in its own code page can't stop the run. File reads stay strict, because the scanners rely on that.
+  - The WSL2 job copies the checkout from `$PWD` and runs with `pipefail`.
+- **First CI results** (#27, before Qodo's fixes): macOS passed 404 of 404 and WSL2 passed 404 of 404, 11 skipped each. Native Windows passed 371 of 404, up from a crash at test 305. Python probe: `python3`, `python` and `py -3` all ran in Git Bash, PowerShell 5.1 and PowerShell 7, both on the runner and on the owner's machine (Python 3.13), so the hooks keep `python3` (03 §5.57 item 22).
+- **Windows follow-ups:**
+  - The stop gate's message and the copy's record (links, dependency folders) wrote `src\b.py`, so they now use `/`.
+  - The test runner gives the guard commands in the form Git Bash needs (`C:/Users/...`). An unquoted `C:\Users\...` is broken by the shell before any program sees it.
+  - The 0700 check on restore copies runs only where POSIX modes exist. On native Windows, the folder's ACL decides who can read them.
+- **WSL2 in CI.** A job runs the script tests, golden and replays in Ubuntu 24.04 on WSL2 (`Vampire/setup-wsl` v7.2.0, pinned by commit). It isn't a required check until it has passed five runs in a row.
+
+## Unreleased: Qodo on #25
+
+Four findings. Each has a test that fails on the code before it (`plugin/tests/cases_8.py`, "Qodo on #22" tests (1) and (6)).
+- **Reviewers' guard:** a listing is refused only when its own starting argument is built from character codes or escapes, or names a value that holds the root at that point. An unrelated `chr(65)` elsewhere in the code no longer refuses a listing of the copy. Names are followed in order, statement by statement, so `start = root; start = 'src'; os.walk(start)` runs. `r = chr(47); os.walk(r)` is refused.
+- **Test lens:** a nested `TestCase`'s `test_*`, `setUp` and `__call__` count only when the test hands it to a runner (`loadTestsFromTestCase`, `TestSuite`, `TextTestRunner`, `.run()` and the like). A `TestCase` that is built but never run checks nothing. A nested class's `__init__` counts when the test calls the class.
+
 ## Unreleased: Qodo on #24
 
 Four findings, plus the run-time root from #23 under the owner's ruling that a bypass found in the code is patched (03 §5.57 item 18). Each comes with a test that fails on the code before it (`plugin/tests/cases_8.py`, "Qodo on #22" tests (1) and (6)).

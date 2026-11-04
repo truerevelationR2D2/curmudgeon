@@ -21,7 +21,7 @@ def mirror(root, n=6):
             for i in range(n):
                 z.writestr(f"GHSA-{eco}-{i}.json", json.dumps({"id": f"GHSA-{eco}-{i}", "aliases": ["CVE-2099-0001"] if i == 0 else [],
                     "affected": [{"package": {"ecosystem": eco, "name": f"pkg{i}"}, "versions": ["1.0.0"]}]}))
-    (root / "mirror" / "kev.json").write_text(json.dumps({"vulnerabilities": [{"cveID": "CVE-2099-0001"}]}))
+    (root / "mirror" / "kev.json").write_text(json.dumps({"vulnerabilities": [{"cveID": "CVE-2099-0001"}]}), encoding="utf-8")
     os.environ["CURMUDGEON_FEED_OSV"] = (root / "mirror").as_uri(); os.environ["CURMUDGEON_FEED_KEV"] = (root / "mirror" / "kev.json").as_uri()
 
 def switch_on(sf, folder):

@@ -63,13 +63,13 @@ def escaping_link(folder, root):
         except OSError: continue
         for e in it:
             seen += 1
-            if seen > ESCAPE_SCAN_MAX: return f"{os.path.relpath(folder, root)} (too large to check)"
+            if seen > ESCAPE_SCAN_MAX: return f"{os.path.relpath(folder, root).replace(os.sep, '/')} (too large to check)"
             if e.is_symlink():
                 try: real = pathlib.Path(e.path).resolve()
                 except (OSError, RuntimeError): continue
                 if within(real, rt): continue
                 if os.path.basename(os.path.dirname(e.path)) in ("bin", "Scripts") and re.match(r"^(python|pypy)[\d.]*(\.exe)?$", real.name, re.I): continue
-                return os.path.relpath(e.path, root)
+                return os.path.relpath(e.path, root).replace(os.sep, "/")
             elif e.is_dir(follow_symlinks=False): stack.append(e.path)
     return None
 MAX_FILE = 5 * 1024 * 1024
@@ -106,7 +106,7 @@ def record(root, agent_id):
     p = h / "workspace.json"
     try:
         if p.is_symlink() or not p.is_file(): return None
-        j = json.loads(p.read_text())
+        j = json.loads(p.read_text(encoding="utf-8"))
     except (OSError, ValueError): return None
     if not isinstance(j, dict) or fold(j.get("payload", "")) != fold(h.resolve() / "payload"): return None
     return j
@@ -133,7 +133,7 @@ def _link_target(src, root):
     return str(real)  # outside the project: its real target (a relative one would dangle from the copy's depth)
 
 def _git(root, *a, timeout=60):
-    try: return safegit.run([*a], cwd=root, capture_output=True, text=True, timeout=timeout)
+    try: return safegit.run([*a], cwd=root, capture_output=True, text=True, timeout=timeout, encoding="utf-8", errors="replace")
     except (OSError, subprocess.SubprocessError): return None
 
 def _git_files(root):
@@ -185,7 +185,7 @@ def _own_repo(root, payload):
                     if wt and not wt.returncode and wt.stdout.strip():
                         env = dict(os.environ, GIT_AUTHOR_NAME="reviewed code", GIT_AUTHOR_EMAIL="reviewer@example.invalid", GIT_COMMITTER_NAME="reviewed code",
                                    GIT_COMMITTER_EMAIL="reviewer@example.invalid", GIT_AUTHOR_DATE="2000-01-01T00:00:00Z", GIT_COMMITTER_DATE="2000-01-01T00:00:00Z")
-                        c = safegit.run(["commit-tree", wt.stdout.strip(), "-m", "base"], cwd=payload, capture_output=True, text=True, timeout=60, env=env)
+                        c = safegit.run(["commit-tree", wt.stdout.strip(), "-m", "base"], cwd=payload, capture_output=True, text=True, timeout=60, env=env, encoding="utf-8", errors="replace")
                         if not c.returncode and c.stdout.strip():
                             for cmd in (["update-ref", "refs/heads/base", c.stdout.strip()], ["symbolic-ref", "HEAD", "refs/heads/base"], ["reset", "-q"]):  # reset: index = the base commit; the files on disk are the project's working tree
                                 safegit.run(["-c", "core.logAllRefUpdates=false", *cmd], cwd=payload, capture_output=True, timeout=120, env=env)
@@ -199,7 +199,7 @@ def _own_repo(root, payload):
                             return "base"
             except (OSError, subprocess.SubprocessError, ValueError): pass
             shutil.rmtree(payload / ".git", ignore_errors=True)
-    (payload / ".git").write_text("gitdir: .git-none-curmudgeon-copy\n")  # stops git walking up into the project's repository
+    (payload / ".git").write_text("gitdir: .git-none-curmudgeon-copy\n", encoding="utf-8")  # stops git walking up into the project's repository
     return kind
 
 def make(root, agent_id):
@@ -211,14 +211,14 @@ def make(root, agent_id):
     if payload.is_symlink(): payload.unlink()
     elif payload.exists(): shutil.rmtree(payload, ignore_errors=True)
     payload.mkdir(); notes.mkdir(exist_ok=True)
-    (h / ".git").write_text("gitdir: .git-none-curmudgeon-agent\n")  # git run from notes/ (or here) stops here, never reaching the project's repository
+    (h / ".git").write_text("gitdir: .git-none-curmudgeon-agent\n", encoding="utf-8")  # git run from notes/ (or here) stops here, never reaching the project's repository
     rec = {"payload": str(payload.resolve()), "notes": str(notes.resolve()), "root": str(root), "made_at": time.time(), "building": True}
-    (h / "workspace.json").write_text(json.dumps(rec, indent=1))
+    (h / "workspace.json").write_text(json.dumps(rec, indent=1), encoding="utf-8")
     st = {"files": 0, "bytes": 0, "partial": False, "skipped_large": [], "links_skipped": [], "outside_links": [], "nested": [], "deps_not_linked": []}
 
     def link_deps(src, dst, rel):
         """A dependency folder is linked whole only when nothing inside it leads outside the project (round 3, F-bae6a123)."""
-        bad = escaping_link(src, root)
+        rel = str(rel).replace(os.sep, "/"); bad = escaping_link(src, root)
         if bad: st["deps_not_linked"].append(f"{rel} (a link inside leads outside the project: {bad})"); return
         link(src, dst, rel)
 
@@ -228,6 +228,7 @@ def make(root, agent_id):
 
     def put(rel):
         """Copy one project file (or link) at rel. False once the budget is spent."""
+        rel = str(rel).replace(os.sep, "/")  # the record lists src/a.js on Windows too (03 §5.57 item 20)
         src = root / rel; dst = payload / rel
         if run_output(rel): return True
         if nested_ledger(rel) and os.path.isfile(src) and not os.path.islink(src):  # the owner's rulings only: an earlier run's findings, dismissals and memories stay out (round 2 review)
@@ -295,7 +296,7 @@ def make(root, agent_id):
     except OSError: rec["git"] = "stub-failed"
     for k in ("skipped_large", "links_skipped", "outside_links", "nested", "deps_not_linked"): st[k] = st[k][:200]
     rec.update(st); rec.pop("building", None)
-    (h / "workspace.json").write_text(json.dumps(rec, indent=1))
+    (h / "workspace.json").write_text(json.dumps(rec, indent=1), encoding="utf-8")
     return rec
 
 def remove(root, agent_id):

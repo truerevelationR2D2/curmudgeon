@@ -35,6 +35,7 @@ With --gate (at least 2 runs): FAIL when precision, recall or impact misses are 
 in most runs, when any run flags more decoys at Medium or above than the baseline (strict floor), when any clean-twin
 run says BLOCK (strict floor), or when tokens rise more than 10% with no metric better; NOT MEASURED with fewer than 2
 runs, an answer-key leak, or a baseline without counts for a metric. Exit 0 PASS, 1 FAIL, 2 bad usage, 3 NOT MEASURED, 4 the scorer itself crashed."""
+import os as _os, sys as _sys; _sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__))); import utf8io  # UTF-8 output on Windows too (03 §5.57 item 20)
 import hashlib, json, math, os, pathlib, re, statistics, subprocess, sys, traceback
 def _crash(t, v, tb):  # a crash must never look like a gate verdict: FAIL is 1, a crash is 4
     traceback.print_exception(t, v, tb); sys.stderr.flush(); sys.stdout.flush(); os._exit(4)
@@ -49,7 +50,7 @@ def opt(name, default=None): return args[args.index(name) + 1] if name in args a
 FLAGS_WITH_VALUE = {"--suite", "--refactored", "--baseline", "--clean", "--refutations", "--model", "--labeller", "--funnel", "--labels", "--plugin"}
 reviews = [a for i, a in enumerate(args) if not a.startswith("--") and (i == 0 or args[i - 1] not in FLAGS_WITH_VALUE)]
 if not reviews and "--label" not in args and "--refutations" not in args and "--selftest" not in args and "--funnel" not in args: print(__doc__); sys.exit(2)
-LABELS = pathlib.Path(opt("--labels", HERE / "fp_labels.json")); labels = json.loads(LABELS.read_text()) if LABELS.exists() else {}
+LABELS = pathlib.Path(opt("--labels", HERE / "fp_labels.json")); labels = json.loads(LABELS.read_text(encoding="utf-8")) if LABELS.exists() else {}
 
 def load(path):
     p = pathlib.Path(path)
@@ -58,7 +59,7 @@ def load(path):
     fj = p.parent / "findings.jsonl"
     rows = []
     if fj.exists():
-        for line in fj.read_text().splitlines():
+        for line in fj.read_text(encoding="utf-8").splitlines():
             if line.strip(): rows.append(json.loads(line))
     blocks = re.split(r"\n(?=\s*[-*]?\s*\*\*[CUADL]\d+\*\*|\s*[-*]?\s*L\d+\s|#{2,4} )", text)
     if rows:  # one block per structured finding: its fields joined, so matching sees the same words the teardown shows
@@ -85,7 +86,7 @@ def strict_mode(suite_key):
     beside it; --set-baseline always records strictly."""
     if "--set-baseline" in args: return True
     bfp = pathlib.Path(opt("--baseline", HERE / "baseline.json"))
-    try: b_ = json.loads(bfp.read_text()).get(suite_key) if bfp.exists() else None
+    try: b_ = json.loads(bfp.read_text(encoding="utf-8")).get(suite_key) if bfp.exists() else None
     except ValueError: b_ = None
     return not b_ or b_.get("scoring") == "strict"
 
@@ -99,10 +100,10 @@ def rate(k, n): lo, hi = wilson(k, n); return f"{k / n:.0%} ({lo:.0%}-{hi:.0%}, 
 PLUGIN = pathlib.Path(opt("--plugin", HERE.parent / "plugin"))  # --plugin: the build that ran (an A/B arm), so the stamp names it, not this checkout
 def stamp():
     """What produced this result: plugin version, git SHA (dirty or clean), model, prompt files' hash, labeller."""
-    try: version = json.loads((PLUGIN / ".claude-plugin" / "plugin.json").read_text()).get("version")
+    try: version = json.loads((PLUGIN / ".claude-plugin" / "plugin.json").read_text(encoding="utf-8")).get("version")
     except Exception: version = None
     def git(*a):
-        try: return subprocess.run(["git", *a], cwd=PLUGIN.parent, capture_output=True, text=True, timeout=10).stdout.strip()
+        try: return subprocess.run(["git", *a], cwd=PLUGIN.parent, capture_output=True, text=True, timeout=10, encoding="utf-8").stdout.strip()
         except (OSError, subprocess.TimeoutExpired): return ""
     files = sorted(list((PLUGIN / "agents").glob("*.md")) + list((PLUGIN / "skills").glob("*/SKILL.md")) + list((PLUGIN / "skills" / "review" / "references").glob("*.md")))
     h = hashlib.sha256()
@@ -131,13 +132,13 @@ def run_tokens(path):
     p = pathlib.Path(path).resolve()
     if "--meta-cost" in args:
         run_dir = p.parent.parent if p.parent.name == ".critic" else p.parent
-        try: c = json.loads((run_dir / "meta.json").read_text()).get("cost_usd")
+        try: c = json.loads((run_dir / "meta.json").read_text(encoding="utf-8")).get("cost_usd")
         except (OSError, ValueError): return None
         return round(c * 1e6) if isinstance(c, (int, float)) else None
     cf = (p.parent if p.parent.name == ".critic" else p.parent / ".critic") / "cost.jsonl"
     if not cf.is_file(): return None
     rows = []
-    for line in cf.read_text().splitlines():
+    for line in cf.read_text(encoding="utf-8").splitlines():
         try: rows.append(json.loads(line))
         except ValueError: continue
     if not rows: return None
@@ -226,12 +227,12 @@ def area_of(text):
 def score_one(path, suite):
     keyf = HERE / ("answer_key.json" if suite == "1" else f"answer_key{suite}.json")
     if not keyf.exists(): print(f"score.py: no answer key for suite {suite}"); sys.exit(2)
-    key = json.loads(keyf.read_text()); review, rows, blocks = load(path)
+    key = json.loads(keyf.read_text(encoding="utf-8")); review, rows, blocks = load(path)
     counted_rows = list(rows)  # the contract check (verdict counts) sees counted findings only
     nf = pathlib.Path(path).parent / "nits.jsonl"  # SC-79: Nits are listed, never counted. A planted bug found only there still
     first_nit = len(rows)                          # counts as found (an impact miss when it was planted Critical or High),
     if nf.is_file() and (pathlib.Path(path).parent / "findings.jsonl").is_file():  # and an unmatched Nit is judged for precision like any finding (audit V38)
-        for line in nf.read_text().splitlines():
+        for line in nf.read_text(encoding="utf-8").splitlines():
             if line.strip(): r = json.loads(line); r["impact"] = "Nit"; rows.append(r)
         blocks = [" ".join(str(r.get(k, "")) for k in ("file", "line", "category", "title", "quote", "evidence", "failing_case", "remediation")) for r in rows]
     nit_idx = set(range(first_nit, len(rows))) if len(rows) > first_nit else set()
@@ -239,7 +240,7 @@ def score_one(path, suite):
     imp = {i: r.get("impact") for i, r in enumerate(rows)} if rows else None
     strict_hits, _ = match_key(key, claims, locs, imp); loose_hits, _ = match_key(key, claims, None, imp)
     hits, used = match_key(key, claims, locs if strict else None, imp)
-    decoys = json.loads((HERE / f"decoys{suite}.json").read_text()) if (HERE / f"decoys{suite}.json").exists() else {}
+    decoys = json.loads((HERE / f"decoys{suite}.json").read_text(encoding="utf-8")) if (HERE / f"decoys{suite}.json").exists() else {}
     decoy_hits, decoy_detail = [], []
     def claim_of(bi):  # what the finding says is wrong: its title and category (a structured finding), never its evidence
         return f"{rows[bi].get('title', '')} {rows[bi].get('category', '')}" if rows else blocks[bi]
@@ -290,17 +291,17 @@ if "--funnel" in args:
     # reviewer, failed the contract, retracted by the quote check, suppressed by a memory, dropped on votes, refuted or
     # downgraded by a verifier. Reads the run's own .critic/ files; nothing is re-run.
     run_dir = pathlib.Path(opt("--funnel")); C = run_dir / ".critic"; suite = opt("--suite", "1")
-    key = json.loads((HERE / ("answer_key.json" if suite == "1" else f"answer_key{suite}.json")).read_text())
+    key = json.loads((HERE / ("answer_key.json" if suite == "1" else f"answer_key{suite}.json")).read_text(encoding="utf-8"))
     def blk(f): return " ".join(str(f.get(k, "")) for k in ("file", "line", "category", "title", "quote", "evidence", "failing_case", "remediation"))
-    def jl(p): return [json.loads(x) for x in p.read_text().splitlines() if x.strip()] if p.is_file() else []
+    def jl(p): return [json.loads(x) for x in p.read_text(encoding="utf-8").splitlines() if x.strip()] if p.is_file() else []
     def hit(k, rows): return [r for r in rows if keymatch.points_at(k, f"{r.get('file', '')}:{r.get('line')} {r.get('quote', '')}") and (not k["file"] or k["file"].lower() in blk(r).lower()) and any(re.search(x, claims_of([r], [])[0], re.I) for x in k["any"])]
     final = jl(C / "findings.jsonl")
-    tally = json.loads((C / "tally.json").read_text()) if (C / "tally.json").is_file() else {}
+    tally = json.loads((C / "tally.json").read_text(encoding="utf-8")) if (C / "tally.json").is_file() else {}
     raised, aside = [], []
-    try: cur = json.loads((C / "ledger.json").read_text()).get("run")
+    try: cur = json.loads((C / "ledger.json").read_text(encoding="utf-8")).get("run")
     except Exception: cur = None
     for rv in sorted((C / "reviews").glob("review-*.json")):  # this run's reviews only; earlier runs live in history/
-        try: data = json.loads(rv.read_text())
+        try: data = json.loads(rv.read_text(encoding="utf-8"))
         except ValueError: continue
         items = data if isinstance(data, list) else data.get("findings", []) if isinstance(data, dict) else []
         raised += [x for x in items if isinstance(x, dict)]
@@ -337,22 +338,22 @@ if "--selftest" in args:
                 if any(re.search(z, cand, re.I) for z in rx_list): return cand
         return rx_list[0]
     def make(dirp, rows, verdict="**CONCERNS**"):
-        dirp.mkdir(parents=True); (dirp / "last-review.md").write_text(f"# review\n## VERDICT\n{verdict}\n")
-        (dirp / "findings.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows))
+        dirp.mkdir(parents=True); (dirp / "last-review.md").write_text(f"# review\n## VERDICT\n{verdict}\n", encoding="utf-8")
+        (dirp / "findings.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
         return str(dirp / "last-review.md")
     def plants(suite):
-        key = json.loads((HERE / ("answer_key.json" if suite == "1" else f"answer_key{suite}.json")).read_text())
+        key = json.loads((HERE / ("answer_key.json" if suite == "1" else f"answer_key{suite}.json")).read_text(encoding="utf-8"))
         return [{"id": f"F-{i}", "file": (k.get("at") or [[k["file"] or "app.js"]])[0][0] if not k["file"] else k["file"], "line": (k.get("at") or [[None, i + 1]])[0][1], "category": "x", "impact": k.get("impact", "Medium"), "title": sample(k["any"])} for i, (n, k) in enumerate(key.items())]
     checks = []
     with tempfile.TemporaryDirectory() as t:
         t = pathlib.Path(t); bl = t / "baseline.json"; lab = t / "labels.json"
         def go(*a, suite="1", env=None):
             return subprocess.run([sys.executable, str(pathlib.Path(__file__).resolve()), *a, "--suite", suite, "--baseline", str(bl), "--labels", str(lab)],
-                                  capture_output=True, text=True, env=dict(os.environ, **(env or {}))).returncode
+                                  capture_output=True, text=True, env=dict(os.environ, **(env or {})), encoding="utf-8").returncode
         def label(rows, value):
-            cur = json.loads(lab.read_text()) if lab.exists() else {}
+            cur = json.loads(lab.read_text(encoding="utf-8")) if lab.exists() else {}
             for r in rows: cur[lab_key(" ".join(str(r.get(k, "")) for k in ("file", "line", "category", "title", "quote", "evidence", "failing_case", "remediation")))] = value
-            lab.write_text(json.dumps(cur))
+            lab.write_text(json.dumps(cur), encoding="utf-8")
         good = plants("1")
         g = [make(t / f"good{i}", good) for i in range(3)]
         checks.append(("baseline recorded", go(*g, "--set-baseline") == 0))
@@ -368,24 +369,24 @@ if "--selftest" in args:
         guesses = []  # audit V38: a review that files its guesses as Nits gets no free pass on precision
         for i in range(3):
             pth = make(t / f"nits{i}", good)
-            (t / f"nits{i}" / "nits.jsonl").write_text("".join(json.dumps(dict(r, id=f"N-{j}", impact="Nit")) + "\n" for j, r in enumerate(bogus)))
+            (t / f"nits{i}" / "nits.jsonl").write_text("".join(json.dumps(dict(r, id=f"N-{j}", impact="Nit")) + "\n" for j, r in enumerate(bogus)), encoding="utf-8")
             guesses.append(pth)
         checks.append(("Nits labelled false FAIL on precision", go(*guesses, "--gate") == 1))
         fresh_n = []
         for i in range(3):
             pth = make(t / f"nitsu{i}", good)
-            (t / f"nitsu{i}" / "nits.jsonl").write_text(json.dumps({"id": "N-x", "file": "app.js", "line": 990, "category": "made-up", "impact": "Nit", "title": "an unlabelled guess filed as a Nit"}) + "\n")
+            (t / f"nitsu{i}" / "nits.jsonl").write_text(json.dumps({"id": "N-x", "file": "app.js", "line": 990, "category": "made-up", "impact": "Nit", "title": "an unlabelled guess filed as a Nit"}) + "\n", encoding="utf-8")
             fresh_n.append(pth)
         checks.append(("unlabelled Nits are NOT MEASURED, never PASS", go(*fresh_n, "--gate") == 3))
         checks.append(("one run is NOT MEASURED", go(g[0], "--gate") == 3))
         checks.append(("a crash exits 4, never 1", go(*g, "--gate", env={"CRITIC_SELFTEST_CRASH": "1"}) == 4))
-        d3 = json.loads((HERE / "decoys3.json").read_text()); dn, dk = next(iter(d3.items()))
+        d3 = json.loads((HERE / "decoys3.json").read_text(encoding="utf-8")); dn, dk = next(iter(d3.items()))
         p3 = plants("3"); b3 = [make(t / f"s3good{i}", p3) for i in range(3)]
         go(*b3, "--set-baseline", suite="3")
         decoy = {"id": "D-1", "file": (dk.get("at") or [[dk["file"] or "app.js"]])[0][0], "line": (dk.get("at") or [[0, 1]])[0][1], "category": sample([dk["categories"]]), "impact": "Medium", "title": sample(dk["any"]) + " " + sample([dk["categories"]])}
         checks.append(("one decoy at Medium FAILS at once (strict floor)", go(*[make(t / f"s3decoy{i}", p3 + ([decoy] if i == 0 else [])) for i in range(3)], "--gate", suite="3") == 1))
         clean = [make(t / f"clean{i}", [], verdict="**CLEAN**: nothing here rises to BLOCK.") for i in range(3)]
-        def gc(*a): return subprocess.run([sys.executable, str(pathlib.Path(__file__).resolve()), *a, "--clean", "1", "--baseline", str(bl), "--labels", str(lab)], capture_output=True, text=True).returncode
+        def gc(*a): return subprocess.run([sys.executable, str(pathlib.Path(__file__).resolve()), *a, "--clean", "1", "--baseline", str(bl), "--labels", str(lab)], capture_output=True, text=True, encoding="utf-8").returncode
         gc(clean[0], "--set-baseline")
         checks.append(("a clean verdict that mentions BLOCK PASSES", gc(*clean, "--gate") == 0))
         checks.append(("a clean twin run that says BLOCK FAILS (strict floor)", gc(*[make(t / f"cblock{i}", [], verdict="**BLOCK**") for i in range(3)], "--gate") == 1))
@@ -393,7 +394,7 @@ if "--selftest" in args:
         rc = [make(t / f"creal{i}", realf, verdict="**CONCERNS**") for i in range(3)]
         label(realf, "real"); gc(rc[0], "--set-baseline")
         checks.append(("a clean-twin finding labelled real does not FAIL an unchanged plugin", gc(*rc, "--gate") == 0))
-        leaky = make(t / "leak", good); (t / "leak" / "answer_key.json").write_text("{}")
+        leaky = make(t / "leak", good); (t / "leak" / "answer_key.json").write_text("{}", encoding="utf-8")
         checks.append(("an answer-key leak is NOT MEASURED", go(leaky, g[1], "--gate") == 3))
     for name, ok in checks: print(f"  {'✓' if ok else '✗'} {name}")
     sys.exit(0 if all(ok for _, ok in checks) else 1)
@@ -401,10 +402,10 @@ if "--selftest" in args:
 if "--refutations" in args:
     # the verifier's drops, judged: a refutation labelled "real" means the verifier talked the review out of a real bug
     rp = pathlib.Path(opt("--refutations")); RL = HERE / "refutation_labels.json"
-    rl = json.loads(RL.read_text()) if RL.exists() else {}
-    rows_ = [json.loads(x) for x in rp.read_text().splitlines() if x.strip()] if rp.exists() else []
+    rl = json.loads(RL.read_text(encoding="utf-8")) if RL.exists() else {}
+    rows_ = [json.loads(x) for x in rp.read_text(encoding="utf-8").splitlines() if x.strip()] if rp.exists() else []
     for r_ in rows_: rl.setdefault(f"{r_.get('id')}|{r_.get('kind')}", "unlabelled")
-    RL.write_text(json.dumps(rl, indent=1))
+    RL.write_text(json.dumps(rl, indent=1), encoding="utf-8")
     judged = [v for v in rl.values() if v in ("real", "correct")]
     wrong = sum(1 for v in judged if v == "real")
     print(f"{len(rows_)} refutation(s)/downgrade(s) in {rp.name}; labels in {RL.name} (set each to real = the verifier dropped a real bug, or correct)")
@@ -412,9 +413,9 @@ if "--refutations" in args:
     sys.exit(0)
 
 if "--label" in args:
-    pend = json.loads(UNMATCHED.read_text()) if UNMATCHED.exists() else []
+    pend = json.loads(UNMATCHED.read_text(encoding="utf-8")) if UNMATCHED.exists() else []
     for b in pend: labels.setdefault(lab_key(b), "unlabelled")
-    LABELS.write_text(json.dumps(labels, indent=1)); print(f"{len(pend)} unmatched finding(s) written to {LABELS.name}: set each to real, hallucinated or nitpick"); sys.exit(0)
+    LABELS.write_text(json.dumps(labels, indent=1), encoding="utf-8"); print(f"{len(pend)} unmatched finding(s) written to {LABELS.name}: set each to real, hallucinated or nitpick"); sys.exit(0)
 
 if "--clean" in args:
     review, rows, blocks = load(reviews[0]); cc = clean_counts(reviews[0])
@@ -440,7 +441,7 @@ else:
     lb = r0["labels"]
     for name, want, got in r0["impact_misses"]: print(f"  impact miss: {name[:70]} was planted {want}, rated {got or 'unrated'}")
     print(f"Precision: {rate(r0['tp'], r0['tp'] + r0['fp'])}  (unmatched findings: {len(r0['unmatched'])} — real {lb['real']}, hallucinated {lb['hallucinated']}, nitpick {lb['nitpick']}, unlabelled {lb['unlabelled']})")
-    UNMATCHED.parent.mkdir(parents=True, exist_ok=True); UNMATCHED.write_text(json.dumps(r0["unmatched"]))
+    UNMATCHED.parent.mkdir(parents=True, exist_ok=True); UNMATCHED.write_text(json.dumps(r0["unmatched"]), encoding="utf-8")
     if r0["by_area"]:
         print("Precision by kind of finding (true / judged):")
         for k_, (t_, f_) in sorted(r0["by_area"].items(), key=lambda kv: -(kv[1][0] + kv[1][1])):
@@ -451,7 +452,7 @@ else:
            "recall_k": len(r0["hits"]), "recall_n": len(r0["key"]), "precision_k": r0["tp"], "precision_n": r0["tp"] + r0["fp"],
            "impact_misses": len(r0["impact_misses"]), "decoy_blocking": r0["decoy_blocking"]}
     if suite == "3":
-        nd = max(1, len(json.loads((HERE / "decoys3.json").read_text())))
+        nd = max(1, len(json.loads((HERE / "decoys3.json").read_text(encoding="utf-8"))))
         now["decoy_rate"] = len(r0["decoy_hits"]) / nd
         now["decoy_block_rate"] = sum(1 for d in r0["decoy_detail"] if d[1][1] in ("Critical", "High", "Medium")) / nd
     if len(res) > 1:
@@ -475,9 +476,9 @@ else:
             for k, v in rb.items(): print(f"  {'✓' if v else '✗'} {k}")
     suite_key = f"suite{suite}"
 
-bf = pathlib.Path(opt("--baseline", HERE / "baseline.json")); base = json.loads(bf.read_text()) if bf.exists() else {}
+bf = pathlib.Path(opt("--baseline", HERE / "baseline.json")); base = json.loads(bf.read_text(encoding="utf-8")) if bf.exists() else {}
 st = stamp(); print("Stamp: " + ", ".join(f"{k} {v}" for k, v in st.items()))
-_key = json.loads((HERE / ("answer_key.json" if suite_key == "suite1" else f"answer_key{suite_key[5:]}.json")).read_text()) if suite_key.startswith("suite") and (HERE / ("answer_key.json" if suite_key == "suite1" else f"answer_key{suite_key[5:]}.json")).exists() else None
+_key = json.loads((HERE / ("answer_key.json" if suite_key == "suite1" else f"answer_key{suite_key[5:]}.json")).read_text(encoding="utf-8")) if suite_key.startswith("suite") and (HERE / ("answer_key.json" if suite_key == "suite1" else f"answer_key{suite_key[5:]}.json")).exists() else None
 leaks = {r: leak(r, _key) for r in reviews}; leaks = {r: v for r, v in leaks.items() if v}
 for r, v in leaks.items(): print(f"ANSWER-KEY LEAK in {r}: {', '.join(v)}")
 toks = [run_tokens(r) for r in reviews]
@@ -494,7 +495,7 @@ if "--set-baseline" in args:
     if "--clean" not in args and len(res) > 1: entry["runs"] = [{"precision_k": x["tp"], "precision_n": x["tp"] + x["fp"], "recall_k": len(x["hits"]), "recall_n": len(x["key"]),
                                                                "impact_misses": len(x["impact_misses"]), "decoy_blocking": x["decoy_blocking"]} for x in res]
     if any(t is not None for t in toks): entry["tokens"] = statistics.median([t for t in toks if t is not None])
-    base[suite_key] = entry; bf.write_text(json.dumps(base, indent=1)); print(f"baseline for {suite_key} set: {now}"); sys.exit(0)
+    base[suite_key] = entry; bf.write_text(json.dumps(base, indent=1), encoding="utf-8"); print(f"baseline for {suite_key} set: {now}"); sys.exit(0)
 b = base.get(suite_key, {})
 if "--gate" in args:
     def verdict_(v, why): print(f"GATE: {v}" + ("".join(f"\n  - {w}" for w in why) if why else "")); sys.exit({"PASS": 0, "FAIL": 1, "NOT MEASURED": 3}[v])
@@ -529,7 +530,7 @@ if "--gate" in args:
             if worse * 2 > len(res): why.append(f"more impact misses than the baseline in {worse} of {len(res)} runs")
         else: missing.append("baseline counts for impact_misses")
         floor = b.get("decoy_blocking")
-        if floor is None and "decoy_block_rate" in b and suite == "3": floor = round(b["decoy_block_rate"] * max(1, len(json.loads((HERE / "decoys3.json").read_text()))))
+        if floor is None and "decoy_block_rate" in b and suite == "3": floor = round(b["decoy_block_rate"] * max(1, len(json.loads((HERE / "decoys3.json").read_text(encoding="utf-8")))))
         if floor is not None and any(x["decoy_blocking"] > floor for x in res): why.append(f"a run flags more decoys at Medium or above than the baseline's {floor} (strict floor)")
         if b.get("tokens") and (b.get("cost_unit") == "usd_millionths") != ("--meta-cost" in args):
             missing.append("cost in the baseline's unit (pass --meta-cost for both the baseline and the gate, or for neither)")

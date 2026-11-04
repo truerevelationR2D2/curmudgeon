@@ -14,7 +14,7 @@ def _tally3(d, a, b, c, *extra):
     _blind(d)
     r = run(S / "critic_merge.py", "tally", *[f".critic/reviews/review-{x}.json" for x in "ABC"], *extra, cwd=d)
     assert r.returncode == 0, r.stdout + r.stderr
-    return json.loads((d / ".critic/tally.json").read_text())
+    return json.loads((d / ".critic/tally.json").read_text(encoding="utf-8"))
 
 @test("§5.56 item 1: critic_run.py feeds the scan's FAILs to the tally, waits for this run's scan, and --no-scan marks the run DEGRADED")
 def _(d):
@@ -24,25 +24,25 @@ def _(d):
     out = run(S / "critic_run.py", "next", cwd=d).stdout
     assert "have not written a report" in out and not (d / ".critic/tally.json").exists(), "the tally waits for this run's scan: " + out
     run(S / "critic_scan.py", ".", "--root", ".", cwd=d)
-    assert any(r["rule"] == "eval" and r["sev"] == "FAIL" for r in json.loads((d / ".critic/scan/report.json").read_text())["findings"])
+    assert any(r["rule"] == "eval" and r["sev"] == "FAIL" for r in json.loads((d / ".critic/scan/report.json").read_text(encoding="utf-8"))["findings"])
     out = run(S / "critic_run.py", "next", cwd=d).stdout
-    t = json.loads((d / ".critic/tally.json").read_text())
+    t = json.loads((d / ".critic/tally.json").read_text(encoding="utf-8"))
     assert [(f["category"], f["impact"]) for f in t["kept"] + t["contested"]] == [("eval", "High")], out
     ids = [p.stem for p in (d / ".critic/verify").glob("*.json")]; assert len(ids) == 1, ids
     write(d, ".critic/verdicts/v1.json", json.dumps([{"id": ids[0], "verdict": "confirmed", "reproduced": "traced", "entry": "go() is exported", "path": ["src/a.js:2 passes input to eval"]}]))
     run(S / "critic_run.py", "next", cwd=d)
-    assert "Critical 0 · High 1 · Medium 0 · Low 0 · total 1" in (d / ".critic/counts.md").read_text(), (d / ".critic/counts.md").read_text()
+    assert "Critical 0 · High 1 · Medium 0 · Low 0 · total 1" in (d / ".critic/counts.md").read_text(encoding="utf-8"), (d / ".critic/counts.md").read_text(encoding="utf-8")
     e = d / "noscan"; write(e, "src/a.js", "function go(input) {\n  return eval(input);\n}\n")
     run(S / "critic_run.py", "begin", "--files", "src/a.js", "--tier", "lite", cwd=e); write(e, ".critic/reviews/review-A.json", "[]")
     run(S / "critic_run.py", "next", "--no-scan", cwd=e)
-    c = (e / ".critic/counts.md").read_text()
+    c = (e / ".critic/counts.md").read_text(encoding="utf-8")
     assert c.splitlines()[2].startswith("DEGRADED: the scripted checks did not run"), c
 
 @test("§5.56 item 2: the read guard follows each cd, so a chain of cd .. can't walk a reviewer into .critic/reviews, and ordinary work isn't refused")
 def _(d):
     p = d / "proj"; write(p, "src/app.js", APP); write(p, ".critic/reviews/review-B.json", '[{"title": "SECRET-B"}]')
     run(H / "scratch_dir.py", cwd=p, stdin=json.dumps({"agent_type": "curmudgeon:curmudgeon-reviewer", "agent_id": "r1", "cwd": str(p)}))
-    ws = json.loads((p / ".critic/scratch/r1/workspace.json").read_text())["payload"]
+    ws = json.loads((p / ".critic/scratch/r1/workspace.json").read_text(encoding="utf-8"))["payload"]
     for cmd in (f"cd {ws} && cd .. && cd .. && cd .. && cd reviews && cat review-B.json",
                 f"cd {ws} && cd ..; cd ..; cd ..; cat reviews/review-B.json",
                 f"cd {ws} && for i in 1 2 3; do cd ..; done; cat reviews/review-B.json",
@@ -111,11 +111,11 @@ def _(d):
     ids = [p.stem for p in (d / ".critic/verify").glob("*.json")]; assert ids, t
     write(d, "v.json", json.dumps([{"id": i, "verdict": "unclear", "reproduced": "no"} for i in ids]))
     run(S / "critic_merge.py", "apply", "v.json", cwd=d)
-    f = [json.loads(x) for x in (d / ".critic/findings.jsonl").read_text().splitlines() if x.strip()]
+    f = [json.loads(x) for x in (d / ".critic/findings.jsonl").read_text(encoding="utf-8").splitlines() if x.strip()]
     assert [(x["verifier"], x["confidence"]) for x in f] == [("unclear", "likely")], f
     vp = hook_verdicts(d, [{"id": i, "verdict": "confirmed", "reproduced": "traced", "entry": "render() runs on load", "path": ["src/app.js:2 writes the title as HTML"]} for i in ids])
     run(S / "critic_merge.py", "apply", str(vp), cwd=d)
-    f = [json.loads(x) for x in (d / ".critic/findings.jsonl").read_text().splitlines() if x.strip()]
+    f = [json.loads(x) for x in (d / ".critic/findings.jsonl").read_text(encoding="utf-8").splitlines() if x.strip()]
     assert f[0]["confidence"] == "confirmed", "confirmed by the verifier, executed by the reviewer: confirmed"
 
 @test("§5.56 item 7: the tier's verification policy is enforced: not-in-tier is labelled, a missing required verdict marks the run DEGRADED, and only script-matched all-Low agreement skips verification")
@@ -123,12 +123,12 @@ def _(d):
     write(d, "src/app.js", APP); run(S / "critic_ledger.py", "start", "review", "--tier", "lite", cwd=d)
     write(d, ".critic/reviews/review-A.json", json.dumps([finding(category="domain", impact="Medium", line=4, quote="const price = total * 1.0825;", title="Tax rule in render code", verified="executed")])); _blind(d, "A")
     run(S / "critic_merge.py", "tally", ".critic/reviews/review-A.json", cwd=d); write(d, "v.json", "[]"); run(S / "critic_merge.py", "apply", "v.json", cwd=d)
-    f = [json.loads(x) for x in (d / ".critic/findings.jsonl").read_text().splitlines() if x.strip()]
-    c = (d / ".critic/counts.md").read_text()
+    f = [json.loads(x) for x in (d / ".critic/findings.jsonl").read_text(encoding="utf-8").splitlines() if x.strip()]
+    c = (d / ".critic/counts.md").read_text(encoding="utf-8")
     assert f[0]["verifier"] == "not-in-tier" and f[0]["confidence"] == "likely" and "DEGRADED" not in c and "no verdict returned" not in c, (f, c)
     e = d / "full"; write(e, "src/app.js", APP); run(S / "critic_ledger.py", "start", "review", "--tier", "full", cwd=e)
     _tally3(e, [finding(impact="High")], [finding(impact="High")], []); write(e, "v.json", "[]"); run(S / "critic_merge.py", "apply", "v.json", cwd=e)
-    c = (e / ".critic/counts.md").read_text()
+    c = (e / ".critic/counts.md").read_text(encoding="utf-8")
     assert "DEGRADED: 1 verdict(s) the full tier requires never came back" in c, c
     g = d / "lows"; write(g, "src/app.js", APP + "const unused = 0;\n"); run(S / "critic_ledger.py", "start", "review", "--tier", "full", cwd=g)
     lo = dict(finding(category="style", impact="Low", line=4, quote="const price = total * 1.0825;", title="magic number for the tax rate"))
@@ -137,7 +137,7 @@ def _(d):
     x1 = finding(category="style", impact="Low", line=2, quote="list.innerHTML = `<li>${n.title}</li>`;", title="template string builds markup")
     x2 = finding(category="naming", impact="Low", line=5, quote="const unused = 0;", title="unused constant left behind")
     t = _tally3(g, [x1], [x2], [])
-    raw = [it["id"] for v in json.loads((g / ".critic/dedup-candidates.json").read_text())["findings_by_file"].values() for it in v]
+    raw = [it["id"] for v in json.loads((g / ".critic/dedup-candidates.json").read_text(encoding="utf-8"))["findings_by_file"].values() for it in v]
     write(g, ".critic/groups.json", json.dumps({"groups": [raw]}))
     t = _tally3(g, [x1], [x2], [], "--groups", ".critic/groups.json")
     assert t["kept"] and t["kept"][0]["votes"] == 2 and t["kept"][0]["votes_matched"] == 1, t["kept"]
@@ -150,7 +150,7 @@ def _(d):
     msg = 'Done.\n```json\n[{"id": "F-1", "verdict": "unclear", "reproduced": "no"}]\n```\n'
     run(H / "check_contract.py", cwd=d, stdin=json.dumps({"agent_type": "curmudgeon:curmudgeon-verifier", "agent_id": "v7", "cwd": str(d), "last_assistant_message": msg}))
     saved = d / ".critic/verdicts/v7.json"
-    assert saved.exists() and json.loads(saved.read_text()) == [{"id": "F-1", "verdict": "unclear", "reproduced": "no"}], "the verdict list is saved as the verifier returned it"
+    assert saved.exists() and json.loads(saved.read_text(encoding="utf-8")) == [{"id": "F-1", "verdict": "unclear", "reproduced": "no"}], "the verdict list is saved as the verifier returned it"
     deny = run(H / "guard_state.py", cwd=d, stdin=json.dumps({"tool_name": "Write", "tool_input": {"file_path": str(d / ".critic/verdicts/1.json")}, "cwd": str(d)})).stdout
     assert "deny" in deny, "a verdict can't be typed in by hand"
     t = _tally3(d, [finding(impact="High")], [finding(impact="High")], [])
@@ -166,7 +166,7 @@ def _(d):
     r = run(S / "critic_ledger.py", "stamp", "src", cwd=d); assert r.returncode != 0 and "VERDICT section's Counts line" in r.stderr + r.stdout, r.stdout + r.stderr
     tear("**BLOCK** · Counts: 0 Critical, 1 High, 0 Medium, 0 Low", "Counts: 0 Critical, 1 High, 0 Medium, 0 Low")
     r = run(S / "critic_ledger.py", "stamp", "src", cwd=d); assert r.returncode == 0, r.stdout + r.stderr
-    c = (d / ".critic/counts.md").read_text(); (d / ".critic/counts.md").write_text(c.replace("# Curmudgeon merged findings\n", "# Curmudgeon merged findings\n\nDEGRADED: test\n", 1))
+    c = (d / ".critic/counts.md").read_text(encoding="utf-8"); (d / ".critic/counts.md").write_text(c.replace("# Curmudgeon merged findings\n", "# Curmudgeon merged findings\n\nDEGRADED: test\n", 1), encoding="utf-8")
     tear("**BLOCK** · Counts: 0 Critical, 1 High, 0 Medium, 0 Low", "Counts: 0 Critical, 1 High, 0 Medium, 0 Low")
     r = run(S / "critic_ledger.py", "stamp", "src", cwd=d); assert r.returncode != 0 and "DEGRADED" in r.stderr + r.stdout, r.stdout + r.stderr
 
@@ -178,9 +178,9 @@ def _(d):
     x2 = finding(category="config", impact="Medium", line=4, quote="price = total * 1.0825", title="pricing constant duplicated instead of shared")
     for L_, rows in zip("ABC", ([x1], [x2], [])): write(d, f".critic/reviews/review-{L_}.json", json.dumps(rows))
     run(S / "critic_run.py", "next", cwd=d)
-    raw = [it["id"] for v in json.loads((d / ".critic/dedup-candidates.json").read_text())["findings_by_file"].values() for it in v]
+    raw = [it["id"] for v in json.loads((d / ".critic/dedup-candidates.json").read_text(encoding="utf-8"))["findings_by_file"].values() for it in v]
     write(d, ".critic/groups.json", json.dumps({"groups": [raw]})); run(S / "critic_run.py", "next", cwd=d)
-    kept = lambda: [(f["title"], f["votes"]) for f in json.loads((d / ".critic/tally.json").read_text())["kept"]]
+    kept = lambda: [(f["title"], f["votes"]) for f in json.loads((d / ".critic/tally.json").read_text(encoding="utf-8"))["kept"]]
     assert len(kept()) == 1 and kept()[0][1] == 2, kept()
     write(d, ".critic/outside/outside-review.json", "[]"); run(S / "critic_run.py", "next", cwd=d)
     assert len(kept()) == 1 and kept()[0][1] == 2, "the rerun tally for the late outside answer kept the groups: " + str(kept())
@@ -209,7 +209,7 @@ def _(d):
     tear("**BLOCK** · Counts: 0 Critical, 1 High, 0 Medium, 0 Low")
     old = time.time() - 60; os.utime(d / ".critic/last-review.md", (old, old))
     r = stamp(); assert r.returncode != 0 and "older than counts.md" in r.stdout + r.stderr, r.stdout + r.stderr
-    c = (d / ".critic/counts.md").read_text(); (d / ".critic/counts.md").write_text(c.replace("# Curmudgeon merged findings\n", "# Curmudgeon merged findings\n\nDEGRADED: 1 verdict(s) the full tier requires never came back (F-x)\n", 1))
+    c = (d / ".critic/counts.md").read_text(encoding="utf-8"); (d / ".critic/counts.md").write_text(c.replace("# Curmudgeon merged findings\n", "# Curmudgeon merged findings\n\nDEGRADED: 1 verdict(s) the full tier requires never came back (F-x)\n", 1), encoding="utf-8")
     tear("DEGRADED: single context (no subagents)\n**BLOCK** · Counts: 0 Critical, 1 High, 0 Medium, 0 Low")
     r = stamp(); assert r.returncode != 0 and "doesn't carry that reason" in r.stdout + r.stderr, r.stdout + r.stderr
     tear("**DEGRADED:** single context; 1 verdict(s) the full tier requires never came back (F-x)\n**BLOCK** · Counts: 0 Critical, 1 High, 0 Medium, 0 Low")
@@ -226,7 +226,7 @@ def _(d):
     e = d / "m"; write(e, "index.html", "<p>x</p>\n"); run(S / "critic_ledger.py", "start", "review", "--tier", "full", cwd=e)
     write(e, "scan.json", json.dumps({"findings": [{"id": "S002", "rule": "axe-color-contrast", "sev": "FAIL", "level": "runtime", "where": "index.html:1", "what": "low contrast", "evidence": "1.6:1"}]}))
     _tally3(e, [], [], [], "--scan", "scan.json"); write(e, "v.json", "[]"); run(S / "critic_merge.py", "apply", "v.json", cwd=e)
-    f = [json.loads(x) for x in (e / ".critic/findings.jsonl").read_text().splitlines() if x.strip()]
+    f = [json.loads(x) for x in (e / ".critic/findings.jsonl").read_text(encoding="utf-8").splitlines() if x.strip()]
     assert [x["confidence"] for x in f] == ["confirmed"], f
     g = d / "fresh"; write(g, "src/p.js", "function f(a) {\n  if (a > 0) {\n    db.write(a);\n  }\n}\n"); run(S / "critic_ledger.py", "start", "review", cwd=g)
     write(g, ".critic/findings.jsonl", json.dumps(dict(finding(file="src/p.js", line=2, quote="if (a > 0) {\n    db.write(a);"), id="F-1")) + "\n")
@@ -237,7 +237,7 @@ def _(d):
     h = d / "out"; write(h, "src/app.js", APP); run(S / "critic_ledger.py", "start", "review", cwd=h)
     write(h, "ans.txt", "```json\n" + json.dumps([{"id": "N1", "impact": "High", "category": "xss", "file": "src/app.js", "line": "2-3", "quote": "list.innerHTML = `<li>${n.title}</li>`;", "title": "XSS", "evidence": "e", "failing_case": "c", "verified": "traced"}]) + "\n```\n")
     run(S / "critic_outside.py", "load", "ans.txt", cwd=h)
-    assert json.loads((h / ".critic/outside/outside-review.json").read_text())[0]["line"] == 2, "a line range keeps its first line"
+    assert json.loads((h / ".critic/outside/outside-review.json").read_text(encoding="utf-8"))[0]["line"] == 2, "a line range keeps its first line"
     assert relocate_quote({"file": "src/app.js", "line": 9, "quote": "LIST.INNERHTML = `<LI>${N.TITLE}</LI>`;"}, h) is None and relocate_quote({"file": "src/app.js", "line": 9, "quote": "list.innerHTML = `<li>${n.title}</li>`;"}, h) == 2
 
 
@@ -267,14 +267,14 @@ def _(d):
     write(d, "src/app.js", APP); run(S / "critic_ledger.py", "start", "review", "--tier", "full", cwd=d)
     write(d, "o.json", json.dumps([dict(finding(category="domain", impact="High", line=4, quote="const price = total * 1.0825;", title="Tax applied twice"), source="outside", outside_id="N1")]))
     _tally3(d, [], [], [], "--outside", "o.json"); write(d, "v.json", "[]"); run(S / "critic_merge.py", "apply", "v.json", cwd=d)
-    assert "DEGRADED: 1 verdict(s) the full tier requires" in (d / ".critic/counts.md").read_text(), (d / ".critic/counts.md").read_text()[:400]
+    assert "DEGRADED: 1 verdict(s) the full tier requires" in (d / ".critic/counts.md").read_text(encoding="utf-8"), (d / ".critic/counts.md").read_text(encoding="utf-8")[:400]
     e = d / "stale"; write(e, "src/app.js", APP); run(S / "critic_ledger.py", "start", "review", "--tier", "full", cwd=e)
     _tally3(e, [finding(impact="High")], [finding(impact="High")], [])
     fid = [p.stem for p in (e / ".critic/verify").glob("*.json")][0]
     write(e, ".critic/verdicts/old.json", json.dumps([{"id": fid, "verdict": "refuted", "refutation": "src/app.js:2 is reached only after the title passed through the escaping helper, so no markup can run there.", "reproduced": "traced"}]))
     old = time.time() - 600; os.utime(e / ".critic/verdicts/old.json", (old, old))
     run(S / "critic_merge.py", "apply", ".critic/verdicts/old.json", cwd=e)
-    c = (e / ".critic/counts.md").read_text()
+    c = (e / ".critic/counts.md").read_text(encoding="utf-8")
     assert "High 1" in c and "not applied, older than this tally: old.json" in c, c[:600]
     run(S / "critic_ledger.py", "round", cwd=e)
     assert not (e / ".critic/verdicts").exists() and list((e / ".critic/history").glob("*/verdicts/old.json")), "a new round starts without the last round's verdicts"
@@ -285,7 +285,7 @@ def _(d):
     ids = [p.stem for p in (g / ".critic/verify").glob("*.json")]
     write(g, "v.json", json.dumps([{"id": i, "verdict": "confirmed", "reproduced": "traced", "entry": "the page loads", "path": ["index.html:1 renders the hint in #ccc"]} for i in ids]))
     run(S / "critic_merge.py", "apply", "v.json", cwd=g)
-    f = [json.loads(x) for x in (g / ".critic/findings.jsonl").read_text().splitlines() if x.strip()]
+    f = [json.loads(x) for x in (g / ".critic/findings.jsonl").read_text(encoding="utf-8").splitlines() if x.strip()]
     assert [x["confidence"] for x in f] == ["confirmed"], [(x.get("raised_by"), x["confidence"]) for x in f]
 
 @test("§5.56 round 2: waiting for a scan names the command to run, the outside brief allows a two-line quote for a short line, and a variant verdict is judged against its own packet")
@@ -293,7 +293,7 @@ def _(d):
     write(d, "src/app.js", APP); run(S / "critic_run.py", "begin", "--files", "src/app.js", "--tier", "lite", cwd=d); write(d, ".critic/reviews/review-A.json", "[]")
     out = run(S / "critic_run.py", "next", cwd=d).stdout
     assert "critic_scan.py . --root ." in out, out
-    assert "under 12 characters, quote it together with the next line" in (S / "critic_outside.py").read_text()
+    assert "under 12 characters, quote it together with the next line" in (S / "critic_outside.py").read_text(encoding="utf-8")
     write(d, ".critic/verify-variants/V-abc-1.json", json.dumps({"id": "V-abc-1", "impact": "Low", "category": "style", "file": "src/app.js", "line": 2}))
     msg = 'x\n```json\n[{"id": "V-abc-1", "verdict": "refuted", "refutation": "src/app.js:1 defines render() only for the admin page, which escapes every title before this line runs.", "reproduced": "traced"}]\n```\n'
     r = run(H / "check_contract.py", cwd=d, stdin=json.dumps({"agent_type": "curmudgeon:curmudgeon-verifier", "agent_id": "v9", "cwd": str(d), "last_assistant_message": msg}))
@@ -314,7 +314,7 @@ def _(d):
     _tally3(e, [], [], [], "--scan", "scan.json")
     ids = [p.stem for p in (e / ".critic/verify").glob("*.json")]; assert ids
     write(e, "v.json", json.dumps([{"id": i, "verdict": "unclear", "reproduced": "no"} for i in ids])); run(S / "critic_merge.py", "apply", "v.json", cwd=e)
-    f = [json.loads(x) for x in (e / ".critic/findings.jsonl").read_text().splitlines() if x.strip()]
+    f = [json.loads(x) for x in (e / ".critic/findings.jsonl").read_text(encoding="utf-8").splitlines() if x.strip()]
     assert [x["confidence"] for x in f] == ["likely"], f  # a console error can come from the test setup: not a measurement
     sys.path.insert(0, str(S)); import importlib, critic_ledger; importlib.reload(critic_ledger)
     assert critic_ledger.teardown_counts("Counts: Critical 1 High 2 Medium 0 Low 3") == (1, 2, 0, 3)
@@ -325,7 +325,7 @@ def _(d):
 def _(d):
     p = d / "proj"; write(p, "src/lib/x.js", "let a = 1;\n"); write(p, "package.json", "{}\n"); write(p, ".critic/reviews/review-B.json", '[{"title": "SECRET-B"}]')
     run(H / "scratch_dir.py", cwd=p, stdin=json.dumps({"agent_type": "curmudgeon:curmudgeon-reviewer", "agent_id": "r1", "cwd": str(p)}))
-    ws = json.loads((p / ".critic/scratch/r1/workspace.json").read_text())["payload"]
+    ws = json.loads((p / ".critic/scratch/r1/workspace.json").read_text(encoding="utf-8"))["payload"]
     for cmd in (f"cd {ws} && cd src && cd .. && ls", f"cd {ws} && cd src && ls ..", f"cd {ws} && cd src/lib && cat ../../package.json",
                 f"cd {ws} && cd src && find .. -name '*.js'", f"cd {ws} && grep -rn dirs src", f"cd {ws} && grep -rn popd src"):
         assert not _guard(p, p, "Bash", command=cmd), "ordinary work in the copy: " + cmd

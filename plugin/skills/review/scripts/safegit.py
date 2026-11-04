@@ -32,7 +32,7 @@ FIXED = [("core.fsmonitor", "false"), ("core.hooksPath", os.devnull),  # a file,
 def _config_list(cwd, env, extra):
     """`git config --null <extra> --get-regexp` for filter commands: (returncode, [(scope or None, key)])."""
     r = subprocess.run(["git", "-c", "core.fsmonitor=false", "config", "--null", *extra, "--get-regexp", r"^filter\..*\.(clean|smudge|process)$"],
-                       cwd=cwd, capture_output=True, text=True, timeout=10, env=env)
+                       cwd=cwd, capture_output=True, text=True, timeout=10, env=env, encoding="utf-8", errors="replace")
     parts = r.stdout.split("\0")
     if "--show-scope" in extra: return r.returncode, [(sc, kv.split("\n", 1)[0]) for sc, kv in zip(parts[0::2], parts[1::2])]
     return r.returncode, [(None, kv.split("\n", 1)[0]) for kv in parts if kv]
@@ -59,7 +59,7 @@ def _own_filters(cwd, env):
 def _git_version(env):
     k = (env or os.environ).get("PATH", "")
     if k not in _VER:
-        try: m = re.search(r"(\d+)\.(\d+)", subprocess.run(["git", "--version"], capture_output=True, text=True, timeout=10, env=env).stdout)
+        try: m = re.search(r"(\d+)\.(\d+)", subprocess.run(["git", "--version"], capture_output=True, text=True, timeout=10, env=env, encoding="utf-8", errors="replace").stdout)
         except (OSError, subprocess.SubprocessError): m = None
         _VER[k] = (int(m.group(1)), int(m.group(2))) if m else (0, 0)
     return _VER[k]

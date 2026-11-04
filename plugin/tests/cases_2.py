@@ -10,14 +10,14 @@ def _(d):
     assert not (d / "elsewhere/scratch").exists(), "never create through a planted link"
     import re as _re
     for a in (HERE / "agents").glob("*.md"):
-        fm = _re.match(r"---\n(.*?)\n---", a.read_text(), _re.S).group(1)
+        fm = _re.match(r"---\n(.*?)\n---", a.read_text(encoding="utf-8"), _re.S).group(1)
         for k in ("omitClaudeMd: true", 'disallowedTools: ["mcp__*"]', "maxTurns:", "effort:"): assert k in fm, (a.name, k)
         assert fm.count("<example>") == 1, a.name
     g = finding(category="domain", impact="Medium", line=4, quote="const price = total * 1.0825;", title="Tax rule in render code")
     write(d, "src/app.js", APP); run(S / "critic_ledger.py", "start", "review", "--tier", "full", cwd=d)
     write(d, ".critic/reviews/review-A.json", json.dumps({"findings": [g], "set_aside": [{"file": "src/app.js", "line": 2, "what": "innerHTML", "guard": "src/app.js:3 escapes it"}]}))
     run(S / "critic_merge.py", "tally", ".critic/reviews/review-A.json", cwd=d)
-    t = json.loads((d / ".critic/tally.json").read_text())
+    t = json.loads((d / ".critic/tally.json").read_text(encoding="utf-8"))
     assert t["set_aside"] and t["set_aside"][0]["reviewer"] == "review-A" and len(t["kept"]) + len(t["contested"]) + len(t["dropped"]) == 1, t
     write(d, ".critic/reviews/review-B.json", json.dumps({"findings": [g], "set_aside": [{"file": "src/app.js", "what": "no guard named"}]}))
     out = run(H / "check_contract.py", cwd=d, stdin=json.dumps({"agent_type": "curmudgeon-reviewer", "cwd": str(d), "last_assistant_message": "Wrote .critic/reviews/review-B.json"})).stdout
@@ -30,15 +30,15 @@ def _(d):
 def _(d):
     import re as _re
     assert sorted(p.name for p in (HERE / "skills").iterdir() if p.is_dir()) == ["fix", "gate", "review"]
-    fx = (HERE / "skills/fix/SKILL.md").read_text()
+    fx = (HERE / "skills/fix/SKILL.md").read_text(encoding="utf-8")
     assert "disable-model-invocation: true" in fx and all(f"## {w}" in fx for w in ("patch", "iterate", "approve", "rollback"))
     for p in list(HERE.rglob("*.md")) + list(HERE.rglob("*.py")) + [HERE.parent / "README.md"]:
         if "tests" in p.parts or "evals" in p.parts: continue
-        assert not _re.search(r"/curmudgeon:(patch|iterate|approve|rollback)\b", p.read_text(errors="replace")), p
+        assert not _re.search(r"/curmudgeon:(patch|iterate|approve|rollback)\b", p.read_text(errors="replace", encoding="utf-8")), p
 
 @test("5.0 card-B review: cost stops being recorded once the teardown is written, and the funnel reads only the current run")
 def _(d):
-    tr = d / "agent.jsonl"; tr.write_text(json.dumps({"type": "assistant", "requestId": "r1", "message": {"model": "m", "usage": {"input_tokens": 1, "cache_creation_input_tokens": 0, "cache_read_input_tokens": 0, "output_tokens": 2}}}) + "\n")
+    tr = d / "agent.jsonl"; tr.write_text(json.dumps({"type": "assistant", "requestId": "r1", "message": {"model": "m", "usage": {"input_tokens": 1, "cache_creation_input_tokens": 0, "cache_read_input_tokens": 0, "output_tokens": 2}}}) + "\n", encoding="utf-8")
     hook = {"cwd": str(d), "agent_type": "curmudgeon:curmudgeon-reviewer", "agent_id": "a1", "agent_transcript_path": str(tr)}
     run(S / "critic_ledger.py", "start", "review", "--tier", "full", cwd=d)
     time.sleep(1.1); write(d, ".critic/last-review.md", "# done")
@@ -47,11 +47,11 @@ def _(d):
     E = HERE.parent / "eval"
     if not (E / "score.py").exists(): return
     e = d / "f"; c = e / ".critic"; (c / "history/run-1/reviews").mkdir(parents=True); (c / "reviews").mkdir()
-    (c / "ledger.json").write_text(json.dumps({"run": 2}))
+    (c / "ledger.json").write_text(json.dumps({"run": 2}), encoding="utf-8")
     fz = lambda title: {"file": "guards.js", "line": 1, "category": "x", "impact": "High", "title": title}
-    (c / "history/run-1/reviews/review-A.json").write_text(json.dumps([fz("canVoid indexOf returns -1 which is truthy")]))
-    (c / "refutations.jsonl").write_text(json.dumps(dict(fz("lastSend is never updated so a double click sends twice"), kind="refuted", run=1)) + "\n")
-    out = subprocess.run([sys.executable, str(E / "score.py"), "--funnel", str(e), "--suite", "4"], capture_output=True, text=True).stdout
+    (c / "history/run-1/reviews/review-A.json").write_text(json.dumps([fz("canVoid indexOf returns -1 which is truthy")]), encoding="utf-8")
+    (c / "refutations.jsonl").write_text(json.dumps(dict(fz("lastSend is never updated so a double click sends twice"), kind="refuted", run=1)) + "\n", encoding="utf-8")
+    out = subprocess.run([sys.executable, str(E / "score.py"), "--funnel", str(e), "--suite", "4"], capture_output=True, text=True, encoding="utf-8").stdout
     assert "never raised: G2" in out and "never raised: G4" in out, out
 
 @test("5.0 SC-42 and SC-44: a bare 'confirmed' counts as unclear, a confirmation with a real path counts, and a security refutation names attacker, gain and reason")
@@ -63,10 +63,10 @@ def _(d):
     for L in "ABC": write(d, f".critic/reviews/review-{L}.json", json.dumps([g, h]))
     revs = [f".critic/reviews/review-{L}.json" for L in "ABC"]
     run(S / "critic_merge.py", "tally", *revs, cwd=d)
-    ids = {k["category"]: k["id"] for k in json.loads((d / ".critic/tally.json").read_text())["kept"]}
+    ids = {k["category"]: k["id"] for k in json.loads((d / ".critic/tally.json").read_text(encoding="utf-8"))["kept"]}
     def apply(verdicts):
         write(d, "v.json", json.dumps(verdicts)); run(S / "critic_merge.py", "apply", "v.json", cwd=d)
-        return {r["category"]: r for r in (json.loads(x) for x in (d / ".critic/findings.jsonl").read_text().splitlines() if x.strip())}
+        return {r["category"]: r for r in (json.loads(x) for x in (d / ".critic/findings.jsonl").read_text(encoding="utf-8").splitlines() if x.strip())}
     out = apply([{"id": ids["xss"], "verdict": "confirmed", "reproduced": "traced"}, {"id": ids["domain"], "verdict": "confirmed", "reproduced": "traced",
            "entry": "renderTotal is called on every render", "path": ["src/app.js:4 multiplies by the tax rate inside the render function"]}])
     assert out["xss"]["verifier"] == "unclear" and out["domain"]["verifier"] == "confirmed", out
@@ -86,10 +86,10 @@ def _(d):
     for L in "ABC": write(d, f".critic/reviews/review-{L}.json", json.dumps([g]))
     run(S / "critic_merge.py", "tally", *[f".critic/reviews/review-{L}.json" for L in "ABC"], cwd=d)
     write(d, "v.json", "[]"); run(S / "critic_merge.py", "apply", "v.json", cwd=d)
-    man = json.loads((d / ".critic/manifest.json").read_text())
+    man = json.loads((d / ".critic/manifest.json").read_text(encoding="utf-8"))
     assert {"findings.jsonl", "counts.md", "tally.json", "ledger.json"} <= set(man["files"]), man
     r = run(S / "critic_ledger.py", "integrity", cwd=d); assert r.returncode == 0 and "matches" in r.stdout, r.stdout
-    c = d / ".critic/counts.md"; c.write_text(c.read_text().replace("Medium 1", "Medium 0"))
+    c = d / ".critic/counts.md"; c.write_text(c.read_text(encoding="utf-8").replace("Medium 1", "Medium 0"), encoding="utf-8")
     r = run(S / "critic_ledger.py", "integrity", cwd=d)
     assert r.returncode == 1 and "counts.md changed" in r.stdout, r.stdout
 
@@ -110,10 +110,10 @@ def _(d):
     run(S / "critic_ledger.py", "start", "review", "--tier", "full", cwd=d)
     for L in "ABC": write(d, f".critic/reviews/review-{L}.json", json.dumps([g]))
     run(S / "critic_merge.py", "tally", *[f".critic/reviews/review-{L}.json" for L in "ABC"], cwd=d)
-    pk = json.loads(next((d / ".critic/verify").glob("*.json")).read_text())
+    pk = json.loads(next((d / ".critic/verify").glob("*.json")).read_text(encoding="utf-8"))
     assert pk["preconditions"] and pk["root_cause"], pk
     write(d, "v.json", "[]"); run(S / "critic_merge.py", "apply", "v.json", cwd=d)
-    assert "Fixes not to offer" in (d / ".critic/counts.md").read_text()
+    assert "Fixes not to offer" in (d / ".critic/counts.md").read_text(encoding="utf-8")
     from critic_findings import validate
     assert validate(dict(g, preconditions=3)) and not validate(g)
 
@@ -141,7 +141,7 @@ def _(d):
     r = run(S / "critic_ledger.py", "start", "review", "--tier", "full", cwd=d)
     assert r.returncode != 0 and "link" in r.stderr, "a link planted in a scratch folder must stop the run"
     (d / ".critic/scratch/me/r").unlink(); run(S / "critic_ledger.py", "start", "review", "--tier", "full", cwd=d)
-    assert "scratch/" in (d / ".critic/.gitignore").read_text()
+    assert "scratch/" in (d / ".critic/.gitignore").read_text(encoding="utf-8")
     write(d, ".critic/reviews/review-A.json", json.dumps({"findings": [], "set_aside": None}))
     r = run(S / "critic_merge.py", "tally", ".critic/reviews/review-A.json", cwd=d); assert r.returncode == 0, r.stdout + r.stderr
     e = d / "old"; write(e, ".critic/ledger.json", json.dumps({"started_at": time.time() - 13 * 3600, "run": 1}))
@@ -154,7 +154,7 @@ def _(d):
     r = run(S / "critic_ledger.py", "round", cwd=d); assert "ESCALATE" not in r.stdout, r.stdout
     r = run(S / "critic_ledger.py", "round", cwd=d)
     assert r.returncode == 3 and "did not fall" in r.stdout, r.stdout
-    L = json.loads((d / ".critic/ledger.json").read_text()); L["findings"]["F-1"]["history"] += ["run 1: fixed", "run 1: fixed"]; L["round"] = 1
+    L = json.loads((d / ".critic/ledger.json").read_text(encoding="utf-8")); L["findings"]["F-1"]["history"] += ["run 1: fixed", "run 1: fixed"]; L["round"] = 1
     own_ledger(d, L)
     r = run(S / "critic_ledger.py", "round", cwd=d)
     assert "fixed twice" in r.stdout and "open for 3 rounds" in r.stdout, r.stdout
@@ -166,9 +166,9 @@ def _(d):
     for L in "ABC": write(d, f".critic/reviews/review-{L}.json", json.dumps([g]))
     run(S / "critic_merge.py", "tally", *[f".critic/reviews/review-{L}.json" for L in "ABC"], cwd=d)
     write(d, "v.json", "[]"); run(S / "critic_merge.py", "apply", "v.json", cwd=d)
-    rev = json.loads((d / ".critic/revision.json").read_text()); assert len(rev["payload_sha256"]) == 64, rev
-    assert "Revision reviewed:" in (d / ".critic/counts.md").read_text()
-    fid = json.loads((d / ".critic/findings.jsonl").read_text().splitlines()[0])["id"]
+    rev = json.loads((d / ".critic/revision.json").read_text(encoding="utf-8")); assert len(rev["payload_sha256"]) == 64, rev
+    assert "Revision reviewed:" in (d / ".critic/counts.md").read_text(encoding="utf-8")
+    fid = json.loads((d / ".critic/findings.jsonl").read_text(encoding="utf-8").splitlines()[0])["id"]
     r = run(S / "critic_ledger.py", "fresh", fid, cwd=d); assert r.returncode == 0, r.stdout
     write(d, "src/app.js", APP.replace("const price = total * 1.0825;", "const price = total * taxRate(region);"))
     r = run(S / "critic_ledger.py", "fresh", fid, cwd=d)
@@ -183,11 +183,11 @@ def _(d):
         for L in "ABC": write(d, f".critic/reviews/review-{L}.json", json.dumps([g]))
         run(S / "critic_merge.py", "tally", *[f".critic/reviews/review-{L}.json" for L in "ABC"], cwd=d)
         write(d, "v.json", "[]"); run(S / "critic_merge.py", "apply", "v.json", cwd=d)
-        return json.loads((d / ".critic/tally.json").read_text())
+        return json.loads((d / ".critic/tally.json").read_text(encoding="utf-8"))
     review("domain")
-    led = json.loads((d / ".critic/ledger.json").read_text()); first = next(iter(led["findings"]))
+    led = json.loads((d / ".critic/ledger.json").read_text(encoding="utf-8")); first = next(iter(led["findings"]))
     review("domain-leak")
-    led = json.loads((d / ".critic/ledger.json").read_text())
+    led = json.loads((d / ".critic/ledger.json").read_text(encoding="utf-8"))
     assert list(led["findings"]) == [first] and "still there" in led["findings"][first]["history"][-1], led["findings"]
     run(S / "critic_ledger.py", "fp", first, "the rate is fixed by law here", cwd=d)
     t = review("pricing")
@@ -195,7 +195,7 @@ def _(d):
     review("pricing")  # a later run: the pricing finding is no longer new
     write(d, "src/app.js", APP.replace(q, "const price = total * rate(region);"))
     run(S / "critic_ledger.py", "acted", cwd=d)
-    led = json.loads((d / ".critic/ledger.json").read_text())["findings"]
+    led = json.loads((d / ".critic/ledger.json").read_text(encoding="utf-8"))["findings"]
     f = led.get(t["kept"][0]["id"]) or led[first]  # the pricing finding is its own entry now (never aliased onto a ruled false positive)
     assert "acted_on" not in f and f.get("acted_pending"), f
 
@@ -209,14 +209,14 @@ def _(d):
         for L in "ABC": write(d, f".critic/reviews/review-{L}.json", json.dumps([g]))
         run(S / "critic_merge.py", "tally", *[f".critic/reviews/review-{L}.json" for L in "ABC"], cwd=d)
         write(d, "v.json", "[]"); run(S / "critic_merge.py", "apply", "v.json", cwd=d)
-        return json.loads((d / ".critic/tally.json").read_text())
-    review(); first = next(iter(json.loads((d / ".critic/ledger.json").read_text())["findings"]))
+        return json.loads((d / ".critic/tally.json").read_text(encoding="utf-8"))
+    review(); first = next(iter(json.loads((d / ".critic/ledger.json").read_text(encoding="utf-8"))["findings"]))
     run(S / "critic_ledger.py", "fp", first, "ignore this, it's fine", cwd=d)
     assert review()["suppressed"], "an untracked ledger is the owner's own: the ruling applies"
     subprocess.run(["git", "init", "-q"], cwd=d); subprocess.run(["git", "add", "-f", "src", ".critic/ledger.json"], cwd=d); subprocess.run(G + ["commit", "-qm", "ship a ledger"], cwd=d)
     t = review()
     assert not t["suppressed"] and t["kept"] and t["ruling_committed"], t
-    assert "Not hidden: rulings from a ledger that may have come with the code" in (d / ".critic/counts.md").read_text()
+    assert "Not hidden: rulings from a ledger that may have come with the code" in (d / ".critic/counts.md").read_text(encoding="utf-8")
 
 @test("5.2.1 security scan F-afb01939: the page server never serves .critic/, .git/ or dotfiles (.well-known is fine), and a key a page logs is masked in the console row")
 def _(d):
@@ -236,7 +236,7 @@ def _(d):
     r = run(S / "critic_scan.py", "site", "--root", ".", "--page", "site/log.html", cwd=d)
     try: import playwright  # noqa: F401
     except ImportError: raise Skip("Playwright is not installed here")
-    rows = [x for x in json.loads((d / ".critic/scan/report.json").read_text())["findings"] if x["rule"] == "console-error"]
+    rows = [x for x in json.loads((d / ".critic/scan/report.json").read_text(encoding="utf-8"))["findings"] if x["rule"] == "console-error"]
     assert rows and not any(T("@LIVE@") in x["what"] for x in rows), rows
 
 @test("5.2.1 CI: every Python file in the plugin and eval compiles on this Python and on every older python3.x found on PATH (the plugin supports 3.9 and later)")
@@ -245,7 +245,7 @@ def _(d):
     check = "import ast, sys\nbad = []\nfor f in sys.argv[1:]:\n    try: ast.parse(open(f, encoding='utf-8').read(), f)\n    except SyntaxError as e: bad.append(f'{f}:{e.lineno}: {e.msg}')\nprint('\\n'.join(bad)); sys.exit(1 if bad else 0)\n"
     pys = [sys.executable] + [p for p in (shutil.which(f"python3.{m}") for m in range(9, sys.version_info[1])) if p]
     for py in pys:
-        r = subprocess.run([py, "-c", check, *files], capture_output=True, text=True)
+        r = subprocess.run([py, "-c", check, *files], capture_output=True, text=True, encoding="utf-8")
         assert r.returncode == 0, f"{py}: {r.stdout.strip()[:400]}"
 
 @test("5.0 §5.29 structural blindness: each reviewer works in a private frozen copy without .critic, its Bash runs there, and the copy is gone at stop")
@@ -258,15 +258,15 @@ def _(d):
         out = run(H / "scratch_dir.py", cwd=p, stdin=json.dumps({"agent_type": agent, "agent_id": aid, "cwd": str(p)})).stdout
         return json.loads(out)["hookSpecificOutput"]["additionalContext"]
     msg = start("curmudgeon:curmudgeon-reviewer", "me")
-    rec = json.loads((p / ".critic/scratch/me/workspace.json").read_text()); ws = pathlib.Path(rec["payload"])
+    rec = json.loads((p / ".critic/scratch/me/workspace.json").read_text(encoding="utf-8")); ws = pathlib.Path(rec["payload"])
     assert ws.is_dir() and str(ws) in msg and "cd " in msg and ws == (p / ".critic/scratch/me/payload").resolve(), msg
-    assert (ws / "src/a.py").read_text() == "x = 1\n" and (ws / "eval/fx/.critic/ledger.json").exists(), "the payload, fixtures' own .critic ledger included, is copied"
+    assert (ws / "src/a.py").read_text(encoding="utf-8") == "x = 1\n" and (ws / "eval/fx/.critic/ledger.json").exists(), "the payload, fixtures' own .critic ledger included, is copied"
     assert not (ws / "eval/fx/.critic/reviews").exists(), "an earlier run's reviews in a nested .critic are not (audit V23)"
     assert not (ws / ".critic").exists() and (ws / ".git").is_file() and not (ws / "big.bin").exists() and "big.bin" in msg, "a broken .git becomes a stub that stops git walking up"
     assert not os.path.lexists(ws / "src/link") and not os.path.lexists(ws / "src/up"), "links back into .critic or to the project itself are dropped"
     assert (ws / "src/alias.py").resolve() == (ws / "src/a.py").resolve(), "a link inside the project points at the same file in the copy"
     assert (ws / "node_modules").is_symlink(), "dependency folders are linked so tests can run"
-    start("curmudgeon:curmudgeon-reviewer", "other"); other = json.loads((p / ".critic/scratch/other/workspace.json").read_text())["payload"]
+    start("curmudgeon:curmudgeon-reviewer", "other"); other = json.loads((p / ".critic/scratch/other/workspace.json").read_text(encoding="utf-8"))["payload"]
     def ask(tool, aid="me", agent="curmudgeon:curmudgeon-reviewer", **ti):
         return "deny" in run(H / "read_guard.py", cwd=p, stdin=json.dumps({"tool_name": tool, "tool_input": ti, "cwd": str(p), "agent_type": agent, "agent_id": aid})).stdout
     c = f"cd {ws} && "
@@ -284,7 +284,7 @@ def _(d):
     assert not ask("Grep", pattern="SECRET", path=str(ws)) and not ask("Read", file_path=str(ws / "src/a.py")) and not ask("Glob", pattern="**/*.py", path=str(ws))
     assert not ask("Read", file_path=str(p / "src/a.py")) and ask("Read", file_path=str(p / ".critic/reviews/review-B.json")) and not ask("Read", file_path=str(p / ".critic/rules.md"))
     assert ask("Bash", aid="nobody", command=f"cd {ws} && ls"), "an agent with no workspace has no Bash"
-    (pathlib.Path(rec["notes"]) / "probe.py").write_text("print(1)\n")
+    (pathlib.Path(rec["notes"]) / "probe.py").write_text("print(1)\n", encoding="utf-8")
     run(H / "check_contract.py", cwd=p, stdin=json.dumps({"agent_type": "curmudgeon:curmudgeon-reviewer", "agent_id": "me", "cwd": str(p), "stop_hook_active": True}))
     assert not ws.exists() and (p / ".critic/scratch/me/notes/probe.py").exists(), "the copy is deleted at stop and the notes are kept"
     assert "workspace" not in start("curmudgeon:curmudgeon-dedup", "dd") and not (p / ".critic/scratch/dd/workspace.json").exists(), "dedup reads one file; it needs no copy"
@@ -315,16 +315,16 @@ def _(d):
     subprocess.run(["git", "add", "."], cwd=d); subprocess.run(["git", "-c", "user.email=t@example.invalid", "-c", "user.name=t", "commit", "-qm", "base"], cwd=d)
     write(d, "src/sink.js", "function show(el, t) {\n  el.innerHTML = t;\n}\nshow(document.body, location.hash);\n")
     run(S / "critic_map.py", cwd=d)
-    cm = json.loads((d / ".critic/change-map.json").read_text()); assert cm["mode"] == "diff" and cm["hunks"].get("src/sink.js"), cm
+    cm = json.loads((d / ".critic/change-map.json").read_text(encoding="utf-8")); assert cm["mode"] == "diff" and cm["hunks"].get("src/sink.js"), cm
     old = finding(category="domain", impact="Medium", line=4, quote="const price = total * 1.0825;", title="Tax rule in render code")
     new = finding(category="xss", impact="High", file="src/sink.js", line=2, quote="el.innerHTML = t;", title="Sink now fed from location.hash", evidence="src/sink.js:4 passes location.hash to show()")
     run(S / "critic_ledger.py", "start", "review", "--tier", "full", cwd=d)
     for L in "ABC": write(d, f".critic/reviews/review-{L}.json", json.dumps([old, new]))
     run(S / "critic_merge.py", "tally", *[f".critic/reviews/review-{L}.json" for L in "ABC"], cwd=d)
     write(d, "v.json", "[]"); run(S / "critic_merge.py", "apply", "v.json", cwd=d)
-    rows = {r["category"]: r for r in (json.loads(x) for x in (d / ".critic/findings.jsonl").read_text().splitlines())}
+    rows = {r["category"]: r for r in (json.loads(x) for x in (d / ".critic/findings.jsonl").read_text(encoding="utf-8").splitlines())}
     assert rows["xss"]["origin"] == "introduced" and rows["domain"]["origin"] == "pre-existing", rows
-    assert "## Pre-existing" in (d / ".critic/counts.md").read_text()
+    assert "## Pre-existing" in (d / ".critic/counts.md").read_text(encoding="utf-8")
 
 @test("5.0 SC-46 and SC-47: Not reviewed is computed from the reviewers' coverage, and noisy scanner rows are pedantic NOTEs counted apart")
 def _(d):
@@ -334,17 +334,17 @@ def _(d):
     run(S / "critic_ledger.py", "start", "review", "--tier", "full", cwd=d)
     for L in "ABC": write(d, f".critic/reviews/review-{L}.json", json.dumps({"findings": [g], "coverage": {"read": ["src/app.js"], "not_reached": []}}))
     run(S / "critic_merge.py", "tally", *[f".critic/reviews/review-{L}.json" for L in "ABC"], cwd=d)
-    cov = json.loads((d / ".critic/tally.json").read_text())["coverage"]
+    cov = json.loads((d / ".critic/tally.json").read_text(encoding="utf-8"))["coverage"]
     assert cov["known"] and cov["not_reviewed"] == ["src/other.js"], cov
     write(d, "v.json", "[]"); run(S / "critic_merge.py", "apply", "v.json", cwd=d)
-    assert "Not reviewed (computed from the reviewers' coverage reports): src/other.js" in (d / ".critic/counts.md").read_text()
+    assert "Not reviewed (computed from the reviewers' coverage reports): src/other.js" in (d / ".critic/counts.md").read_text(encoding="utf-8")
     e = d / "p"; write(e, "src/big.js", "\n".join(f"const v{i} = {i};" for i in range(420)) + "\n")
     write(e, ".critic/rules/r.json", json.dumps([{"id": "noisy", "severity": "WARN", "area": "perf", "pattern": "const v1 ", "message": "m", "pedantic": True}]))
     run(S / "critic_scan.py", ".", "--root", ".", cwd=e)
-    rows = {r["rule"]: r for r in json.loads((e / ".critic/scan/report.json").read_text())["findings"]}
+    rows = {r["rule"]: r for r in json.loads((e / ".critic/scan/report.json").read_text(encoding="utf-8"))["findings"]}
     assert rows["long-file"]["tier"] == "pedantic" and rows["long-file"]["sev"] == "NOTE", rows["long-file"]
     assert rows["rule-noisy"]["tier"] == "pedantic" and rows["rule-noisy"]["sev"] == "NOTE", rows["rule-noisy"]
-    assert " pedantic " in (e / ".critic/scan/report.md").read_text()
+    assert " pedantic " in (e / ".critic/scan/report.md").read_text(encoding="utf-8")
 
 @test("5.0 SC-31: critic_run.py walks a run from begin to teardown, running each scripted step and naming the agents to start")
 def _(d):
@@ -356,7 +356,7 @@ def _(d):
     for L in "ABC": write(d, f".critic/reviews/review-{L}.json", json.dumps([g]))
     out = run(S / "critic_run.py", "next", cwd=d).stdout
     assert "kept 1" in out and "curmudgeon:curmudgeon-verifier" in out and ".critic/verify/" in out, out
-    fid = json.loads((d / ".critic/tally.json").read_text())["kept"][0]["id"]
+    fid = json.loads((d / ".critic/tally.json").read_text(encoding="utf-8"))["kept"][0]["id"]
     write(d, ".critic/verdicts/1.json", json.dumps([{"id": fid, "verdict": "confirmed", "reproduced": "traced", "entry": "render() runs on every update", "path": ["src/app.js:4 multiplies by the tax rate inside render"]}]))
     out = run(S / "critic_run.py", "next", cwd=d).stdout
     assert "final: 1 finding" in out and "write the teardown" in out, out
@@ -365,19 +365,19 @@ def _(d):
 @test("5.0 SC-73: when one control in one file keeps springing new holes, round stops with a WHACK-A-MOLE escalation and a ranked-solutions guide")
 def _(d):
     run(S / "critic_ledger.py", "start", "review", "--tier", "full", cwd=d)
-    L = json.loads((d / ".critic/ledger.json").read_text())
+    L = json.loads((d / ".critic/ledger.json").read_text(encoding="utf-8"))
     def f(cat, where, status, hist): return {"score": "High", "where": where, "summary": "s", "status": status, "claims": {}, "history": hist, "quote": "", "category": cat}
     L["findings"] = {"F-1": f("blindness-bypass", "hooks/g.py:10", "fixed", ["run 1: new", "run 1: fixed"]), "F-2": f("blindness-glob", "hooks/g.py:40", "fixed", ["run 2: new", "run 2: fixed"]),
                      "F-4": f("xss", "src/a.js:1", "fixed", ["run 1: fixed"]), "F-5": f("xss", "src/b.js:1", "open", ["run 2: new"])}
     own_ledger(d, L)
     r = run(S / "critic_ledger.py", "round", cwd=d); assert "WHACK-A-MOLE" not in r.stdout, "two holes, both closed, is not a pattern yet: " + r.stdout
-    L = json.loads((d / ".critic/ledger.json").read_text()); L["findings"]["F-3"] = f("blindness", "hooks/g.py:77", "open", ["run 3: new"])
+    L = json.loads((d / ".critic/ledger.json").read_text(encoding="utf-8")); L["findings"]["F-3"] = f("blindness", "hooks/g.py:77", "open", ["run 3: new"])
     own_ledger(d, L)
     r = run(S / "critic_ledger.py", "round", cwd=d)
     assert r.returncode == 3 and "WHACK-A-MOLE in hooks/g.py (blindness)" in r.stdout and "F-3" in r.stdout and "src/" not in r.stdout, r.stdout
-    guide = (HERE / "skills/review/references/escalation.md").read_text()
+    guide = (HERE / "skills/review/references/escalation.md").read_text(encoding="utf-8")
     assert "five solutions, ranked best to worst" in guide and guide.count("\n1. **Remove the need.**") == 1 and "5. **Accept, document and watch.**" in guide
-    assert "WHACK-A-MOLE" in (HERE / "skills/fix/SKILL.md").read_text() and "escalation.md" in (HERE / "skills/fix/SKILL.md").read_text()
+    assert "WHACK-A-MOLE" in (HERE / "skills/fix/SKILL.md").read_text(encoding="utf-8") and "escalation.md" in (HERE / "skills/fix/SKILL.md").read_text(encoding="utf-8")
 
 @test("5.0 SC-30 and SC-32: briefs share one byte-identical prefix and differ only in letter and order; begin prints the scan to run in the background")
 def _(d):
@@ -386,20 +386,20 @@ def _(d):
     run(S / "critic_ledger.py", "decision", "Prices are in cents", cwd=d)
     out = run(S / "critic_run.py", "begin", "--files", *[f"src/{n}.js" for n in "abcdef"], "--tier", "full", cwd=d).stdout
     assert "run_in_background" in out and "critic_scan.py . --root . --only .critic/scan-only.txt" in out and ".critic/briefs/brief-B.md" in out, out
-    assert sorted((d / ".critic/scan-only.txt").read_text().split()) == [f"src/{n}.js" for n in "abcdef"]
-    b = {x: (d / f".critic/briefs/brief-{x}.md").read_text() for x in "ABC"}
+    assert sorted((d / ".critic/scan-only.txt").read_text(encoding="utf-8").split()) == [f"src/{n}.js" for n in "abcdef"]
+    b = {x: (d / f".critic/briefs/brief-{x}.md").read_text(encoding="utf-8") for x in "ABC"}
     pre = {x: b[x].split("\n---\n")[0] for x in "ABC"}
     assert pre["A"] == pre["B"] == pre["C"] and "Prices are in cents" in pre["A"], "the shared part must be byte-identical"
     order = {x: [l.split(". ", 1)[1] for l in b[x].split("\n---\n")[1].splitlines() if l[:1].isdigit()] for x in "ABC"}
     assert order["B"] == list(reversed(order["A"])) and sorted(order["C"]) == sorted(order["A"]) and order["C"] not in (order["A"], order["B"]), order
     assert all("SCAN-SECRET" not in t and "OTHER-REVIEW" not in t for t in b.values()), "a brief never carries the scan or another review"
-    first_c = b["C"]; run(S / "critic_brief.py", cwd=d); assert (d / ".critic/briefs/brief-C.md").read_text() == first_c, "the shuffle is seeded by the run: a rerun gives the same order"
+    first_c = b["C"]; run(S / "critic_brief.py", cwd=d); assert (d / ".critic/briefs/brief-C.md").read_text(encoding="utf-8") == first_c, "the shuffle is seeded by the run: a rerun gives the same order"
 
 @test("5.0 SC-34: the teardown opens with the verdict and counts, has a quiet mode that keeps every count, and the code section is named for what it holds")
 def _(d):
-    oc = (HERE / "skills/review/references/output-contract.md").read_text()
+    oc = (HERE / "skills/review/references/output-contract.md").read_text(encoding="utf-8")
     assert "## First line: the verdict" in oc and "## Quiet mode" in oc and "#### 1. CODE AND ARCHITECTURE" in oc and "CRITICAL CODE ARCHITECTURE" not in oc
-    assert "quiet" in (HERE / "skills/review/SKILL.md").read_text()
+    assert "quiet" in (HERE / "skills/review/SKILL.md").read_text(encoding="utf-8")
     body = "**BLOCK** · Counts: 0 Critical, 1 High, 0 Medium, 0 Low\n#### INTENT GATE\nnot needed\n#### RISK MAP\nx\n#### SANDBOX LEDGER\nx\n#### {}\n- **C1** `a.js:1` | **IMPACT: High** | x\n#### 2. UI/UX & INTERACTION FRICTION\nnone\n#### 3. THE \"ANTI-AI\" CLEANUP\nnone\n#### 4. CLAIMS, NUMBERS AND CONSISTENCY\nnone\n#### 5. VERDICT\n- **BLOCK**\n- Counts: 0 Critical, 1 High, 0 Medium, 0 Low\n"
     for name in ("1. CODE AND ARCHITECTURE", "1. CRITICAL CODE ARCHITECTURE DEFECTS"):
         r = write(d, "r.md", body.format(name))
@@ -414,8 +414,8 @@ def _(d):
     lines = [f"v{i} = {i}" for i in range(1, 31)]; lines[14] = "v15 = 'CHANGED'"; del lines[24]
     write(d, "src/m.py", "\n".join(lines) + "\n"); write(d, "src/new.py", "BRAND_NEW = 1\n")
     run(S / "critic_map.py", cwd=d); run(S / "critic_ledger.py", "start", "review", "--tier", "lite", cwd=d)
-    run(S / "critic_brief.py", cwd=d); assert "Change packet" not in (d / ".critic/briefs/brief-A.md").read_text(), "off unless asked"
-    run(S / "critic_brief.py", "--packet", cwd=d); b = (d / ".critic/briefs/brief-A.md").read_text()
+    run(S / "critic_brief.py", cwd=d); assert "Change packet" not in (d / ".critic/briefs/brief-A.md").read_text(encoding="utf-8"), "off unless asked"
+    run(S / "critic_brief.py", "--packet", cwd=d); b = (d / ".critic/briefs/brief-A.md").read_text(encoding="utf-8")
     assert "Change packet" in b and "v15 = 'CHANGED'" in b and "   12  v12 = 12" in b and "   18  v18 = 18" in b and "v1 = 1\n" not in b and "v30 = 30" not in b, b
     assert "(lines deleted after line 24)" in b and "src/new.py (new file)" in b and "BRAND_NEW = 1" in b, b
 
@@ -427,16 +427,16 @@ def _(d):
     subprocess.run(["git", "init", "-q"], cwd=p); subprocess.run(["git", "add", "."], cwd=p); subprocess.run(G + ["commit", "-qm", "base"], cwd=p)
     write(p, "src/a.py", "x = 2  # uncommitted edit\n"); write(p, ".critic/reviews/review-B.json", '[{"title": "SECRET-B"}]')
     out = run(H / "scratch_dir.py", cwd=p, stdin=json.dumps({"agent_type": "curmudgeon:curmudgeon-verifier", "agent_id": "v1", "cwd": str(p)})).stdout
-    rec = json.loads((p / ".critic/scratch/v1/workspace.json").read_text()); ws = pathlib.Path(rec["payload"])
+    rec = json.loads((p / ".critic/scratch/v1/workspace.json").read_text(encoding="utf-8")); ws = pathlib.Path(rec["payload"])
     assert rec["git"] == "base" and "own git repository" in out, (rec, out)
-    top = subprocess.run(["git", "rev-parse", "--show-toplevel"], cwd=ws, capture_output=True, text=True).stdout.strip()
+    top = subprocess.run(["git", "rev-parse", "--show-toplevel"], cwd=ws, capture_output=True, text=True, encoding="utf-8").stdout.strip()
     assert pathlib.Path(top).resolve() == ws.resolve(), "git in the copy must find the copy, not the project"
-    assert subprocess.run(["git", "log", "--oneline", "--", "src/a.py"], cwd=ws, capture_output=True, text=True).stdout.strip(), "history works in the copy"
-    assert "uncommitted edit" in subprocess.run(["git", "diff"], cwd=ws, capture_output=True, text=True).stdout, "the copy shows the working-tree edits"
-    assert not (ws / "src/extlink").is_symlink() and "outside the project" in (ws / "src/extlink").read_text(), "a link outside the project becomes a note (5.2.1 F-4492aa66)"
+    assert subprocess.run(["git", "log", "--oneline", "--", "src/a.py"], cwd=ws, capture_output=True, text=True, encoding="utf-8").stdout.strip(), "history works in the copy"
+    assert "uncommitted edit" in subprocess.run(["git", "diff"], cwd=ws, capture_output=True, text=True, encoding="utf-8").stdout, "the copy shows the working-tree edits"
+    assert not (ws / "src/extlink").is_symlink() and "outside the project" in (ws / "src/extlink").read_text(encoding="utf-8"), "a link outside the project becomes a note (5.2.1 F-4492aa66)"
     subprocess.run(G + ["stash", "-q"], cwd=ws); subprocess.run(["git", "reset", "-q", "--hard"], cwd=ws)
-    assert "uncommitted edit" in (p / "src/a.py").read_text(), "stash and reset in the copy never touch the user's work"
-    assert not subprocess.run(["git", "remote"], cwd=ws, capture_output=True, text=True).stdout.strip(), "no remote: a push can't reach the project"
+    assert "uncommitted edit" in (p / "src/a.py").read_text(encoding="utf-8"), "stash and reset in the copy never touch the user's work"
+    assert not subprocess.run(["git", "remote"], cwd=ws, capture_output=True, text=True, encoding="utf-8").stdout.strip(), "no remote: a push can't reach the project"
     assert not (ws / "dist").exists(), "git-ignored build output is never copied"
     def ask(cwd, tool, **ti):
         return "deny" in run(H / "read_guard.py", cwd=p, stdin=json.dumps({"tool_name": tool, "tool_input": ti, "cwd": str(cwd), "agent_type": "curmudgeon:curmudgeon-verifier", "agent_id": "v1"})).stdout
@@ -487,8 +487,8 @@ def _(d):
 
 @test("5.0 SC-41: the README compares Curmudgeon with Anthropic's review options (dated and sourced), gives a CI recipe with the action's real inputs, and says the reviewers share one model")
 def _(d):
-    r = (HERE.parent / "README.md").read_text()
-    assert r == (HERE / "README.md").read_text(), "the two READMEs must match"
+    r = (HERE.parent / "README.md").read_text(encoding="utf-8")
+    assert r == (HERE / "README.md").read_text(encoding="utf-8"), "the two READMEs must match"
     assert "## How it compares with Anthropic's own review options" in r and "code.claude.com/docs/en/ultrareview" in r and "24 October 2026" in r
     assert "plugin_marketplaces:" in r and "plugins: curmudgeon@curmudgeon" in r and "hasn't been run by us yet" in r and "secrets.ANTHROPIC_API_KEY" in r
     assert "All three are the same model" in r and "/curmudgeon:review quiet" in r
@@ -498,9 +498,9 @@ def _(d):
     p = d / "proj"; write(p, "src/a.py", "x = 1\n"); write(d, "home/.aws/credentials", "[default]\naws_secret_access_key = PLACEHOLDER-NOT-A-KEY\n")
     os.symlink(d / "home/.aws/credentials", p / "src/config.ini"); os.symlink(d / "home/.aws", p / "src/awsdir")
     out = run(H / "scratch_dir.py", cwd=p, stdin=json.dumps({"agent_type": "curmudgeon:curmudgeon-reviewer", "agent_id": "r9", "cwd": str(p)})).stdout
-    rec = json.loads((p / ".critic/scratch/r9/workspace.json").read_text()); ws = pathlib.Path(rec["payload"])
+    rec = json.loads((p / ".critic/scratch/r9/workspace.json").read_text(encoding="utf-8")); ws = pathlib.Path(rec["payload"])
     for x in ("src/config.ini", "src/awsdir"):
-        assert not (ws / x).is_symlink() and (ws / x).is_file() and "PLACEHOLDER" not in (ws / x).read_text(), x
+        assert not (ws / x).is_symlink() and (ws / x).is_file() and "PLACEHOLDER" not in (ws / x).read_text(encoding="utf-8"), x
     assert sorted(rec["outside_links"]) == ["src/awsdir", "src/config.ini"] and "not copied" in out, (rec, out)
 
 @test("5.2.1 round 3 F-bae6a123: a dependency folder with a link leading outside the project is not linked into the reviewer's copy; a venv's interpreter link is fine")
@@ -509,7 +509,7 @@ def _(d):
     os.symlink(d / "home/.aws", p / "node_modules/cfg")
     write(p, ".venv/lib/x.py", "1\n"); (p / ".venv/bin").mkdir(parents=True); os.symlink(sys.executable, p / ".venv/bin" / ("python" + "3"))
     out = run(H / "scratch_dir.py", cwd=p, stdin=json.dumps({"agent_type": "curmudgeon:curmudgeon-reviewer", "agent_id": "r7", "cwd": str(p)})).stdout
-    rec = json.loads((p / ".critic/scratch/r7/workspace.json").read_text()); ws = pathlib.Path(rec["payload"])
+    rec = json.loads((p / ".critic/scratch/r7/workspace.json").read_text(encoding="utf-8")); ws = pathlib.Path(rec["payload"])
     assert not (ws / "node_modules").exists() and rec["deps_not_linked"] and "node_modules/cfg" in rec["deps_not_linked"][0], rec
     assert not (ws / "node_modules/cfg/credentials").exists() and "left out" in out, out
     assert (ws / ".venv").is_symlink() and (ws / ".venv/lib/x.py").exists(), "a venv whose only outside link is its interpreter is linked"
@@ -523,13 +523,13 @@ def _(d):
     subprocess.run(["git", "init", "-q"], cwd=p); subprocess.run(["git", "add", "src"], cwd=p); subprocess.run(G + ["commit", "-qm", "base"], cwd=p)
     write(p, "src/app.js", APP + "// uncommitted\n"); write(p, ".critic/reviews/review-B.json", '[{"title": "SECRET-B"}]')
     run(H / "scratch_dir.py", cwd=p, stdin=json.dumps({"agent_type": "curmudgeon:curmudgeon-reviewer", "agent_id": "r1", "cwd": str(p)}))
-    rec = json.loads((p / ".critic/scratch/r1/workspace.json").read_text()); ws = pathlib.Path(rec["payload"]); notes = pathlib.Path(rec["notes"])
+    rec = json.loads((p / ".critic/scratch/r1/workspace.json").read_text(encoding="utf-8")); ws = pathlib.Path(rec["payload"]); notes = pathlib.Path(rec["notes"])
     subprocess.run(G + ["stash", "-q"], cwd=notes, capture_output=True)
-    assert "// uncommitted" in (p / "src/app.js").read_text() and not subprocess.run(["git", "stash", "list"], cwd=p, capture_output=True, text=True).stdout.strip(), "git from notes must not reach the project"
-    lst = subprocess.run(["git", "ls-files"], cwd=ws, capture_output=True, text=True).stdout
-    assert (ws / "src/app.js").exists() and (ws / "vendor/lib/lib.c").read_text() == "int x;\n" and "vendor/lib" in rec["nested"], rec
-    assert not (ws / "src/one.txt").is_symlink() and "not copied" in (ws / "src/one.txt").read_text() and "src/one.txt" in rec["outside_links"], "an outside file link becomes a note, never a copy"
-    (ws / "src/one.txt").write_text("changed in copy\n"); assert (d / "outside/one.txt").read_text() == "real\n"
+    assert "// uncommitted" in (p / "src/app.js").read_text(encoding="utf-8") and not subprocess.run(["git", "stash", "list"], cwd=p, capture_output=True, text=True, encoding="utf-8").stdout.strip(), "git from notes must not reach the project"
+    lst = subprocess.run(["git", "ls-files"], cwd=ws, capture_output=True, text=True, encoding="utf-8").stdout
+    assert (ws / "src/app.js").exists() and (ws / "vendor/lib/lib.c").read_text(encoding="utf-8") == "int x;\n" and "vendor/lib" in rec["nested"], rec
+    assert not (ws / "src/one.txt").is_symlink() and "not copied" in (ws / "src/one.txt").read_text(encoding="utf-8") and "src/one.txt" in rec["outside_links"], "an outside file link becomes a note, never a copy"
+    (ws / "src/one.txt").write_text("changed in copy\n", encoding="utf-8"); assert (d / "outside/one.txt").read_text(encoding="utf-8") == "real\n"
     def ask(cwd, tool, **ti):
         return "deny" in run(H / "read_guard.py", cwd=p, stdin=json.dumps({"tool_name": tool, "tool_input": ti, "cwd": str(cwd), "agent_type": "curmudgeon:curmudgeon-reviewer", "agent_id": "r1"})).stdout
     assert ask(notes, "Read", file_path=str(p / ".critic/reviews/review-B.json")), "a cwd in notes still guards the project's .critic"
@@ -552,22 +552,22 @@ def _(d):
     r = run(S / "ast_view.py", "x.js", cwd=d); assert r.returncode == 3 and "no parser" in r.stdout
     write(d, "bad.py", "def f(:\n"); r = run(S / "ast_view.py", "bad.py", cwd=d); assert r.returncode == 2 and "syntax error" in r.stdout
     write(d, "src/a.py", "x = 1\n"); run(S / "critic_map.py", "--files", "src/a.py", cwd=d); run(S / "critic_ledger.py", "start", "review", "--tier", "lite", cwd=d)
-    run(S / "critic_brief.py", cwd=d); assert "ast_view.py FILE" in (d / ".critic/briefs/brief-A.md").read_text()
+    run(S / "critic_brief.py", cwd=d); assert "ast_view.py FILE" in (d / ".critic/briefs/brief-A.md").read_text(encoding="utf-8")
 
 @test("5.0 SC-48: the tests-of-the-tests lens finds every planted defect, flags no decoy and nothing in the clean twin, and the lens check can fail")
 def _(d):
     L = HERE.parent / "eval" / "lens.py"; K = HERE.parent / "eval" / "lens5.json"
     r = run(L, str(K), "--json", cwd=d); out = json.loads(r.stdout)
     assert r.returncode == 0 and out["verdict"] == "PASS" and out["recall"] == "7 of 7" and out["precision"] == "7 of 7", out
-    k = json.loads(K.read_text()); k["planted"].append({"id": "TX", "rule": "test-no-assert", "where": "tests/test_cart.py:14", "why": "deliberately wrong"})
+    k = json.loads(K.read_text(encoding="utf-8")); k["planted"].append({"id": "TX", "rule": "test-no-assert", "where": "tests/test_cart.py:14", "why": "deliberately wrong"})
     for x in ("fixture", "clean"): k[x] = str(HERE.parent / "eval" / k[x])
     bad = write(d, "bad.json", json.dumps(k)); r = run(L, str(bad), cwd=d)
     assert r.returncode == 1 and "FAIL" in r.stdout, "a lens check that can't fail proves nothing: " + r.stdout
     write(d, "tests/test_x.py", "def test_a():\n    assert (1 == 2, 'm')\n\ndef test_b():\n    import time\n    time.sleep(1)\n    assert True is not False\n")
     run(S / "critic_scan.py", ".", "--root", ".", cwd=d)
-    rows = {x["rule"]: x for x in json.loads((d / ".critic/scan/report.json").read_text())["findings"] if x["area"] == "tests"}
+    rows = {x["rule"]: x for x in json.loads((d / ".critic/scan/report.json").read_text(encoding="utf-8"))["findings"] if x["area"] == "tests"}
     assert rows["test-const-assert"]["sev"] == "FAIL" and rows["test-sleep"]["tier"] == "pedantic" and "test-no-assert" not in rows, rows
-    imp = subprocess.run([sys.executable, "-c", f"import sys; sys.path.insert(0, {str(S)!r}); from critic_merge import scan_impact; print(scan_impact('test-const-assert'))"], cwd=d, capture_output=True, text=True).stdout.strip()
+    imp = subprocess.run([sys.executable, "-c", f"import sys; sys.path.insert(0, {str(S)!r}); from critic_merge import scan_impact; print(scan_impact('test-const-assert'))"], cwd=d, capture_output=True, text=True, encoding="utf-8").stdout.strip()
     assert imp == "Medium", imp
 
 @test("5.0 SC-49: a live page loads only when scope.json lists its origin and the run carries the typed host; the file is data, strictly read")
@@ -575,7 +575,7 @@ def _(d):
     write(d, "index.html", "<!doctype html><title>x</title><p>x</p>")
     def scan(*extra):
         run_c(S / "critic_scan.py", ".", "--root", ".", "--page", "http://staging.example.invalid/", *extra, cwd=d)
-        rep = json.loads((d / ".critic/scan/report.json").read_text())
+        rep = json.loads((d / ".critic/scan/report.json").read_text(encoding="utf-8"))
         return [r["what"] for r in rep["findings"] if r["rule"] == "live-refused"]
     assert any("no .critic/scope.json" in w for w in scan()), "no scope file: refused"
     assert any("no .critic/scope.json" in w for w in scan("--allow-live", "staging.example.invalid")), "the old flag alone is not enough"
@@ -586,7 +586,7 @@ def _(d):
     assert any("typed confirmation" in w for w in scan("--allow-live", "other.example.invalid")), "the wrong host: refused"
     assert not scan("--allow-live", "staging.example.invalid"), "listed and confirmed: not refused"
     run_c(S / "critic_scan.py", ".", "--root", ".", "--page", "http://evil.example.invalid/", "--allow-live", "evil.example.invalid", cwd=d)
-    assert any("not a target" in r["what"] for r in json.loads((d / ".critic/scan/report.json").read_text())["findings"] if r["rule"] == "live-refused")
+    assert any("not a target" in r["what"] for r in json.loads((d / ".critic/scan/report.json").read_text(encoding="utf-8"))["findings"] if r["rule"] == "live-refused")
     for bad, why in [({"version": 1, "targets": [{"origin": "http://u:p@staging.example.invalid"}]}, "user name"), ({"version": 1, "targets": [{"origin": "http://staging.example.invalid/admin"}]}, "no path"),
                      ({"version": 1, "targets": [{"origin": "http://staging.example.invalid", "methods": ["POST"]}]}, "may not have"), ({"version": 1, "targets": [], "allow": "all"}, "may not have"),
                      ({"version": 1, "targets": [{"origin": "http://staging.example.invalid", "max_requests": 10 ** 6}]}, "max_requests")]:
@@ -597,17 +597,17 @@ def _(d):
     assert r.returncode == 2 and "link" in r.stderr, "a linked scope file stops the scan: never read through a link"
     (d / ".critic/scope.json").unlink()
     run(S / "critic_scan.py", ".", "--root", ".", "--page", "index.html", cwd=d)
-    assert not [r for r in json.loads((d / ".critic/scan/report.json").read_text())["findings"] if r["rule"] == "live-refused"], "a local file never needs a scope"
+    assert not [r for r in json.loads((d / ".critic/scan/report.json").read_text(encoding="utf-8"))["findings"] if r["rule"] == "live-refused"], "a local file never needs a scope"
 
 @test("5.0 SC-50: the strict YAML reader keeps every scalar a string, matches the pinned outputs, gives lines for findings, and refuses what it can't read safely")
 def _(d):
     sys.path.insert(0, str(S)); import importlib; Y = importlib.import_module("yaml_lite")
     for f in sorted((HERE / "tests" / "yaml").glob("*.y*ml")):
-        exp = json.loads(f.with_name(f.name.rsplit(".", 1)[0] + ".expected.json").read_text())
-        try: got = {"data": Y.plain(Y.loads(f.read_text()))}
+        exp = json.loads(f.with_name(f.name.rsplit(".", 1)[0] + ".expected.json").read_text(encoding="utf-8"))
+        try: got = {"data": Y.plain(Y.loads(f.read_text(encoding="utf-8")))}
         except Y.Refused as e: got = {"refused_line": e.line, "why": e.why}
         assert got == exp, (f.name, got, exp)
-    doc = Y.loads((HERE / "tests" / "yaml" / "ci-target.yml").read_text())
+    doc = Y.loads((HERE / "tests" / "yaml" / "ci-target.yml").read_text(encoding="utf-8"))
     assert "on" in doc and doc["on"] == "pull_request_target", "the key on stays the string on"
     steps = doc["jobs"]["build"]["steps"]
     assert steps.item_lines[0] == 8 and steps[1]["run"].line == 11 and doc.key_lines["jobs"] == 3
@@ -622,16 +622,16 @@ def _(d):
     assert r.returncode == 0 and out["recall"] == "13 of 13" and out["precision"] == "13 of 13", out
     write(d, ".github/workflows/x.yml", "on: push\nanchors: &a\n  k: v\n")
     run(S / "critic_scan.py", ".", "--root", ".", cwd=d)
-    rows = [x for x in json.loads((d / ".critic/scan/report.json").read_text())["findings"] if x["area"] == "supply-chain"]
+    rows = [x for x in json.loads((d / ".critic/scan/report.json").read_text(encoding="utf-8"))["findings"] if x["area"] == "supply-chain"]
     assert [(x["rule"], x["where"]) for x in rows] == [("ci-not-checked", ".github/workflows/x.yml:2")], rows
-    imp = subprocess.run([sys.executable, "-c", f"import sys; sys.path.insert(0, {str(S)!r}); from critic_merge import scan_impact; print(scan_impact('ci-pwn-request'))"], cwd=d, capture_output=True, text=True).stdout.strip()
+    imp = subprocess.run([sys.executable, "-c", f"import sys; sys.path.insert(0, {str(S)!r}); from critic_merge import scan_impact; print(scan_impact('ci-pwn-request'))"], cwd=d, capture_output=True, text=True, encoding="utf-8").stdout.strip()
     assert imp == "Critical", imp
 
 @test("5.0 fix: every script runs in Python's isolated mode (-I), as the golden tests and the background check run them")
 def _(d):
     write(d, "src/a.py", "x = 1\n")
     for script, args in [("critic_scan.py", [".", "--root", ".", "--no-project-rules"]), ("critic_map.py", ["--files", "src/a.py"]), ("critic_brief.py", []), ("ast_view.py", ["src/a.py"])]:
-        r = subprocess.run([sys.executable, "-I", str(S / script), *args], cwd=d, capture_output=True, text=True, env=dict(os.environ, CRITIC_ROOT=str(d)))
+        r = subprocess.run([sys.executable, "-I", str(S / script), *args], cwd=d, capture_output=True, text=True, env=dict(os.environ, CRITIC_ROOT=str(d)), encoding="utf-8")
         assert r.returncode == 0 and "Traceback" not in r.stderr, (script, r.stderr[-400:])
 
 @test("5.0 SC-52: the agent and MCP configuration lens finds every planted defect, flags no decoy and nothing in the clean twin")
@@ -639,7 +639,7 @@ def _(d):
     r = run(HERE.parent / "eval" / "lens.py", str(HERE.parent / "eval" / "lens7.json"), "--json", cwd=d); out = json.loads(r.stdout)
     assert r.returncode == 0 and out["recall"] == "7 of 7" and out["precision"] == "7 of 7" and out["pedantic_rows"] == 1, out
     write(d, ".mcp.json", "{not json"); run(S / "critic_scan.py", ".", "--root", ".", cwd=d)
-    assert [x["rule"] for x in json.loads((d / ".critic/scan/report.json").read_text())["findings"] if x["area"] == "agent-config"] == ["agent-not-checked"]
+    assert [x["rule"] for x in json.loads((d / ".critic/scan/report.json").read_text(encoding="utf-8"))["findings"] if x["area"] == "agent-config"] == ["agent-not-checked"]
 
 @test("5.0 SC-53: the release and rollback lens finds every planted defect, flags no decoy and nothing in the clean twin; SQL is split outside quotes")
 def _(d):
@@ -661,14 +661,14 @@ def _(d):
     run(S / "critic_ledger.py", "start", "review", "--tier", "full", cwd=d)
     for L in "ABC": write(d, f".critic/reviews/review-{L}.json", json.dumps(rows))
     run(S / "critic_merge.py", "tally", *[f".critic/reviews/review-{L}.json" for L in "ABC"], cwd=d)
-    t = json.loads((d / ".critic/tally.json").read_text()); got = {f["category"]: f for f in t["kept"] + t["contested"]}
+    t = json.loads((d / ".critic/tally.json").read_text(encoding="utf-8")); got = {f["category"]: f for f in t["kept"] + t["contested"]}
     assert got["domain"]["impact"] == "Medium" and got["domain"]["impact_capped_from"] == "High", got["domain"]
     assert got["intent"]["impact"] == "High" and "impact_capped_from" not in got["intent"]
     assert got["intent-2"]["impact"] == "Medium" and got["intent-2"]["requirement"]["basis"] == "inferred", got["intent-2"]
     from critic_findings import validate
     assert validate(dict(base, requirement={"basis": "stated"})) and validate(dict(base, requirement={"basis": "inferred"})) and not validate(dict(base, requirement={"basis": "inferred", "why": "x"}))
     write(d, "v.json", "[]"); run(S / "critic_merge.py", "apply", "v.json", cwd=d)
-    assert "## Capped at Medium" in (d / ".critic/counts.md").read_text()
+    assert "## Capped at Medium" in (d / ".critic/counts.md").read_text(encoding="utf-8")
 
 @test("5.0 SC-54: the operations lens finds every planted defect, flags no decoy and nothing in the clean twin")
 def _(d):
@@ -676,7 +676,7 @@ def _(d):
     assert r.returncode == 0 and out["recall"] == "6 of 6" and out["precision"] == "6 of 6", out
     write(d, "k8s/app.yaml", "kind: Deployment\nspec:\n  template:\n    spec:\n      containers:\n        - name: app\n          image: x:1\n")
     run(S / "critic_scan.py", ".", "--root", ".", cwd=d)
-    rows = {x["rule"]: x for x in json.loads((d / ".critic/scan/report.json").read_text())["findings"] if x["area"] == "operations"}
+    rows = {x["rule"]: x for x in json.loads((d / ".critic/scan/report.json").read_text(encoding="utf-8"))["findings"] if x["area"] == "operations"}
     assert rows["ops-k8s-no-probes"]["tier"] == "pedantic" and rows["ops-k8s-no-limits"]["where"] == "k8s/app.yaml:6", rows
 
 @test("5.0 SC-56: the variant hunt finds the same pattern elsewhere, and only blind-confirmed variants are reported, apart from the main counts")
@@ -690,15 +690,15 @@ def _(d):
     write(d, ".critic/findings.jsonl", json.dumps(f) + "\n")
     out = run(S / "critic_variants.py", "find", cwd=d).stdout
     pk = sorted((d / ".critic/verify-variants").glob("*.json")); assert len(pk) == 1, (out, pk)
-    p = json.loads(pk[0].read_text()); assert p["file"] == "src/b.js" and p["line"] == 3 and p["variant_of"] == "F-abcdef12", p
+    p = json.loads(pk[0].read_text(encoding="utf-8")); assert p["file"] == "src/b.js" and p["line"] == 3 and p["variant_of"] == "F-abcdef12", p
     write(d, "v.json", json.dumps([{"id": p["id"], "verdict": "unclear", "reproduced": "no"}]))
     run(S / "critic_variants.py", "apply", "v.json", cwd=d)
-    assert (d / ".critic/variants.jsonl").read_text() == "" and "Not verified (no verdict or unclear; not findings): 1" in (d / ".critic/variants.md").read_text()
+    assert (d / ".critic/variants.jsonl").read_text(encoding="utf-8") == "" and "Not verified (no verdict or unclear; not findings): 1" in (d / ".critic/variants.md").read_text(encoding="utf-8")
     write(d, "v.json", json.dumps([{"id": p["id"], "verdict": "confirmed", "reproduced": "traced", "entry": "card() is called with a user-supplied title and name", "path": ["src/b.js:3 assigns markup built from name to innerHTML"]}]))
     run(S / "critic_variants.py", "apply", "v.json", cwd=d)
-    v = [json.loads(x) for x in (d / ".critic/variants.jsonl").read_text().splitlines()]
-    assert len(v) == 1 and v[0]["source"] == "variant" and "Confirmed by blind verification: 1" in (d / ".critic/variants.md").read_text()
-    assert "verify-variants" in (HERE / "hooks" / "read_guard.py").read_text()
+    v = [json.loads(x) for x in (d / ".critic/variants.jsonl").read_text(encoding="utf-8").splitlines()]
+    assert len(v) == 1 and v[0]["source"] == "variant" and "Confirmed by blind verification: 1" in (d / ".critic/variants.md").read_text(encoding="utf-8")
+    assert "verify-variants" in (HERE / "hooks" / "read_guard.py").read_text(encoding="utf-8")
 
 @test("5.0 SC-57: reviewers and verifiers may use the LSP tool when a code-intelligence plugin makes it work, and the blindness guard judges its paths")
 def _(d):
@@ -707,8 +707,8 @@ def _(d):
         return "deny" in run(H / "read_guard.py", cwd=d, stdin=json.dumps({"tool_name": "LSP", "tool_input": ti, "cwd": str(d), "agent_type": "curmudgeon:curmudgeon-reviewer", "agent_id": "me"})).stdout
     assert ask(operation="documentSymbol", filePath=str(d / ".critic/reviews/review-B.json")) and ask(uri="file://" + str(d / ".critic/reviews/review-B.json"))
     assert not ask(operation="findReferences", filePath=str(d / "src/a.py"), line=1, character=1)
-    for a in ("curmudgeon-reviewer.md", "curmudgeon-verifier.md"): assert '"LSP"' in (HERE / "agents" / a).read_text()
-    assert "LSP" in json.loads((H / "hooks.json").read_text())["hooks"]["PreToolUse"][1]["matcher"]
+    for a in ("curmudgeon-reviewer.md", "curmudgeon-verifier.md"): assert '"LSP"' in (HERE / "agents" / a).read_text(encoding="utf-8")
+    assert "LSP" in json.loads((H / "hooks.json").read_text(encoding="utf-8"))["hooks"]["PreToolUse"][1]["matcher"]
 
 @test("5.0 SC-58 and SC-64: other tools' SARIF is read under the right lens, a line both tools flag is one row, and Semgrep in use is noticed but never run")
 def _(d):
@@ -719,7 +719,7 @@ def _(d):
         {"tool": {"driver": {"name": "zizmor"}}, "results": [{"ruleId": "template-injection", "level": "error", "message": {"text": "x"}, "locations": [{"physicalLocation": {"artifactLocation": {"uri": ".github/workflows/a.yml"}, "region": {"startLine": 9}}}]}]}]}
     write(d, "semgrep.sarif", json.dumps(sarif)); write(d, ".semgrep.yml", "rules: []\n")
     run(S / "critic_scan.py", ".", "--root", ".", cwd=d)
-    rows = json.loads((d / ".critic/scan/report.json").read_text())["findings"]
+    rows = json.loads((d / ".critic/scan/report.json").read_text(encoding="utf-8"))["findings"]
     at4 = [x for x in rows if x["where"] == "app.py:4"]
     assert len(at4) == 1 and at4[0].get("also_found_by") == "Semgrep OSS" and at4[0]["area"] == "safety", at4
     z = [x for x in rows if "zizmor" in x["rule"]]; assert z and z[0]["area"] == "supply-chain" and z[0]["level"] == "ci", z
@@ -750,7 +750,7 @@ def _(d):
 def _(d):
     write(d, "src/app.js", APP); run(S / "critic_ledger.py", "start", "review", "--tier", "lite", cwd=d)
     run(H / "scratch_dir.py", cwd=d, stdin=json.dumps({"agent_type": "curmudgeon:curmudgeon-verifier", "agent_id": "v9", "cwd": str(d)}))
-    ws = json.loads((d / ".critic/scratch/v9/workspace.json").read_text())["payload"]
+    ws = json.loads((d / ".critic/scratch/v9/workspace.json").read_text(encoding="utf-8"))["payload"]
     call = {"tool_name": "Bash", "tool_input": {"command": f"cd {ws} && node run.js"}, "agent_type": "curmudgeon:curmudgeon-verifier", "agent_id": "v9", "cwd": str(d), "hook_event_name": "PostToolUse"}
     def post(resp): return run(H / "stuck.py", cwd=d, stdin=json.dumps(dict(call, tool_response=resp))).stdout
     outs = [post({"stdout": "", "stderr": f"Error: cannot find module at 2026-10-24T05:0{i}:00Z", "exit_code": 1}) for i in range(3)]
@@ -761,7 +761,7 @@ def _(d):
     assert '"deny"' in pre, pre
     other = run(H / "stuck.py", cwd=d, stdin=json.dumps(dict(call, hook_event_name="PreToolUse", tool_input={"command": f"cd {ws} && ls"}))).stdout
     assert not other.strip(), "only the repeated action is refused"
-    row = json.loads((d / ".critic/stuck.jsonl").read_text().splitlines()[0]); assert row["type"] == "stuck_error_loop" and row["role"] == "verifier" and row["run"] == 1, row
+    row = json.loads((d / ".critic/stuck.jsonl").read_text(encoding="utf-8").splitlines()[0]); assert row["type"] == "stuck_error_loop" and row["role"] == "verifier" and row["run"] == 1, row
     assert not run(H / "stuck.py", cwd=d, stdin=json.dumps(dict(call, agent_type="general-purpose", tool_response={}))).stdout.strip(), "other agents are never watched"
     pp = {"tool_name": "Read", "agent_type": "curmudgeon:curmudgeon-reviewer", "agent_id": "r9", "cwd": str(d), "hook_event_name": "PostToolUse", "tool_response": "ok"}
     run(H / "scratch_dir.py", cwd=d, stdin=json.dumps({"agent_type": "curmudgeon:curmudgeon-reviewer", "agent_id": "r9", "cwd": str(d)}))
@@ -770,7 +770,7 @@ def _(d):
     g = finding(category="domain", impact="Medium", line=4, quote="const price = total * 1.0825;", title="Tax rule in render code")
     write(d, ".critic/reviews/review-A.json", json.dumps([g])); run(S / "critic_merge.py", "tally", ".critic/reviews/review-A.json", cwd=d)
     write(d, "v.json", "[]"); run(S / "critic_merge.py", "apply", "v.json", cwd=d)
-    assert "## Stuck" in (d / ".critic/counts.md").read_text() and "stuck_error_loop" in (d / ".critic/counts.md").read_text()
+    assert "## Stuck" in (d / ".critic/counts.md").read_text(encoding="utf-8") and "stuck_error_loop" in (d / ".critic/counts.md").read_text(encoding="utf-8")
 
 @test("5.0 SC-69: the job plan picks the lenses and agents for what is being reviewed, and quotes cost only from recorded history")
 def _(d):
@@ -811,7 +811,7 @@ def _(d):
     out = run_c(B, "start", "site/index.html", "--session", "s/w.json", "--allow-writes", cwd=d).stdout
     assert "[destructive: never clicked]" in out, "a session that sends data for real still refuses destructive controls: " + out
     r = run(B, "step", "click", "e3", "--session", "s/w.json", cwd=d); assert r.returncode == 2 and "never used" in r.stdout, r.stdout
-    assert json.loads((d / "s/w.json").read_text())["steps"] == [], "a refused step is not recorded"
+    assert json.loads((d / "s/w.json").read_text(encoding="utf-8"))["steps"] == [], "a refused step is not recorded"
     out = run(B, "step", "click", "e4", "--session", "s/w.json", cwd=d).stdout
     assert re.search(r"POST http://127\.0\.0\.1:\d+/api/save 501", out) and "would have sent" not in out, "with the user's yes, a write reaches the local server: " + out
 
@@ -821,27 +821,27 @@ def _(d):
     assert r.returncode == 0 and out["recall"] == "6 of 6" and out["precision"] == "6 of 6" and not out["decoy_rows"], out
     write(d, "a.js", "el.addEventListener('input', save);\n// TODO: debounce\n")
     run(S / "critic_scan.py", ".", "--root", ".", cwd=d)
-    rules = {x["rule"] for x in json.loads((d / ".critic/scan/report.json").read_text())["findings"]}
+    rules = {x["rule"] for x in json.loads((d / ".critic/scan/report.json").read_text(encoding="utf-8"))["findings"]}
     assert {"per-keystroke", "todo"} <= rules, "rules that read strings or comments on purpose still do: " + str(rules)
 
 @test("5.0 SC-70: the death-match harness refuses to spend without --yes-spend, and scores every arm with one scorer, leaving precision NOT MEASURED until labelled")
 def _(d):
     DM = HERE.parent / "eval" / "deathmatch.py"
     r = run(DM, "run", cwd=d); assert r.returncode == 2 and "--yes-spend" in r.stdout
-    n_tasks = len(json.loads((HERE.parent / "eval" / "deathmatch.json").read_text())["tasks"])
+    n_tasks = len(json.loads((HERE.parent / "eval" / "deathmatch.json").read_text(encoding="utf-8"))["tasks"])
     assert re.search(rf"\d+ arm\(s\) x {n_tasks} task\(s\)", run(DM, "plan", cwd=d).stdout)
-    key = json.loads((HERE.parent / "eval" / "answer_key4.json").read_text()); g2 = next(k for k in key if k.startswith("G2"))
+    key = json.loads((HERE.parent / "eval" / "answer_key4.json").read_text(encoding="utf-8")); g2 = next(k for k in key if k.startswith("G2"))
     rd = d / "runs"; (rd / "plain-claude" / "suite4").mkdir(parents=True); (rd / "plain-claude" / "suite4-clean").mkdir(parents=True)
-    (rd / "plain-claude" / "suite4" / "output.md").write_text("Findings:\n\n1. guards.js:10 canVoid uses indexOf truthiness, so -1 passes and a viewer can void.\n2. app.js:9 the total is wrong for empty carts.\n")
-    (rd / "plain-claude" / "suite4-clean" / "output.md").write_text("- app.js:4 possible bug: the price may overflow.\n")
+    (rd / "plain-claude" / "suite4" / "output.md").write_text("Findings:\n\n1. guards.js:10 canVoid uses indexOf truthiness, so -1 passes and a viewer can void.\n2. app.js:9 the total is wrong for empty carts.\n", encoding="utf-8")
+    (rd / "plain-claude" / "suite4-clean" / "output.md").write_text("- app.js:4 possible bug: the price may overflow.\n", encoding="utf-8")
     (rd / "curmudgeon" / "suite4").mkdir(parents=True)
-    (rd / "curmudgeon" / "suite4" / "findings.jsonl").write_text(json.dumps({"file": "guards.js", "line": 10, "title": "viewer can void", "evidence": "indexOf returns -1 (truthy)"}) + "\n")
+    (rd / "curmudgeon" / "suite4" / "findings.jsonl").write_text(json.dumps({"file": "guards.js", "line": 10, "title": "viewer can void", "evidence": "indexOf returns -1 (truthy)"}) + "\n", encoding="utf-8")
     out = run(DM, "score", str(rd), cwd=d).stdout
-    res = {(x["arm"], x["task"]): x for x in json.loads((rd / "results.json").read_text())}
+    res = {(x["arm"], x["task"]): x for x in json.loads((rd / "results.json").read_text(encoding="utf-8"))}
     p4 = res[("plain-claude", "suite4")]; assert p4["found"] >= 1 and p4["unlabelled"] == 1 and p4["precision"] is None, p4
     assert res[("plain-claude", "suite4-clean")]["false_alarms"] == 1 and res[("curmudgeon", "suite4")]["found"] >= 1
-    (rd / "labels.json").write_text(json.dumps({"plain-claude/suite4/1": "false"})); run(DM, "score", str(rd), cwd=d)
-    p4 = {(x["arm"], x["task"]): x for x in json.loads((rd / "results.json").read_text())}[("plain-claude", "suite4")]
+    (rd / "labels.json").write_text(json.dumps({"plain-claude/suite4/1": "false"}), encoding="utf-8"); run(DM, "score", str(rd), cwd=d)
+    p4 = {(x["arm"], x["task"]): x for x in json.loads((rd / "results.json").read_text(encoding="utf-8"))}[("plain-claude", "suite4")]
     assert p4["unlabelled"] == 0 and p4["precision"] == f"{p4['found']} of {p4['found'] + 1}", p4
 
 @test("5.0 audit mode: begin --audit is the full tier with rules of engagement, warns about a shipped .mcp.json, and audit fields are validated")
@@ -849,7 +849,7 @@ def _(d):
     write(d, "src/app.js", APP); write(d, ".mcp.json", json.dumps({"mcpServers": {"x": {"command": "npx", "args": ["x"]}}}))
     out = run(S / "critic_run.py", "begin", "--audit", "--files", "src/app.js", cwd=d).stdout
     assert "audit, not repair" in out and "WARNING: this repository ships .mcp.json" in out and "A, B, C" in out, out
-    assert json.loads((d / ".critic/ledger.json").read_text())["tier"] == "full"
+    assert json.loads((d / ".critic/ledger.json").read_text(encoding="utf-8"))["tier"] == "full"
     from critic_findings import validate
     g = finding(category="domain", impact="Medium", line=4, quote="const price = total * 1.0825;", title="t")
     assert not validate(dict(g, difficulty="High", exploit_scenario="x", fix_short="y", fix_long="z")) and validate(dict(g, difficulty="Extreme"))
@@ -860,9 +860,9 @@ def _(d):
     write(ev, "tiny-clean/calc.py", "def total(xs):\n    return sum(xs)\n\n\ndef is_empty(xs):\n    return len(xs) == 0\n\n\ndef label():\n    return 'ok'\n")
     write(ev, "behaviour_tiny.py", "import runpy, pathlib\ndef run(d):\n    m = runpy.run_path(str(pathlib.Path(d) / 'calc.py'))\n    return {'empty list is empty': m['is_empty']([]) is True, 'non-empty is not': m['is_empty']([1]) is False}\n")
     r = run(HERE.parent / "eval" / "planter.py", str(ev / "tiny-clean"), str(ev / "behaviour_tiny.py"), "--out", "tiny", "--max", "5", "--dest", str(ev), cwd=ev)
-    key = json.loads((ev / "answer_key_tiny.json").read_text())
+    key = json.loads((ev / "answer_key_tiny.json").read_text(encoding="utf-8"))
     assert key and all(v["synthetic"] and v["breaks"] for v in key.values()), (r.stdout, key)
-    assert all("calc.py:" in k for k in key) and (ev / "tiny-1" / "calc.py").read_text() != (ev / "tiny-clean" / "calc.py").read_text()
+    assert all("calc.py:" in k for k in key) and (ev / "tiny-1" / "calc.py").read_text(encoding="utf-8") != (ev / "tiny-clean" / "calc.py").read_text(encoding="utf-8")
     assert not any("label" in k or ":10" in k for k in key), "a change no behaviour check notices is never kept"
 
 @test("5.0 card-E review: the browser can reach nothing but the page's own origin (WebSockets, redirects, service workers, symlinks), destructive controls can't be reached by other verbs or a swap, and sessions aren't trusted")
@@ -897,7 +897,7 @@ def _(d):
     r = run(B, "step", "press", "Enter", "--session", ses, cwd=d); assert r.returncode == 2 and "destructive" in r.stdout, "Enter in that form is refused: " + r.stdout
     r = run(B, "step", "click", refs["Next"], "--session", ses, cwd=d); assert r.returncode == 2 and "left its origin" in r.stdout or "refused" in r.stdout, r.stdout
     time.sleep(0.5); assert not hits, f"nothing may reach another origin: {hits}"
-    s_ = json.loads((d / ses).read_text()); s_["page"] = "http://localhost.:1/forged"; (d / ses).write_text(json.dumps(s_))
+    s_ = json.loads((d / ses).read_text(encoding="utf-8")); s_["page"] = "http://localhost.:1/forged"; (d / ses).write_text(json.dumps(s_), encoding="utf-8")
     r = run(B, "step", "snapshot", "--session", ses, cwd=d); assert r.returncode == 2 and "refused" in r.stdout, "a hand-edited session is checked again: " + r.stdout
     write(d, "swap/index.html", "<!doctype html><title>t</title><button id=b onclick=\"document.title='NEXT'\">Next page</button><script>"
           "new MutationObserver(()=>setTimeout(()=>{const b=document.getElementById('b'); b.textContent='Delete everything'; b.onclick=()=>{document.title='DELETED'};},20))"
@@ -920,7 +920,7 @@ def _(d):
     same = dict(base, tool_input={"pattern": "eval", "path": "/tmp/proj/src/a"})
     for _ in range(6): run(H / "stuck.py", cwd=d, stdin=json.dumps(same))
     for _ in range(3): run(H / "stuck.py", cwd=d, stdin=json.dumps(same))
-    assert len((d / ".critic/stuck.jsonl").read_text().splitlines()) == 2, "one row per episode, not one per call"
+    assert len((d / ".critic/stuck.jsonl").read_text(encoding="utf-8").splitlines()) == 2, "one row per episode, not one per call"
 
 def _mod(name):
     sys.path.insert(0, str(S)); import importlib; return importlib.import_module(name)
@@ -959,20 +959,20 @@ def _(d):
     except Y.Refused as e: assert "tab" in e.why
     t0 = time.time(); doc = Y.loads("k: [\n" + "".join(f"  item{i},\n" for i in range(4000)) + "]\n")
     assert len(doc["k"]) == 4000 and time.time() - t0 < 3, time.time() - t0
-    w = d / ".github/workflows"; w.mkdir(parents=True); (w / "x.yml").write_text("on: push\njobs:\n  a:\n    runs-on: " + "[" * 1500 + "]" * 1500 + "\n")
-    (d / "app.js").write_text("const x = 1;\n")
+    w = d / ".github/workflows"; w.mkdir(parents=True); (w / "x.yml").write_text("on: push\njobs:\n  a:\n    runs-on: " + "[" * 1500 + "]" * 1500 + "\n", encoding="utf-8")
+    (d / "app.js").write_text("const x = 1;\n", encoding="utf-8")
     r = run(S / "critic_scan.py", ".", "--root", ".", cwd=d)
-    rep = json.loads((d / ".critic/scan/report.json").read_text())
+    rep = json.loads((d / ".critic/scan/report.json").read_text(encoding="utf-8"))
     assert any(x["rule"] == "ci-not-checked" for x in rep["findings"]), [x["rule"] for x in rep["findings"]]
-    (w / "bom.yml").write_text("\ufeffon: pull_request_target\njobs:\n  a:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/checkout@v4\n        with:\n          ref: ${{ github.event.pull_request.head.sha }}\n")
+    (w / "bom.yml").write_text("\ufeffon: pull_request_target\njobs:\n  a:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/checkout@v4\n        with:\n          ref: ${{ github.event.pull_request.head.sha }}\n", encoding="utf-8")
     run(S / "critic_scan.py", ".", "--root", ".", cwd=d)
-    assert any(x["rule"] == "ci-pwn-request" for x in json.loads((d / ".critic/scan/report.json").read_text())["findings"]), "a workflow saved with a BOM is still read"
+    assert any(x["rule"] == "ci-pwn-request" for x in json.loads((d / ".critic/scan/report.json").read_text(encoding="utf-8"))["findings"]), "a workflow saved with a BOM is still read"
 
 @test("5.0 card-E review B #3: a lens that crashes on one file is reported and the rest of the scan still runs")
 def _(d):
     write(d, "app.js", APP); write(d, "tests/test_x.py", "def test_x():\n    pass\n")
     r = run(S / "critic_scan.py", ".", "--root", ".", cwd=d, env={"CRITIC_TEST_CRASH_LENS": "scan_tests"})
-    rep = json.loads((d / ".critic/scan/report.json").read_text()); rules = {x["rule"] for x in rep["findings"]}
+    rep = json.loads((d / ".critic/scan/report.json").read_text(encoding="utf-8")); rules = {x["rule"] for x in rep["findings"]}
     assert "lens-crashed" in rules and "test-no-assert" not in rules and len(rules - {"lens-crashed"}) > 0, rules
 
 @test("5.0 card-E review B #4-#7: CI rules know upload-artifact v4.4+, a guarded workflow_run, boolean-only expressions and Docker stage names")
@@ -1038,38 +1038,38 @@ def _(d):
 @test("5.0 card-E review B #15: the plan never calls requirements.txt or CMakeLists.txt a document")
 def _(d):
     write(d, "requirements.txt", "--extra-index-url https://pkgs.example.invalid/simple\nflask==3.0\n")
-    (d / ".critic").mkdir(exist_ok=True); (d / ".critic/change-map.json").write_text(json.dumps({"files": ["requirements.txt"], "tier": "full"}))
+    (d / ".critic").mkdir(exist_ok=True); (d / ".critic/change-map.json").write_text(json.dumps({"files": ["requirements.txt"], "tier": "full"}), encoding="utf-8")
     p = json.loads(run(S / "critic_plan.py", "--json", cwd=d).stdout)
     assert p["tier"] == "full" and p["kind"] != "document or plan" and "CI and supply chain" in p["lenses"], p
-    (d / ".critic/change-map.json").write_text(json.dumps({"files": ["CMakeLists.txt"], "tier": "full"}))
+    (d / ".critic/change-map.json").write_text(json.dumps({"files": ["CMakeLists.txt"], "tier": "full"}), encoding="utf-8")
     assert json.loads(run(S / "critic_plan.py", "--json", cwd=d).stdout)["kind"] != "document or plan"
-    (d / ".critic/change-map.json").write_text(json.dumps({"files": ["docs/notes.txt", "README.md"], "tier": "full"}))
+    (d / ".critic/change-map.json").write_text(json.dumps({"files": ["docs/notes.txt", "README.md"], "tier": "full"}), encoding="utf-8")
     assert json.loads(run(S / "critic_plan.py", "--json", cwd=d).stdout)["kind"] == "document or plan"
 
 @test("5.0 card-E review B #16: lens.py fails a lens that adds a wrong row, so precision can fail the gate")
 def _(d):
     ev = d / "ev"; shutil.copytree(HERE.parent / "eval" / "fixture7", ev / "fixture7"); shutil.copytree(HERE.parent / "eval" / "fixture7-clean", ev / "fixture7-clean")
-    key = json.loads((HERE.parent / "eval" / "lens7.json").read_text()); key["planted"] = key["planted"][1:]
-    key["fixture"] = str(ev / "fixture7"); key["clean"] = str(ev / "fixture7-clean"); (d / "k.json").write_text(json.dumps(key))
+    key = json.loads((HERE.parent / "eval" / "lens7.json").read_text(encoding="utf-8")); key["planted"] = key["planted"][1:]
+    key["fixture"] = str(ev / "fixture7"); key["clean"] = str(ev / "fixture7-clean"); (d / "k.json").write_text(json.dumps(key), encoding="utf-8")
     r = run(HERE.parent / "eval" / "lens.py", str(d / "k.json"), "--json", cwd=d); out = json.loads(r.stdout)
     assert out["false_rows"] and out["verdict"] == "FAIL" and r.returncode == 1, out
 
 @test("5.0 card-E review B #17, #18: the death-match scorer credits a plant only from the claim, the same way for every arm, and hides no failed run")
 def _(d):
     DM = HERE.parent / "eval" / "deathmatch.py"; rd = d / "runs"
-    def put(arm, task, name, text): (rd / arm / task).mkdir(parents=True, exist_ok=True); (rd / arm / task / name).write_text(text)
+    def put(arm, task, name, text): (rd / arm / task).mkdir(parents=True, exist_ok=True); (rd / arm / task / name).write_text(text, encoding="utf-8")
     put("curmudgeon", "suite1", "findings.jsonl", json.dumps({"file": "app.js", "line": 40, "category": "domain", "title": "Sort order of notes is reversed", "quote": "a.t - b.t",
         "failing_case": "two notes show newest last", "evidence": "app.js:40", "remediation": "escape the confusion: reverse the comparator"}) + "\n")
     put("plain-claude", "suite1", "output.md", "1. app.js:40 sort order of notes is reversed: two notes show newest last.\n   Fix: escape the confusion and reverse the comparator.\n")
     put("plain-claude", "suite1-clean", "output.md", "## Review of app.js and store.js\n\nI read every file. No bugs found.\n\n## Summary\n\n- No issues in store.js worth reporting.\n")
-    (rd / "code-review" / "suite1").mkdir(parents=True); (rd / "code-review" / "suite1" / "meta.json").write_text(json.dumps({"error": "timeout after 3600 s"}))
+    (rd / "code-review" / "suite1").mkdir(parents=True); (rd / "code-review" / "suite1" / "meta.json").write_text(json.dumps({"error": "timeout after 3600 s"}), encoding="utf-8")
     run(DM, "score", str(rd), cwd=d)
-    res = {(x["arm"], x["task"]): x for x in json.loads((rd / "results.json").read_text())}
+    res = {(x["arm"], x["task"]): x for x in json.loads((rd / "results.json").read_text(encoding="utf-8"))}
     assert res[("curmudgeon", "suite1")]["found"] == 0 and res[("plain-claude", "suite1")]["found"] == 0, "a word in the fix text credits nothing"
     assert res[("plain-claude", "suite1-clean")]["false_alarms"] == 0, res[("plain-claude", "suite1-clean")]
     cr = res[("code-review", "suite1")]; assert cr.get("error") and cr.get("recall") == "NOT MEASURED" and cr.get("found") is None, cr
-    assert "timeout" in (rd / "report.md").read_text()
-    src = (DM).read_text(); assert "TimeoutExpired" in src, "a run that times out is recorded, not fatal"
+    assert "timeout" in (rd / "report.md").read_text(encoding="utf-8")
+    src = (DM).read_text(encoding="utf-8"); assert "TimeoutExpired" in src, "a run that times out is recorded, not fatal"
 
 @test("5.0 card-E verify round: a comment inside a multi-line flow list is read as YAML reads it, never as an empty item")
 def _(d):
@@ -1121,18 +1121,18 @@ def _(d):
 @test("5.0 card-E verify round: the plan treats a .txt under requirements/ as build input")
 def _(d):
     (d / ".critic").mkdir(); write(d, "requirements/base.txt", "flask==3.0\n")
-    (d / ".critic/change-map.json").write_text(json.dumps({"files": ["requirements/base.txt"], "tier": "full"}))
+    (d / ".critic/change-map.json").write_text(json.dumps({"files": ["requirements/base.txt"], "tier": "full"}), encoding="utf-8")
     p = json.loads(run(S / "critic_plan.py", "--json", cwd=d).stdout); assert p["tier"] == "full" and "CI and supply chain" in p["lenses"], p
 
 @test("5.0 card-E verify round: the death-match scorer uses a plant's line range when it has one, counts uncited clean-twin claims as unlabelled, keeps claims before Fix:, and calls an empty reply no output")
 def _(d):
     DM = HERE.parent / "eval" / "deathmatch.py"; rd = d / "runs"
-    def put(arm, task, name, text): (rd / arm / task).mkdir(parents=True, exist_ok=True); (rd / arm / task / name).write_text(text)
+    def put(arm, task, name, text): (rd / arm / task).mkdir(parents=True, exist_ok=True); (rd / arm / task / name).write_text(text, encoding="utf-8")
     put("plain-claude", "suite1-clean", "output.md", "- store.js: save() drops the last note when two notes share a title; this is a bug.\n- app.js:12 a race in search.\n")
     put("plain-claude", "suite1", "output.md", "1. **app.js:46** Fix: escape note titles (titles are injected unescaped, XSS)\n")
     put("code-review", "suite1", "output.md", "")
     run(DM, "score", str(rd), cwd=d)
-    res = {(x["arm"], x["task"]): x for x in json.loads((rd / "results.json").read_text())}
+    res = {(x["arm"], x["task"]): x for x in json.loads((rd / "results.json").read_text(encoding="utf-8"))}
     c = res[("plain-claude", "suite1-clean")]; assert c["false_alarms"] == 1 and c["unlabelled"] == 1 and c["precision"] is None, c
     assert res[("plain-claude", "suite1")]["found"] == 1, "the claim before Fix: on the same line still counts"
     assert res[("code-review", "suite1")]["error"] == "no output", res[("code-review", "suite1")]

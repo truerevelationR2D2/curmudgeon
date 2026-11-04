@@ -43,6 +43,7 @@ apply:
   records every kept finding in the ledger (new, known or regressed)."""
 import hashlib, json, math, os, pathlib, re, subprocess, sys, time
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+import utf8io  # UTF-8 output on Windows too (03 §5.57 item 20)
 from critic_findings import is_security, verdict_required, NIT, IMPACTS, extract_findings, norm_code, relocate_quote, fingerprint, quote_check, read_jsonl, refutation_problem, downgrade_problem, confirmation_problem, security_refutation_problem, similar, log_run, append_line, refuse_linked_state, to_sarif, validate, write_jsonl, tokens, scrub, redact_finding_text, write_manifest, strip_workspace_path, _cites_real_line
 import safegit  # git without the repository's own commands (03 §5.57 review)
 
@@ -68,7 +69,7 @@ def norm_path(p):
     p = strip_workspace_path(str(p or "").strip()).replace("\\", "/")
     try:
         q = pathlib.Path(p)
-        if q.is_absolute(): p = str(q.resolve().relative_to(ROOT))
+        if q.is_absolute(): p = q.resolve().relative_to(ROOT).as_posix()
     except (ValueError, OSError): pass
     while p.startswith("./"): p = p[2:]
     return p
@@ -106,14 +107,14 @@ def cell_(t): return str(t).replace("|", "/").replace("\n", " ")
 def coverage_report(cov):
     """Not reviewed, computed by script: payload files (from the change map) that no reviewer reports reading, plus any
     file a reviewer says it didn't reach. Unknown when reviewers report nothing."""
-    try: payload = [str(x) for x in json.loads((D / "change-map.json").read_text()).get("files", [])]
+    try: payload = [str(x) for x in json.loads((D / "change-map.json").read_text(encoding="utf-8")).get("files", [])]
     except (OSError, ValueError): payload = []
     if not cov["read"] and not cov["not_reached"]: return {"known": False, "payload": len(payload)}
     missing = sorted((set(payload) - cov["read"]) | (cov["not_reached"] - cov["read"]))
     return {"known": True, "payload": len(payload), "read": len(cov["read"]), "not_reviewed": missing}
 
 def ledger():
-    try: return json.loads((D / "ledger.json").read_text())
+    try: return json.loads((D / "ledger.json").read_text(encoding="utf-8"))
     except Exception: return {}
 
 _SHIPPED = {}
@@ -184,7 +185,7 @@ def scan_impact(rule):
     return "Critical" if rule.startswith("secret-") and base in secret else SCAN_IMPACT.get(rule, "High")
 
 def scan_rows(path):
-    try: rep = json.loads(pathlib.Path(path).read_text())
+    try: rep = json.loads(pathlib.Path(path).read_text(encoding="utf-8"))
     except Exception as e: die(f"can't read scan report {path}: {e}")
     out = []
     for r in rep.get("findings", []):
@@ -247,7 +248,7 @@ def tally(paths):
     scan = groups = None
     if "--groups" in paths:
         i = paths.index("--groups"); gp = paths[i + 1] if i + 1 < len(paths) else die("--groups needs a file"); paths = paths[:i] + paths[i + 2:]
-        try: groups = json.loads(pathlib.Path(gp).read_text()).get("groups", [])
+        try: groups = json.loads(pathlib.Path(gp).read_text(encoding="utf-8")).get("groups", [])
         except Exception as e: die(f"can't read groups {gp}: {e}")
     outside = None
     if "--outside" in paths:
@@ -257,7 +258,7 @@ def tally(paths):
     no_scan = "--no-scan" in paths; paths = [x for x in paths if x != "--no-scan"]
     degraded = ["the scripted checks did not run (the tally went on without them)"] if no_scan else []
     if scan:
-        try: blocked = json.loads(pathlib.Path(scan).read_text()).get("degraded") or []
+        try: blocked = json.loads(pathlib.Path(scan).read_text(encoding="utf-8")).get("degraded") or []
         except (OSError, ValueError, AttributeError): blocked = []
         if blocked: degraded.append("these scripted checks could not run: " + ", ".join(map(str, blocked)))  # SKILL.md rule 8: blocked or unavailable checks make the review DEGRADED
     if not paths: die("tally needs the blind review files (for example .critic/reviews/review-*.json); refusing to count scan rows alone")
@@ -269,7 +270,7 @@ def tally(paths):
                  and pathlib.Path(p).stat().st_mtime < started - 2]
         if stale: die(f"refusing to count {', '.join(stale)}: written before this run started, so it is from an earlier run. Remove it, or have a fresh reviewer write it again")
     snap_f = D / "tally-reviews.json"; snap = {}  # audit P2: the reviews as the first tally of this run counted them
-    try: snap = json.loads(snap_f.read_text()) if snap_f.is_file() and not snap_f.is_symlink() else {}
+    try: snap = json.loads(snap_f.read_text(encoding="utf-8")) if snap_f.is_file() and not snap_f.is_symlink() else {}
     except (OSError, ValueError): snap = {}
     if not isinstance(snap, dict) or snap.get("started") != started or not isinstance(snap.get("hashes"), dict): snap = {"started": started, "hashes": {}}
     now = {pathlib.Path(p).name: hashlib.sha256(pathlib.Path(p).read_bytes()).hexdigest() for p in paths if pathlib.Path(p).is_file()}
@@ -283,7 +284,7 @@ def tally(paths):
     blind = set()  # 03 §5.56 item 15: reviews whose agent the stop hook saw working in its private copy
     for st_ in (D / "stops").glob("*.json") if (D / "stops").is_dir() and not (D / "stops").is_symlink() else []:  # written by the stop hook; agents can't write there
         try:
-            j_ = json.loads(st_.read_text())
+            j_ = json.loads(st_.read_text(encoding="utf-8"))
             if j_.get("workspace") and (not started or float(j_.get("at") or 0) >= started - 2): blind.add(j_.get("review"))
         except (OSError, ValueError, AttributeError, TypeError): pass
     unproven = [pathlib.Path(p).name for p in paths if pathlib.Path(p).resolve().parent != (D / "reviews").resolve() or pathlib.Path(p).name not in blind]  # a stop record names a file in .critic/reviews/; any other file (an archived one included) came from no hooked reviewer this run
@@ -483,7 +484,7 @@ def write_verifier_log():
     """Every refutation and downgrade is kept in .critic/refutations.jsonl, so a verifier that talks the review out of
     real bugs can be caught: the spot-check (critic_ledger.py spotcheck) and the eval kit sample these."""
     if not VERIFIER_LOG: return
-    try: run_no = json.loads((D / "ledger.json").read_text()).get("run", 0)
+    try: run_no = json.loads((D / "ledger.json").read_text(encoding="utf-8")).get("run", 0)
     except Exception: run_no = 0
     seen = set()
     try: old = (D / "refutations.jsonl").read_text(encoding="utf-8", errors="replace").splitlines() if (D / "refutations.jsonl").exists() else []
@@ -501,7 +502,7 @@ def revision_stamp(final):
     """What these findings were reviewed against (SC-38): the git commit, whether the working tree had uncommitted
     changes, and a sha256 of the cited files' contents."""
     def git(*a):
-        try: return safegit.run([*a], cwd=ROOT, capture_output=True, text=True, timeout=10).stdout.strip()
+        try: return safegit.run([*a], cwd=ROOT, capture_output=True, text=True, timeout=10, encoding="utf-8", errors="replace").stdout.strip()
         except (OSError, subprocess.TimeoutExpired): return ""
     h = hashlib.sha256()
     for f in sorted({str(x.get("file") or "") for x in final}):
@@ -515,7 +516,7 @@ def mark_origin(final):
     by script: introduced when its line, or any file:line its evidence, failing case or locations cite, falls in a
     changed hunk, or its file is new. A new caller reaching an old sink therefore counts as introduced. Both kinds are
     counted; pre-existing ones get their own section."""
-    try: cm = json.loads((D / "change-map.json").read_text())
+    try: cm = json.loads((D / "change-map.json").read_text(encoding="utf-8"))
     except (OSError, ValueError): return
     if cm.get("mode") != "diff": return
     hk, new = cm.get("hunks") or {}, set(cm.get("new_files") or [])
@@ -552,7 +553,7 @@ def fix_status(f):
     return "partial" if re.search(r"(?i)\bpartial(ly)?\b|\bonly part\b|\bstop-?gap\b|\bworkaround\b", rem) else "usable"
 
 def apply(paths):
-    try: T = json.loads((D / "tally.json").read_text())
+    try: T = json.loads((D / "tally.json").read_text(encoding="utf-8"))
     except Exception as e: die(f"run tally first ({e})")
     verdicts = {}; stale = []; by_hand = []
     t_mtime = (D / "tally.json").stat().st_mtime
@@ -645,7 +646,7 @@ def apply(paths):
     if pre: md += ["", f"## Pre-existing (already there before this change; still counted above): {len(pre)}"] + [f"- {f['id']} {f['impact']} {f['file']}:{f.get('line', '')}" for f in pre]
     nofix = [f for f in final if str(f.get("fix", "")).startswith(("none", "not offerable"))]
     if nofix: md += ["", "## Fixes not to offer (describe the problem; don't present these remediations as fixes)"] + [f"- {f['id']}: {f['fix']}" for f in nofix]
-    try: stuck = [json.loads(x) for x in (D / "stuck.jsonl").read_text().splitlines() if x.strip()] if (D / "stuck.jsonl").is_file() and not (D / "stuck.jsonl").is_symlink() else []
+    try: stuck = [json.loads(x) for x in (D / "stuck.jsonl").read_text(encoding="utf-8").splitlines() if x.strip()] if (D / "stuck.jsonl").is_file() and not (D / "stuck.jsonl").is_symlink() else []
     except (OSError, ValueError): stuck = []
     run_now = ledger().get("run"); stuck = [x for x in stuck if x.get("run") == run_now]
     if stuck: md += ["", "## Stuck (typed; never hidden: say in the teardown what couldn't be checked and why)"] + [f"- {x.get('role')} {x.get('agent_id', '')[:8]}: {x.get('type')} on {x.get('tool')} (round {x.get('round')})" for x in stuck]
@@ -689,7 +690,7 @@ def apply(paths):
         if imp.returncode != 0:
             print("critic_merge: the findings were written, but recording them in the ledger FAILED (see the message above); stable ids and history are not updated", file=sys.stderr)
             return 1
-        try: known = json.loads((D / "ledger.json").read_text()).get("findings", {})
+        try: known = json.loads((D / "ledger.json").read_text(encoding="utf-8")).get("findings", {})
         except Exception: known = {}
         for r in refuted:
             fid = r["finding"].get("id")

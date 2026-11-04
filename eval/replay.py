@@ -10,12 +10,13 @@ counts line), what the tally dropped, retracted, rejected and suppressed, and th
 
 A missing recording file fails; nothing ever falls back to a model. Idea from vcrpy's record-once rule (MIT); this is
 our own code."""
+import os as _os, sys as _sys; _sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__))); import utf8io  # UTF-8 output on Windows too (03 §5.57 item 20)
 import difflib, json, os, pathlib, shutil, subprocess, sys, tempfile
 HERE = pathlib.Path(__file__).resolve().parent
 S = HERE.parent / "plugin" / "skills" / "review" / "scripts"
 
 def replay(rec):
-    man = json.loads((rec / "manifest.json").read_text())
+    man = json.loads((rec / "manifest.json").read_text(encoding="utf-8"))
     need = [rec / p for p in man["reviews"]] + [rec / man["groups"], rec / man["verdicts"], rec / "tree"]
     missing = [str(p.relative_to(rec)) for p in need if not p.exists()]
     if missing: return None, f"recording incomplete: {', '.join(missing)}"
@@ -23,7 +24,7 @@ def replay(rec):
         root = pathlib.Path(t); shutil.copytree(rec / "tree", root, dirs_exist_ok=True)
         env = dict(os.environ, PYTHONDONTWRITEBYTECODE="1")
         def go(*a):
-            r = subprocess.run([sys.executable, "-I", *map(str, a)], cwd=root, capture_output=True, text=True, timeout=300, env=env)
+            r = subprocess.run([sys.executable, "-I", *map(str, a)], cwd=root, capture_output=True, text=True, timeout=300, env=env, encoding="utf-8")
             if r.returncode != 0: raise RuntimeError(f"{a[0].name} {' '.join(map(str, a[1:]))} failed: {r.stdout[-400:]}{r.stderr[-400:]}")
             return r
         go(S / "critic_ledger.py", "start", "review", "--tier", "full")
@@ -35,11 +36,11 @@ def replay(rec):
         go(S / "critic_merge.py", "tally", *revs)
         go(S / "critic_merge.py", "tally", *revs, "--groups", ".critic/groups.json")
         go(S / "critic_merge.py", "apply", "verdicts.json")
-        rows = [json.loads(x) for x in (root / ".critic" / "findings.jsonl").read_text().splitlines() if x.strip()]
-        tally = json.loads((root / ".critic" / "tally.json").read_text())
+        rows = [json.loads(x) for x in (root / ".critic" / "findings.jsonl").read_text(encoding="utf-8").splitlines() if x.strip()]
+        tally = json.loads((root / ".critic" / "tally.json").read_text(encoding="utf-8"))
         stages = {k: sorted((x.get("finding") or x).get("id") or "" for x in tally.get(k, [])) for k in ("dropped", "retracted", "rejected", "suppressed")}
-        refuted = sorted({(json.loads(x).get("id"), json.loads(x).get("kind")) for x in (root / ".critic" / "refutations.jsonl").read_text().splitlines() if x.strip()}) if (root / ".critic" / "refutations.jsonl").exists() else []
-        counts = next((l for l in (root / ".critic" / "counts.md").read_text().splitlines() if l.startswith("Counts for the VERDICT")), "")
+        refuted = sorted({(json.loads(x).get("id"), json.loads(x).get("kind")) for x in (root / ".critic" / "refutations.jsonl").read_text(encoding="utf-8").splitlines() if x.strip()}) if (root / ".critic" / "refutations.jsonl").exists() else []
+        counts = next((l for l in (root / ".critic" / "counts.md").read_text(encoding="utf-8").splitlines() if l.startswith("Counts for the VERDICT")), "")
     keep = ("id", "impact", "file", "line", "votes", "of", "verifier", "confidence")
     return {"counts": counts, "findings": sorted(({k: r.get(k) for k in keep} for r in rows), key=lambda r: r["id"]),
             "tally": stages, "verifier_log": [list(x) for x in refuted]}, None
@@ -58,7 +59,7 @@ def main():
         if not exp.exists(): print(f"MISSING {rec.name}/expected.json (run with CRITIC_UPDATE_REPLAY=1 once)"); bad += 1; continue
         if exp.read_text(encoding="utf-8") != text:
             bad += 1; print(f"CHANGED {rec.name}:")
-            sys.stdout.writelines(difflib.unified_diff(exp.read_text().splitlines(True), text.splitlines(True), "expected", "now", n=1))
+            sys.stdout.writelines(difflib.unified_diff(exp.read_text(encoding="utf-8").splitlines(True), text.splitlines(True), "expected", "now", n=1))
         else: print(f"ok {rec.name}")
     return 1 if bad else 0
 

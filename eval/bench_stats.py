@@ -21,6 +21,7 @@ Per arm:
 - median wall time, and the agent-launch rate (runs that started at least one subagent).
 Paired comparisons: against --base (default curmudgeon), on the same task and repeat, the mean difference in
 confirmed bugs per run and in cost per run, each with a 95% cluster bootstrap interval (tasks, then runs)."""
+import os as _os, sys as _sys; _sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__))); import utf8io  # UTF-8 output on Windows too (03 §5.57 item 20)
 import collections, contextlib, io, json, math, pathlib, random, statistics, sys
 
 HERE = pathlib.Path(__file__).resolve().parent
@@ -84,16 +85,16 @@ def load(run_dirs):
         newer = lab.exists() and lab.stat().st_mtime > res_f.stat().st_mtime + 0.01 if res_f.exists() else False  # labels saved after the scores: score again (5.2.4 benchmark review)
         if not res_f.exists() or RESCORE or newer:  # equal times (a fresh clone) read the recorded scores as they are (audit V20); --rescore forces it
             with contextlib.redirect_stdout(io.StringIO()): deathmatch.score(rd)
-        res = json.loads((rd / "results.json").read_text())
-        detail = (json.loads((rd / "labels-detail.json").read_text()) if (rd / "labels-detail.json").exists() else {}).get("labels", {})
-        agree = (json.loads((rd / "labels-detail.json").read_text()) if (rd / "labels-detail.json").exists() else {}).get("agreement")
-        vrows = [json.loads(x) for x in open(rd / "voided.jsonl") if x.strip()] if (rd / "voided.jsonl").exists() else []
+        res = json.loads((rd / "results.json").read_text(encoding="utf-8"))
+        detail = (json.loads((rd / "labels-detail.json").read_text(encoding="utf-8")) if (rd / "labels-detail.json").exists() else {}).get("labels", {})
+        agree = (json.loads((rd / "labels-detail.json").read_text(encoding="utf-8")) if (rd / "labels-detail.json").exists() else {}).get("agreement")
+        vrows = [json.loads(x) for x in open(rd / "voided.jsonl", encoding="utf-8") if x.strip()] if (rd / "voided.jsonl").exists() else []
         voids = sum(1 for v in vrows if v.get("voided_by_limit"))
         failed_then = collections.Counter(v["run"].split("/")[0] for v in vrows if not v.get("voided_by_limit"))  # a real failure, run again by hand: still a failure
         dup, credited_now = plant_duplicates(rd, tasks)
         for r in res:
             tid, _, k = r["task"].partition("~"); t = tasks.get(tid) or {}
-            meta = json.loads((rd / r["arm"] / r["task"] / "meta.json").read_text()) if (rd / r["arm"] / r["task"] / "meta.json").exists() else {}
+            meta = json.loads((rd / r["arm"] / r["task"] / "meta.json").read_text(encoding="utf-8")) if (rd / r["arm"] / r["task"] / "meta.json").exists() else {}
             labs = [d for key, d in detail.items() if key.startswith(f"{r['arm']}/{r['task']}/") and key not in dup and key not in credited_now]  # a labelled finding the key now credits to a plant (a widened pattern) counts once, as the plant
             runs.append({"dir": rd.name, "arm": r["arm"], "task": tid, "rep": int(k or 1), "clean": bool(t.get("clean")), "ok": not r.get("error"),
                          "found": r.get("found") or 0, "plants": r.get("plants"), "false_alarms": r.get("false_alarms"), "cost": r.get("cost_usd"),
@@ -114,7 +115,7 @@ def plant_duplicates(rd, tasks):
         if not t or t.get("clean"): continue
         blocks = deathmatch.blocks_for(td)
         if not blocks: continue
-        plants = deathmatch.plants_of(json.loads((HERE / t["key"]).read_text()))
+        plants = deathmatch.plants_of(json.loads((HERE / t["key"]).read_text(encoding="utf-8")))
         credited = set(deathmatch.match_plants(plants, blocks).values())
         out |= {f"{td.parent.name}/{td.name}/{i}" for i in deathmatch.plant_blocks(plants, blocks) - credited}
         cred |= {f"{td.parent.name}/{td.name}/{i}" for i in credited}
@@ -215,7 +216,7 @@ def main(a):
     opt = lambda n, d=None: a[a.index(n) + 1] if n in a else d
     dirs = [x for i, x in enumerate(a) if not x.startswith("--") and (i == 0 or not a[i - 1].startswith("--"))]
     md, js = report(dirs, opt("--base", "curmudgeon"), int(opt("--seed", "0")))
-    if opt("--out"): pathlib.Path(opt("--out")).write_text(md); pathlib.Path(opt("--out")).with_suffix(".json").write_text(json.dumps(js, indent=1))
+    if opt("--out"): pathlib.Path(opt("--out")).write_text(md, encoding="utf-8"); pathlib.Path(opt("--out")).with_suffix(".json").write_text(json.dumps(js, indent=1), encoding="utf-8")
     print(md); return 0
 
 if __name__ == "__main__": sys.exit(main(sys.argv[1:]))

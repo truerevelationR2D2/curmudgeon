@@ -7,6 +7,7 @@ and the whole check, one scan per 200 changed files (every changed file, never o
 seconds; the next stop starts with the part it had no time for."""
 import hashlib, json, os, pathlib, subprocess, sys, time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import utf8io  # UTF-8 output on Windows too (03 §5.57 item 20)
 import workspace
 DEADLINE = 300  # seconds for the whole check, well inside the 600 s the hook declares
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent / "skills" / "review" / "scripts"))
@@ -29,7 +30,7 @@ def walk_changed(root, since, limit=500_000):
             n += 1
             p = pathlib.Path(dp) / fn
             try:
-                if not p.is_symlink() and (m := p.stat().st_mtime) > since: out.append((m, str(p.relative_to(root)).replace(os.sep, "/")))
+                if not p.is_symlink() and (m := p.stat().st_mtime) > since: out.append((m, p.relative_to(root).as_posix().replace(os.sep, "/")))
             except OSError: continue
         if n >= limit: break
     return [x for _, x in out]
@@ -71,13 +72,13 @@ def main():
         from critic_findings import gate_owned
         if not gate_owned(root, "async"): return 0  # a committed marker turns nothing on (ultimate audit V12)
     except Exception: return 0  # the owner's record can't be checked: off, never on the project's marker alone (Qodo on PR #14)
-    try: stamps = json.loads((c / "ledger.json").read_text()).get("stamps", {})
+    try: stamps = json.loads((c / "ledger.json").read_text(encoding="utf-8")).get("stamps", {})
     except Exception: stamps = {}
     review = c / "last-review.md"; since = review.stat().st_mtime if review.exists() else 0
     changed = [k for k in stamps if (root / k).exists() and (root / k).stat().st_mtime > since]
     log_run(root, "command", "background stop check: git diff --name-only --relative HEAD and git ls-files --others")
     def git(*args):
-        try: r = safegit.run([*args], cwd=root, capture_output=True, text=True, timeout=10)
+        try: r = safegit.run([*args], cwd=root, capture_output=True, text=True, timeout=10, encoding="utf-8", errors="replace")
         except (OSError, subprocess.TimeoutExpired): return None
         return r.stdout.split("\0") if r.returncode == 0 else None
     # --relative: in a project that is a subfolder of a repository, paths come relative to the project (audit V47)
@@ -92,12 +93,12 @@ def main():
     t0 = time.time(); listed = changed  # every changed file, in parts of CHUNK; never the first 200 only (audit Q09)
     (c / "scan-async-files.txt").write_text("\n".join(listed) + "\n", encoding="utf-8")
     shown_f = c / "async-shown.json"
-    try: shown = json.loads(shown_f.read_text())
+    try: shown = json.loads(shown_f.read_text(encoding="utf-8"))
     except Exception: shown = {"batch": "", "wakes": 0, "ids": []}
     batch = hashlib.sha1("|".join(sorted(changed)).encode()).hexdigest()[:10]
     if shown.get("batch") != batch: shown = {"batch": batch, "wakes": 0, "ids": shown.get("ids", [])}
     rec_f = c / "async-scanned.json"
-    try: record = json.loads(rec_f.read_text()) if rec_f.is_file() and not rec_f.is_symlink() else {}
+    try: record = json.loads(rec_f.read_text(encoding="utf-8")) if rec_f.is_file() and not rec_f.is_symlink() else {}
     except (OSError, ValueError): record = {}
     record = {k: v for k, v in (record if isinstance(record, dict) else {}).items() if k in set(changed)}
     def mt(p):
@@ -119,27 +120,27 @@ def main():
         if res.returncode != 0 or not rp.is_file():  # the scanner failed: never recorded as done (Qodo on #20)
             mark_failed(record, part, before)
             continue
-        try: degraded = json.loads(rp.read_text()).get("degraded")
+        try: degraded = json.loads(rp.read_text(encoding="utf-8")).get("degraded")
         except (OSError, ValueError, AttributeError): degraded = ["unreadable report"]
         reports.append(rp); scanned |= set(part)  # what it did find still counts
         if degraded: mark_failed(record, part, before)  # a check that didn't run: retried, never recorded as done (Qodo on #21), up to TRIES times (Qodo on #22)
         else:
             for p in part: record[p] = [before[p], "ok"]
-    try: rec_f.write_text(json.dumps(record)) if not rec_f.is_symlink() else None
+    try: rec_f.write_text(json.dumps(record), encoding="utf-8") if not rec_f.is_symlink() else None
     except OSError: pass
     new = []
     mine = scanned
     for rep in reports:
         if not rep.exists(): continue
-        for r in json.loads(rep.read_text()).get("findings", []):
+        for r in json.loads(rep.read_text(encoding="utf-8")).get("findings", []):
             key = f"{r['rule']}|{r['where']}"
             if r["where"].split(":")[0] not in mine: continue  # only problems in the files that changed
             if r["sev"] == "FAIL" and key not in shown["ids"] and key not in [f"{x['rule']}|{x['where']}" for x in new]: new.append(r)
-    if not new: shown_f.write_text(json.dumps(shown)); return 0
+    if not new: shown_f.write_text(json.dumps(shown), encoding="utf-8"); return 0
     if shown["wakes"] >= 3:  # don't mark them shown: they'll be reported in the next batch
-        shown_f.write_text(json.dumps(shown)); return 0
+        shown_f.write_text(json.dumps(shown), encoding="utf-8"); return 0
     show = new[:8]
-    shown["wakes"] += 1; shown["ids"] += [f"{r['rule']}|{r['where']}" for r in show]; shown_f.write_text(json.dumps(shown))
+    shown["wakes"] += 1; shown["ids"] += [f"{r['rule']}|{r['where']}" for r in show]; shown_f.write_text(json.dumps(shown), encoding="utf-8")
     more = f"\n…and {len(new) - len(show)} more (they'll be shown next time)." if len(new) > len(show) else ""
     print("Curmudgeon background check found new blocking problems in files edited since the last review:\n" + "\n".join(f"- {r['where']}: {r['what']}" for r in show) + more +
           "\nFix them, or run /curmudgeon:review review on those files. (/curmudgeon:gate off stops these checks.)", file=sys.stderr)
