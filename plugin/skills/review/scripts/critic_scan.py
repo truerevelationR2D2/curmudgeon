@@ -552,14 +552,15 @@ def runtime(page, src, root, out, axe_arg, interact, allow_live, baseline=None, 
         srv, origin, hp = safe_web.serve(base); allowed = [hp]; url = origin + "/" + pp.relative_to(base).as_posix()
     would_send = []; sent = [0]
     cap = target["max_requests"] if target else None
-    def shared(add):
-        """Requests sent to this live target in this review run, by the scan and by every browse.py session (its ledger)."""
+    def reserve():
+        """One more request to this live target, if this review run is under its cap: counted with every browse.py
+        session in one ledger, checked and added under one lock (audit V41; Qodo on #22)."""
         try:
             import browse; browse.ROOT = pathlib.Path(SCAN_ROOT).resolve()
-            if browse._run_id() == "no-run": return sent[0]  # no review run: this scan's own count (one shared "no-run" key would cap every later scan)
-            return browse.live_count(safe_web.host_port(url), add)
+            if browse._run_id() != "no-run": return browse.reserve(safe_web.host_port(url), cap)  # in a review run: the run's shared count
         except SystemExit: raise
-        except Exception: return sent[0]  # the ledger can't be read: this scan's own count still holds the cap
+        except Exception: pass  # the ledger can't be read: this scan's own count still holds the cap
+        return sent[0] < cap  # no review run (one shared "no-run" key would cap every later scan) or no ledger: this scan's own count
     from urllib.parse import urlsplit
     o_ = urlsplit(origin); own = (o_.scheme, o_.hostname, o_.port or (443 if o_.scheme == "https" else 80))
     def same_origin(u):
@@ -573,8 +574,8 @@ def runtime(page, src, root, out, axe_arg, interact, allow_live, baseline=None, 
         if req.method not in ("GET", "HEAD", "OPTIONS") or not same_origin(req.url):
             would_send.append(f"{req.method} {req.url[:100]}"); return r.abort()
         if cap is not None:  # the cap is per review run, shared with every browse.py session (audit V41), not per scan
-            if shared(0) >= cap: would_send.append(f"{req.method} {req.url[:100]} (over the scope's {cap}-request cap for this run)"); return r.abort()
-            sent[0] += 1; shared(1)
+            if not reserve(): would_send.append(f"{req.method} {req.url[:100]} (over the scope's {cap}-request cap for this run)"); return r.abort()
+            sent[0] += 1
         return r.continue_()
     try:
         with sync_playwright() as pw:

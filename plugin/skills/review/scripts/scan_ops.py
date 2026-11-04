@@ -121,7 +121,7 @@ def scan_yaml(rel, text, emit, root):
                 emit("NOTE", "ops-k8s-no-limits", "operations", f"{rel}:{ln}", f"container {c.get('name', '?')} has no resource limits: one leak can starve the node", raw[ln - 1])
 
 def scan(rel, text, emit, root):
-    p = pathlib.PurePosixPath(rel.replace("\\", "/"))
-    if p.suffix == ".py": scan_python(rel, text, emit)
-    elif p.suffix in (".js", ".mjs", ".cjs", ".ts", ".jsx", ".tsx"): scan_js(rel, text, emit)
-    elif p.suffix in (".yml", ".yaml") and not (len(p.parts) >= 3 and p.parts[-3:-1] == (".github", "workflows")): scan_yaml(rel, text, emit, root)
+    p = pathlib.PurePosixPath(rel.replace("\\", "/")); sfx = p.suffix.lower()  # app.JS is JavaScript too: critic_scan admits it, so it gets the same checks (Qodo on #22); the folders keep their case, as scan_ci's workflow test does (Q22 review)
+    if sfx == ".py": scan_python(rel, text, emit)
+    elif sfx in (".js", ".mjs", ".cjs", ".ts", ".jsx", ".tsx"): scan_js(rel, text, emit)
+    elif sfx in (".yml", ".yaml") and not (len(p.parts) >= 3 and p.parts[-3:-1] == (".github", "workflows")): scan_yaml(rel, text, emit, root)

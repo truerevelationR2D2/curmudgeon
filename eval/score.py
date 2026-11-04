@@ -72,7 +72,7 @@ def claims_of(rows, blocks):
     if not rows: return list(blocks)
     try: import deathmatch; strip = deathmatch.FIX_strip
     except Exception: strip = lambda t: t
-    return [strip(" ".join(str(r.get(k, "")) for k in CLAIM_FIELDS)) for r in rows]
+    return [" ".join(strip(str(r.get(k, ""))) for k in CLAIM_FIELDS) for r in rows]  # each field on its own: fix advice in the evidence never cuts off the failing case after it (Qodo on #22)
 
 def locs_of(rows, blocks):
     """Where each finding points: file:line and its quote for a structured finding (as deathmatch.py builds it), the
