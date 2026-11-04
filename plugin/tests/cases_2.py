@@ -272,7 +272,7 @@ def _(d):
     c = f"cd {ws} && "
     for cmd in ["cat .critic/reviews/review-B.json", "grep -rn SECRET .", f"cd {p} && cat .critic/reviews/review-B.json", c + f"cat {p}/.critic/reviews/review-B.json",
                 c + f"grep -rn SECRET {p}", c + "cd - && grep -rn SECRET .", c + "cat $OLDPWD/.critic/reviews/review-B.json", c + "cat $CLAUDE_PROJECT_DIR/.critic/scan/report.md",
-                c + f"cat {other}/src/a.py"] + ([c + "cat node_modules/../.critic/reviews/review-B.json"] if (ws / "node_modules").is_symlink() else []) + [f"cd {other} && ls", c + "cat ../../../reviews/review-B.json",
+                c + f"cat {other}/src/a.py"] + ([c + "cat node_modules/../.critic/reviews/review-B.json"] if os.name != "nt" else []) + [f"cd {other} && ls", c + "cat ../../../reviews/review-B.json",
                 c + "grep -rn SECRET ../..", c + "cat ../../*/payload/src/a.py", c + "grep -rn SECRET node_modules/..", c + "cat ../../../*/review-B.json", c + "rg SECRET --file=../../../scan/report.md"]:
         assert ask("Bash", command=cmd), f"should be denied: {cmd}"
     for cmd in [c + "grep -rn SECRET .", c + "rg --hidden SECRET", c + "python3 -m pytest -q", c + "cat eval/fx/.critic/reviews/r.json", f"cd '{ws}' && ls -la",

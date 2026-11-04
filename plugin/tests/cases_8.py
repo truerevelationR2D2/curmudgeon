@@ -1060,6 +1060,7 @@ def _(d):
 @test("audit V05: the consent eval's rules.md is committed, as a clone's would be, and its grader needs the scan to report mutation testing blocked")
 def _(d):
     ev = HERE / "evals" / "mutate-needs-consent"
+    if os.name == "nt": raise Skip("bash on a Windows runner is WSL's launcher, not the Git Bash the fixture is written for")
     r = subprocess.run(["bash", str(ev / "fixture.sh")], cwd=d, capture_output=True, text=True, encoding="utf-8"); assert r.returncode == 0, (r.returncode, r.stdout[-400:], r.stderr[-400:])
     ls = subprocess.run(["git", "ls-files"], cwd=d, capture_output=True, text=True, encoding="utf-8")
     assert ".critic/rules.md" in ls.stdout, (ls.returncode, ls.stdout[-400:], ls.stderr[-400:], r.stdout[-300:])
@@ -1564,10 +1565,10 @@ def _(d):
     import privacy, subprocess as sp
     calls = []; orig = sp.run; sp.run = lambda a, **k: calls.append(a) or sp.CompletedProcess(a, 0, "", "")
     try:
-        old = dict(os.environ); os.environ["USERNAME"] = "ryan"; os.environ["USERDOMAIN"] = "BOX"
+        old = dict(os.environ); os.environ["USERNAME"] = "ryan"; os.environ["USERDOMAIN"] = "BOX"; osd = privacy._system_dir; privacy._system_dir = lambda: "C:\\Windows\\System32"
         (d / "x").mkdir(); assert privacy.make_private(d / "x", windows=True)
-    finally: sp.run = orig; os.environ.clear(); os.environ.update(old)
-    assert calls and calls[-1][0].endswith("icacls.exe") and "/inheritance:r" in calls[-1] and any("BOX\\ryan:(OI)(CI)F" == a for a in calls[-1]), calls  # the grant is the last step, after the reset (Qodo on #28)
+    finally: sp.run = orig; os.environ.clear(); os.environ.update(old); privacy._system_dir = osd
+    assert calls and calls[0][0].endswith("icacls.exe") and "/inheritance:r" in calls[0] and any("BOX\\ryan:(OI)(CI)F" == a for a in calls[0]), calls  # the grant comes first (Qodo on #29)
     (d / "y").mkdir(); privacy.make_private(d / "y", windows=False)
     if os.name != "nt": assert oct((d / "y").stat().st_mode & 0o777) == "0o700"  # POSIX modes exist only off Windows
     R = HERE.parent; bare = []
@@ -1578,7 +1579,7 @@ def _(d):
 
 @test("Qodo on #27 (2): a root set with a trailing comment is still followed, an own-folder path with escapes in it is never taken as staying inside, and a code file whose name isn't UTF-8 still blocks the stop")
 def _(d):
-    p, ws = _q22_proj(d); own = str(pathlib.Path(ws).parent)
+    p, ws = _q22_proj(d); own = str(pathlib.Path(ws).parent).replace("\\", "/")  # C:/... so the runner's Git Bash form leaves the escapes alone
     bad = ["python3 -c \"import os\nroot = '/'  # the top\nprint(os.listdir(root))\"",
            "python3 - <<'EOF'\nimport os\nroot = '/'  # the top\nprint(os.listdir(root))\nEOF",
            f"python3 -c \"print(open('{own}/notes/\\\\x2e\\\\x2e/\\\\x2e\\\\x2e/\\\\x2e\\\\x2e/ledger.json').read())\""]
@@ -1595,13 +1596,12 @@ def _(d):
     calls = []; rc = [0]; orig = sp.run; sp.run = lambda a, **k: calls.append(a) or sp.CompletedProcess(a, rc[0], "", "")
     old = dict(os.environ)
     try:
-        os.environ.update({"USERNAME": "ryan", "USERDOMAIN": "BOX", "SystemRoot": "C:\\Windows"})
+        os.environ.update({"USERNAME": "ryan", "USERDOMAIN": "BOX"}); osd_ = privacy._system_dir; privacy._system_dir = lambda: "C:\\Windows\\System32"
         (d / "x").mkdir(); assert privacy.make_private(d / "x", windows=True)
-        exe = calls[0][0]; assert exe != "icacls" and exe.endswith("icacls.exe") and "System32" in exe and exe.startswith("C:\\Windows"), calls
-        assert "/reset" in calls[0], ("existing explicit grants are reset before the lock", calls)
-        assert any("BOX\\ryan:(OI)(CI)F" in c for c in calls[-1]) and "/inheritance:r" in calls[-1], calls
+        exe = calls[0][0]; assert exe != "icacls" and exe.endswith("icacls.exe") and exe.startswith("C:\\Windows\\System32"), calls
+        assert any("BOX\\ryan:(OI)(CI)F" in c for c in calls[0]) and "/inheritance:r" in calls[0], calls  # existing grants: see Qodo on #29
         rc[0] = 1; assert not privacy.make_private(d / "x", windows=True), "a failed icacls is a failure"
-    finally: sp.run = orig; os.environ.clear(); os.environ.update(old)
+    finally: sp.run = orig; os.environ.clear(); os.environ.update(old); privacy._system_dir = osd_
     och = os.chmod
     try:
         os.chmod = lambda *a, **k: (_ for _ in ()).throw(PermissionError("no"))
@@ -1621,3 +1621,25 @@ def _(d):
     p, ws = _q22_proj(d); own = str(pathlib.Path(ws).parent)
     assert not _guard(p, p, "Bash", command=f"cd {ws} && python3 -c \"open(r'{own}\\\\notes\\\\out.txt', 'w').write('x')\""), "a Windows separator is not an escape"
     assert _guard(p, p, "Bash", command=f"cd {ws} && python3 -c \"print(open('{own}/notes/\\\\u002e\\\\u002e/\\\\056\\\\056/x').read())\""), "unicode and octal escapes"
+
+@test("Qodo on #29: the Windows lock never follows a link, grants the user before it resets anything, and asks Windows for System32 instead of trusting SystemRoot")
+def _(d):
+    import privacy, subprocess as sp
+    calls = []; out = {"listing": ""}
+    def fake(a, **k):
+        calls.append(a)
+        return sp.CompletedProcess(a, 0, out["listing"] if len(a) == 2 else "", "")
+    orig, osd = sp.run, getattr(privacy, "_system_dir", None); sp.run = fake; old = dict(os.environ)
+    try:
+        os.environ.update({"USERNAME": "ryan", "USERDOMAIN": "BOX", "SystemRoot": "."})
+        privacy._system_dir = lambda: "C:\\Windows\\System32"
+        (d / "x").mkdir(); out["listing"] = f"{d / 'x'} BOX\\ryan:(OI)(CI)(F)\n      NT AUTHORITY\\SYSTEM:(OI)(CI)(F)\n      Everyone:(OI)(CI)(R)\nSuccessfully processed 1 files"
+        assert privacy.make_private(d / "x", windows=True)
+        assert all(c[0].startswith("C:\\Windows\\System32") for c in calls), ("System32 from Windows, not SystemRoot", calls)
+        assert "/grant:r" in calls[0] and "/inheritance:r" in calls[0], ("the user is granted before anything is reset", calls)
+        assert not any("/reset" in c and c[1] == str(d / "x") for c in calls), ("the folder itself is never reset to inherited", calls)
+        assert all("/L" in c for c in calls if len(c) > 2), ("icacls never follows a link", calls)
+        assert any("/remove:g" in c and "Everyone" in c for c in calls), ("another principal's explicit grant is removed", calls)
+        calls.clear(); (d / "t").mkdir(); os.symlink(d / "t", d / "link")
+        assert not privacy.make_private(d / "link", windows=True) and not calls, "a link is refused before anything runs"
+    finally: sp.run = orig; os.environ.clear(); os.environ.update(old); privacy._system_dir = osd if osd else privacy.__dict__.get("_system_dir")

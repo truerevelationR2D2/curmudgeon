@@ -187,6 +187,10 @@ def deny(reason):
 OPAQUE = re.compile(r"\$\{!|\$\{[A-Za-z_][A-Za-z0-9_]*(?:\[[^\]]*\])?(?:%|#|/|\^|,|:[^-=+?])|\$[@*#!?$-]|\$\{[@*#]|\{[^{}\s,]*\.\.[^{}\s,]*\}|\$\"")  # ${!X}, ${X%..} ${X#..} ${X/..} ${X:1}, $@ $* $$, {a..b}, $"..": a path built this way is refused, not guessed
 PROC_ANY = re.compile(r"(?:^|[\s=:'\"])/+proc/+(?:[\d*?\[{$]|thread-self|self/+(?:task|cwd|root|fd))")  # /proc/<pid>, /proc/*, /proc/$PPID ... by text, before any expansion (round 3 review)
 PROC_PID = re.compile(r"/proc/(?:\d+|thread-self|self/task/\d+)(?:/|$)")
+def procish(path):
+    """A path into another process's /proc entry, written either way: Git Bash on Windows serves /proc too, and there
+    ../../proc/1 resolves to C:\\proc\\1 (03 §5.57 item 20)."""
+    return bool(PROC_PID.match(re.sub(r"^[A-Za-z]:", "", os.path.normpath(str(path)).replace("\\", "/"))))
 VAR_REF = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*|\d+)(?:\[[^\]]*\])?(?:[:%#/^,@+-][^}]*)?\}|\$([A-Za-z_][A-Za-z0-9_]*|\d)")
 VAR_DEFAULT = re.compile(r"\$\{[A-Za-z_][A-Za-z0-9_]*(?:\[[^\]]*\])?(?::?[-=+?]|//?[^/}]*/)([^}]*)\}")  # ${Y:-word}, ${X:+word}, ${X/pat/word}: the shell may put the word there
 
@@ -605,6 +609,7 @@ def bash_problem(cmd, rec, root, critic, role, me):
                 pieces += [p_ for p_ in re.split(r"[=:,]", unurl) if p_.strip()]
                 if unurl == w_ and re.search(r"[=:,]", w_): pieces.append(w_)  # the whole word too: a folder named "x:" makes x://../.. a real path
             for piece in pieces:  # --file=../x, PATH-like lists
+                if os.sep == "\\" and re.fullmatch(r"[/\\]{2,}", piece or ""): piece = "/"  # // is the root in Git Bash (03 §5.57 item 20)
                 if not piece or piece.startswith("-") and "/" not in piece: continue
                 if not ("/" in piece or piece in (".", "..", "~") or piece.startswith("~") or any(ch in piece for ch in "*?[")): continue
                 if re.match(r"/proc/(?:\d+|thread-self)(?:/|$)", os.path.normpath("/" + piece.lstrip("/")).replace("\\", "/") if piece.startswith("/") else ""): return f"{piece}: other agents' processes and command lines are not yours to read (audit P3)", cands
@@ -612,9 +617,9 @@ def bash_problem(cmd, rec, root, critic, role, me):
                     q = pathlib.Path(os.path.expanduser(piece)); q = q if q.is_absolute() else c / q
                     if fold(os.path.normpath(str(q))) == own: return f"{piece}: the folder above your workspace (stay inside {payload})", cands
                     hits = _glob.glob(str(q), recursive=True)[:2000] if any(ch in piece for ch in "*?[") else [str(q)]
-                    if PROC_PID.match(os.path.normpath(str(q))): return f"{piece}: other agents' processes and command lines are not yours to read (audit P3)", cands
+                    if procish(q): return f"{piece}: other agents' processes and command lines are not yours to read (audit P3)", cands
                     for h in hits:
-                        if PROC_PID.match(os.path.normpath(h)): return f"{piece}: other agents' processes and command lines are not yours to read (audit P3)", cands  # /proc/*/cmdline, ../../proc/1 (round 2 review)
+                        if procish(h): return f"{piece}: other agents' processes and command lines are not yours to read (audit P3)", cands  # /proc/*/cmdline, ../../proc/1 (round 2 review)
                         try: real = pathlib.Path(h).resolve()
                         except (OSError, RuntimeError, ValueError): continue
                         why = judge(real, critic, role, me, "bash")

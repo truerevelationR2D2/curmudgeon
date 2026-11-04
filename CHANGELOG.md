@@ -18,6 +18,23 @@ Every release of Curmudgeon, newest first. The repository's history starts at 4.
 - A path written out from the agent's own folder that holds escapes (`\x2e\x2e`) is refused. When the code runs, those escapes become `..`.
 - The stop gate hashes a file name that isn't UTF-8 by its bytes. Before, the hash raised and the gate let the stop through.
 
+**Qodo on #29** (three findings on the Windows lock, each with a test that fails on the code before it, "Qodo on #29"):
+- A link or junction is refused before anything runs, and `icacls` is told not to follow links (`/L`), so a junction planted at `.critic/restore` can't send the change to files elsewhere.
+- The steps run in an order where none leaves the folder looser than it was:
+  1. inheritance off, with only the user and SYSTEM granted;
+  2. the folder's contents reset to inherit that;
+  3. any other principal's explicit grant on the folder removed.
+
+  Before this, the folder was reset first, so a failed grant left existing keys under broader permissions.
+- The System32 folder comes from Windows (`GetSystemDirectoryW`), not from `SystemRoot`, which a project's code could set.
+
+**Windows CI round** (402 of 407 on 3f936a7, up from 393):
+- The guard reads `/proc` paths after a drive letter, since Git Bash serves `/proc`, and reads a bare `//` as the root.
+- Three tests no longer assume POSIX:
+  - Windows resolves `node_modules/..` by text;
+  - the runner's `bash` is WSL's launcher;
+  - the escape test writes its own path in `C:/` form.
+
 **Qodo on #28** (five findings, each with a test that fails on the code before it, "Qodo on #28"):
 - `icacls.exe` runs from Windows' System32 folder, so a project's own `icacls.exe` can never run instead.
 - The lock resets the folder's existing permissions first, including its contents. It then removes inheritance and grants only the current user and SYSTEM, so an explicit broad grant already on the folder doesn't survive.
