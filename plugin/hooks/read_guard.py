@@ -265,7 +265,17 @@ TOP_START = re.compile(_LIST + r"(?:(?:os\.)?path\.join\s*\(\s*)?" + _top(1)  # 
                        + r"|\.anchor\b|\bparents\s*\[\s*-")  # the root by API: Path.cwd().anchor, .parents[-1]
 _COMPUTED = r"\bchr\s*\(|fromCharCode|\\x2f|\\u002f|\\057|\bSOLIDUS\b|\bbytes\s*\(\s*\[|b64decode|unhexlify|codecs\.decode|\batob\s*\(|Buffer\.from\s*\("  # characters made as the code runs
 COMPUTED = re.compile(_COMPUTED, re.I)
-COMPUTED_ARG = re.compile(_LIST + r"[^;\n)]*(?:" + _COMPUTED + ")", re.I)  # ... as the starting argument of a listing call
+def computed_root(text):
+    """Code that lists folders and builds characters as it runs ('\\x2f', chr(47), base64, bytes([...])): the built
+    value can reach the listing through a name, a tuple, a loop, a return value or a keyword (Qodo on #27), so only a
+    chr or fromCharCode of literal codes that are neither / nor \\ (chr(65)) is let through (Qodo on #25)."""
+    if not TRAVERSE.search(text): return False
+    for m in COMPUTED.finditer(text):
+        if re.match(r"(?i)chr|fromCharCode", m.group(0)):
+            codes = re.match(r"\s*\(?\s*([0-9][0-9\s,]*)\)", text[m.end() - (1 if m.group(0).endswith("(") else 0):])
+            if codes and all(int(x) not in (47, 92) for x in re.findall(r"\d+", codes.group(1))): continue
+        return True
+    return False
 TOP_VALUE = re.compile(_top(1))  # the root, as a whole value
 HOME_START = re.compile(r"\bgetenv\s*\(\s*['\"](?:HOME|USERPROFILE)|\bPath\.home\s*\(|\bexpanduser\s*\(|\bhomedir\s*\(|\bgethome\w*|environ(?:\.get\s*\(|\[)\s*['\"](?:HOME|USERPROFILE)|process\.env\.(?:HOME|USERPROFILE)|ENV\[['\"]HOME|\bDir\.home\b")
 PATTERN_CMDS = {"grep", "egrep", "fgrep", "rg", "ag", "ack", "zgrep"}  # the first operand is a pattern, never a file
@@ -413,15 +423,15 @@ def bash_problem(cmd, rec, root, critic, role, me):
                 os.walk(root) (Qodo on #23), start = root (#24), but not after start = 'src', and never an unrelated
                 chr(65) elsewhere in the code (#25). Read statement by statement, in order; raw: the command as typed,
                 whose escapes ('\\x2f') the split words lose."""
-                if COMPUTED_ARG.search(c): return True
-                if raw: return False  # names are followed in the split words, where the root literals are too
+                if computed_root(c): return True
+                if raw: return False  # root literals in names are followed in the split words
                 held = set()
                 for st in re.split(r"[;\n]", c):
                     if any(re.search(_LIST + re.escape(n_) + r"\b", st) for n_ in held): return True
                     m_ = re.match(r"\s*([A-Za-z_]\w*)\s*=(?!=)\s*(.*?)\s*$", st)
                     if m_:
                         v = m_.group(2)
-                        if TOP_VALUE.fullmatch(v) or v in held or COMPUTED.search(v): held.add(m_.group(1))
+                        if TOP_VALUE.fullmatch(v) or v in held: held.add(m_.group(1))
                         else: held.discard(m_.group(1))
                 return False
             def from_top(c):
@@ -436,6 +446,11 @@ def bash_problem(cmd, rec, root, critic, role, me):
                 return bool(TOP_START.search(c) or HOME_START.search(c) or starts_from(c))  # from the root or home, or an absolute wildcard ('/**/x')
             def reaches(c):  # names .critic or ~/.curmudgeon and can leave the copy: the project's own path or a "..", never a .critic folder a probe makes inside the copy (batch 5 review)
                 owns = [re.compile(re.escape(o_) + r"(?=[/\\'\"\s,)]|$)") for o_ in own_spellings]  # the folder itself, never scratch/r10 when it is r1 (guard review)
+                for lit in re.findall(r"(['\"])([^'\"\n]*)\1", c):  # a path written out from the agent's folder that stays inside it (notes/../notes/x) is its own (Qodo on #27)
+                    for o_ in own_spellings:
+                        if lit[1].startswith(o_ + "/") or lit[1].startswith(o_ + os.sep):
+                            q_ = os.path.normpath(lit[1])
+                            if q_ == o_ or q_.startswith(o_ + os.sep): c = c.replace(lit[0] + lit[1] + lit[0], "''"); break
                 if any(o_.search(c) for o_ in owns) and ".." in c: return True  # a climb out of the agent's own folder, joined in pieces or not (guard review)
                 for o_ in owns: c = o_.sub("", c)
                 if re.search(r"(?i)\.curmudgeon\b", c): return True
@@ -616,9 +631,9 @@ def main(data=None):
     if tool == "Bash" and re.fullmatch(r"(?:curmudgeon:)?curmudgeon-[a-z]+", str(data.get("agent_type") or "")):
         why = owner_problem(str(ti.get("command") or ""), not role)
         if why: return deny(f"Curmudgeon: {why} (03 §5.56 item 12).")
+    if tool in ("PowerShell", "Monitor") and re.fullmatch(r"(?:curmudgeon:)?curmudgeon-[a-z]+", str(data.get("agent_type") or "")):  # every Curmudgeon agent, the detector too: the guard and the owner tripwire read bash only, and Windows turns the PowerShell tool on by itself when Git Bash isn't there (03 §5.57 item 20; Qodo on #27)
+        return deny(f"Curmudgeon: Curmudgeon's agents run shell commands through the Bash tool only, where they are checked; {tool} commands aren't. Use Bash.")
     if not role: return 0
-    if tool in ("PowerShell", "Monitor"):  # the guard reads bash; Windows turns the PowerShell tool on by itself when Git Bash isn't there (03 §5.57 item 20)
-        return deny(f"Curmudgeon blindness: a {role} runs shell commands through the Bash tool only, where they are checked; {tool} commands aren't. Use Bash, starting with cd into your workspace.")
     me = workspace.clean_id(data.get("agent_id"))
     try: critic = (root / ".critic").resolve()
     except OSError: critic = root / ".critic"

@@ -204,7 +204,8 @@ def windows_dialog_script(title):
     """The PowerShell for the folder window. The title goes in a single-quoted string, where a quote is written twice
     (Curmudgeon's would otherwise end the string and the script would not run)."""
     t = title.replace("'", "''")
-    return ("Add-Type -AssemblyName System.Windows.Forms; $d = New-Object System.Windows.Forms.FolderBrowserDialog; "
+    return ("[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; "  # the path is written as UTF-8, as pick_folder reads it (Qodo on #27)
+            "Add-Type -AssemblyName System.Windows.Forms; $d = New-Object System.Windows.Forms.FolderBrowserDialog; "
             f"$d.Description = '{t}'; $d.ShowNewFolderButton = $true; if ($d.ShowDialog() -eq 'OK') {{ $d.SelectedPath }}")
 
 def check_folder(folder):

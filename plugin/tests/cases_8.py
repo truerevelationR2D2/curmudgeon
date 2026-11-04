@@ -1487,7 +1487,9 @@ def _(d):
 
 @test("platforms: the reviewers' guard judges a project reached through a link (macOS's /var is /private/var) the same as one that isn't: an honest write to the agent's notes runs, the same reads stay refused")
 def _(d):
-    (d / "real").mkdir(); os.symlink(d / "real", d / "link")
+    (d / "real").mkdir()
+    try: os.symlink(d / "real", d / "link")
+    except (OSError, NotImplementedError) as e: raise Skip(f"links can't be made here ({e.__class__.__name__}: Windows needs Developer Mode or the privilege)")  # Qodo on #27
     p = d / "link" / "proj"; write(p, "src/app.js", "x\n"); write(p, ".critic/reviews/review-B.json", '[{"title": "SECRET-B"}]'); write(p, ".critic/ledger.json", "{}")
     run(H / "scratch_dir.py", cwd=p, stdin=json.dumps({"agent_type": "curmudgeon:curmudgeon-reviewer", "agent_id": "r1", "cwd": str(p)}))
     ws = json.loads((p / ".critic/scratch/r1/workspace.json").read_text(encoding="utf-8"))["payload"]
@@ -1536,3 +1538,20 @@ def _(d):
                 if isinstance(n, _ast.Call) and getattr(n.func, "attr", getattr(n.func, "id", "")) in ("run", "check_output", "Popen") \
                    and any(k.arg == "encoding" for k in n.keywords) and not any(k.arg == "errors" for k in n.keywords): miss.append(f"{f.name}:{n.lineno}")
     assert not miss, f"subprocess output decoded strictly (a Windows tool writes its own code page): {miss[:6]}"
+
+@test("Qodo on #27: a root escape held in a name, unpacked, looped over or returned is refused; a path inside the agent's notes with .. in it runs; any Curmudgeon agent's PowerShell is refused and the owner tripwire reads it; the folder dialog writes UTF-8; the stop gate keeps odd file names")
+def _(d):
+    p, ws = _q22_proj(d)
+    bad = ["python3 -c \"import os; r='\\\\x2f'; print(os.listdir(r))\"", "python3 -c \"import os; a, b = chr(47), 0; print(os.listdir(a))\"",
+           "python3 -c \"import os; [print(x) for r in [chr(47)] for x in os.listdir(r)]\"", "python3 -c \"import os\ndef f(): return chr(47)\nprint(os.listdir(f()))\"",
+           "python3 -c \"import os; r = chr(47); print(list(os.walk(top=r)))\""]
+    for c in bad: assert _guard(p, p, "Bash", command=f"cd {ws} && {c}"), c
+    own = str(pathlib.Path(ws).parent)
+    ok = [f"python3 -c \"open('{own}/notes/../notes/out.txt', 'w').write('x')\"", "python3 -c \"import os; print(os.listdir('.')); print(chr(65))\""]
+    for c in ok: assert not _guard(p, p, "Bash", command=f"cd {ws} && {c}"), c
+    assert _guard(p, p, "PowerShell", role="detector", aid="d1", command="python critic_ledger.py consent writes"), "a detector's PowerShell"
+    assert "OutputEncoding" in (S / "security_feed.py").read_text(encoding="utf-8").split("def windows_dialog_script", 1)[1].split("def check_folder", 1)[0]
+    src = (H / "stop_gate.py").read_text(encoding="utf-8")
+    assert 'errors="surrogateescape"' in [l for l in src.splitlines() if "ls-files" in l][0], "a name that isn't UTF-8 round-trips"
+    ci = (HERE.parent / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+    assert "'python3 probe.py || python probe.py'" not in ci and "if (-not $?)" in ci, "PowerShell 5.1 has no ||"

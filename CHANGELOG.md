@@ -4,6 +4,15 @@ Every release of Curmudgeon, newest first. The repository's history starts at 4.
 
 ## Unreleased: native Windows and macOS (03 §5.57 item 20)
 
+**Qodo on #27** (eight findings, each with a test that fails on the code before it, "Qodo on #27"):
+- **Reviewers' guard (High):** `r = '\x2f'; os.listdir(r)` got past the guard again after the #25 change. The rule is now the one Qodo proposed. Code that lists folders and also builds characters as it runs is refused, unless every built character is clearly harmless (`chr` or `fromCharCode` of codes that are neither `/` nor `\`). That covers a name, a tuple, a loop, a return value and a keyword, and an unrelated `chr(65)` still runs.
+- A path written out from the agent's own folder that stays inside it (`<own>/notes/../notes/out.txt`) is no longer refused.
+- Every Curmudgeon agent's PowerShell and Monitor commands are refused, the detector's included, so the owner-consent tripwire can't be skipped through PowerShell.
+- The Windows folder dialog writes its path as UTF-8.
+- The stop gate decodes git's file list with `surrogateescape`, so a name that isn't UTF-8 keeps its bytes.
+- The CI probe uses PowerShell 5.1 syntax, not `||`.
+- The link test reports SKIP where links can't be made, such as Windows without Developer Mode.
+
 - **Text encoding.** On native Windows, Python reads and writes text in the ANSI code page (cp1252) unless told otherwise. That includes a hook's output to Claude Code, which goes through a pipe. A report line with an arrow or an accented name crashed there, and the Windows CI job stopped after 305 of 396 tests (run 41749011233, still shown as passed because the job may fail). Every text read, write and subprocess call in the plugin, the eval kit and the tests now names `encoding="utf-8"`: 959 calls, added by a rewriter that edits the parsed code and touches nothing else. Every entry script imports `utf8io.py`, which switches stdout and stderr to UTF-8. One file sits in `hooks/`, `skills/review/scripts/` and `eval/`, the same in each. Tests: no text I/O call may omit its encoding, and a script printing non-ASCII text to a cp1252 pipe doesn't crash. On Linux and macOS, which already default to UTF-8, nothing changes.
 - **Paths with `/`.** A project-relative path was written with `str()`, which gives `src\a.js` on Windows. 36 places now use `.as_posix()`, so reports, ledgers and finding ids match across platforms. A test refuses `str(... .relative_to(...))`.
 - **Stopping a hung command.** Windows has no `os.killpg`, `signal.SIGKILL` or `signal.SIGHUP`, and the mutation and project-check runners raised on them. `kill_tree()` uses the process group where there is one and `taskkill /T /F` on Windows. The mutation run registers only the signals the platform has.
