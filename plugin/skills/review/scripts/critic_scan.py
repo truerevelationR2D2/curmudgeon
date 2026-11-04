@@ -557,10 +557,13 @@ def runtime(page, src, root, out, axe_arg, interact, allow_live, baseline=None, 
         session in one ledger, checked and added under one lock (audit V41; Qodo on #22)."""
         try:
             import browse; browse.ROOT = pathlib.Path(SCAN_ROOT).resolve()
-            if browse._run_id() != "no-run": return browse.reserve(safe_web.host_port(url), cap)  # in a review run: the run's shared count
+            in_run = browse._run_id() != "no-run"
         except SystemExit: raise
-        except Exception: pass  # the ledger can't be read: this scan's own count still holds the cap
-        return sent[0] < cap  # no review run (one shared "no-run" key would cap every later scan) or no ledger: this scan's own count
+        except Exception: in_run = False  # browse.py can't be loaded: this scan's own count holds the cap
+        if in_run:
+            try: return browse.reserve(safe_web.host_port(url), cap)  # in a review run: the run's shared count
+            except Exception: return False  # the ledger can't be read or locked: the request isn't sent, as in browse.py (Qodo on #23)
+        return sent[0] < cap  # no review run (one shared "no-run" key would cap every later scan): this scan's own count
     from urllib.parse import urlsplit
     o_ = urlsplit(origin); own = (o_.scheme, o_.hostname, o_.port or (443 if o_.scheme == "https" else 80))
     def same_origin(u):

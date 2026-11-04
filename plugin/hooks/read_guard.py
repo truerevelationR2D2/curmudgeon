@@ -249,9 +249,9 @@ def _top(g):  # the root as code writes it: '/', '\\', 'C:\\' or os.sep (g: the 
     return r"(?:[rbuRBU]{0,2}(['\"])(?:[/\\]+|[A-Za-z]:[/\\]*)\%d(?!\s*\.)|os\.(?:path\.)?(?:sep|altsep)\b|path\.sep\b|File::SEPARATOR\b)" % g
 _LIST = r"\b(?:walk|listdir|scandir|iterdir|r?glob|iglob|readdir\w*|opendir\w*|read_dir|Path|PurePath|abspath|realpath|normpath|resolve|chdir|Find\.find|Dir\.\w+)\s*[(\[]\s*"  # a call whose first argument is where it starts
 TOP_START = re.compile(_LIST + r"(?:(?:os\.)?path\.join\s*\(\s*)?" + _top(1)  # the root as that argument, or as the first part of a path.join there
-                       + r"|(?:^|[;\n:])\s*[A-Za-z_]\w*\s*=\s*" + _top(2) + r"\s*(?:$|[;\n#)])"  # a name set to the root on its own line (never a keyword argument: sep='/')
                        + r"|" + _LIST + r"[rbuRBU]{0,2}['\"]/[^'\"\n]*[*?\[]"  # an absolute wildcard as that argument ('/**/x'), never '/*' counted in a file
                        + r"|\.anchor\b|\bparents\s*\[\s*-")  # the root by API: Path.cwd().anchor, .parents[-1]
+TOP_NAME = re.compile(r"(?:^|[;\n:])\s*([A-Za-z_]\w*)\s*=\s*" + _top(2) + r"\s*(?:$|[;\n#)])")  # a name set to the root on its own line (never a keyword argument: sep='/')
 HOME_START = re.compile(r"\bgetenv\s*\(\s*['\"](?:HOME|USERPROFILE)|\bPath\.home\s*\(|\bexpanduser\s*\(|\bhomedir\s*\(|\bgethome\w*|environ(?:\.get\s*\(|\[)\s*['\"](?:HOME|USERPROFILE)|process\.env\.(?:HOME|USERPROFILE)|ENV\[['\"]HOME|\bDir\.home\b")
 PATTERN_CMDS = {"grep", "egrep", "fgrep", "rg", "ag", "ack", "zgrep"}  # the first operand is a pattern, never a file
 SEPARATOR_OPTS = {"awk": {"-F"}, "gawk": {"-F"}, "mawk": {"-F"}, "cut": {"-d"}, "paste": {"-d"}, "column": {"-s", "-o"}}  # options that take a separator, per command
@@ -284,7 +284,8 @@ def data_words(cmd, args, base):
                     if a in ("-e", "--regexp") or (cmd in ("ag", "ack") and a == "-g"):
                         if k + 1 < len(args): out.add(base + 2 + k)
                         explicit = True; k += 2; continue
-                    if cmd in ("ag", "ack") and a == "-f": k += 1; continue  # ag -f is --follow, ack -f lists files: neither takes a value
+                    if cmd == "ag" and a == "-f": k += 1; continue  # ag -f is --follow: no value
+                    if cmd == "ack" and a == "-f": explicit = True; k += 1; continue  # ack -f lists files: no pattern, every operand is a path (Qodo on #23)
                     if cmd == "ack" and a == "--match":
                         if k + 1 < len(args): out.add(base + 2 + k)
                         explicit = True; k += 2; continue
@@ -399,7 +400,10 @@ def bash_problem(cmd, rec, root, critic, role, me):
                     q = os.path.normpath(lit)
                     if q.strip("/") and any(r_ == q or r_.startswith(q.rstrip("/") + "/") for r_ in (str(root), os.path.realpath(str(root)))): return True
                 if not TRAVERSE.search(c): return False
-                return bool(TOP_START.search(c) or HOME_START.search(c))  # from the root or home, or an absolute wildcard ('/**/x')
+                if TOP_START.search(c) or HOME_START.search(c): return True
+                for m_ in TOP_NAME.finditer(c):  # root = '/' then os.walk(root): only when that name is where a listing starts (Qodo on #23)
+                    if re.search(_LIST + re.escape(m_.group(1)) + r"\b", c): return True
+                return False  # from the root or home, or an absolute wildcard ('/**/x')
             def reaches(c):  # names .critic or ~/.curmudgeon and can leave the copy: the project's own path or a "..", never a .critic folder a probe makes inside the copy (batch 5 review)
                 c = c.replace(str(pay.parent), "")
                 if re.search(r"(?i)\.curmudgeon\b", c): return True

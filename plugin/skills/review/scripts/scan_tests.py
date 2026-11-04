@@ -51,6 +51,19 @@ def _always_true(node):
     if isinstance(node, (ast.List, ast.Set, ast.Dict)): return bool(getattr(node, "elts", None) or getattr(node, "keys", None))
     return False
 
+FRAMEWORK_CALLS = re.compile(r"do_[A-Z]+|handle\w*|setUp\w*|tearDown\w*|run|__\w+__|on_\w+|get|post|put|patch|delete|head|options|dispatch|process_\w+")  # methods a framework calls on a class it is given
+
+def _methods(cls):
+    """A class's own methods, including those defined under a class-level if, try or with (Qodo on #23)."""
+    out, stack = [], list(cls.body)
+    while stack:
+        s = stack.pop()
+        if isinstance(s, (ast.FunctionDef, ast.AsyncFunctionDef)): out.append(s)
+        elif isinstance(s, (ast.If, ast.Try, ast.With, ast.AsyncWith)) or type(s).__name__ == "TryStar":
+            for f in ("body", "orelse", "finalbody", "handlers"): stack.extend(getattr(s, f, []) or [])
+        elif isinstance(s, ast.ExceptHandler): stack.extend(s.body)
+    return out
+
 def _walk_reached(fn):
     """The nodes of a test body that can run: a nested function or class counts only when the body names it (calls it,
     or hands it to something that will) or it is decorated (registered somewhere); one defined and never used can't
@@ -70,9 +83,9 @@ def _walk_reached(fn):
         if not more: return seen
         for x in more:
             done.add(id(x)); seen += visit(x.body) + visit(x.decorator_list)
-            if isinstance(x, ast.ClassDef) and x.bases:  # a subclass the test uses (a handler's do_GET, a mock's method) has its methods called by the framework: they can fail the test (Qodo on #22)
-                for m in x.body:  # a plain class's methods count only when the test names them (a stub's raise NotImplementedError is no check: Q22 review)
-                    if isinstance(m, (ast.FunctionDef, ast.AsyncFunctionDef)) and id(m) not in done: done.add(id(m)); seen += visit(m.body)
+            if isinstance(x, ast.ClassDef) and x.bases:  # a subclass the test uses has the methods a framework calls run for it (a handler's do_GET, setUp, __call__): they can fail the test (Qodo on #22)
+                for m in _methods(x):  # others count only when the test names them (a stub's raise is no check: Q22 review; an unused helper isn't either: Qodo on #23)
+                    if FRAMEWORK_CALLS.fullmatch(m.name) and id(m) not in done: done.add(id(m)); seen += visit(m.body)
 
 def _checks(fn):
     """True when the test body can fail: an assert, an assertion-like call, a raise, or pytest.raises/warns/fail."""

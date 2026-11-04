@@ -2,6 +2,16 @@
 
 Every release of Curmudgeon, newest first. The repository's history starts at 4.2.1; earlier versions are summarised from the project's own build and review records. Numbers are the ones measured at the time; the README's Benchmarks section has the current ones and how they were measured.
 
+## Unreleased: Qodo on #23
+
+Five of six findings fixed, each with a test that fails on the code before it (`plugin/tests/cases_8.py`, "Qodo on #22" tests (1), (2), (5) and (6)).
+- **Reviewers' guard:** `ack -f DIR` lists files and takes no pattern. The #22 fixes had read DIR as the pattern and left it unjudged; it is judged again.
+- **Reviewers' guard:** `root = '/'` set aside beside `os.walk('src')` is no longer refused. A name set to the root counts only when a listing call starts from it.
+- **Test lens:** a nested subclass's methods count only when a framework calls them (`do_GET`, `setUp`, `handle`, `__call__` and the like) or the test names them. An unused helper with an assert is not a check, and a handler defined under a class-level `if` or `try` is found.
+- **Live request cap:** in a review run, a scan whose shared ledger can't be read or locked sends nothing, as the browser driver already did.
+
+Not fixed: computing the root at run time (`os.walk(chr(47))`). Qodo's finding is correct; it is the deliberate-evasion class the guard does not try to cover, and the ruling on where that line sits is with the owner.
+
 ## Unreleased: Qodo on #22
 
 Seven findings, each with a test that fails on the code before it (`plugin/tests/cases_8.py`, "Qodo on #22").
