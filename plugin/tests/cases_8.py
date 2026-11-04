@@ -798,7 +798,9 @@ def _(d):
 
 @test("audit O4: the browser driver's live-request count takes its lock without fcntl (Windows has none), through msvcrt")
 def _(d):
-    prog = ("import sys, types, importlib\nsys.modules['fcntl'] = None\ncalls = []\nm = types.ModuleType('msvcrt'); m.LK_LOCK, m.LK_UNLCK = 1, 0\n"
+    prog = ("import sys, types, importlib\nsys.modules['fcntl'] = None\ncalls = []\nm = types.ModuleType('msvcrt')\n"
+            "try:\n    import msvcrt as _real; m.__dict__.update({k: v for k, v in _real.__dict__.items() if not k.startswith('__')})\nexcept ImportError: pass\n"  # on real Windows, subprocess needs the rest of msvcrt
+            "m.LK_LOCK, m.LK_UNLCK = 1, 0\n"
             "m.locking = lambda fd, mode, n: calls.append(mode)\nsys.modules['msvcrt'] = m\n"
             f"sys.path.insert(0, {str(S)!r}); import browse\n"
             "print(browse.live_count('http://t.test', add=2), browse.live_count('http://t.test', add=1), browse.live_count('http://t.test'), calls)\n")
@@ -1565,7 +1567,8 @@ def _(d):
         (d / "x").mkdir(); assert privacy.make_private(d / "x", windows=True)
     finally: sp.run = orig; os.environ.clear(); os.environ.update(old)
     assert calls and calls[0][0] == "icacls" and "/inheritance:r" in calls[0] and any("BOX\\ryan:(OI)(CI)F" == a for a in calls[0]), calls
-    (d / "y").mkdir(); privacy.make_private(d / "y", windows=False); assert oct((d / "y").stat().st_mode & 0o777) == "0o700"
+    (d / "y").mkdir(); privacy.make_private(d / "y", windows=False)
+    if os.name != "nt": assert oct((d / "y").stat().st_mode & 0o777) == "0o700"  # POSIX modes exist only off Windows
     R = HERE.parent; bare = []
     for f in list((R / "plugin/hooks").glob("*.py")) + list((R / "plugin/skills/review/scripts").glob("*.py")):
         if f.name == "privacy.py": continue
