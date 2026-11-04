@@ -1671,3 +1671,14 @@ def _(d):
     import privacy
     assert privacy._trustees('D:PAI(A;OICI;FA;;;SY)(XA;;FA;;;S-1-5-21-7-7-7-1100;(@User.Title == "S:contractor"))(ZA;;FA;;;WD;(@User.x == ")"))S:(ML;;NW;;;LW)') == ["S-1-5-18", "S-1-5-21-7-7-7-1100", "S-1-1-0"]
     assert privacy.make_private(d / "missing", windows=False) is False and privacy.WHY, "a failed lock leaves its reason"
+
+@test("Qodo on #29 (6): an alias that depends on the machine (LA, the local administrator: the Windows CI's own user) is expanded by Windows, so the user's grant is known and kept")
+def _(d):
+    import privacy
+    o = privacy._alias_sid
+    try:
+        privacy._alias_sid = lambda a: {"LA": "S-1-5-21-5-5-5-500"}.get(a)
+        assert privacy._trustees("D:PAI(A;OICI;FA;;;LA)(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;FA;;;OW)") == ["S-1-5-21-5-5-5-500", "S-1-5-18", "S-1-5-32-544", "S-1-3-4"]
+        privacy._alias_sid = lambda a: None
+        assert privacy._trustees("D:(A;;FA;;;LA)") is None, "an alias Windows can't expand still refuses"
+    finally: privacy._alias_sid = o

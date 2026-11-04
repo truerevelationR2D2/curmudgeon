@@ -46,6 +46,21 @@ SDDL_ALIASES = {"SY": "S-1-5-18", "WD": "S-1-1-0", "AU": "S-1-5-11", "BU": "S-1-
 
 ACE_TYPES = {"A", "D", "OA", "OD", "AU", "AL", "OU", "OL", "ML", "XA", "XD", "ZA", "XU", "SP", "RA", "SA", "TL", "FL", "SC"}  # every ACE type SDDL can write
 
+def _alias_sid(alias):
+    """An SDDL alias whose id depends on this machine or domain (LA is the local administrator, the Windows CI's own
+    user; DA, DU ... the domain's), as Windows expands it. None when it can't be expanded: the lock then refuses."""
+    try:
+        import ctypes
+        from ctypes import wintypes
+        a = ctypes.windll.advapi32; psid = ctypes.c_void_p(); out = wintypes.LPWSTR()
+        if not a.ConvertStringSidToSidW(alias, ctypes.byref(psid)): return None
+        try:
+            if not a.ConvertSidToStringSidW(psid, ctypes.byref(out)): return None
+            try: return out.value
+            finally: ctypes.windll.kernel32.LocalFree(out)
+        finally: ctypes.windll.kernel32.LocalFree(psid)
+    except (AttributeError, OSError, ImportError, ValueError): return None
+
 def _trustees(sddl):
     """The security ids every entry of an SDDL access list names, aliases expanded (SY is SYSTEM): allow, deny,
     object and conditional entries alike. A conditional entry (XA, ZA) carries an expression in nested parentheses
@@ -72,7 +87,7 @@ def _trustees(sddl):
         if depth != 0 or q: return None  # an entry that never closes
         f = sddl[i + 1:j].split(";", 6)
         if len(f) < 6 or f[0] not in ACE_TYPES or not f[5]: return None
-        sid = f[5] if f[5].startswith("S-") else SDDL_ALIASES.get(f[5])
+        sid = f[5] if f[5].startswith("S-") else (SDDL_ALIASES.get(f[5]) or _alias_sid(f[5]))  # LA, DA ...: relative to this machine or domain, so Windows expands them
         if sid is None: return None
         out.append(sid); i = j + 1
     return out
