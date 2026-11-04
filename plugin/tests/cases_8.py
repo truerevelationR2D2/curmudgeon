@@ -1305,13 +1305,14 @@ def _(d):
           "python3 -c \"import os; print(os.listdir('.'), os.sep)\"", "python3 -c \"print('//')\"",
           "python3 -c \"import os; [print(r, x, sep='/') for r, d, f in os.walk('src') for x in f]\"", "python3 -c \"import os; [print('/' + f[:-3]) for f in os.listdir('src')]\"",
           "node -e \"const fs=require('fs'), path=require('path'); for (const f of fs.readdirSync('src')) console.log(path.join('/', 'api', f))\"",
-          "python3 -c \"import os; [print(x, open(os.path.join(r, x)).read().count('/*')) for r, d, f in os.walk('src') for x in f]\""]  # the guard review of these fixes (a '/*' word in a heredoc body is judged as a path, as before)
+          "python3 -c \"import os; [print(x, open(os.path.join(r, x)).read().count('/*')) for r, d, f in os.walk('src') for x in f]\"",
+          "python3 -c \"import os; root='/'; print(list(os.walk('src')))\""]  # Qodo on #23: a root set aside, never walked  # the guard review of these fixes (a '/*' word in a heredoc body is judged as a path, as before)
     for c in ok: assert not _guard(p, p, "Bash", command=f"cd {ws} && {c}"), c
 
 @test("Qodo on #22 (5): a grep, rg, ag or ack option after the operands (grep FILE -e x, rg PATH --files) leaves the first operand a path, and it is judged")
 def _(d):
     p, ws = _q22_proj(d); R = "../../../reviews/review-B.json"
-    bad = [f"grep {R} -e x", f"rg {R} -e x", f"grep {R} -f /dev/null", "rg ../../.. --files", f"grep {R} --regexp=x", f"grep -r {R} -ne x", f"ag {R} -g x", f"grep -- x {R}", f"ack {R} --match x"]
+    bad = [f"grep {R} -e x", f"rg {R} -e x", f"grep {R} -f /dev/null", "rg ../../.. --files", f"grep {R} --regexp=x", f"grep -r {R} -ne x", f"ag {R} -g x", f"grep -- x {R}", f"ack {R} --match x", "ack -f ../../..", f"ack -f {R}"]
     for c in bad: assert _guard(p, p, "Bash", command=f"cd {ws} && {c}"), c
     ok = ["grep -rn '../' src", "grep -e '../' -r src", "rg -- '../' src", "grep -rn x src -e '../'", "ag '../' src -f"]
     for c in ok: assert not _guard(p, p, "Bash", command=f"cd {ws} && {c}"), c
@@ -1328,6 +1329,8 @@ def _(d):
     br = (S / "browse.py").read_text()
     assert "reserve(" in br[br.index("def replay("):br.index("def ws_guard(")] and 'live_count(' not in br[br.index("def main("):], "browse.py reserves per request and records nothing after the replay"
     assert "except (Exception, SystemExit): ok_ = False" in br[br.index("def replay("):br.index("def ws_guard(")], "a ledger that can't be read or locked sends nothing (Q22 review)"
+    rs = scan[scan.index("    def reserve():"):scan.index("def same_origin(")]
+    assert "return False" in rs and rs.index("return False") < rs.index("return sent[0] < cap"), ("in a review run, a ledger that fails stops the scan's request too (Qodo on #23)", rs)
 
 @test("Qodo on #22 (3): fix advice in one structured field no longer cuts off the claim in a later field")
 def _(d):
@@ -1360,6 +1363,10 @@ def _(d):
     assert not scan_tests._checks(_ast.parse(t2).body[0]), "a class defined and never used still can't fail the test"
     t3 = ("def test_save():\n    class Repo:\n        def load(self):\n            raise NotImplementedError\n    Service(Repo()).save(1)\n")
     assert not scan_tests._checks(_ast.parse(t3).body[0]), "a plain stub's uncalled method is not a check (Q22 review)"
+    t4 = ("def test_x():\n    class H(Base):\n        def helper(self):\n            assert False\n    run(H)\n")
+    assert not scan_tests._checks(_ast.parse(t4).body[0]), "a subclass method no framework calls and the test never names is not a check (Qodo on #23)"
+    t5 = ("def test_server():\n    class H(BaseHTTPRequestHandler):\n        if True:\n            def do_GET(self):\n                assert self.path == '/x'\n    serve(H)\n")
+    assert scan_tests._checks(_ast.parse(t5).body[0]), "a handler defined under a class-level if still counts (Qodo on #23)"
 
 @test("Qodo on #22 (7): a check that stays degraded for the same file stops taking the retry slot after three tries")
 def _(d):
