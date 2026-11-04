@@ -51,7 +51,18 @@ def _always_true(node):
     if isinstance(node, (ast.List, ast.Set, ast.Dict)): return bool(getattr(node, "elts", None) or getattr(node, "keys", None))
     return False
 
-FRAMEWORK_CALLS = re.compile(r"do_[A-Z]+|handle\w*|setUp\w*|tearDown\w*|run|__\w+__|on_\w+|get|post|put|patch|delete|head|options|dispatch|process_\w+")  # methods a framework calls on a class it is given
+FRAMEWORKS = [  # (a base class's name, the methods that framework calls on a subclass it is given); any other class's methods count only when the test names them (Qodo on #24)
+    (re.compile(r".*RequestHandler|.*HTTPHandler|BaseHandler"), re.compile(r"do_[A-Z]+|handle\w*|setup|finish|get|post|put|patch|delete|head|options|prepare|on_\w+")),
+    (re.compile(r".*TestCase|.*TestSuite"), re.compile(r"test\w*|setUp\w*|tearDown\w*|run")),
+    (re.compile(r".*View|.*Resource|MethodView|Endpoint"), re.compile(r"get|post|put|patch|delete|head|options|dispatch\w*|on_\w+")),
+    (re.compile(r"Thread|Process"), re.compile(r"run")),
+    (re.compile(r".*Protocol|.*Transport"), re.compile(r"\w+_received|connection_\w+|eof_received|datagram_\w+|error_received"))]
+
+def _framework_calls(cls):
+    """The method names the framework a class subclasses calls for it, as one pattern, or None."""
+    names = [b.attr if isinstance(b, ast.Attribute) else getattr(b, "id", "") for b in cls.bases]
+    pats = [m.pattern for base, m in FRAMEWORKS for n in names if base.fullmatch(n or "")]
+    return re.compile("|".join(f"(?:{p})" for p in pats)) if pats else None
 
 def _methods(cls):
     """A class's own methods, including those defined under a class-level if, try or with (Qodo on #23)."""
@@ -59,6 +70,8 @@ def _methods(cls):
     while stack:
         s = stack.pop()
         if isinstance(s, (ast.FunctionDef, ast.AsyncFunctionDef)): out.append(s)
+        elif isinstance(s, ast.If) and isinstance(s.test, ast.Constant):  # if False: / if 0: never defines what it holds (Qodo on #24)
+            stack.extend(s.body if s.test.value else s.orelse)
         elif isinstance(s, (ast.If, ast.Try, ast.With, ast.AsyncWith)) or type(s).__name__ == "TryStar":
             for f in ("body", "orelse", "finalbody", "handlers"): stack.extend(getattr(s, f, []) or [])
         elif isinstance(s, ast.ExceptHandler): stack.extend(s.body)
@@ -83,9 +96,10 @@ def _walk_reached(fn):
         if not more: return seen
         for x in more:
             done.add(id(x)); seen += visit(x.body) + visit(x.decorator_list)
-            if isinstance(x, ast.ClassDef) and x.bases:  # a subclass the test uses has the methods a framework calls run for it (a handler's do_GET, setUp, __call__): they can fail the test (Qodo on #22)
-                for m in _methods(x):  # others count only when the test names them (a stub's raise is no check: Q22 review; an unused helper isn't either: Qodo on #23)
-                    if FRAMEWORK_CALLS.fullmatch(m.name) and id(m) not in done: done.add(id(m)); seen += visit(m.body)
+            calls = _framework_calls(x) if isinstance(x, ast.ClassDef) else None
+            if calls:  # a subclass of a framework class has the methods that framework calls run for it (a handler's do_GET, a TestCase's test_a): they can fail the test (Qodo on #22, #24)
+                for m in _methods(x):  # others count only when the test names them (a stub's raise is no check: Q22 review; an unused helper or get() isn't either: Qodo on #23, #24)
+                    if calls.fullmatch(m.name) and id(m) not in done: done.add(id(m)); seen += visit(m.body)
 
 def _checks(fn):
     """True when the test body can fail: an assert, an assertion-like call, a raise, or pytest.raises/warns/fail."""

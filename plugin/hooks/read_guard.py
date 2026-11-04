@@ -252,6 +252,8 @@ TOP_START = re.compile(_LIST + r"(?:(?:os\.)?path\.join\s*\(\s*)?" + _top(1)  # 
                        + r"|" + _LIST + r"[rbuRBU]{0,2}['\"]/[^'\"\n]*[*?\[]"  # an absolute wildcard as that argument ('/**/x'), never '/*' counted in a file
                        + r"|\.anchor\b|\bparents\s*\[\s*-")  # the root by API: Path.cwd().anchor, .parents[-1]
 TOP_NAME = re.compile(r"(?:^|[;\n:])\s*([A-Za-z_]\w*)\s*=\s*" + _top(2) + r"\s*(?:$|[;\n#)])")  # a name set to the root on its own line (never a keyword argument: sep='/')
+ALIAS = re.compile(r"(?:^|[;\n:])\s*([A-Za-z_]\w*)\s*=\s*([A-Za-z_]\w*)\s*(?=$|[;\n#)])")  # a = b on its own
+COMPUTED = re.compile(r"(?i)\bchr\s*\(|fromCharCode|\\x2f|\\u002f|\\057|\bSOLIDUS\b|\bbytes\s*\(\s*\[|b64decode|unhexlify|codecs\.decode|\batob\s*\(|Buffer\.from\s*\(")  # characters made as the code runs
 HOME_START = re.compile(r"\bgetenv\s*\(\s*['\"](?:HOME|USERPROFILE)|\bPath\.home\s*\(|\bexpanduser\s*\(|\bhomedir\s*\(|\bgethome\w*|environ(?:\.get\s*\(|\[)\s*['\"](?:HOME|USERPROFILE)|process\.env\.(?:HOME|USERPROFILE)|ENV\[['\"]HOME|\bDir\.home\b")
 PATTERN_CMDS = {"grep", "egrep", "fgrep", "rg", "ag", "ack", "zgrep"}  # the first operand is a pattern, never a file
 SEPARATOR_OPTS = {"awk": {"-F"}, "gawk": {"-F"}, "mawk": {"-F"}, "cut": {"-d"}, "paste": {"-d"}, "column": {"-s", "-o"}}  # options that take a separator, per command
@@ -400,10 +402,13 @@ def bash_problem(cmd, rec, root, critic, role, me):
                     q = os.path.normpath(lit)
                     if q.strip("/") and any(r_ == q or r_.startswith(q.rstrip("/") + "/") for r_ in (str(root), os.path.realpath(str(root)))): return True
                 if not TRAVERSE.search(c): return False
-                if TOP_START.search(c) or HOME_START.search(c): return True
-                for m_ in TOP_NAME.finditer(c):  # root = '/' then os.walk(root): only when that name is where a listing starts (Qodo on #23)
-                    if re.search(_LIST + re.escape(m_.group(1)) + r"\b", c): return True
-                return False  # from the root or home, or an absolute wildcard ('/**/x')
+                if TOP_START.search(c) or HOME_START.search(c) or COMPUTED.search(c): return True  # chr(47), '\x2f', fromCharCode: a root spelled as it runs (03 §5.57 item 18)
+                names = {m_.group(1) for m_ in TOP_NAME.finditer(c)}  # root = '/' then os.walk(root): only when that name is where a listing starts (Qodo on #23)
+                while True:  # start = root: the alias holds the root too (Qodo on #24)
+                    more = {a for a, b in ALIAS.findall(c) if b in names} - names
+                    if not more: break
+                    names |= more
+                return any(re.search(_LIST + re.escape(n_) + r"\b", c) for n_ in names)  # from the root or home, or an absolute wildcard ('/**/x')
             def reaches(c):  # names .critic or ~/.curmudgeon and can leave the copy: the project's own path or a "..", never a .critic folder a probe makes inside the copy (batch 5 review)
                 c = c.replace(str(pay.parent), "")
                 if re.search(r"(?i)\.curmudgeon\b", c): return True
@@ -413,6 +418,7 @@ def bash_problem(cmd, rec, root, critic, role, me):
                 if str(root) in c or os.path.realpath(str(root)) in c or ".." in c or "~" in c: return True
                 if re.search(r"(?i)\.parents?\b|\bpardir\b|\bchdir\b|\bexpanduser\b|\bglob\b|\bos\.sep\b", c): return True  # a climb by API (round 2 review)
                 return any(not os.path.normpath(os.path.join(str(pay), lit)).startswith(str(pay) + os.sep) for lit in re.findall(r"['\"]([^'\"\n]*\.critic[^'\"\n]*)['\"]", c))  # a .critic path written out that leads outside the copy (round 3 review: 'tests/.critic' is fine)
+            if code and TRAVERSE.search(cmd) and COMPUTED.search(cmd): return f"{n} with code that lists folders from a path it builds out of character codes or escapes (chr(47), '\\x2f'): reviewers and verifiers work on code in their copy (03 §5.57 item 18)"  # the raw text: the words lose their backslashes before they are split
             if any(reaches(c) for c in code): return f"{n} with code that names the project's .critic/ or Curmudgeon's own records: reviewers and verifiers work on code in their copy (audit Q01)"
         return None
     real_root = fold(pathlib.Path(root).resolve()); real_notes = fold((pay.parent / "notes").resolve())
