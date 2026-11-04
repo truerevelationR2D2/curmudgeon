@@ -4,6 +4,7 @@ refusal (stuck.py) in one process, so a session pays for one Python start per to
 Calls that neither can act on, which are almost all of them (the user's own session, any agent that isn't Curmudgeon's,
 except an Agent or Task call, which the fork check sees), return before anything else is imported. Each part fails
 open, as it did as its own hook."""
+import os as _os, sys as _sys; _sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__))); import utf8io  # UTF-8 output on Windows too (03 §5.57 item 20)
 import json, re, sys
 
 def main():

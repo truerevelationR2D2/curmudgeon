@@ -12,6 +12,7 @@ run(folder) -> {check: bool} (behaviour1.py, behaviour2.py). Each kept mutant be
 that one change) and an entry in eval/answer_key_NAME.json: the file, the line, the checks it breaks, and patterns that
 credit a review naming that file and line or quoting the changed code. Synthetic plants are reported apart from real
 ones (they flatter reviewers: README, "Benchmarks"). Needs Playwright when the behaviour test does; never installs it."""
+import os as _os, sys as _sys; _sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__))); import utf8io  # UTF-8 output on Windows too (03 §5.57 item 20)
 import importlib.util, json, pathlib, re, shutil, sys, tempfile
 
 HERE = pathlib.Path(__file__).resolve().parent
@@ -63,7 +64,7 @@ def main(a):
         key[f"S{kept} {rel}:{ln} changed to `{new.strip()[:60]}`; breaks: {', '.join(broken)}"] = {
             "file": pathlib.PurePath(rel).name, "at": [[rel, ln, ln]], "any": [rf"{re.escape(pathlib.PurePath(rel).name)}:({ln - 1}|{ln}|{ln + 1})\b", snippet], "synthetic": True, "fixture": out.name, "breaks": broken}
         print(f"kept {out.name}: {rel}:{ln} breaks {', '.join(broken)}")
-    (dest / f"answer_key_{name}.json").write_text(json.dumps(key, indent=1) + "\n")
+    (dest / f"answer_key_{name}.json").write_text(json.dumps(key, indent=1) + "\n", encoding="utf-8")
     print(f"planter: {kept} plant(s) kept of {tried} tried; answer key {dest / f'answer_key_{name}.json'}")
     return 0
 

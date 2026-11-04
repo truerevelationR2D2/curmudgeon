@@ -21,6 +21,7 @@ usage (from the project root, or set CRITIC_ROOT):
 Then: critic_merge.py tally <our reviews> --outside .critic/outside/outside-review.json [--scan ...] [--groups ...]"""
 import json, os, pathlib, re, subprocess, sys, urllib.parse
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+import utf8io  # UTF-8 output on Windows too (03 §5.57 item 20)
 from critic_findings import IMPACTS, log_run, redact_secrets, refuse_linked_state
 import safegit  # git without the repository's own commands (03 §5.57 review)
 
@@ -34,7 +35,7 @@ def git_rc(*a):
     """(exit code, stdout unstripped). Logged like every outside command."""
     log_run(ROOT, "command", "git " + " ".join(a))
     try:
-        r = safegit.run([*a], cwd=ROOT, capture_output=True, text=True, timeout=20)
+        r = safegit.run([*a], cwd=ROOT, capture_output=True, text=True, timeout=20, encoding="utf-8")
         return r.returncode, r.stdout
     except (OSError, subprocess.TimeoutExpired): return 1, ""
 
@@ -65,7 +66,7 @@ def brief(args):
         elif args[i] == "--base" and i + 1 < len(args): base = args[i + 1]; i += 2
         elif args[i] == "--out" and i + 1 < len(args): out = pathlib.Path(args[i + 1]); i += 2
         else: die(f"unknown option {args[i]}")
-    try: cm = json.loads((D / "change-map.json").read_text())
+    try: cm = json.loads((D / "change-map.json").read_text(encoding="utf-8"))
     except Exception: die("run critic_map.py first: the brief is built from .critic/change-map.json")
     files = [f for f in cm.get("files", []) if not str(f).startswith(".critic/")]
     head = git("rev-parse", "HEAD")

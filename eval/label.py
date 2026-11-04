@@ -32,6 +32,7 @@ Two labels agree when verdict and actionable are the same; then a severity diffe
 tiebreaker, whose label stands. Agreement is reported as the share agreeing and as Cohen's kappa on the verdict.
 For the scorer, real is "real", wrong is "false", and trivial and none are "trivial" and "none" (counted neither way in
 precision; none is left out of every share as well)."""
+import os as _os, sys as _sys; _sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__))); import utf8io  # UTF-8 output on Windows too (03 §5.57 item 20)
 import json, pathlib, random, re, shutil, sys
 
 HERE = pathlib.Path(__file__).resolve().parent
@@ -57,12 +58,12 @@ def unmatched(run_dir):
     for arm_dir in sorted(p for p in pathlib.Path(run_dir).iterdir() if p.is_dir() and p.name != "labelling"):
         for td in sorted(p for p in arm_dir.iterdir() if p.is_dir()):
             t = tasks.get(td.name.split("~")[0])
-            meta = json.loads((td / "meta.json").read_text()) if (td / "meta.json").exists() else {}
+            meta = json.loads((td / "meta.json").read_text(encoding="utf-8")) if (td / "meta.json").exists() else {}
             blocks = deathmatch.blocks_for(td)
-            if not t or blocks is None or deathmatch.failed(meta, (td / "output.md").read_text(errors="replace") if (td / "output.md").exists() else ""): continue
+            if not t or blocks is None or deathmatch.failed(meta, (td / "output.md").read_text(errors="replace", encoding="utf-8") if (td / "output.md").exists() else ""): continue
             used = set()
             if not t.get("clean"):  # a credited plant, and any second report of one, is the answer key's business
-                used = deathmatch.plant_blocks(deathmatch.plants_of(json.loads((HERE / t["key"]).read_text())), blocks)
+                used = deathmatch.plant_blocks(deathmatch.plants_of(json.loads((HERE / t["key"]).read_text(encoding="utf-8"))), blocks)
             for i, b in enumerate(blocks):
                 if i not in used: out.append((f"{arm_dir.name}/{td.name}/{i}", t, plain(b["claim"] if b["claim"].strip() else b["loc"])))
     return out
@@ -73,10 +74,10 @@ def plant_hits(run_dir):
     for td in sorted(pathlib.Path(run_dir).glob("*/*/")):
         t = tasks.get(td.name.split("~")[0])
         if not t or t.get("clean") or td.parent.name == "labelling": continue
-        meta = json.loads((td / "meta.json").read_text()) if (td / "meta.json").exists() else {}
+        meta = json.loads((td / "meta.json").read_text(encoding="utf-8")) if (td / "meta.json").exists() else {}
         blocks = deathmatch.blocks_for(td)
-        if blocks is None or deathmatch.failed(meta, (td / "output.md").read_text(errors="replace") if (td / "output.md").exists() else ""): continue
-        hit = deathmatch.match_plants(deathmatch.plants_of(json.loads((HERE / t["key"]).read_text())), blocks)
+        if blocks is None or deathmatch.failed(meta, (td / "output.md").read_text(errors="replace", encoding="utf-8") if (td / "output.md").exists() else ""): continue
+        hit = deathmatch.match_plants(deathmatch.plants_of(json.loads((HERE / t["key"]).read_text(encoding="utf-8"))), blocks)
         out.setdefault(t["id"], []).extend(plain(blocks[i]["claim"]) for i in sorted(hit.values()))
     return out
 
@@ -90,11 +91,11 @@ def neutral_copy(src, dst):
     shutil.copytree(src, dst, ignore=shutil.ignore_patterns(".critic", ".git"))
     for f in dst.rglob("*"):
         if not f.is_file(): continue
-        try: text = f.read_text()
+        try: text = f.read_text(encoding="utf-8")
         except (UnicodeDecodeError, OSError): continue
         new = text
         for pat, rep in GIVEAWAYS: new = pat.sub(rep, new)
-        if new != text: f.write_text(new)
+        if new != text: f.write_text(new, encoding="utf-8")
 
 def export(run_dir, apps, chunk=30, seed=None, controls=3):
     """Blind packets: each app gets an opaque name (app-<hex>) and its own folder, so neither the name nor the folder
@@ -124,7 +125,7 @@ def export(run_dir, apps, chunk=30, seed=None, controls=3):
                 ids.add(pid); ctl[pid] = {"truth": truth, "app": app}
                 by_app.setdefault(app, []).append({"id": pid, "app": name(app), "finding": text})
     for ps in by_app.values(): rng.shuffle(ps)
-    (lab).mkdir(parents=True, exist_ok=True); (lab / "controls.json").write_text(json.dumps(ctl, indent=1))
+    (lab).mkdir(parents=True, exist_ok=True); (lab / "controls.json").write_text(json.dumps(ctl, indent=1), encoding="utf-8")
     (lab / "packets").mkdir(parents=True, exist_ok=True)
     for app in by_app:
         dst = apps / alias[app]
@@ -133,14 +134,14 @@ def export(run_dir, apps, chunk=30, seed=None, controls=3):
     files = []
     for app, ps in sorted(by_app.items(), key=lambda kv: alias[kv[0]]):
         for k in range(0, len(ps), chunk):
-            f = lab / "packets" / f"{alias[app]}-{k // chunk + 1}.json"; f.write_text(json.dumps(ps[k:k + chunk], indent=1)); files.append(f)
-    (lab / "map.json").write_text(json.dumps(idmap, indent=1))
-    (lab / "apps.json").write_text(json.dumps({v: k for k, v in alias.items()}, indent=1))
+            f = lab / "packets" / f"{alias[app]}-{k // chunk + 1}.json"; f.write_text(json.dumps(ps[k:k + chunk], indent=1), encoding="utf-8"); files.append(f)
+    (lab / "map.json").write_text(json.dumps(idmap, indent=1), encoding="utf-8")
+    (lab / "apps.json").write_text(json.dumps({v: k for k, v in alias.items()}, indent=1), encoding="utf-8")
     print(f"{len(items)} finding(s) and {len(ctl)} control(s) to label in {len(files)} packet file(s); apps copied to {apps}")
     return files
 
 def load_labels(path):
-    rows = json.loads(pathlib.Path(path).read_text()); out = {}
+    rows = json.loads(pathlib.Path(path).read_text(encoding="utf-8")); out = {}
     if not isinstance(rows, list): raise ValueError(f"{path}: not a JSON list of labels")
     for r in rows:
         v = r.get("verdict"); s = r.get("severity")
@@ -167,7 +168,7 @@ def kappa(pairs):
 def control_accuracy(run_dir, labels):
     """{"n", "correct", "real_right", "wrong_right"} for one labeller on the known-truth controls; None without any."""
     f = pathlib.Path(run_dir) / "labelling" / "controls.json"
-    ctl = json.loads(f.read_text()) if f.exists() else {}
+    ctl = json.loads(f.read_text(encoding="utf-8")) if f.exists() else {}
     if not ctl: return None
     missing = [p for p in ctl if p not in labels]
     if missing: raise ValueError(f"{len(missing)} control(s) have no label, e.g. {missing[:3]}")
@@ -177,7 +178,7 @@ def control_accuracy(run_dir, labels):
             "wrong_right": f"{sum(1 for p in ctl if ctl[p]['truth'] == 'wrong' and ok(p))} of {sum(1 for p in ctl if ctl[p]['truth'] == 'wrong')}"}
 
 def compare(run_dir, fa, fb):
-    idmap = json.loads((pathlib.Path(run_dir) / "labelling" / "map.json").read_text())
+    idmap = json.loads((pathlib.Path(run_dir) / "labelling" / "map.json").read_text(encoding="utf-8"))
     A, B = load_labels(fa), load_labels(fb)
     missing = sorted(set(idmap) - set(A)) + sorted(set(idmap) - set(B))
     if missing: raise ValueError(f"{len(missing)} packet(s) have no label from one labeller, e.g. {missing[:3]}")
@@ -192,9 +193,9 @@ def ties(run_dir, fa, fb):
     idmap, A, B, tie_ids, stats = compare(run_dir, fa, fb)
     lab = pathlib.Path(run_dir) / "labelling"; packets = {}
     for f in sorted((lab / "packets").glob("*.json")):
-        for p in json.loads(f.read_text()): packets[p["id"]] = p
-    (lab / "ties.json").write_text(json.dumps([packets[p] for p in tie_ids], indent=1))  # the tiebreaker sees neither label
-    (lab / "agreement.json").write_text(json.dumps(stats, indent=1))
+        for p in json.loads(f.read_text(encoding="utf-8")): packets[p["id"]] = p
+    (lab / "ties.json").write_text(json.dumps([packets[p] for p in tie_ids], indent=1), encoding="utf-8")  # the tiebreaker sees neither label
+    (lab / "agreement.json").write_text(json.dumps(stats, indent=1), encoding="utf-8")
     print(json.dumps(stats), f"\n{len(tie_ids)} tie(s) written to {lab / 'ties.json'}")
     return tie_ids, stats
 
@@ -209,10 +210,10 @@ def final(run_dir, fa, fb, ft=None):
         else: d = dict(A[p], severity=lower(A[p]["severity"], B[p]["severity"]), decided_by="agreed")
         detail[key] = d
     run_dir = pathlib.Path(run_dir)
-    labels = json.loads((run_dir / "labels.json").read_text()) if (run_dir / "labels.json").exists() else {}
+    labels = json.loads((run_dir / "labels.json").read_text(encoding="utf-8")) if (run_dir / "labels.json").exists() else {}
     labels.update({k: {"real": "real", "wrong": "false", "trivial": "trivial", "none": "none"}[d["verdict"]] for k, d in detail.items()})
-    (run_dir / "labels.json").write_text(json.dumps(labels, indent=1, sort_keys=True))
-    (run_dir / "labels-detail.json").write_text(json.dumps({"agreement": stats, "tiebroken": len(tie_ids), "labels": detail}, indent=1, sort_keys=True))
+    (run_dir / "labels.json").write_text(json.dumps(labels, indent=1, sort_keys=True), encoding="utf-8")
+    (run_dir / "labels-detail.json").write_text(json.dumps({"agreement": stats, "tiebroken": len(tie_ids), "labels": detail}, indent=1, sort_keys=True), encoding="utf-8")
     print(json.dumps(stats), f"\n{len(detail)} label(s) written; {len(tie_ids)} decided by the tiebreaker")
     return detail, stats
 
@@ -222,10 +223,10 @@ def recheck(run_dir, rdir):
     agreed with the same final labels on the same sample; and the relabel's accuracy on its controls."""
     run_dir, rdir = pathlib.Path(run_dir), pathlib.Path(rdir)
     as_labelled = run_dir / "labels-detail.as-labelled.json"  # the labels keyed by the block numbers the packets were cut from, kept when a scorer change moved them (audit V18)
-    final = json.loads((as_labelled if as_labelled.exists() else run_dir / "labels-detail.json").read_text())["labels"]
-    idmap = json.loads((rdir / "map.json").read_text()); ctl = json.loads((rdir / "controls.json").read_text())
+    final = json.loads((as_labelled if as_labelled.exists() else run_dir / "labels-detail.json").read_text(encoding="utf-8"))["labels"]
+    idmap = json.loads((rdir / "map.json").read_text(encoding="utf-8")); ctl = json.loads((rdir / "controls.json").read_text(encoding="utf-8"))
     new = load_labels(rdir / "labels.json")
-    omap = json.loads((run_dir / "labelling" / "map.json").read_text()); first = {omap[k]: v for k, v in load_labels(run_dir / "labelling" / "A.json").items() if k in omap}
+    omap = json.loads((run_dir / "labelling" / "map.json").read_text(encoding="utf-8")); first = {omap[k]: v for k, v in load_labels(run_dir / "labelling" / "A.json").items() if k in omap}
     keys = [(p, idmap[p]) for p in new if p in idmap and idmap[p] in final]
     out = {"sample": len(keys), "relabel_agrees": sum(1 for p, k in keys if agree(new[p], final[k])),
            "first_labeller_agrees": sum(1 for p, k in keys if k in first and agree(first[k], final[k]))}

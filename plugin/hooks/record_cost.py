@@ -6,6 +6,7 @@ rows repeat while it streams, so each request counts once, at its largest values
 and when the host gives no transcript the cost is reported as unavailable, never guessed."""
 import json, os, pathlib, sys, time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import utf8io  # UTF-8 output on Windows too (03 §5.57 item 20)
 import workspace
 
 FIELDS = ("input_tokens", "cache_creation_input_tokens", "cache_read_input_tokens", "output_tokens")
@@ -38,7 +39,7 @@ def main():
     except Exception: return 0
     root = workspace.project_root(data); c = root / ".critic"
     if c.is_symlink() or not (c / "ledger.json").is_file() or (c / "ledger.json").is_symlink(): return 0
-    try: led = json.loads((c / "ledger.json").read_text())
+    try: led = json.loads((c / "ledger.json").read_text(encoding="utf-8"))
     except Exception: return 0
     started = led.get("started_at")
     last = c / "last-review.md"

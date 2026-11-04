@@ -297,7 +297,7 @@ def downgrade_problem(old, new, reproduced, note, root=None, finding=None, verdi
 
 SARIF_LEVEL = {"Critical": "error", "High": "error", "Medium": "warning", "Low": "note"}
 def plugin_version():
-    try: return json.loads((pathlib.Path(__file__).resolve().parents[3] / ".claude-plugin" / "plugin.json").read_text()).get("version", "unknown")
+    try: return json.loads((pathlib.Path(__file__).resolve().parents[3] / ".claude-plugin" / "plugin.json").read_text(encoding="utf-8")).get("version", "unknown")
     except (OSError, ValueError, IndexError): return "unknown"
 
 def to_sarif(findings, tool="critic", version=None):
@@ -542,19 +542,19 @@ def write_manifest(d):
     tampering detectable, not impossible: anyone who can edit the outputs can also rewrite the manifest, which is why
     the manifest also records its own time and the run, and why `integrity` is a check, not a lock."""
     d = pathlib.Path(d); man = {"written": time.strftime("%Y-%m-%d %H:%M:%S"), "files": {}}
-    try: man["run"] = json.loads((d / "ledger.json").read_text()).get("run")
+    try: man["run"] = json.loads((d / "ledger.json").read_text(encoding="utf-8")).get("run")
     except Exception: man["run"] = None
     for name in MANIFEST_FILES:
         p = d / name
         if p.is_file() and not p.is_symlink(): man["files"][name] = hashlib.sha256(p.read_bytes()).hexdigest()
-    if not (d / "manifest.json").is_symlink(): (d / "manifest.json").write_text(json.dumps(man, indent=1) + "\n")
+    if not (d / "manifest.json").is_symlink(): (d / "manifest.json").write_text(json.dumps(man, indent=1) + "\n", encoding="utf-8")
     return man
 
 def check_manifest(d):
     """Files changed, added or removed since the last manifest: [(name, what)]. None when there is no manifest."""
     d = pathlib.Path(d); mp = d / "manifest.json"
     if not mp.is_file() or mp.is_symlink(): return None
-    try: man = json.loads(mp.read_text())
+    try: man = json.loads(mp.read_text(encoding="utf-8"))
     except ValueError: return [("manifest.json", "unreadable")]
     out = []
     for name, h in man.get("files", {}).items():
@@ -623,7 +623,7 @@ def approved_state(root, rel):
     return (read_owner_state(root, "approvals").get("files") or {}).get(rel) == _sha(p)
 
 def is_git_work_tree(root):
-    try: return safegit.run(["rev-parse", "--is-inside-work-tree"], cwd=root, capture_output=True, text=True, timeout=5).stdout.strip() == "true"
+    try: return safegit.run(["rev-parse", "--is-inside-work-tree"], cwd=root, capture_output=True, text=True, timeout=5, encoding="utf-8").stdout.strip() == "true"
     except (OSError, subprocess.SubprocessError): return False
 
 def state_trusted(root, rel):
@@ -641,9 +641,9 @@ def owner_untracked(root, rel):
     r = pathlib.Path(root); c = r / ".critic"
     if c.is_symlink() or not c.is_dir() or (c / ".git").exists(): return False
     try:
-        top = safegit.run(["rev-parse", "--show-toplevel"], cwd=r, capture_output=True, text=True, timeout=5)
+        top = safegit.run(["rev-parse", "--show-toplevel"], cwd=r, capture_output=True, text=True, timeout=5, encoding="utf-8")
         if top.returncode or os.path.normcase(os.path.realpath(top.stdout.strip())) != os.path.normcase(os.path.realpath(r)): return False
-        ls = safegit.run(["ls-files", "-z", "-s", "--", ":(icase).critic"], cwd=r, capture_output=True, text=True, timeout=10)
+        ls = safegit.run(["ls-files", "-z", "-s", "--", ":(icase).critic"], cwd=r, capture_output=True, text=True, timeout=10, encoding="utf-8")
         if ls.returncode: return False
     except (OSError, subprocess.SubprocessError): return False
     want = f".critic/{rel}".casefold()
@@ -658,7 +658,7 @@ def consent_given(root, kind, host=None):
     or "writes". Written by critic_ledger.py consent, which the lead runs after the owner says yes, into the owner's
     own record outside the project; a flag on its own is never consent."""
     j = read_owner_state(root, "consent")
-    try: led = json.loads((pathlib.Path(root) / ".critic" / "ledger.json").read_text())
+    try: led = json.loads((pathlib.Path(root) / ".critic" / "ledger.json").read_text(encoding="utf-8"))
     except (OSError, ValueError): return False
     if not j or j.get("run") != led.get("run") or j.get("started_at") != led.get("started_at") or not led.get("started_at"): return False  # consent is per run (and round)
     if kind == "writes": return j.get("writes") is True
@@ -837,7 +837,7 @@ def verifier_batches(items, tier, size=VERIFY_BATCH):
     own (SKILL.md step 4.2; ultimate audit Q08: they used to share a batch of five). Shared by critic_run.py next and
     critic_variants.py find, so the two never print different batches (Qodo on PR #14)."""
     def impact(p):
-        try: return json.loads(pathlib.Path(p).read_text()).get("impact")
+        try: return json.loads(pathlib.Path(p).read_text(encoding="utf-8")).get("impact")
         except (OSError, ValueError, AttributeError): return None
     crit = [p for p in items if tier == "full" and impact(p) == "Critical"]
     rest = [p for p in items if p not in crit]

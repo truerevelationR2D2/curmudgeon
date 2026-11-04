@@ -2,6 +2,10 @@
 
 Every release of Curmudgeon, newest first. The repository's history starts at 4.2.1; earlier versions are summarised from the project's own build and review records. Numbers are the ones measured at the time; the README's Benchmarks section has the current ones and how they were measured.
 
+## Unreleased: native Windows and macOS (03 §5.57 item 20)
+
+- **Text encoding.** On native Windows, Python reads and writes text in the ANSI code page (cp1252) unless told otherwise. That includes a hook's output to Claude Code, which goes through a pipe. A report line with an arrow or an accented name crashed there, and the Windows CI job stopped after 305 of 396 tests (run 41749011233, still shown as passed because the job may fail). Every text read, write and subprocess call in the plugin, the eval kit and the tests now names `encoding="utf-8"`: 959 calls, added by a rewriter that edits the parsed code and touches nothing else. Every entry script imports `utf8io.py`, which switches stdout and stderr to UTF-8. One file sits in `hooks/`, `skills/review/scripts/` and `eval/`, the same in each. Tests: no text I/O call may omit its encoding, and a script printing non-ASCII text to a cp1252 pipe doesn't crash. On Linux and macOS, which already default to UTF-8, nothing changes.
+
 ## Unreleased: Qodo on #25
 
 Four findings. Each has a test that fails on the code before it (`plugin/tests/cases_8.py`, "Qodo on #22" tests (1) and (6)).

@@ -4,7 +4,7 @@ own. Each test here failed on the code before the change."""
 
 @test("§5.56 item 22: one PreToolUse process runs the blindness guard and the stuck refusal; calls that aren't Curmudgeon's return at once with no output")
 def _(d):
-    hooks = json.loads((H / "hooks.json").read_text())["hooks"]
+    hooks = json.loads((H / "hooks.json").read_text(encoding="utf-8"))["hooks"]
     cmds = [h["command"] for ev in ("PreToolUse", "PostToolUse") for m in hooks.get(ev, []) for h in m.get("hooks", [])]
     assert any("pre_tool.py" in c for c in cmds) and any("post_tool.py" in c for c in cmds), cmds
     assert not any(re.search(r"read_guard\.py|stuck\.py", c) for c in cmds), "the two old hooks are replaced, not doubled"
@@ -20,18 +20,18 @@ def _(d):
     cited = set()
     for f in list(HERE.rglob("*.py")) + list((HERE.parent / "eval").glob("*.py")) + list((HERE.parent / "eval").glob("*.md")):
         if f.name != "cases_6.py": cited |= set(re.findall(r"§(5\.\d+|2)\b", f.read_text(encoding="utf-8", errors="replace")))
-    idx = (HERE / "RULINGS.md").read_text()
+    idx = (HERE / "RULINGS.md").read_text(encoding="utf-8")
     missing = sorted(c for c in cited if not re.search(rf"^\| §{re.escape(c)}\b", idx, re.M))
     assert cited and not missing, missing
 
 @test("§5.56 item 24: the eval's list of unmatched findings is scratch state kept outside the source tree")
 def _(d):
-    src = (HERE.parent / "eval" / "score.py").read_text()
+    src = (HERE.parent / "eval" / "score.py").read_text(encoding="utf-8")
     assert ".last-unmatched.json" not in src and "CURMUDGEON_STATE_DIR" in src, "score.py writes its scratch list beside itself"
 
 @test("§5.56 items 23 and 28: CI pins the v7 actions by commit and tests Python 3.9 to 3.14, with Windows and macOS runs")
 def _(d):
-    ci = (HERE.parent / ".github" / "workflows" / "ci.yml").read_text()
+    ci = (HERE.parent / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
     for sha in ("3d3c42e5aac5ba805825da76410c181273ba90b1", "6d4fd22b20465ccc0f7354476588e8df7c9ca0e0", "949feb2413d6458794dcd2491c4babbbce0c15c1"):
         assert sha in ci, sha
     assert re.search(r'"3\.14"|3\.14\b', ci) and "macos" in ci and "Windows" in ci, "3.14, macOS and Windows"
@@ -41,17 +41,17 @@ def _(d):
 def _(d):
     E = HERE.parent / "eval"; sys.path.insert(0, str(E)); import importlib, plant_keys; importlib.reload(plant_keys)
     shutil.copytree(E / "fixture2", d / "f")
-    assert plant_keys.fill(d / "f") == 1 and "PLANTED" not in (d / "f/api.js").read_text() and plant_keys.FAKE_KEY in (d / "f/api.js").read_text()
-    assert plant_keys.PLACEHOLDER in (E / "fixture2/api.js").read_text(), "the fixture itself keeps the placeholder"
+    assert plant_keys.fill(d / "f") == 1 and "PLANTED" not in (d / "f/api.js").read_text(encoding="utf-8") and plant_keys.FAKE_KEY in (d / "f/api.js").read_text(encoding="utf-8")
+    assert plant_keys.PLACEHOLDER in (E / "fixture2/api.js").read_text(encoding="utf-8"), "the fixture itself keeps the placeholder"
     for name in ("deathmatch.py", "golden.py"):
-        assert re.search(r"copytree\(.*\n\s*plant_keys\.fill\(", (E / name).read_text()) or "plant_keys.fill(dst)" in (E / name).read_text(), f"{name} fills its copy"
+        assert re.search(r"copytree\(.*\n\s*plant_keys\.fill\(", (E / name).read_text(encoding="utf-8")) or "plant_keys.fill(dst)" in (E / name).read_text(encoding="utf-8"), f"{name} fills its copy"
     assert run(E / "plant_keys.py", str(E / "fixture2"), cwd=d).returncode != 0, "it never fills in the fixture in the repository"
     assert run(E / "plant_keys.py", str(HERE.parent), cwd=d).returncode != 0, "nor anywhere else in the repository, its own source included"
-    write(d, "g/plant_keys.py", f"P = {plant_keys.PLACEHOLDER!r}\n"); plant_keys.fill(d / "g"); assert plant_keys.PLACEHOLDER in (d / "g/plant_keys.py").read_text()
+    write(d, "g/plant_keys.py", f"P = {plant_keys.PLACEHOLDER!r}\n"); plant_keys.fill(d / "g"); assert plant_keys.PLACEHOLDER in (d / "g/plant_keys.py").read_text(encoding="utf-8")
 
 @test("§5.56 batch 3: the answer key credits E02 when a review says the query goes into the URL 'without encoding' (the lite smoke dip), and still not for an unrelated finding on that line")
 def _(d):
-    k = json.loads((HERE.parent / "eval" / "answer_key2.json").read_text())
+    k = json.loads((HERE.parent / "eval" / "answer_key2.json").read_text(encoding="utf-8"))
     e02 = next(v for n, v in k.items() if n.startswith("E02"))
     hit = lambda text: any(re.search(p, text, re.I) for p in e02["any"])
     for text in ("The status filter is interpolated into the URL without encoding", "query value is never URL-encoded", "The search and status values are not URL-encoded", "no percent-encoding of the query"):

@@ -92,13 +92,13 @@ def licences(root, emit):
     code has obligations. Informational, never legal advice. Idea from license checkers such as licensee (MIT)."""
     for pj in _inside(root, "package.json", emit):
         if _skip(pj, root): continue
-        try: j = json.loads(pj.read_text())
+        try: j = json.loads(pj.read_text(encoding="utf-8"))
         except Exception: continue
         if not isinstance(j, dict): continue
         if not j.get("private") and not j.get("license"): emit("NOTE", "licence-missing-own", "deps", str(pj.relative_to(root)), "the package declares no licence: others can't legally reuse it", "")
     for lf in _inside(root, "package-lock.json", emit):
         if _skip(lf, root): continue
-        try: j = json.loads(lf.read_text())
+        try: j = json.loads(lf.read_text(encoding="utf-8"))
         except Exception: continue
         if not isinstance(j, dict) or not isinstance(j.get("packages") or {}, dict): continue
         missing, strong, weak, unknown = [], [], [], []
@@ -146,7 +146,7 @@ def scan(root, emit, online=False, state=None):
     for pj in _inside(root, "package.json", emit):
         if _skip(pj, root): continue
         found_manifest = True; rel = str(pj.relative_to(root))
-        try: j = json.loads(pj.read_text())
+        try: j = json.loads(pj.read_text(encoding="utf-8"))
         except Exception: emit("WARN", "deps-manifest", "deps", rel, "package.json is not valid JSON", ""); continue
         if not isinstance(j, dict): emit("WARN", "deps-manifest", "deps", rel, "package.json is not a JSON object", ""); continue  # Qodo Q19: one odd manifest never stops the others' checks
         d_ = lambda k: j.get(k) if isinstance(j.get(k), dict) else {}

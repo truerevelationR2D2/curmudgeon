@@ -31,6 +31,7 @@ on localhost or a file are refused unless .critic/scope.json lists the origin an
 (the owner's typed confirmation; scope.py), and then only GET, HEAD and OPTIONS, up to the target's request cap."""
 import argparse, fnmatch, hashlib, json, os, pathlib, re, shutil, signal, subprocess, sys, time, urllib.parse
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+import utf8io  # UTF-8 output on Windows too (03 §5.57 item 20)
 import scan_secrets, scan_html, scan_graph, scan_deps, scan_rules_extra, scan_mutation, scan_ci, scan_agentcfg, scan_migrations, scan_reqs, scan_ops, scan_integrity
 import scope as scope_file
 import safe_web
@@ -338,7 +339,7 @@ def static(src, root, excludes):
         try:
             log_run(SCAN_ROOT, "script", f"rule_runner.py ({len(project)} project rule(s), 20 s limit)")
             r = subprocess.run([sys.executable, "-I", str(pathlib.Path(__file__).resolve().parent / "rule_runner.py")], input=json.dumps({"rules": project, "files": list({**TEXTS, **CONFIG_TEXTS}.items()), "config": list(CONFIG_TEXTS)}),
-                               capture_output=True, text=True, timeout=20)
+                               capture_output=True, text=True, timeout=20, encoding="utf-8")
             if r.returncode != 0: f("WARN", "rule-file-failed", "structure", ".critic/rules", f"the project's rule files could not run (exit {r.returncode}); their results are missing")
             for row in json.loads(r.stdout or "[]"): f(*row)
         except subprocess.TimeoutExpired: f("WARN", "rule-file-timeout", "structure", ".critic/rules", "the project's rule files took over 20 s and were stopped (a pattern may be too slow); their results are missing")
@@ -394,7 +395,7 @@ def ci_evidence(root, out=None):
         except ValueError: return True
     for p in [q for q in root.rglob("*.sarif") if not rel_skip(q) and not mine(q) and not linked_out(q)][:20]:
         try:
-            j = json.loads(p.read_text()); files += 1
+            j = json.loads(p.read_text(encoding="utf-8")); files += 1
             for run in j.get("runs", []):
                 tool = run.get("tool", {}).get("driver", {}).get("name", "tool")
                 for r in run.get("results", [])[:50]:
@@ -445,7 +446,7 @@ def project_checks(root, timeout=600):
         try:
             # commands written by the project owner in rules.md; run in their own process group so a timeout kills all of it
             log_run(root, "command", f"project check {name}: {cmd}")
-            pr = subprocess.Popen(cmd, shell=True, cwd=root, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, start_new_session=True)
+            pr = subprocess.Popen(cmd, shell=True, cwd=root, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, start_new_session=True, encoding="utf-8")
             try: outp, _ = pr.communicate(timeout=timeout)
             except subprocess.TimeoutExpired:
                 try: os.killpg(pr.pid, signal.SIGKILL)
@@ -462,7 +463,7 @@ def find_axe(arg):
     cands = [arg] if arg else []
     cands += [d / "node_modules/axe-core/axe.min.js" for d in [pathlib.Path.cwd(), *pathlib.Path.cwd().parents]]
     log_run(SCAN_ROOT, "command", "npm root -g (to find axe-core)")
-    try: cands.append(pathlib.Path(subprocess.run(["npm", "root", "-g"], capture_output=True, text=True, timeout=20).stdout.strip()) / "axe-core/axe.min.js")
+    try: cands.append(pathlib.Path(subprocess.run(["npm", "root", "-g"], capture_output=True, text=True, timeout=20, encoding="utf-8").stdout.strip()) / "axe-core/axe.min.js")
     except Exception: pass
     return next((pathlib.Path(c) for c in cands if c and pathlib.Path(c).exists()), None)
 
@@ -659,7 +660,7 @@ def runtime(page, src, root, out, axe_arg, interact, allow_live, baseline=None, 
             guarded("obscured", obscured)
             def screen_reader():
                 snap = pg.locator("body").aria_snapshot()
-                (out / "screen-reader.yaml").write_text(snap)
+                (out / "screen-reader.yaml").write_text(snap, encoding="utf-8")
                 for line in snap.split("\n"):
                     t = line.strip()
                     m = re.match(r"- (button|link|textbox|combobox|checkbox|img|image)(?:\s+\"([^\"]*)\")?\s*(?:\[.*\])?:?\s*$", t)
@@ -903,7 +904,7 @@ def main(argv):
     if led.exists() and ledger_shipped(root):  # a ledger the repository ships could be anyone's: it hides nothing here either
         f("NOTE", "ledger-shipped", "setup", ".critic/ledger.json", "the ledger may have come with the code (git tracks it, or Curmudgeon didn't write it here), so its false-positive rulings were not applied")
     elif led.exists():
-        try: FP.extend((json.loads(led.read_text()) or {}).get("false_positives", []))
+        try: FP.extend((json.loads(led.read_text(encoding="utf-8")) or {}).get("false_positives", []))
         except Exception: f("WARN", "ledger-unreadable", "setup", str(led), "ledger unreadable; no false positives suppressed")
     t = time.time()
     try: nfiles = static(src, root, a.exclude)
@@ -941,10 +942,10 @@ def main(argv):
     out.mkdir(parents=True, exist_ok=True)
     degraded = [k for k, v in CHECKS.items() if v["state"] in ("blocked", "unavailable") and k in expected]  # n/a is never degraded
     if REQ_ROWS: (out / "requirements.md").write_text(scan_reqs.table(REQ_ROWS), encoding="utf-8")
-    (out / "report.json").write_text(json.dumps({"src": str(src), "root": str(root), "files": nfiles, "stats": stats, "checks": CHECKS, "degraded": degraded, "findings": R, "suppressed": SUPPRESSED}, indent=1))
+    (out / "report.json").write_text(json.dumps({"src": str(src), "root": str(root), "files": nfiles, "stats": stats, "checks": CHECKS, "degraded": degraded, "findings": R, "suppressed": SUPPRESSED}, indent=1), encoding="utf-8")
     from critic_findings import to_sarif
     (out / "scan.sarif").write_text(json.dumps(to_sarif([{"category": x["rule"], "impact": {"FAIL": "High", "WARN": "Medium", "NOTE": "Low"}[x["sev"]], "file": x["where"].split(":")[0] if ":" in x["where"] else x["where"],
-        "line": int(x["where"].rsplit(":", 1)[1]) if re.search(r":\d+$", x["where"]) else 1, "title": x["what"], "id": x["id"], "verified": "executed" if x["level"] == "runtime" else "traced"} for x in R], tool="critic-scan"), indent=1))
+        "line": int(x["where"].rsplit(":", 1)[1]) if re.search(r":\d+$", x["where"]) else 1, "title": x["what"], "id": x["id"], "verified": "executed" if x["level"] == "runtime" else "traced"} for x in R], tool="critic-scan"), indent=1), encoding="utf-8")
     c = {s: sum(1 for x in R if x["sev"] == s) for s in order}
     ped = sum(1 for x in R if x.get("tier") == "pedantic")
     md = [f"# Curmudgeon scripted checks: {src.name}", f"{nfiles} files · {c['FAIL']} FAIL · {c['WARN']} WARN · {c['NOTE'] - ped} NOTE · {ped} pedantic · {len(SUPPRESSED)} suppressed · {time.time() - t:.1f} s", ""] + \
@@ -953,7 +954,7 @@ def main(argv):
          ["", "## Stats"] + [f"- {k}: {v}" for k, v in stats.items()] + ["", "## Findings", "| ID | Sev | Rule | Level | Where | What | Evidence |", "| --- | --- | --- | --- | --- | --- | --- |"] + \
          [f"| {x['id']} | {x['sev']} | {x['rule']} | {x['level']} | {esc_cell(x['where'])} | {esc_cell(x['what'])} | {esc_cell(x['evidence'][:100])} |" for x in R]
     if SUPPRESSED: md += ["", "## Suppressed (known false positives from the ledger)"] + [f"- `{x['rule']}` at {x['where']}: {x['what']} — {x['why']}" for x in SUPPRESSED]
-    (out / "report.md").write_text("\n".join(md) + "\n"); print("\n".join(md[:2])); print("report:", out / "report.md")
+    (out / "report.md").write_text("\n".join(md) + "\n", encoding="utf-8"); print("\n".join(md[:2])); print("report:", out / "report.md")
     return 0
 
 if __name__ == "__main__": sys.exit(main(sys.argv[1:]))

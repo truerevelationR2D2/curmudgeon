@@ -6,6 +6,7 @@ here at run time, never written to the repository in one piece (03 §5.56 item 1
 
 Run on its own with a copied fixture's folder (python3 plant_keys.py /tmp/run2), it fills that copy in for a review by
 hand; safe to run twice. It refuses any folder in this repository, so the repository never holds the key."""
+import os as _os, sys as _sys; _sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__))); import utf8io  # UTF-8 output on Windows too (03 §5.57 item 20)
 import pathlib, sys
 
 PLACEHOLDER = "__PLANTED_STRIPE_KEY__"

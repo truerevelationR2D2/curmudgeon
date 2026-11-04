@@ -8,6 +8,7 @@ domain -> ui and data -> ui imports are flagged. Projects can override in .criti
     layer ui: src/components/** src/views/**
     forbid: domain -> ui
 """
+import os as _os, sys as _sys; _sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__))); import utf8io  # UTF-8 output on Windows too (03 §5.57 item 20)
 import ast, fnmatch, hashlib, pathlib, re
 
 JS = {".js", ".mjs", ".cjs", ".ts", ".jsx", ".tsx"}

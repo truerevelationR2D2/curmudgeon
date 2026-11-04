@@ -3,6 +3,7 @@ come from anyone who wrote the repo) can be stopped by a time limit instead of h
 stdin: {"rules": [[id, sev, area, pattern, message, globs], ...], "files": [[rel, text], ...], "config": [rel, ...]};
 writes rows to stdout. A config file (YAML, SQL, TOML, a Dockerfile, anything under .github/) is read only by a rule
 whose file patterns name it, so a rule written for source code never fires on configuration."""
+import os as _os, sys as _sys; _sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__))); import utf8io  # UTF-8 output on Windows too (03 §5.57 item 20)
 import fnmatch, json, pathlib, re, sys
 
 PER_RULE, TOTAL = 50, 2000  # bounded output: a rule that matches every line can't flood memory or the report

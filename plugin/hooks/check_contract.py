@@ -8,6 +8,7 @@ copies a verdict (§5.56; guard_state.py keeps both folders from direct edits).
 Never blocks twice in a row (stop_hook_active), and never blocks other agents. Fails open on errors, with a message."""
 import json, os, pathlib, re, sys, time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import utf8io  # UTF-8 output on Windows too (03 §5.57 item 20)
 import workspace  # this folder's helper: project root, agent workspaces
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent / "skills" / "review" / "scripts"))
 try: from critic_findings import validate, refutation_problem, downgrade_problem, confirmation_problem, security_refutation_problem  # the same rules apply uses
@@ -22,7 +23,7 @@ def started_at(root, agent_id):
     try:
         h = workspace.home_for(root, agent_id); p = h / "workspace.json" if h else None
         if not p or p.is_symlink() or not p.is_file(): return None
-        v = json.loads(p.read_text()).get("made_at"); return float(v) if isinstance(v, (int, float)) else None
+        v = json.loads(p.read_text(encoding="utf-8")).get("made_at"); return float(v) if isinstance(v, (int, float)) else None
     except Exception: return None
 
 def worked_in_copy(root, agent_id):
@@ -30,7 +31,7 @@ def worked_in_copy(root, agent_id):
     try:
         h = workspace.home_for(root, agent_id); p = h / "workspace.json" if h else None
         if not p or p.is_symlink() or not p.is_file(): return False
-        j = json.loads(p.read_text()); return isinstance(j, dict) and not j.get("building") and isinstance(j.get("made_at"), (int, float))
+        j = json.loads(p.read_text(encoding="utf-8")); return isinstance(j, dict) and not j.get("building") and isinstance(j.get("made_at"), (int, float))
     except Exception: return False
 
 def write_stop(root, me, rec):
@@ -51,7 +52,7 @@ def problems_review(root, msg, agent_id=None):
     began = started_at(root, agent_id)
     if began and rv[0].stat().st_mtime < began - 2: return [f"{rv[0].name} was not written by you (it is older than your start); write your own review file"]
     if time.time() - rv[0].stat().st_mtime > 1800: return [f"{rv[0].name} is older than 30 minutes: this run didn't write it"]
-    try: rows = json.loads(rv[-1].read_text())
+    try: rows = json.loads(rv[-1].read_text(encoding="utf-8"))
     except Exception as e: return [f"{rv[-1].name} is not valid JSON ({e})"]
     errs = []
     if isinstance(rows, dict):  # {"findings": [...], "set_aside": [...]}: the set-aside list is logged, never counted
@@ -77,7 +78,7 @@ def problems_verdict(msg, root=None):
         if v.get("verdict") not in ("confirmed", "refuted", "downgrade", "unclear"): errs.append(f"{v.get('id')}: verdict must be confirmed, refuted, downgrade or unclear")
         packet = {}
         for sub in ("verify", "verify-variants"):  # a variant packet is judged by its own impact and fields, like the main ones
-            try: packet = json.loads((pathlib.Path(root or ".") / ".critic" / sub / f"{v['id']}.json").read_text()); break
+            try: packet = json.loads((pathlib.Path(root or ".") / ".critic" / sub / f"{v['id']}.json").read_text(encoding="utf-8")); break
             except Exception: pass
         if v.get("verdict") == "confirmed":
             cp = confirmation_problem(v, root=root)

@@ -1,13 +1,14 @@
 """Behaviour tests for a refactored fixture2 (OrderDesk). The app is served over a local HTTP server (so a fix that moves
 the API to the same origin works). The API is mocked by path on any origin: /orders returns ORDERS, /refund(s) returns
 HTTP 500 (so a refund must NOT report success). The app's own files are served as-is; any other host gets 404."""
+import os as _os, sys as _sys; _sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__))); import utf8io  # UTF-8 output on Windows too (03 §5.57 item 20)
 import json, pathlib, re
 ORDERS = [{"id": f"o{i}", "customer": {"name": f"Cust {i:02d}", "tier": "gold" if i % 3 == 0 else "std"}, "total": 10 + i, "status": ["paid", "refunded", "pending"][i % 3]} for i in range(1, 24)]
 ORDERS[0]["customer"]["name"] = "<img src=x onerror=window.__pwned=1>"
 def run(d: pathlib.Path):
     d = pathlib.Path(d).resolve()
     from playwright.sync_api import sync_playwright
-    src = "\n".join(p.read_text(errors="ignore") for p in d.rglob("*") if p.suffix in (".js", ".html", ".css"))
+    src = "\n".join(p.read_text(errors="ignore", encoding="utf-8") for p in d.rglob("*") if p.suffix in (".js", ".html", ".css"))
     res = {"no live secret key in client files": "sk_live_" not in src}
     import functools, http.server, threading
     class Quiet(http.server.SimpleHTTPRequestHandler):
@@ -36,7 +37,7 @@ def run(d: pathlib.Path):
         res["status readable without colour"] = bool(re.search(r"\bpaid\b", rows, re.I)) and bool(re.search(r"\bpending\b", rows, re.I))
         res["refund is a real button"] = pg.evaluate("() => [...document.querySelectorAll('button,[role=button]')].some(b => /refund/i.test(b.textContent + (b.getAttribute('aria-label')||'')))")
         res["search and status have names"] = pg.evaluate("() => [...document.querySelectorAll('input:not([type=checkbox]),select')].every(i => i.labels?.length || i.getAttribute('aria-label') || i.getAttribute('aria-labelledby'))")
-        css = "\n".join(p.read_text(errors="ignore") for p in d.rglob("*.css"))
+        css = "\n".join(p.read_text(errors="ignore", encoding="utf-8") for p in d.rglob("*.css"))
         res["focus not removed without replacement"] = ("outline: none" not in css and "outline:none" not in css) or ":focus-visible" in css
         res["reduced motion respected"] = "infinite" not in css or "prefers-reduced-motion" in css
         # refund that fails must not be reported as done

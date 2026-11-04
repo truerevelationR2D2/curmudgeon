@@ -13,14 +13,14 @@ os.environ["CURMUDGEON_STATE_DIR"] = os.path.join(TMP, "state")  # in-process te
 
 def run(script, *a, cwd, stdin=None, env=None):
     e = dict(os.environ, CRITIC_ROOT=str(cwd), TMPDIR=TMP, CURMUDGEON_FEED_DIR=os.path.join(TMP, "no-feed"), CURMUDGEON_STATE_DIR=os.path.join(TMP, "state")); e.update(env or {})  # a user's own feed or state never changes a test
-    return subprocess.run([sys.executable, str(script), *a], cwd=cwd, capture_output=True, text=True, input=stdin, env=e, timeout=300)
+    return subprocess.run([sys.executable, str(script), *a], cwd=cwd, capture_output=True, text=True, input=stdin, env=e, timeout=300, encoding="utf-8")
 
 def run_c(script, *a, cwd, **k):
     """run(), after recording the owner's consent for the flags the run carries (03 §5.56 item 12): a test stands in
     for the owner who said yes."""
     if "--allow-writes" in a or "--allow-live" in a:
         led = pathlib.Path(cwd) / ".critic/ledger.json"
-        if not led.exists() or not json.loads(led.read_text()).get("started_at"): run(S / "critic_ledger.py", "start", "review", cwd=cwd)
+        if not led.exists() or not json.loads(led.read_text(encoding="utf-8")).get("started_at"): run(S / "critic_ledger.py", "start", "review", cwd=cwd)
         if "--allow-writes" in a: run(S / "critic_ledger.py", "consent", "writes", cwd=cwd)
         if "--allow-live" in a: run(S / "critic_ledger.py", "consent", "live", a[a.index("--allow-live") + 1], cwd=cwd)
     return run(script, *a, cwd=cwd, **k)
@@ -72,13 +72,13 @@ FAKE = {
 def T(text):
     for k, v in FAKE.items(): text = text.replace(k, v)
     return text
-def write(d, rel, text): p = d / rel; p.parent.mkdir(parents=True, exist_ok=True); p.write_text(T(text)); return p
+def write(d, rel, text): p = d / rel; p.parent.mkdir(parents=True, exist_ok=True); p.write_text(T(text), encoding="utf-8"); return p
 
 def own_ledger(d, data):
     """Write .critic/ledger.json as the owner's own tools would leave it: critic_ledger.py records each save's checksum
     outside the project, and a ledger without one is set aside as one that came with the code (ultimate audit H1).
     Tests that build a ledger by hand stand in for those tools."""
-    p = pathlib.Path(d) / ".critic" / "ledger.json"; p.parent.mkdir(parents=True, exist_ok=True); p.write_text(json.dumps(data))
+    p = pathlib.Path(d) / ".critic" / "ledger.json"; p.parent.mkdir(parents=True, exist_ok=True); p.write_text(json.dumps(data), encoding="utf-8")
     import critic_findings; critic_findings.record_ledger(pathlib.Path(d))
 
 def hook_verdicts(d, rows, name="test"):

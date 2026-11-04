@@ -15,6 +15,7 @@ import json, os, pathlib, re, statistics, sys
 
 ROOT = pathlib.Path(os.environ.get("CRITIC_ROOT") or re.sub(r"[\\/]\.critic[\\/]scratch(?:[\\/].*)?$", "", os.getcwd()) or os.getcwd()).resolve(); D = ROOT / ".critic"
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+import utf8io  # UTF-8 output on Windows too (03 §5.57 item 20)
 import scan_tests, scan_ci, scan_agentcfg, scan_migrations, scan_reqs, scan_integrity
 
 UI = {".html", ".htm", ".jsx", ".tsx", ".vue", ".svelte", ".css", ".scss"}
@@ -48,7 +49,7 @@ def lenses_for(files):
 
 def history():
     p = D / "cost.jsonl"
-    try: rows = [json.loads(x) for x in p.read_text().splitlines() if x.strip()] if p.is_file() and not p.is_symlink() else []
+    try: rows = [json.loads(x) for x in p.read_text(encoding="utf-8").splitlines() if x.strip()] if p.is_file() and not p.is_symlink() else []
     except (OSError, ValueError): rows = []
     by = {}
     for r in rows:
@@ -60,11 +61,11 @@ def history():
 SECURITY_LENSES = ["secrets and dependencies", "CI and supply chain", "agent and MCP configuration", "browser integrity", "operations"]  # each names a lenses.md section
 
 def focus():
-    try: return json.loads((D / "focus.json").read_text()).get("focus") if (D / "focus.json").is_file() and not (D / "focus.json").is_symlink() else None
+    try: return json.loads((D / "focus.json").read_text(encoding="utf-8")).get("focus") if (D / "focus.json").is_file() and not (D / "focus.json").is_symlink() else None
     except (OSError, ValueError): return None
 
 def plan(forced=None):
-    try: cm = json.loads((D / "change-map.json").read_text())
+    try: cm = json.loads((D / "change-map.json").read_text(encoding="utf-8"))
     except (OSError, ValueError): sys.exit("critic_plan: no .critic/change-map.json; run critic_map.py first")
     files = [str(f) for f in cm.get("files") or []]
     exts = {pathlib.PurePosixPath(f).suffix.lower() for f in files}
@@ -98,7 +99,7 @@ def main(a):
     p = plan(forced)
     from critic_findings import refuse_linked_state
     refuse_linked_state(ROOT)
-    (D / "plan.json").write_text(json.dumps(p, indent=1))
+    (D / "plan.json").write_text(json.dumps(p, indent=1), encoding="utf-8")
     if "--json" in a: print(json.dumps(p, indent=1)); return 0
     print(f"plan: {'security scan, ' if p.get('focus') == 'security' else ''}{p['tier']} tier for {p['files']} file(s) ({p['kind']}); {p['reviewers']} blind reviewer(s); verify {p['verification']}")
     if p["lenses"]: print("  lenses: " + ", ".join(p["lenses"]))

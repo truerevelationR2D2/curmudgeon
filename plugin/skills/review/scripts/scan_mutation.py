@@ -79,7 +79,7 @@ def code_view(path, src):
 def changed_lines(root, rel):
     """Line numbers changed against git HEAD, or None when git can't say (no repo, an untracked file, no changes)."""
     try:
-        r = safegit.run(["diff", "-U0", "HEAD", "--", rel], cwd=root, capture_output=True, text=True, timeout=10)
+        r = safegit.run(["diff", "-U0", "HEAD", "--", rel], cwd=root, capture_output=True, text=True, timeout=10, encoding="utf-8")
     except (OSError, subprocess.TimeoutExpired): return None
     got = set()
     for m in re.finditer(r"^@@ -\S+ \+(\d+)(?:,(\d+))? @@", r.stdout, re.M):

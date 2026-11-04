@@ -311,8 +311,8 @@ def main(a):
     elif cmd == "gate":
         need(rest, 1, "gate on|async|off")
         D.mkdir(parents=True, exist_ok=True)
-        if rest[0] == "on": (D / "gate").write_text(""); msg = "stop gate on"
-        elif rest[0] == "async": (D / "gate-async").write_text(""); msg = "background stop check on"
+        if rest[0] == "on": (D / "gate").write_text("", encoding="utf-8"); msg = "stop gate on"
+        elif rest[0] == "async": (D / "gate-async").write_text("", encoding="utf-8"); msg = "background stop check on"
         elif rest[0] == "off":
             for n_ in ("gate", "gate-async", "gate-count"): (D / n_).unlink(missing_ok=True)
             msg = "stop checks off"

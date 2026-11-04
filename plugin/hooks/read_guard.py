@@ -29,6 +29,7 @@ most 12 hours. The main conversation and every other agent are never limited. A 
 (a broken guard must not stop the user's work); the merge script's own checks still apply."""
 import json, os, pathlib, re, sys, time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import utf8io  # UTF-8 output on Windows too (03 §5.57 item 20)
 import workspace
 
 ALLOW = {"reviewer": {"rules", "rules.md", "change-map.md", "change-map.json", "risk-map.md", ".gitignore", "briefs"},  # a brief holds no findings, so reading one by path (a lead that passed the path, not the text) breaks no blindness
@@ -79,12 +80,12 @@ def packet_ok(critic, me, rel):
     """Record the packets this verifier opens, in .critic/verify-opened/ (no agent may write there, and a verifier may
     not read it); the sixth distinct one is refused."""
     f = pathlib.Path(critic) / "verify-opened" / f"{me}.json"
-    try: seen = json.loads(f.read_text()) if f.is_file() and not f.is_symlink() else []
+    try: seen = json.loads(f.read_text(encoding="utf-8")) if f.is_file() and not f.is_symlink() else []
     except (OSError, ValueError): seen = []
     if rel in seen: return True
     if len(seen) >= PACKETS: return False
     try:
-        if not f.is_symlink(): f.parent.mkdir(parents=True, exist_ok=True); f.write_text(json.dumps(seen + [rel]))
+        if not f.is_symlink(): f.parent.mkdir(parents=True, exist_ok=True); f.write_text(json.dumps(seen + [rel]), encoding="utf-8")
     except OSError: pass
     return True
 
@@ -104,7 +105,7 @@ def brief_problem(root, ti):
     aside). Text around it is allowed. None when it does, or when there is nothing to check."""
     if not re.fullmatch(r"(?:curmudgeon:)?curmudgeon-reviewer", str(ti.get("subagent_type") or "")) or not run_active(root): return None
     bd = root / ".critic" / "briefs"
-    try: started = json.loads((root / ".critic" / "ledger.json").read_text()).get("started_at") or 0
+    try: started = json.loads((root / ".critic" / "ledger.json").read_text(encoding="utf-8")).get("started_at") or 0
     except Exception: return None
     briefs = [p for p in (sorted(bd.glob("brief-*.md")) if bd.is_dir() and not bd.is_symlink() else []) if p.is_file() and not p.is_symlink() and p.stat().st_mtime >= started - 2]
     if not briefs: return None
@@ -124,14 +125,14 @@ def brief_problem(root, ti):
                 time.sleep(0.02)
             except OSError: break
         try:
-            try: used = json.loads(used_f.read_text()) if used_f.is_file() and not used_f.is_symlink() else {}
+            try: used = json.loads(used_f.read_text(encoding="utf-8")) if used_f.is_file() and not used_f.is_symlink() else {}
             except (OSError, ValueError): used = {}
             if used.get("started") != started: used = {"started": started, "briefs": []}
             name = hit[0].name; unused = [p.name for p in briefs if p.name not in used["briefs"]]
             if name in used["briefs"] and unused:  # a reviewer that failed to start gets its brief again once the others have theirs
                 return f"{name} was already given to a reviewer; give this one its own brief ({', '.join(unused)}). To start a reviewer again after a failed start, start the others first"
             used["briefs"].append(name)
-            try: used_f.write_text(json.dumps(used))
+            try: used_f.write_text(json.dumps(used), encoding="utf-8")
             except OSError: pass
             return None
         finally:
@@ -144,7 +145,7 @@ def brief_problem(root, ti):
 
 def run_active(root):
     led = root / ".critic" / "ledger.json"
-    try: started = json.loads(led.read_text()).get("started_at") if led.is_file() and not led.is_symlink() else None
+    try: started = json.loads(led.read_text(encoding="utf-8")).get("started_at") if led.is_file() and not led.is_symlink() else None
     except Exception: started = None
     if not started or time.time() - started > 12 * 3600: return False
     last = root / ".critic" / "last-review.md"

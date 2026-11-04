@@ -5,6 +5,7 @@ credits that plant only when it points at one of them: it cites file:line with t
 either side, for a finding that cites the call instead of the body; a cited range over 10 lines counts as its first line), or quotes the plant's "quote". An entry without
 "at" is matched on its file and pattern alone, which can over-credit a loose pattern; every entry in the four answer keys
 and every key the planter writes has "at", and score.py reports how many credits came from an entry without one."""
+import os as _os, sys as _sys; _sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__))); import utf8io  # UTF-8 output on Windows too (03 §5.57 item 20)
 import pathlib, re
 
 SLACK = 3
