@@ -42,6 +42,14 @@ LINK_DIRS = {"node_modules", ".venv", "venv"}
 # recorded integrity copy, rules, a scope file): the eval fixtures carry theirs on purpose. An allow-list, so a run
 # output added later is left out too (batch 5 review: nits.jsonl and variants.md got through a deny-list).
 NESTED_KEEP = {"ledger.json", "integrity-baseline.json", "rules.md", "rules", "scope.json", ".gitignore"}  # a nested ledger is copied with its rulings only (nested_ledger below)
+
+def _privacy():
+    """The shared private-folder helper (skills/review/scripts/privacy.py): 0700, and icacls on Windows (03 §5.57 item 23)."""
+    import os as _o, sys as _s
+    _s.path.insert(0, _o.path.join(_o.path.dirname(_o.path.dirname(_o.path.abspath(__file__))), "skills", "review", "scripts"))
+    import privacy
+    return privacy
+
 def nested_ledger(rel):
     """True for a nested .critic/ledger.json (not the project's own, which is never copied)."""
     parts = pathlib.PurePosixPath(str(rel).replace(os.sep, "/")).parts
@@ -206,7 +214,7 @@ def make(root, agent_id):
     """Build the workspace and write its record. Returns the record, or None when no workspace could be made."""
     root = pathlib.Path(root).resolve(); h = home_for(root, agent_id)
     if not h: return None
-    h.mkdir(parents=True, exist_ok=True); os.chmod(h, 0o700)
+    h.mkdir(parents=True, exist_ok=True); _privacy().make_private(h)
     payload = h / "payload"; notes = h / "notes"
     if payload.is_symlink(): payload.unlink()
     elif payload.exists(): shutil.rmtree(payload, ignore_errors=True)

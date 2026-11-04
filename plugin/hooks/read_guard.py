@@ -431,6 +431,8 @@ def bash_problem(cmd, rec, root, critic, role, me):
                     m_ = re.match(r"\s*([A-Za-z_]\w*)\s*=(?!=)\s*(.*?)\s*$", st)
                     if m_:
                         v = m_.group(2)
+                        tv = TOP_VALUE.match(v)
+                        if tv and re.fullmatch(r"\s*(?:#.*)?", v[tv.end():]): v = tv.group(0)  # root = '/'  # a comment (Qodo on #27)
                         if TOP_VALUE.fullmatch(v) or v in held: held.add(m_.group(1))
                         else: held.discard(m_.group(1))
                 return False
@@ -439,15 +441,22 @@ def bash_problem(cmd, rec, root, critic, role, me):
                 find .critic/ under a name it builds as it runs ('.cri' + 'tic'), so the name never shows (Qodo on
                 #22). A lone / in a heredoc is blanked for the shell's words, never here: this reads the body as
                 written. Splitting or joining on '/' and walking the copy's own folders are not starts at the top."""
-                for lit in re.findall(r"['\"](/[^'\"\n]*)['\"]", c):  # a folder at or above the project, written out
-                    q = os.path.normpath(lit)
-                    if q.strip("/") and any(r_ == q or r_.startswith(q.rstrip("/") + "/") for r_ in (str(root), os.path.realpath(str(root)))): return True
+                roots_ = {fold(str(root)), fold(os.path.realpath(str(root)))}
+                for lit in re.findall(r"['\"]((?:/|[A-Za-z]:[\\/]|\\\\)[^'\"\n]*)['\"]", c):  # a folder at or above the project, written out: /home/x, C:\Users\x, C:/Users/x (03 §5.57 item 20)
+                    for q in {fold(lit), fold(os.path.realpath(lit))}:  # Windows writes one folder two ways (RUNNER~1, runneradmin): realpath gives the long one
+                        top_ = q.rstrip("\\/")
+                        if top_ and not re.fullmatch(r"[a-z]:", top_) and any(r_ == q or r_.startswith(top_ + os.sep) for r_ in roots_): return True
                 if not TRAVERSE.search(c): return False
                 return bool(TOP_START.search(c) or HOME_START.search(c) or starts_from(c))  # from the root or home, or an absolute wildcard ('/**/x')
             def reaches(c):  # names .critic or ~/.curmudgeon and can leave the copy: the project's own path or a "..", never a .critic folder a probe makes inside the copy (batch 5 review)
+                for lit in set(re.findall(r"['\"]((?:/|[A-Za-z]:[\\/])[^'\"\n]*)['\"]", c)):  # the agent's folder written another way (Windows: RUNNER~1 for runneradmin): its long form, so it is known as the agent's own (03 §5.57 item 20); never with .., which resolving would hide
+                    if ".." in lit: continue
+                    rp = os.path.realpath(lit)
+                    if rp != lit and any(fold(rp) == fold(o_) or fold(rp).startswith(fold(o_) + os.sep) for o_ in own_spellings): c = c.replace(lit, rp)
                 owns = [re.compile(re.escape(o_) + r"(?=[/\\'\"\s,)]|$)") for o_ in own_spellings]  # the folder itself, never scratch/r10 when it is r1 (guard review)
                 for lit in re.findall(r"(['\"])([^'\"\n]*)\1", c):  # a path written out from the agent's folder that stays inside it (notes/../notes/x) is its own (Qodo on #27)
                     for o_ in own_spellings:
+                        if (lit[1].startswith(o_ + "/") or lit[1].startswith(o_ + os.sep)) and "\\" in lit[1][len(o_):]: return True  # escapes (\x2e\x2e) change the path when the code runs (Qodo on #27)
                         if lit[1].startswith(o_ + "/") or lit[1].startswith(o_ + os.sep):
                             q_ = os.path.normpath(lit[1])
                             if q_ == o_ or q_.startswith(o_ + os.sep): c = c.replace(lit[0] + lit[1] + lit[0], "''"); break

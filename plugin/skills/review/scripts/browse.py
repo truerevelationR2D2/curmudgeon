@@ -91,7 +91,7 @@ def _private():
     d = ROOT / ".critic" / "private"
     if d.is_symlink() or (d.exists() and not d.is_dir()): sys.exit("browse: .critic/private is not a plain folder; refusing")
     if not d.exists():
-        d.mkdir(parents=True); os.chmod(d, 0o700); (d / ".gitignore").write_text("# Curmudgeon's private signing key and request ledger. Never commit.\n*\n", encoding="utf-8")
+        d.mkdir(parents=True); import privacy; privacy.make_private(d); (d / ".gitignore").write_text("# Curmudgeon's private signing key and request ledger. Never commit.\n*\n", encoding="utf-8")
     return d
 
 def _key():

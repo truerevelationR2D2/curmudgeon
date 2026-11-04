@@ -134,7 +134,7 @@ def _read_record(root):
 def _write_record(root, entries):
     f = _record_path(root)
     f.parent.mkdir(parents=True, exist_ok=True)
-    try: os.chmod(f.parent, 0o700)
+    try: import privacy; privacy.make_private(f.parent)
     except OSError: pass
     if not entries: f.unlink(missing_ok=True); return
     tmp = f.with_name(f.name + ".tmp"); tmp.write_text(json.dumps({"root": str(pathlib.Path(root).resolve()), "entries": entries}), encoding="utf-8"); os.replace(tmp, f)

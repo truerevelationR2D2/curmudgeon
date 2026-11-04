@@ -99,11 +99,11 @@ def main():
     gone = sorted(k for k, t in seen.items() if since is None or t > since)  # a stamped file deleted after the review, or with no review saved yet: a change too (audit O1; Qodo on #20)
     parts, keys = [], []
     if gone:  # alongside the edit check, never instead of it, so a new edit always starts a new batch (batch 3 review)
-        keys.append("deleted:" + hashlib.sha1("|".join(f"{k}@{seen[k]}" for k in gone).encode()).hexdigest()[:12])  # when, too: a re-deletion is a new batch (Qodo on #17)
+        keys.append("deleted:" + hashlib.sha1("|".join(f"{k}@{seen[k]}" for k in gone).encode("utf-8", "surrogateescape")).hexdigest()[:12])  # when, too: a re-deletion is a new batch (Qodo on #17)
         parts.append(f"{', '.join(gone[:5])}{' and more' if len(gone) > 5 else ''} {'was' if len(gone) == 1 else 'were'} deleted after the last Curmudgeon review"
                      f" (if the last review did cover it, say so: critic_ledger.py stamp --add {' '.join(shlex.quote(g) for g in gone[:5])}).")  # quoted: a file name is never shell syntax to copy (Qodo on #19)  # the time of a deletion is only a best guess (Qodo on #18)
     if p is not None and not (review.exists() and review.stat().st_mtime >= m):
-        keys.append(hashlib.sha1(f"{p}:{m}".encode()).hexdigest()[:12])
+        keys.append(hashlib.sha1(f"{p}:{m}".encode("utf-8", "surrogateescape")).hexdigest()[:12])  # a name that isn't UTF-8 keeps its bytes (Qodo on #27)
         where = p.relative_to(root).as_posix() if str(p).startswith(str(root)) else p  # src/b.py on Windows too (03 §5.57 item 20)
         parts.append("No Curmudgeon review exists yet for this project's edits." if not review.exists() else f"{where} was edited after the last Curmudgeon review.")
     if parts:
