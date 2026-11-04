@@ -314,6 +314,16 @@ def remove(root, agent_id):
     if not rec: return False
     p = pathlib.Path(rec["payload"])
     if p.is_symlink(): p.unlink()
-    else: shutil.rmtree(p, ignore_errors=True)
-    shutil.rmtree(p.parent / "gitclone", ignore_errors=True)
+    else: rmtree(p)
+    rmtree(p.parent / "gitclone")
     return True
+
+def rmtree(p):
+    """Delete a folder, read-only files included: git's object files are read-only, and on Windows a read-only file
+    can't be deleted until the flag is cleared (03 §5.57 item 20)."""
+    import stat
+    def clear(fn, path, _exc):
+        try: os.chmod(path, stat.S_IWRITE); fn(path)
+        except OSError: pass
+    try: shutil.rmtree(p, onexc=clear) if sys.version_info >= (3, 12) else shutil.rmtree(p, onerror=clear)
+    except OSError: pass

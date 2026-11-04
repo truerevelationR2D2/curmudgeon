@@ -149,7 +149,12 @@ def _locked_add(p, key, add, cap):
             n = int(led.get(key, 0))
             if cap is not None and n + add > cap: return False, n
             led[key] = n + add
-            tmp = p.with_name(f"live-requests.{os.getpid()}.tmp"); tmp.write_text(json.dumps(led, indent=1), encoding="utf-8"); os.replace(tmp, p)
+            tmp = p.with_name(f"live-requests.{os.getpid()}.tmp"); tmp.write_text(json.dumps(led, indent=1), encoding="utf-8")
+            for i in range(50):  # Windows refuses to replace a file another process has open for a moment: retry, as the lock already orders the writers
+                try: os.replace(tmp, p); break
+                except PermissionError:
+                    if i == 49: raise
+                    time.sleep(0.05)
             return True, led[key]
         finally: unlock()
 

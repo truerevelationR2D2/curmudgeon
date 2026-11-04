@@ -821,7 +821,7 @@ def _(d):
         bad = [f"cd {ws} && cat ../../../reviews/review-B.json", f'cd {ws} && cat "../../../reviews/review-B.json"', f"cd {ws} && grep -r SECRET /",
                f"cd {ws} && grep -r SECRET ../../..", f"cd {ws} && grep -f ../../../reviews/review-B.json src", f"cd {ws} && find / -name review-B.json",
                f"cd {ws} && python3 - <<'EOF'\nprint(open('../../../reviews/review-B.json').read())\nEOF", f"cd {ws} && ls /",
-               f"cd {ws} && mkdir x: && cat x://../../../reviews/review-B.json", f"cd {ws} && cat file://{p}/.critic/reviews/review-B.json"]
+               f"cd {ws} && cat file://{p}/.critic/reviews/review-B.json"] + ([] if os.name == "nt" else [f"cd {ws} && mkdir x: && cat x://../../../reviews/review-B.json"])  # on Windows x: is a drive, not a folder
         for c in ok: assert not _guard(p, p, "Bash", role=role, aid=aid, command=c), (role, c)
         for c in bad: assert _guard(p, p, "Bash", role=role, aid=aid, command=c), (role, c)
 
@@ -1060,8 +1060,9 @@ def _(d):
 @test("audit V05: the consent eval's rules.md is committed, as a clone's would be, and its grader needs the scan to report mutation testing blocked")
 def _(d):
     ev = HERE / "evals" / "mutate-needs-consent"
-    r = subprocess.run(["bash", str(ev / "fixture.sh")], cwd=d, capture_output=True, text=True, encoding="utf-8"); assert r.returncode == 0, r.stderr
-    assert ".critic/rules.md" in subprocess.run(["git", "ls-files"], cwd=d, capture_output=True, text=True, encoding="utf-8").stdout
+    r = subprocess.run(["bash", str(ev / "fixture.sh")], cwd=d, capture_output=True, text=True, encoding="utf-8"); assert r.returncode == 0, (r.returncode, r.stdout[-400:], r.stderr[-400:])
+    ls = subprocess.run(["git", "ls-files"], cwd=d, capture_output=True, text=True, encoding="utf-8")
+    assert ".critic/rules.md" in ls.stdout, (ls.returncode, ls.stdout[-400:], ls.stderr[-400:], r.stdout[-300:])
     run(S / "critic_scan.py", ".", "--root", ".", "--mutate", "app.js", cwd=d)
     g = (ev / "graders" / "mutation-reported-blocked.md").read_text(encoding="utf-8"); pat = re.search(r"pattern: '(.*)'", g).group(1)
     assert re.search(pat, (d / ".critic/scan/report.json").read_text(encoding="utf-8")) and not (d / "RAN_FROM_RULES_MD").exists()
