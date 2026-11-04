@@ -2,6 +2,12 @@
 
 Every release of Curmudgeon, newest first. The repository's history starts at 4.2.1; earlier versions are summarised from the project's own build and review records. Numbers are the ones measured at the time; the README's Benchmarks section has the current ones and how they were measured.
 
+## Unreleased: Qodo on #25
+
+Four findings. Each has a test that fails on the code before it (`plugin/tests/cases_8.py`, "Qodo on #22" tests (1) and (6)).
+- **Reviewers' guard:** a listing is refused only when its own starting argument is built from character codes or escapes, or names a value that holds the root at that point. An unrelated `chr(65)` elsewhere in the code no longer refuses a listing of the copy. Names are followed in order, statement by statement, so `start = root; start = 'src'; os.walk(start)` runs. `r = chr(47); os.walk(r)` is refused.
+- **Test lens:** a nested `TestCase`'s `test_*`, `setUp` and `__call__` count only when the test hands it to a runner (`loadTestsFromTestCase`, `TestSuite`, `TextTestRunner`, `.run()` and the like). A `TestCase` that is built but never run checks nothing. A nested class's `__init__` counts when the test calls the class.
+
 ## Unreleased: Qodo on #24
 
 Four findings, plus the run-time root from #23 under the owner's ruling that a bypass found in the code is patched (03 §5.57 item 18). Each comes with a test that fails on the code before it (`plugin/tests/cases_8.py`, "Qodo on #22" tests (1) and (6)).

@@ -51,17 +51,19 @@ def _always_true(node):
     if isinstance(node, (ast.List, ast.Set, ast.Dict)): return bool(getattr(node, "elts", None) or getattr(node, "keys", None))
     return False
 
-FRAMEWORKS = [  # (a base class's name, the methods that framework calls on a subclass it is given); any other class's methods count only when the test names them (Qodo on #24)
-    (re.compile(r".*RequestHandler|.*HTTPHandler|BaseHandler"), re.compile(r"do_[A-Z]+|handle\w*|setup|finish|get|post|put|patch|delete|head|options|prepare|on_\w+")),
-    (re.compile(r".*TestCase|.*TestSuite"), re.compile(r"test\w*|setUp\w*|tearDown\w*|run")),
-    (re.compile(r".*View|.*Resource|MethodView|Endpoint"), re.compile(r"get|post|put|patch|delete|head|options|dispatch\w*|on_\w+")),
-    (re.compile(r"Thread|Process"), re.compile(r"run")),
-    (re.compile(r".*Protocol|.*Transport"), re.compile(r"\w+_received|connection_\w+|eof_received|datagram_\w+|error_received"))]
+RUNNERS = {"loadTestsFromTestCase", "loadTestsFromModule", "loadTestsFromName", "makeSuite", "TestSuite", "TextTestRunner", "addTest", "addTests", "main", "run", "debug", "defaultTestLoader", "TestLoader"}
+FRAMEWORKS = [  # (a base class's name, the methods that framework calls on a subclass it is given, names the test must use for that to happen or None); any other class's methods count only when the test names them (Qodo on #24)
+    (re.compile(r".*RequestHandler|.*HTTPHandler|BaseHandler"), re.compile(r"do_[A-Z]+|handle\w*|setup|finish|get|post|put|patch|delete|head|options|prepare|on_\w+"), None),
+    (re.compile(r".*TestCase|.*TestSuite"), re.compile(r"test\w*|setUp\w*|tearDown\w*|run|__call__"), RUNNERS),  # only when the test hands it to a runner: a TestCase built and never run checks nothing (Qodo on #25)
+    (re.compile(r".*View|.*Resource|MethodView|Endpoint"), re.compile(r"get|post|put|patch|delete|head|options|dispatch\w*|on_\w+"), None),
+    (re.compile(r"Thread|Process"), re.compile(r"run"), {"start", "run"}),
+    (re.compile(r".*Protocol|.*Transport"), re.compile(r"\w+_received|connection_\w+|eof_received|datagram_\w+|error_received"), None)]
 
-def _framework_calls(cls):
-    """The method names the framework a class subclasses calls for it, as one pattern, or None."""
+def _framework_calls(cls, used):
+    """The method names the framework a class subclasses calls for it, as one pattern, or None. used: the names the
+    test's reached code uses (a runner's, a thread's start)."""
     names = [b.attr if isinstance(b, ast.Attribute) else getattr(b, "id", "") for b in cls.bases]
-    pats = [m.pattern for base, m in FRAMEWORKS for n in names if base.fullmatch(n or "")]
+    pats = [m.pattern for base, m, need in FRAMEWORKS for n in names if base.fullmatch(n or "") and (need is None or need & used)]
     return re.compile("|".join(f"(?:{p})" for p in pats)) if pats else None
 
 def _methods(cls):
@@ -92,11 +94,15 @@ def _walk_reached(fn):
     seen = visit(fn.body); done = set()
     while True:
         names = {n.id for n in seen if isinstance(n, ast.Name)} | {n.attr for n in seen if isinstance(n, ast.Attribute)}
+        built = {n.func.id for n in seen if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)}
         more = [x for x in nested if (x.name in names or x.decorator_list) and id(x) not in done]
         if not more: return seen
         for x in more:
             done.add(id(x)); seen += visit(x.body) + visit(x.decorator_list)
-            calls = _framework_calls(x) if isinstance(x, ast.ClassDef) else None
+            calls = _framework_calls(x, names) if isinstance(x, ast.ClassDef) else None
+            if isinstance(x, ast.ClassDef) and x.name in built:  # C() runs C's constructor: it can fail the test (Qodo on #25)
+                for m in _methods(x):
+                    if m.name in ("__init__", "__new__", "__post_init__") and id(m) not in done: done.add(id(m)); seen += visit(m.body)
             if calls:  # a subclass of a framework class has the methods that framework calls run for it (a handler's do_GET, a TestCase's test_a): they can fail the test (Qodo on #22, #24)
                 for m in _methods(x):  # others count only when the test names them (a stub's raise is no check: Q22 review; an unused helper or get() isn't either: Qodo on #23, #24)
                     if calls.fullmatch(m.name) and id(m) not in done: done.add(id(m)); seen += visit(m.body)

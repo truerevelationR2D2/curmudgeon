@@ -1301,7 +1301,8 @@ def _(d):
            "python3 -c \"import pathlib; [print(x) for x in pathlib.Path.cwd().parents[-1].rglob('review-*.json')]\"", "python3 -c \"import pathlib; [print(x) for x in pathlib.Path(pathlib.Path.cwd().anchor).rglob('review-*.json')]\"",
            "python3 -c \"import os; n='.cri'+'tic'; [print(r) for r, d, f in os.walk(chr(47)) if n in r]\"",  # 03 §5.57 item 18: a bypass in the code is patched
            "python3 -c \"import os; root='/'; start=root; [print(r) for r, d, f in os.walk(start)]\"",  # Qodo on #24: an alias of the root
-           "node -e \"const fs=require('fs'); console.log(fs.readdirSync(String.fromCharCode(47)))\"", "python3 -c \"import os; print(os.listdir('\\x2f'))\""]
+           "node -e \"const fs=require('fs'); console.log(fs.readdirSync(String.fromCharCode(47)))\"", "python3 -c \"import os; print(os.listdir('\\x2f'))\"",
+           "python3 -c \"import os; r = chr(47); [print(x) for x, d, f in os.walk(r)]\""]
     for c in bad: assert _guard(p, p, "Bash", command=f"cd {ws} && {c}"), c
     ok = ["python3 - <<'EOF'\nprint(6 / 3)\nEOF", "python3 -c \"print('/'.join(['a', 'b']), 'a/b'.split('/'))\"",
           "python3 - <<'EOF'\nimport os\nfor r, d, f in os.walk('src'):\n    [print(r + '/' + x) for x in f]\nEOF",
@@ -1309,7 +1310,8 @@ def _(d):
           "python3 -c \"import os; [print(r, x, sep='/') for r, d, f in os.walk('src') for x in f]\"", "python3 -c \"import os; [print('/' + f[:-3]) for f in os.listdir('src')]\"",
           "node -e \"const fs=require('fs'), path=require('path'); for (const f of fs.readdirSync('src')) console.log(path.join('/', 'api', f))\"",
           "python3 -c \"import os; [print(x, open(os.path.join(r, x)).read().count('/*')) for r, d, f in os.walk('src') for x in f]\"",
-          "python3 -c \"import os; root='/'; print(list(os.walk('src')))\""]  # Qodo on #23: a root set aside, never walked  # the guard review of these fixes (a '/*' word in a heredoc body is judged as a path, as before)
+          "python3 -c \"import os; root='/'; print(list(os.walk('src')))\"",
+          "python3 -c \"import os; print(os.listdir('.')); print(chr(65))\"", "python3 -c \"import os; root='/'; start=root; start='src'; print(list(os.walk(start)))\""]  # Qodo on #25  # Qodo on #23: a root set aside, never walked  # the guard review of these fixes (a '/*' word in a heredoc body is judged as a path, as before)
     for c in ok: assert not _guard(p, p, "Bash", command=f"cd {ws} && {c}"), c
 
 @test("Qodo on #22 (5): a grep, rg, ag or ack option after the operands (grep FILE -e x, rg PATH --files) leaves the first operand a path, and it is judged")
@@ -1377,6 +1379,12 @@ def _(d):
     assert scan_tests._checks(_ast.parse(t7).body[0]), "a nested TestCase's test_ methods run under the runner (Qodo on #24)"
     t8 = ("def test_x():\n    class H(object):\n        def get(self):\n            assert False\n    H()\n")
     assert not scan_tests._checks(_ast.parse(t8).body[0]), "a plain class's unused get() is not a check (Qodo on #24)"
+    t9 = ("def test_x():\n    class T(unittest.TestCase):\n        def test_a(self):\n            self.assertEqual(f(), 1)\n    T()\n")
+    assert not scan_tests._checks(_ast.parse(t9).body[0]), "a TestCase built but never run checks nothing (Qodo on #25)"
+    t10 = ("def test_x():\n    class C:\n        def __init__(self):\n            assert ready()\n    C()\n")
+    assert scan_tests._checks(_ast.parse(t10).body[0]), "a constructor the test calls can fail it (Qodo on #25)"
+    t11 = ("def test_x():\n    class T(unittest.TestCase):\n        def __call__(self, *a):\n            assert False\n    unittest.TextTestRunner().run(unittest.TestSuite([T()]))\n")
+    assert scan_tests._checks(_ast.parse(t11).body[0]), "a TestCase's __call__ runs under the runner (Qodo on #25)"
 
 @test("Qodo on #22 (7): a check that stays degraded for the same file stops taking the retry slot after three tries")
 def _(d):
