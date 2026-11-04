@@ -4,6 +4,8 @@ Every release of Curmudgeon, newest first. The repository's history starts at 4.
 
 ## Unreleased: native Windows and macOS (03 §5.57 item 20)
 
+**Windows and macOS gate releases** (03 §5.57 item 24): every platform passed on b52d73f. Windows passed 410 of 410 (13 skipped, each with its reason), macOS 412 of 412, WSL2 412 of 412, and Linux on Python 3.9–3.14. The Windows script tests and the macOS job no longer may fail without failing the run, and a test keeps it so. WSL2 joins after five green runs in a row. The README's Windows limit is rewritten: the tests pass, a full Claude Code session on native Windows hasn't yet been checked by hand, and `python3` must be on PATH.
+
 **Qodo on #27** (eight findings, each with a test that fails on the code before it, "Qodo on #27"):
 - **Reviewers' guard (High):** `r = '\x2f'; os.listdir(r)` got past the guard again after the #25 change. The rule is now the one Qodo proposed. Code that lists folders and also builds characters as it runs is refused, unless every built character is clearly harmless (`chr` or `fromCharCode` of codes that are neither `/` nor `\`). That covers a name, a tuple, a loop, a return value and a keyword, and an unrelated `chr(65)` still runs.
 - A path written out from the agent's own folder that stays inside it (`<own>/notes/../notes/out.txt`) is no longer refused.

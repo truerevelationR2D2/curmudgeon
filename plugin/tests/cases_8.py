@@ -1682,3 +1682,12 @@ def _(d):
         privacy._alias_sid = lambda a: None
         assert privacy._trustees("D:(A;;FA;;;LA)") is None, "an alias Windows can't expand still refuses"
     finally: privacy._alias_sid = o
+
+@test("platforms: the Windows and macOS test jobs are required for release (03 §5.57 item 24): neither the macOS job nor the Windows script-test step may fail without failing the run; WSL2 stays non-blocking until five green runs")
+def _(d):
+    ci = (HERE.parent / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+    jobs = {m.group(1): m.group(2) for m in re.finditer(r"(?ms)^  ([a-z0-9]+):\n(.*?)(?=^  [a-z0-9]+:\n|\Z)", ci)}
+    assert "continue-on-error" not in jobs["macos"], "the macOS job blocks a release"
+    win = jobs["windows"]; step = win[win.index("Script tests on Windows"):win.index("- name:", win.index("Script tests on Windows"))]
+    assert "continue-on-error" not in step, "the Windows script tests block a release"
+    assert "continue-on-error: true" in jobs["wsl2"], "WSL2 isn't required yet"

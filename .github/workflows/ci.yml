@@ -50,11 +50,10 @@ jobs:
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: "3.12"
-      - name: Script tests on Windows (first measured in 5.2.5; not yet a required check, see below)
-        # 03 §5.56 item 23: the hooks have never run in CI on Windows. This step reports the first 30 failures as annotations
-        # but doesn't fail the job until a run has shown which tests are Windows-specific; then it becomes required.
-        continue-on-error: true
-        timeout-minutes: 25  # a step that runs out of time fails only itself (continue-on-error); the job's limit is above both steps, so the required check below still runs
+      - name: Script tests on Windows (required for release since 4 Nov 2026, 03 §5.57 item 24)
+        # The first 30 failures are reported as annotations; a failure fails the job. Tests that can't apply on native
+        # Windows (POSIX modes, /proc, a shell-script git stand-in) are skipped, each with its reason.
+        timeout-minutes: 25
         shell: bash
         run: |
           set +e; python plugin/tests/run_tests.py 2>&1 | tee tests.out; status=${PIPESTATUS[0]}
@@ -82,11 +81,10 @@ jobs:
           if [ $status -ne 0 ]; then tail -n 15 win.out | cut -c1-900 | sed 's/^/::error title=windows check output::/'; fi
           exit $status
   macos:
-    # 03 §5.56 item 23: paths, links and hooks on macOS (case-insensitive file system by default). Not yet a required
-    # check, for the same reason as the Windows tests above.
+    # 03 §5.56 item 23: paths, links and hooks on macOS (case-insensitive file system by default). Required for release
+    # since 4 Nov 2026 (03 §5.57 item 24).
     runs-on: macos-latest
     timeout-minutes: 20
-    continue-on-error: true
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
