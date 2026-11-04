@@ -37,6 +37,23 @@ def _sid(name):
         finally: ctypes.windll.kernel32.LocalFree(out)
     except (AttributeError, OSError, ImportError, ValueError): return None
 
+def _console_codepages():
+    """The code pages Windows tools print in when their output is redirected: the console's (OEM) first, then the
+    system's (ANSI). icacls writes names such as NT-AUTORIT\u00c4T\\SYSTEM in them, not in UTF-8 (Qodo on #29)."""
+    try:
+        import ctypes
+        k = ctypes.windll.kernel32
+        return [f"cp{k.GetOEMCP()}", f"cp{k.GetACP()}"]
+    except (AttributeError, OSError, ImportError): return []
+
+def _decode(data):
+    """Tool output as text: UTF-8 when it is valid UTF-8, else the first Windows code page that decodes it."""
+    if isinstance(data, str): return data
+    for enc in ["utf-8"] + _console_codepages():
+        try: return data.decode(enc)
+        except (UnicodeDecodeError, LookupError): continue
+    return data.decode("utf-8", "replace")
+
 def _is_link(path):
     """A symbolic link or a Windows junction (a reparse point): never locked, since the change would land elsewhere."""
     try:
@@ -66,10 +83,10 @@ def make_private(path, windows=None):
     if any(os.scandir(p)):
         r = ok([os.path.join(p, "*"), "/reset", "/T", "/C", "/L", "/Q"])  # 2. the contents inherit the locked folder
         if not r or r.returncode != 0: return False
-    r = ok([p], text=True, encoding="utf-8", errors="replace")  # 3. the folder's own grants, listed
+    r = ok([p])  # 3. the folder's own grants, listed (raw bytes: decoded below in the code page icacls used)
     if not r or r.returncode != 0: return False
     me = _sid(who)
-    for line in (r.stdout or "").splitlines():
+    for line in _decode(r.stdout or b"").splitlines():
         line = line[len(p):] if line.startswith(p) else line
         if ":(" not in line: continue
         name = line.strip().split(":(", 1)[0].strip()

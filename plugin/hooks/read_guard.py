@@ -187,6 +187,7 @@ def deny(reason):
 OPAQUE = re.compile(r"\$\{!|\$\{[A-Za-z_][A-Za-z0-9_]*(?:\[[^\]]*\])?(?:%|#|/|\^|,|:[^-=+?])|\$[@*#!?$-]|\$\{[@*#]|\{[^{}\s,]*\.\.[^{}\s,]*\}|\$\"")  # ${!X}, ${X%..} ${X#..} ${X/..} ${X:1}, $@ $* $$, {a..b}, $"..": a path built this way is refused, not guessed
 PROC_ANY = re.compile(r"(?:^|[\s=:'\"])/+proc/+(?:[\d*?\[{$]|thread-self|self/+(?:task|cwd|root|fd))")  # /proc/<pid>, /proc/*, /proc/$PPID ... by text, before any expansion (round 3 review)
 PROC_PID = re.compile(r"/proc/(?:\d+|thread-self|self/task/\d+)(?:/|$)")
+PATH_ESC = re.compile(r"\\(?:x(?:2[EeFf]|5[Cc])|u00(?:2[EeFf]|5[Cc])|U0000(?:2[EeFf]|5[Cc])|N\{|0?5[67]|134)")  # an escape that makes . / or \\ when the code runs (Qodo on #27, #28)
 def procish(path):
     """A path into another process's /proc entry, written either way: Git Bash on Windows serves /proc too, and there
     ../../proc/1 resolves to C:\\proc\\1 (03 §5.57 item 20)."""
@@ -456,13 +457,13 @@ def bash_problem(cmd, rec, root, critic, role, me):
                 return bool(TOP_START.search(c) or HOME_START.search(c) or starts_from(c))  # from the root or home, or an absolute wildcard ('/**/x')
             def reaches(c):  # names .critic or ~/.curmudgeon and can leave the copy: the project's own path or a "..", never a .critic folder a probe makes inside the copy (batch 5 review)
                 for lit in set(re.findall(r"['\"]((?:/|[A-Za-z]:[\\/])[^'\"\n]*)['\"]", c) + re.findall(r"(?<![\w'\"])((?:[A-Za-z]:[\\/]|/)[^\s'\";|&<>()]+)", c)):  # the agent's folder written another way, quoted or not (a heredoc's redirect target) (Windows: RUNNER~1 for runneradmin): its long form, so it is known as the agent's own (03 §5.57 item 20); never with .., which resolving would hide
-                    if ".." in lit: continue
+                    if ".." in lit or PATH_ESC.search(lit): continue  # escapes are judged as written below; resolving would reshape them on Windows
                     rp = os.path.realpath(lit)
                     if rp != lit and any(fold(rp) == fold(o_) or fold(rp).startswith(fold(o_) + os.sep) for o_ in own_spellings): c = c.replace(lit, rp)
                 owns = [re.compile(re.escape(o_) + r"(?=[/\\'\"\s,)]|$)") for o_ in own_spellings]  # the folder itself, never scratch/r10 when it is r1 (guard review)
                 for lit in re.findall(r"(['\"])([^'\"\n]*)\1", c):  # a path written out from the agent's folder that stays inside it (notes/../notes/x) is its own (Qodo on #27)
                     for o_ in own_spellings:
-                        if (lit[1].startswith(o_ + "/") or lit[1].startswith(o_ + os.sep)) and re.search(r"\\(?:x(?:2[EeFf]|5[Cc])|u00(?:2[EeFf]|5[Cc])|U0000(?:2[EeFf]|5[Cc])|N\{|0?5[67]|134)", lit[1][len(o_):]): return True  # escapes that make . / or \\ (\x2e, \056) change the path when the code runs (Qodo on #27); a Windows separator or notes\\2024 doesn't (Qodo on #28)
+                        if (lit[1].startswith(o_ + "/") or lit[1].startswith(o_ + os.sep)) and PATH_ESC.search(lit[1][len(o_):]): return True  # escapes that make . / or \\ (\x2e, \056) change the path when the code runs (Qodo on #27); a Windows separator or notes\\2024 doesn't (Qodo on #28)
                         if lit[1].startswith(o_ + "/") or lit[1].startswith(o_ + os.sep):
                             q_ = fold(lit[1]); fo = fold(o_)
                             if q_ == fo or q_.startswith(fo + os.sep): c = c.replace(lit[0] + lit[1] + lit[0], "''"); break

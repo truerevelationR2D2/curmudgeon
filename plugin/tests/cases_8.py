@@ -1662,3 +1662,20 @@ def _(d):
         if osid: privacy._sid = osid
     removed = [c[c.index("/remove:g") + 1] for c in calls if "/remove:g" in c]
     assert removed == ["EVILDOM\\SYSTEM"], removed
+
+@test("Qodo on #29 (3): icacls output in a Windows code page (NT-AUTORIT\u00c4T\\SYSTEM in cp850) is decoded as that code page, so the localized SYSTEM keeps its access and the lock doesn't fail")
+def _(d):
+    import privacy, subprocess as sp
+    calls = []
+    listing = (f"{d / 'x'} BOX\\ryan:(OI)(CI)(F)\r\n      NT-AUTORIT\u00c4T\\SYSTEM:(OI)(CI)(F)\r\n      Jeder:(OI)(CI)(R)\r\n1 Dateien erfolgreich verarbeitet").encode("cp850")
+    def fake(a, **k): calls.append(a); return sp.CompletedProcess(a, 0, listing if len(a) == 2 else b"", b"")
+    sids = {"BOX\\ryan": "S-1-5-21-1-2-3-1001", "NT-AUTORIT\u00c4T\\SYSTEM": "S-1-5-18", "Jeder": "S-1-1-0"}
+    orig, osd, osid, ocp = sp.run, privacy._system_dir, privacy._sid, getattr(privacy, "_console_codepages", None); old = dict(os.environ)
+    try:
+        sp.run = fake; privacy._system_dir = lambda: "C:\\Windows\\System32"; privacy._sid = lambda n: sids.get(n); privacy._console_codepages = lambda: ["cp850", "cp1252"]
+        os.environ.update({"USERNAME": "ryan", "USERDOMAIN": "BOX"}); (d / "x").mkdir()
+        assert privacy.make_private(d / "x", windows=True)
+    finally:
+        sp.run = orig; privacy._system_dir = osd; privacy._sid = osid; os.environ.clear(); os.environ.update(old)
+        if ocp: privacy._console_codepages = ocp
+    assert [c[c.index("/remove:g") + 1] for c in calls if "/remove:g" in c] == ["Jeder"], calls
