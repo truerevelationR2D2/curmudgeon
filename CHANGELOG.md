@@ -24,6 +24,11 @@ Every release of Curmudgeon, newest first. The repository's history starts at 4.
   - `utf8io` reconfigures stdin too. With Python's default at cp1252, a hook reading Claude Code's input for a project under `Ásgeir` failed to decode and let the call through.
   - Output from outside programs (project checks, git, PowerShell's folder dialog) is decoded as UTF-8 with `errors="replace"`, so a tool writing in its own code page can't stop the run. File reads stay strict, because the scanners rely on that.
   - The WSL2 job copies the checkout from `$PWD` and runs with `pipefail`.
+- **First CI results** (#27, before Qodo's fixes): macOS passed 404 of 404 and WSL2 passed 404 of 404, 11 skipped each. Native Windows passed 371 of 404, up from a crash at test 305. Python probe: `python3`, `python` and `py -3` all ran in Git Bash, PowerShell 5.1 and PowerShell 7, both on the runner and on the owner's machine (Python 3.13), so the hooks keep `python3` (03 §5.57 item 22).
+- **Windows follow-ups:**
+  - The stop gate's message and the copy's record (links, dependency folders) wrote `src\b.py`, so they now use `/`.
+  - The test runner gives the guard commands in the form Git Bash needs (`C:/Users/...`). An unquoted `C:\Users\...` is broken by the shell before any program sees it.
+  - The 0700 check on restore copies runs only where POSIX modes exist. On native Windows, the folder's ACL decides who can read them.
 - **WSL2 in CI.** A job runs the script tests, golden and replays in Ubuntu 24.04 on WSL2 (`Vampire/setup-wsl` v7.2.0, pinned by commit). It isn't a required check until it has passed five runs in a row.
 
 ## Unreleased: Qodo on #25

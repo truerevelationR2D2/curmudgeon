@@ -63,13 +63,13 @@ def escaping_link(folder, root):
         except OSError: continue
         for e in it:
             seen += 1
-            if seen > ESCAPE_SCAN_MAX: return f"{os.path.relpath(folder, root)} (too large to check)"
+            if seen > ESCAPE_SCAN_MAX: return f"{os.path.relpath(folder, root).replace(os.sep, '/')} (too large to check)"
             if e.is_symlink():
                 try: real = pathlib.Path(e.path).resolve()
                 except (OSError, RuntimeError): continue
                 if within(real, rt): continue
                 if os.path.basename(os.path.dirname(e.path)) in ("bin", "Scripts") and re.match(r"^(python|pypy)[\d.]*(\.exe)?$", real.name, re.I): continue
-                return os.path.relpath(e.path, root)
+                return os.path.relpath(e.path, root).replace(os.sep, "/")
             elif e.is_dir(follow_symlinks=False): stack.append(e.path)
     return None
 MAX_FILE = 5 * 1024 * 1024
@@ -218,7 +218,7 @@ def make(root, agent_id):
 
     def link_deps(src, dst, rel):
         """A dependency folder is linked whole only when nothing inside it leads outside the project (round 3, F-bae6a123)."""
-        bad = escaping_link(src, root)
+        rel = str(rel).replace(os.sep, "/"); bad = escaping_link(src, root)
         if bad: st["deps_not_linked"].append(f"{rel} (a link inside leads outside the project: {bad})"); return
         link(src, dst, rel)
 
@@ -228,6 +228,7 @@ def make(root, agent_id):
 
     def put(rel):
         """Copy one project file (or link) at rel. False once the budget is spent."""
+        rel = str(rel).replace(os.sep, "/")  # the record lists src/a.js on Windows too (03 §5.57 item 20)
         src = root / rel; dst = payload / rel
         if run_output(rel): return True
         if nested_ledger(rel) and os.path.isfile(src) and not os.path.islink(src):  # the owner's rulings only: an earlier run's findings, dismissals and memories stay out (round 2 review)

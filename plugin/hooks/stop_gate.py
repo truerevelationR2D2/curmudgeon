@@ -104,7 +104,7 @@ def main():
                      f" (if the last review did cover it, say so: critic_ledger.py stamp --add {' '.join(shlex.quote(g) for g in gone[:5])}).")  # quoted: a file name is never shell syntax to copy (Qodo on #19)  # the time of a deletion is only a best guess (Qodo on #18)
     if p is not None and not (review.exists() and review.stat().st_mtime >= m):
         keys.append(hashlib.sha1(f"{p}:{m}".encode()).hexdigest()[:12])
-        where = p.relative_to(root) if str(p).startswith(str(root)) else p
+        where = p.relative_to(root).as_posix() if str(p).startswith(str(root)) else p  # src/b.py on Windows too (03 §5.57 item 20)
         parts.append("No Curmudgeon review exists yet for this project's edits." if not review.exists() else f"{where} was edited after the last Curmudgeon review.")
     if parts:
         batch = "|".join(keys)

@@ -11,7 +11,19 @@ RESULTS = []
 TMP = tempfile.mkdtemp(prefix="critic-tmp-")  # the hooks' TMPDIR, so agent workspaces made by tests are removed with it
 os.environ["CURMUDGEON_STATE_DIR"] = os.path.join(TMP, "state")  # in-process tests too
 
+def _git_bash_form(stdin):
+    """On Windows, a command for the guard is written the way Git Bash needs it: C:/Users/... (an unquoted C:\\Users\\...
+    is broken by the shell before any program sees it, so a test that writes it tests nothing). Test harness only."""
+    try: ev = json.loads(stdin)
+    except ValueError: return stdin
+    c = (ev.get("tool_input") or {}).get("command")
+    if isinstance(c, str):
+        ev["tool_input"]["command"] = re.sub(r"[A-Za-z]:\\[^\s'\";&|<>()]*", lambda m: m.group(0).replace("\\", "/"), c)
+        return json.dumps(ev)
+    return stdin
+
 def run(script, *a, cwd, stdin=None, env=None):
+    if os.name == "nt" and stdin and pathlib.Path(str(script)).name in ("read_guard.py", "pre_tool.py"): stdin = _git_bash_form(stdin)
     e = dict(os.environ, CRITIC_ROOT=str(cwd), TMPDIR=TMP, CURMUDGEON_FEED_DIR=os.path.join(TMP, "no-feed"), CURMUDGEON_STATE_DIR=os.path.join(TMP, "state")); e.update(env or {})  # a user's own feed or state never changes a test
     return subprocess.run([sys.executable, str(script), *a], cwd=cwd, capture_output=True, text=True, input=stdin, env=e, timeout=300, encoding="utf-8")
 

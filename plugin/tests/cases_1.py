@@ -62,7 +62,7 @@ def _(d):
     run(L, "restore", "save", "api.js", cwd=d)
     assert next((d / ".critic/restore").rglob("api.js")).read_text(encoding="utf-8") == T(src)
     assert (d / ".critic/restore/.gitignore").read_text(encoding="utf-8").strip().endswith("*")
-    assert oct((d / ".critic/restore").stat().st_mode & 0o777) == "0o700"
+    if os.name != "nt": assert oct((d / ".critic/restore").stat().st_mode & 0o777) == "0o700"  # Windows has no POSIX modes; there the folder's ACL decides (03 §5.57 item 20)
     write(d, "api.js", '// test key @TEST@\nconst a = 2;\n'); run(L, "restore", "apply", cwd=d)
     assert (d / "api.js").read_text(encoding="utf-8") == T(src)
 
