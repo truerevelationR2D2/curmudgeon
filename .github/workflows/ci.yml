@@ -61,6 +61,19 @@ jobs:
           grep -E '^FAIL' tests.out | head -30 | cut -c1-900 | sed 's/^/::warning title=script test on Windows::/'
           tail -n 1 tests.out | sed 's/^/::notice title=script tests on Windows::/'
           exit $status
+      - name: How a hook finds Python on Windows (03 §5.57 item 21; measured, not yet a check)
+        # Claude Code runs a hook's command in Git Bash, or in PowerShell when Git Bash isn't installed. This tries each
+        # Python spelling in each shell, the way a hook would start it, and reports which ones run.
+        continue-on-error: true
+        shell: bash
+        run: |
+          printf 'import sys; print("ok", sys.version_info[:2])\n' > probe.py
+          for py in python3 "py -3" python; do
+            out=$(bash -c "$py probe.py" 2>&1 | tr -d '\r' | head -n1); echo "::notice title=Git Bash, $py::${out:-no output}"
+            out=$(powershell.exe -NoProfile -Command "$py probe.py" 2>&1 | tr -d '\r' | head -n1); echo "::notice title=PowerShell 5.1, $py::${out:-no output}"
+            out=$(pwsh -NoProfile -Command "$py probe.py" 2>&1 | tr -d '\r' | head -n1); echo "::notice title=PowerShell 7, $py::${out:-no output}"
+          done
+          out=$(powershell.exe -NoProfile -Command 'python3 probe.py || python probe.py' 2>&1 | tr -d '\r' | head -n1); echo "::notice title=PowerShell 5.1, python3 || python::${out:-no output}"
       - name: Windows checks
         shell: bash
         run: |
@@ -106,8 +119,8 @@ jobs:
       - name: Script tests, golden and replays in WSL2 (on WSL's own file system, not /mnt/d)
         shell: wsl-bash {0}
         run: |
-          set -e
-          cp -r "$(wslpath "$GITHUB_WORKSPACE")" ~/repo && cd ~/repo
+          set -eo pipefail
+          cp -r "$PWD" ~/repo && cd ~/repo  # the step starts in the checkout (under /mnt); Windows variables don't reach WSL unless WSLENV lists them
           python3 plugin/tests/run_tests.py 2>&1 | tee tests.out || { grep -E '^FAIL' tests.out | head -30 | cut -c1-900; exit 1; }
           python3 eval/golden.py && python3 eval/replay.py
   validate:

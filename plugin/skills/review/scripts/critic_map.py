@@ -24,7 +24,7 @@ DEF = re.compile(r"^\s*(?:export\s+)?(?:async\s+)?(?:function\*?\s+([A-Za-z_$][\
 
 def git(*a):
     log_run(ROOT, "command", "git " + " ".join(a))
-    try: return safegit.run(["-c", "core.quotepath=off", *a], cwd=ROOT, capture_output=True, text=True, timeout=20, encoding="utf-8").stdout
+    try: return safegit.run(["-c", "core.quotepath=off", *a], cwd=ROOT, capture_output=True, text=True, timeout=20, encoding="utf-8", errors="replace").stdout
     except Exception: return ""
 
 READ_CAP = 20_000  # characters read from one file for the sensitivity check; nothing is ever read whole

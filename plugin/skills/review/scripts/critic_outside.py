@@ -35,7 +35,7 @@ def git_rc(*a):
     """(exit code, stdout unstripped). Logged like every outside command."""
     log_run(ROOT, "command", "git " + " ".join(a))
     try:
-        r = safegit.run([*a], cwd=ROOT, capture_output=True, text=True, timeout=20, encoding="utf-8")
+        r = safegit.run([*a], cwd=ROOT, capture_output=True, text=True, timeout=20, encoding="utf-8", errors="replace")
         return r.returncode, r.stdout
     except (OSError, subprocess.TimeoutExpired): return 1, ""
 

@@ -10,6 +10,11 @@ Every release of Curmudgeon, newest first. The repository's history starts at 4.
 - **Line endings.** A `.gitattributes` checks text out with LF on every platform, so a Windows checkout has the bytes the hash and fixture tests compare.
 - **The reviewers' guard through a link.** On macOS, `/var` is `/private/var`, and an honest heredoc writing to the agent's own notes through the unresolved path was refused, because the guard removed only the resolved spelling of the agent's folder (the macOS CI job's one failure). Every spelling is now removed. Reads of the project's records stay refused either way.
 - **PowerShell and Monitor.** On Windows without Git Bash, Claude Code turns the PowerShell tool on by itself, and its docs say hooks that inspect shell commands should match `Bash|PowerShell`. The reviewers' tool lists don't include PowerShell. As a second line of defence, the guard now also watches PowerShell and Monitor and refuses them for reviewers and verifiers, since it reads bash only.
+- **Blind review of these fixes** (two reviewers; their findings are fixed with failing-first tests):
+  - The guard now treats `..` in code that names the agent's own folder, in any spelling, as a climb, and removes that folder's path only up to a boundary. Stripping the link spelling had let code start there and climb to the review records. A version of the climb from the resolved spelling was older than this change. The agent `r1` no longer covers `scratch/r10`.
+  - `utf8io` reconfigures stdin too. With Python's default at cp1252, a hook reading Claude Code's input for a project under `Ásgeir` failed to decode and let the call through.
+  - Output from outside programs (project checks, git, PowerShell's folder dialog) is decoded as UTF-8 with `errors="replace"`, so a tool writing in its own code page can't stop the run. File reads stay strict, because the scanners rely on that.
+  - The WSL2 job copies the checkout from `$PWD` and runs with `pipefail`.
 - **WSL2 in CI.** A job runs the script tests, golden and replays in Ubuntu 24.04 on WSL2 (`Vampire/setup-wsl` v7.2.0, pinned by commit). It isn't a required check until it has passed five runs in a row.
 
 ## Unreleased: Qodo on #25

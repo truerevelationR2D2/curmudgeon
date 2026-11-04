@@ -41,7 +41,7 @@ def candidates(root, stamps=()):
     sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent / "skills" / "review" / "scripts"))
     try:
         import safegit
-        r = safegit.run(["ls-files", "-z", "-co", "--exclude-standard"], cwd=root, capture_output=True, text=True, timeout=10, encoding="utf-8")
+        r = safegit.run(["ls-files", "-z", "-co", "--exclude-standard"], cwd=root, capture_output=True, text=True, timeout=10, encoding="utf-8", errors="replace")
         if r.returncode == 0:
             out, seen = [], {}
             for rel in r.stdout.split("\0"):

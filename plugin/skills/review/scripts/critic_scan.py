@@ -339,7 +339,7 @@ def static(src, root, excludes):
         try:
             log_run(SCAN_ROOT, "script", f"rule_runner.py ({len(project)} project rule(s), 20 s limit)")
             r = subprocess.run([sys.executable, "-I", str(pathlib.Path(__file__).resolve().parent / "rule_runner.py")], input=json.dumps({"rules": project, "files": list({**TEXTS, **CONFIG_TEXTS}.items()), "config": list(CONFIG_TEXTS)}),
-                               capture_output=True, text=True, timeout=20, encoding="utf-8")
+                               capture_output=True, text=True, timeout=20, encoding="utf-8", errors="replace")
             if r.returncode != 0: f("WARN", "rule-file-failed", "structure", ".critic/rules", f"the project's rule files could not run (exit {r.returncode}); their results are missing")
             for row in json.loads(r.stdout or "[]"): f(*row)
         except subprocess.TimeoutExpired: f("WARN", "rule-file-timeout", "structure", ".critic/rules", "the project's rule files took over 20 s and were stopped (a pattern may be too slow); their results are missing")
@@ -446,7 +446,7 @@ def project_checks(root, timeout=600):
         try:
             # commands written by the project owner in rules.md; run in their own process group so a timeout kills all of it
             log_run(root, "command", f"project check {name}: {cmd}")
-            pr = subprocess.Popen(cmd, shell=True, cwd=root, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, start_new_session=True, encoding="utf-8")
+            pr = subprocess.Popen(cmd, shell=True, cwd=root, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, start_new_session=True, encoding="utf-8", errors="replace")
             try: outp, _ = pr.communicate(timeout=timeout)
             except subprocess.TimeoutExpired:
                 kill_tree(pr); pr.communicate(); raise
@@ -461,7 +461,7 @@ def find_axe(arg):
     cands = [arg] if arg else []
     cands += [d / "node_modules/axe-core/axe.min.js" for d in [pathlib.Path.cwd(), *pathlib.Path.cwd().parents]]
     log_run(SCAN_ROOT, "command", "npm root -g (to find axe-core)")
-    try: cands.append(pathlib.Path(subprocess.run(["npm", "root", "-g"], capture_output=True, text=True, timeout=20, encoding="utf-8").stdout.strip()) / "axe-core/axe.min.js")
+    try: cands.append(pathlib.Path(subprocess.run(["npm", "root", "-g"], capture_output=True, text=True, timeout=20, encoding="utf-8", errors="replace").stdout.strip()) / "axe-core/axe.min.js")
     except Exception: pass
     return next((pathlib.Path(c) for c in cands if c and pathlib.Path(c).exists()), None)
 

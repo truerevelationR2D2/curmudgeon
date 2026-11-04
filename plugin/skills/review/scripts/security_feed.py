@@ -185,12 +185,12 @@ def pick_folder():
         return None, "no folder window can open here (no one at the screen: CI or a remote session)"
     try:
         if sysname == "Darwin" and shutil.which("osascript"):
-            r = subprocess.run(["osascript", "-e", f'POSIX path of (choose folder with prompt "{title}")'], capture_output=True, text=True, timeout=600, encoding="utf-8")
+            r = subprocess.run(["osascript", "-e", f'POSIX path of (choose folder with prompt "{title}")'], capture_output=True, text=True, timeout=600, encoding="utf-8", errors="replace")
         elif sysname == "Windows" and shutil.which("powershell"):
-            r = subprocess.run(["powershell", "-NoProfile", "-STA", "-Command", windows_dialog_script(title)], capture_output=True, text=True, timeout=600, encoding="utf-8")
+            r = subprocess.run(["powershell", "-NoProfile", "-STA", "-Command", windows_dialog_script(title)], capture_output=True, text=True, timeout=600, encoding="utf-8", errors="replace")
         elif sysname == "Linux" and (os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY")) and (shutil.which("zenity") or shutil.which("kdialog")):
             cmd = ["zenity", "--file-selection", "--directory", f"--title={title}"] if shutil.which("zenity") else ["kdialog", "--getexistingdirectory", os.path.expanduser("~"), "--title", title]
-            r = subprocess.run(cmd, capture_output=True, text=True, timeout=600, encoding="utf-8")
+            r = subprocess.run(cmd, capture_output=True, text=True, timeout=600, encoding="utf-8", errors="replace")
         else: return None, "no folder window can open here (no display, or no dialog tool already installed)"
     except (OSError, subprocess.TimeoutExpired) as e: return None, f"the folder window failed ({type(e).__name__})"
     path = r.stdout.strip().splitlines()[-1].strip() if r.stdout.strip() else ""

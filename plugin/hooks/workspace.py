@@ -133,7 +133,7 @@ def _link_target(src, root):
     return str(real)  # outside the project: its real target (a relative one would dangle from the copy's depth)
 
 def _git(root, *a, timeout=60):
-    try: return safegit.run([*a], cwd=root, capture_output=True, text=True, timeout=timeout, encoding="utf-8")
+    try: return safegit.run([*a], cwd=root, capture_output=True, text=True, timeout=timeout, encoding="utf-8", errors="replace")
     except (OSError, subprocess.SubprocessError): return None
 
 def _git_files(root):
@@ -185,7 +185,7 @@ def _own_repo(root, payload):
                     if wt and not wt.returncode and wt.stdout.strip():
                         env = dict(os.environ, GIT_AUTHOR_NAME="reviewed code", GIT_AUTHOR_EMAIL="reviewer@example.invalid", GIT_COMMITTER_NAME="reviewed code",
                                    GIT_COMMITTER_EMAIL="reviewer@example.invalid", GIT_AUTHOR_DATE="2000-01-01T00:00:00Z", GIT_COMMITTER_DATE="2000-01-01T00:00:00Z")
-                        c = safegit.run(["commit-tree", wt.stdout.strip(), "-m", "base"], cwd=payload, capture_output=True, text=True, timeout=60, env=env, encoding="utf-8")
+                        c = safegit.run(["commit-tree", wt.stdout.strip(), "-m", "base"], cwd=payload, capture_output=True, text=True, timeout=60, env=env, encoding="utf-8", errors="replace")
                         if not c.returncode and c.stdout.strip():
                             for cmd in (["update-ref", "refs/heads/base", c.stdout.strip()], ["symbolic-ref", "HEAD", "refs/heads/base"], ["reset", "-q"]):  # reset: index = the base commit; the files on disk are the project's working tree
                                 safegit.run(["-c", "core.logAllRefUpdates=false", *cmd], cwd=payload, capture_output=True, timeout=120, env=env)

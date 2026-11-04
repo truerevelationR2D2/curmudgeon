@@ -1472,7 +1472,7 @@ def _(d):
         import subprocess as sp; orig = sp.run; sp.run = lambda a, **k: runs.append(a) or sp.CompletedProcess(a, 0)
         try: cf.kill_tree(P())
         finally: sp.run = orig
-        assert (runs and runs[0][:4] == ["taskkill", "/F", "/T", "/PID"]) or killed, (runs, killed)
+        assert runs and runs[0][:4] == ["taskkill", "/F", "/T", "/PID"], (runs, killed)  # the tree, not only the process (review of this card)
     finally:
         if old: os.killpg = old
     for f in ("scan_mutation.py", "critic_scan.py"):
@@ -1491,7 +1491,15 @@ def _(d):
     p = d / "link" / "proj"; write(p, "src/app.js", "x\n"); write(p, ".critic/reviews/review-B.json", '[{"title": "SECRET-B"}]'); write(p, ".critic/ledger.json", "{}")
     run(H / "scratch_dir.py", cwd=p, stdin=json.dumps({"agent_type": "curmudgeon:curmudgeon-reviewer", "agent_id": "r1", "cwd": str(p)}))
     ws = json.loads((p / ".critic/scratch/r1/workspace.json").read_text(encoding="utf-8"))["payload"]
-    for wsp in {ws, os.path.realpath(ws)}:
+    lp, rp = f"{p}/.critic/scratch/r1", f"{os.path.realpath(p)}/.critic/scratch/r1"  # the agent's folder through the link, and resolved
+    write(p, ".critic/scratch/r10/notes/x", "OTHER")
+    for own in (lp, rp):  # a climb out of the agent's own folder, in any spelling, is refused (guard review of this card)
+        for c in (f"python3 -c \"import os;print(open(os.path.join('{own}','..','..','reviews','review-B.json')).read())\"",
+                  f"python3 -c \"print(open('{own}/..' + '/../reviews/review-B.json').read())\"",
+                  f"python3 -c \"import pathlib; p = pathlib.Path('{own}'); print((p / '..' / '..' / 'reviews' / 'review-B.json').read_text())\"",
+                  f"python3 -c \"print(open('{own}0/notes/x').read())\""):  # scratch/r10, another agent's folder
+            assert _guard(p, p, "Bash", command=f"cd {ws} && {c}"), c
+    for wsp in {ws, os.path.realpath(ws)}:  # the copy as recorded (the SubagentStart message gives that spelling)
         for c in (f"cd {wsp} && python3 - <<'EOF' > {p}/.critic/scratch/r1/notes/out.txt\nprint(1)\nEOF",
                   f"cd {wsp} && python3 - <<'EOF' > {os.path.realpath(p)}/.critic/scratch/r1/notes/out.txt\nprint(1)\nEOF", f"cd {wsp} && cat src/app.js"):
             assert not _guard(p, p, "Bash", command=c), c
@@ -1505,6 +1513,26 @@ def _(d):
     for tool in ("PowerShell", "Monitor"):
         assert _guard(p, p, tool, command=f"cd {ws}; Get-Content ../../../reviews/review-B.json"), tool
         assert _guard(p, p, tool, role="verifier", aid="v1", command="Get-ChildItem"), tool
+    lead = run(H / "read_guard.py", cwd=p, stdin=json.dumps({"tool_name": "PowerShell", "tool_input": {"command": "Get-ChildItem"}, "cwd": str(p)}))
+    assert "deny" not in lead.stdout, "the lead's own PowerShell commands are left alone"
     cfg = json.loads((H / "hooks.json").read_text(encoding="utf-8"))["hooks"]["PreToolUse"]
     m = next(h["matcher"] for h in cfg if any("pre_tool" in x["command"] for x in h["hooks"])).split("|")
     assert "PowerShell" in m and "Monitor" in m, m
+
+@test("platforms: a hook reads Claude Code's input as UTF-8 even where Python's default is cp1252, so a project under a folder named Zoë or Ásgeir is still guarded; output from outside programs is decoded without crashing")
+def _(d):
+    for name in ("Zoë", "Ásgeir"):
+        p = d / name / "proj"; write(p, "src/app.js", "x\n"); write(p, ".critic/reviews/review-B.json", '[{"title": "SECRET-B"}]')
+        run(H / "scratch_dir.py", cwd=p, stdin=json.dumps({"agent_type": "curmudgeon:curmudgeon-reviewer", "agent_id": "r1", "cwd": str(p)}, ensure_ascii=False))
+        ws = json.loads((p / ".critic/scratch/r1/workspace.json").read_text(encoding="utf-8"))["payload"]
+        ev = json.dumps({"tool_name": "Read", "tool_input": {"file_path": str(p / ".critic/reviews/review-B.json")}, "cwd": str(p), "agent_type": "curmudgeon:curmudgeon-reviewer", "agent_id": "r1"}, ensure_ascii=False)
+        r = run(H / "read_guard.py", cwd=p, stdin=ev, env={"PYTHONIOENCODING": "cp1252", "PYTHONUTF8": "0"})
+        assert "deny" in r.stdout, (name, r.stdout, r.stderr[-400:])
+    import ast as _ast
+    R = HERE.parent; miss = []
+    for root in (R / "plugin/hooks", R / "plugin/skills/review/scripts"):
+        for f in sorted(root.glob("*.py")):
+            for n in _ast.walk(_ast.parse(f.read_text(encoding="utf-8"))):
+                if isinstance(n, _ast.Call) and getattr(n.func, "attr", getattr(n.func, "id", "")) in ("run", "check_output", "Popen") \
+                   and any(k.arg == "encoding" for k in n.keywords) and not any(k.arg == "errors" for k in n.keywords): miss.append(f"{f.name}:{n.lineno}")
+    assert not miss, f"subprocess output decoded strictly (a Windows tool writes its own code page): {miss[:6]}"

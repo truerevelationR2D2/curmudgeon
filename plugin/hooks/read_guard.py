@@ -435,7 +435,9 @@ def bash_problem(cmd, rec, root, critic, role, me):
                 if not TRAVERSE.search(c): return False
                 return bool(TOP_START.search(c) or HOME_START.search(c) or starts_from(c))  # from the root or home, or an absolute wildcard ('/**/x')
             def reaches(c):  # names .critic or ~/.curmudgeon and can leave the copy: the project's own path or a "..", never a .critic folder a probe makes inside the copy (batch 5 review)
-                for own_ in own_spellings: c = c.replace(own_, "")
+                owns = [re.compile(re.escape(o_) + r"(?=[/\\'\"\s,)]|$)") for o_ in own_spellings]  # the folder itself, never scratch/r10 when it is r1 (guard review)
+                if any(o_.search(c) for o_ in owns) and ".." in c: return True  # a climb out of the agent's own folder, joined in pieces or not (guard review)
+                for o_ in owns: c = o_.sub("", c)
                 if re.search(r"(?i)\.curmudgeon\b", c): return True
                 if re.search(r"\.\.[/\\]+\.\.|\bdirname\s*\(\s*(?:os\.path\.)?dirname|\.parent\.parent|parents\[\s*[1-9]|os\.walk\s*\(\s*['\"]/['\"]", c): return True  # two levels up from the copy is the scratch folder, three is .critic/ (round 3 review)
                 if from_top(c): return True

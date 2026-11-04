@@ -78,7 +78,7 @@ def main():
     changed = [k for k in stamps if (root / k).exists() and (root / k).stat().st_mtime > since]
     log_run(root, "command", "background stop check: git diff --name-only --relative HEAD and git ls-files --others")
     def git(*args):
-        try: r = safegit.run([*args], cwd=root, capture_output=True, text=True, timeout=10, encoding="utf-8")
+        try: r = safegit.run([*args], cwd=root, capture_output=True, text=True, timeout=10, encoding="utf-8", errors="replace")
         except (OSError, subprocess.TimeoutExpired): return None
         return r.stdout.split("\0") if r.returncode == 0 else None
     # --relative: in a project that is a subfolder of a repository, paths come relative to the project (audit V47)

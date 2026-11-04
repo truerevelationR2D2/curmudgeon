@@ -502,7 +502,7 @@ def revision_stamp(final):
     """What these findings were reviewed against (SC-38): the git commit, whether the working tree had uncommitted
     changes, and a sha256 of the cited files' contents."""
     def git(*a):
-        try: return safegit.run([*a], cwd=ROOT, capture_output=True, text=True, timeout=10, encoding="utf-8").stdout.strip()
+        try: return safegit.run([*a], cwd=ROOT, capture_output=True, text=True, timeout=10, encoding="utf-8", errors="replace").stdout.strip()
         except (OSError, subprocess.TimeoutExpired): return ""
     h = hashlib.sha256()
     for f in sorted({str(x.get("file") or "") for x in final}):

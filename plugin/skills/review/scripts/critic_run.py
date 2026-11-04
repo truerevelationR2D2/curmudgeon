@@ -34,7 +34,7 @@ from critic_findings import VERIFY_BATCH  # packets per verifier agent (03 §5.3
 FORCE = False  # next --apply-now: apply with the verdicts there are (a finding with no verdict stays at lower confidence, except single-vote Mediums and outside-only findings, which are left out)
 
 def sh(script, *a):
-    r = subprocess.run([sys.executable, str(HERE / script), *a], cwd=ROOT, capture_output=True, text=True, encoding="utf-8")
+    r = subprocess.run([sys.executable, str(HERE / script), *a], cwd=ROOT, capture_output=True, text=True, encoding="utf-8", errors="replace")
     sys.stdout.write(r.stdout); sys.stderr.write(r.stderr)
     if r.returncode not in (0, 3): sys.exit(f"critic_run: {script} {' '.join(a)} failed (exit {r.returncode}); fix that, then run next again")
     return r
@@ -219,7 +219,7 @@ def main(a):
             if cmj.get("deleted") and not cmj.get("files"): (D / "scan-only.txt").write_text("", encoding="utf-8"); only = " --only .critic/scan-only.txt"  # a deletion nothing calls: scan nothing, never the whole project (Qodo on #18)
             else: (D / "scan-only.txt").unlink(missing_ok=True)  # never an earlier run's list
         if security:
-            r = subprocess.run([sys.executable, str(HERE / "security_feed.py"), "status"], capture_output=True, text=True, encoding="utf-8")
+            r = subprocess.run([sys.executable, str(HERE / "security_feed.py"), "status"], capture_output=True, text=True, encoding="utf-8", errors="replace")
             print(r.stdout.strip().splitlines()[0] if r.stdout.strip() else "security feed: status unreadable")
             print(f"  feed step (03 §5.38, §5.40), only if it says never switched on and the user is present; never ask unattended (it stays off): "
                   f"1. ask once, default off: \"Build a local security database (OSV and CISA's exploited list) so dependency checks send nothing about your project?\" No: python3 {HERE / 'security_feed.py'} set --cadence off. "

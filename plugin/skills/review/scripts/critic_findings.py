@@ -623,7 +623,7 @@ def approved_state(root, rel):
     return (read_owner_state(root, "approvals").get("files") or {}).get(rel) == _sha(p)
 
 def is_git_work_tree(root):
-    try: return safegit.run(["rev-parse", "--is-inside-work-tree"], cwd=root, capture_output=True, text=True, timeout=5, encoding="utf-8").stdout.strip() == "true"
+    try: return safegit.run(["rev-parse", "--is-inside-work-tree"], cwd=root, capture_output=True, text=True, timeout=5, encoding="utf-8", errors="replace").stdout.strip() == "true"
     except (OSError, subprocess.SubprocessError): return False
 
 def state_trusted(root, rel):
@@ -641,9 +641,9 @@ def owner_untracked(root, rel):
     r = pathlib.Path(root); c = r / ".critic"
     if c.is_symlink() or not c.is_dir() or (c / ".git").exists(): return False
     try:
-        top = safegit.run(["rev-parse", "--show-toplevel"], cwd=r, capture_output=True, text=True, timeout=5, encoding="utf-8")
+        top = safegit.run(["rev-parse", "--show-toplevel"], cwd=r, capture_output=True, text=True, timeout=5, encoding="utf-8", errors="replace")
         if top.returncode or os.path.normcase(os.path.realpath(top.stdout.strip())) != os.path.normcase(os.path.realpath(r)): return False
-        ls = safegit.run(["ls-files", "-z", "-s", "--", ":(icase).critic"], cwd=r, capture_output=True, text=True, timeout=10, encoding="utf-8")
+        ls = safegit.run(["ls-files", "-z", "-s", "--", ":(icase).critic"], cwd=r, capture_output=True, text=True, timeout=10, encoding="utf-8", errors="replace")
         if ls.returncode: return False
     except (OSError, subprocess.SubprocessError): return False
     want = f".critic/{rel}".casefold()
