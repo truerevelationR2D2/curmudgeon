@@ -2,6 +2,12 @@
 
 Every release of Curmudgeon, newest first. The repository's history starts at 4.2.1; earlier versions are summarised from the project's own build and review records. Numbers are the ones measured at the time; the README's Benchmarks section has the current ones and how they were measured.
 
+## Unreleased: Qodo on #24
+
+Four findings, plus the run-time root from #23 under the owner's ruling that a bypass found in the code is patched (03 §5.57 item 18). Each comes with a test that fails on the code before it (`plugin/tests/cases_8.py`, "Qodo on #22" tests (1) and (6)).
+- **Reviewers' guard:** inline code that lists folders from a path built out of character codes or escapes (`chr(47)`, `String.fromCharCode(47)`, `'\x2f'`, base64, hex) is refused. The guard checks this on the command's raw text, because its words lose their backslashes before they are split. A name that holds the root through an alias (`root = '/'; start = root; os.walk(start)`) is followed.
+- **Test lens:** a nested class's methods count as checks only when its base class names a framework that calls them: `do_GET` for a request handler, `test_a` for a `TestCase` handed to a runner, `get` for a view, `run` for a thread. Any other class's methods count only when the test names them, so an unused `get()` is no check. A method under `if False:` doesn't exist, so it doesn't count.
+
 ## Unreleased: Qodo on #23
 
 Five of six findings fixed, each with a test that fails on the code before it (`plugin/tests/cases_8.py`, "Qodo on #22" tests (1), (2), (5) and (6)).
@@ -10,7 +16,7 @@ Five of six findings fixed, each with a test that fails on the code before it (`
 - **Test lens:** a nested subclass's methods count only when a framework calls them (`do_GET`, `setUp`, `handle`, `__call__` and the like) or the test names them. An unused helper with an assert is not a check, and a handler defined under a class-level `if` or `try` is found.
 - **Live request cap:** in a review run, a scan whose shared ledger can't be read or locked sends nothing, as the browser driver already did.
 
-Not fixed, by ruling (03 §5.57 item 17): computing the root at run time (`os.walk(chr(47))`). The finding is correct; code that builds a path or the protected name as it runs is deliberate evasion, outside what the text guard covers, and it is documented as a known limit (PRIVACY.md). Claude Code's built-in sandbox, which the operating system enforces, is to be the real boundary where it runs; how to fit it to a review is on the backlog.
+Finding 1 (`os.walk(chr(47))`) was first left as a known limit (03 §5.57 item 17), then patched under item 18; see Qodo on #24.
 
 ## Unreleased: Qodo on #22
 

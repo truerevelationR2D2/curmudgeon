@@ -1298,7 +1298,10 @@ def _(d):
            "python3 -c \"import pathlib; n='.cri'+'tic'; [print(x.read_text()) for x in pathlib.Path('/').rglob('review-*.json') if n in str(x)]\"",
            "node -e \"const fs=require('fs'); const n='.cri'+'tic'; console.log(fs.readdirSync('/', {recursive: true}).filter(x => x.includes(n)))\"",
            "python3 -c \"import os; n='.cri'+'tic'; [print(r) for r, d, f in os.walk(os.getenv('HOME'))]\"", "python3 -c \"import os; [print(r) for r, d, f in os.walk(os.path.abspath('/'))]\"",
-           "python3 -c \"import pathlib; [print(x) for x in pathlib.Path.cwd().parents[-1].rglob('review-*.json')]\"", "python3 -c \"import pathlib; [print(x) for x in pathlib.Path(pathlib.Path.cwd().anchor).rglob('review-*.json')]\""]
+           "python3 -c \"import pathlib; [print(x) for x in pathlib.Path.cwd().parents[-1].rglob('review-*.json')]\"", "python3 -c \"import pathlib; [print(x) for x in pathlib.Path(pathlib.Path.cwd().anchor).rglob('review-*.json')]\"",
+           "python3 -c \"import os; n='.cri'+'tic'; [print(r) for r, d, f in os.walk(chr(47)) if n in r]\"",  # 03 §5.57 item 18: a bypass in the code is patched
+           "python3 -c \"import os; root='/'; start=root; [print(r) for r, d, f in os.walk(start)]\"",  # Qodo on #24: an alias of the root
+           "node -e \"const fs=require('fs'); console.log(fs.readdirSync(String.fromCharCode(47)))\"", "python3 -c \"import os; print(os.listdir('\\x2f'))\""]
     for c in bad: assert _guard(p, p, "Bash", command=f"cd {ws} && {c}"), c
     ok = ["python3 - <<'EOF'\nprint(6 / 3)\nEOF", "python3 -c \"print('/'.join(['a', 'b']), 'a/b'.split('/'))\"",
           "python3 - <<'EOF'\nimport os\nfor r, d, f in os.walk('src'):\n    [print(r + '/' + x) for x in f]\nEOF",
@@ -1367,6 +1370,13 @@ def _(d):
     assert not scan_tests._checks(_ast.parse(t4).body[0]), "a subclass method no framework calls and the test never names is not a check (Qodo on #23)"
     t5 = ("def test_server():\n    class H(BaseHTTPRequestHandler):\n        if True:\n            def do_GET(self):\n                assert self.path == '/x'\n    serve(H)\n")
     assert scan_tests._checks(_ast.parse(t5).body[0]), "a handler defined under a class-level if still counts (Qodo on #23)"
+    t6 = ("def test_server():\n    class H(BaseHTTPRequestHandler):\n        if False:\n            def do_GET(self):\n                assert self.path == '/x'\n    serve(H)\n")
+    assert not scan_tests._checks(_ast.parse(t6).body[0]), "a handler under if False doesn't exist (Qodo on #24)"
+    t7 = ("def test_runner():\n    class T(unittest.TestCase):\n        def test_a(self):\n            self.assertEqual(f(), 1)\n"
+          "    unittest.TextTestRunner().run(unittest.defaultTestLoader.loadTestsFromTestCase(T))\n")
+    assert scan_tests._checks(_ast.parse(t7).body[0]), "a nested TestCase's test_ methods run under the runner (Qodo on #24)"
+    t8 = ("def test_x():\n    class H(object):\n        def get(self):\n            assert False\n    H()\n")
+    assert not scan_tests._checks(_ast.parse(t8).body[0]), "a plain class's unused get() is not a check (Qodo on #24)"
 
 @test("Qodo on #22 (7): a check that stays degraded for the same file stops taking the retry slot after three tries")
 def _(d):
