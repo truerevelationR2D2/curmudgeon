@@ -4,11 +4,12 @@ ignores those modes, icacls (from the System32 folder Windows reports, never one
 #29) locks the folder in an order where no step leaves it looser than it was (Qodo on #29):
   1. inheritance off and only this user and SYSTEM granted on the folder;
   2. its contents reset to inherit that;
-  3. any other principal's explicit grant on the folder removed.
+  3. any other account's explicit grant on the folder removed, read by security id from icacls /save (SDDL), so no
+     translated name or code page can hide or misname one (Qodo on #29).
 A link or junction is refused, and icacls is told not to follow links (/L), so a planted link can't send the change to
 files elsewhere. make_private() returns False when the lock could not be applied; a caller about to write something
 sensitive refuses instead of writing it into an unlocked folder."""
-import os
+import os, re, tempfile
 
 def _system_dir():
     """The Windows System32 folder, as Windows reports it (GetSystemDirectoryW), never from SystemRoot or PATH, which a
@@ -37,22 +38,19 @@ def _sid(name):
         finally: ctypes.windll.kernel32.LocalFree(out)
     except (AttributeError, OSError, ImportError, ValueError): return None
 
-def _console_codepages():
-    """The code pages Windows tools print in when their output is redirected: the console's (OEM) first, then the
-    system's (ANSI). icacls writes names such as NT-AUTORIT\u00c4T\\SYSTEM in them, not in UTF-8 (Qodo on #29)."""
-    try:
-        import ctypes
-        k = ctypes.windll.kernel32
-        return [f"cp{k.GetOEMCP()}", f"cp{k.GetACP()}"]
-    except (AttributeError, OSError, ImportError): return []
+SDDL_ALIASES = {"SY": "S-1-5-18", "WD": "S-1-1-0", "AU": "S-1-5-11", "BU": "S-1-5-32-545", "BA": "S-1-5-32-544", "BG": "S-1-5-32-546",
+                "PU": "S-1-5-32-547", "IU": "S-1-5-4", "NU": "S-1-5-2", "AN": "S-1-5-7", "LS": "S-1-5-19", "NS": "S-1-5-20", "CO": "S-1-3-0",
+                "OW": "S-1-3-4", "AC": "S-1-15-2-1", "RD": "S-1-5-32-555", "RU": "S-1-5-32-554", "SU": "S-1-5-6", "PS": "S-1-5-10", "ED": "S-1-5-9"}
 
-def _decode(data):
-    """Tool output as text: UTF-8 when it is valid UTF-8, else the first Windows code page that decodes it."""
-    if isinstance(data, str): return data
-    for enc in ["utf-8"] + _console_codepages():
-        try: return data.decode(enc)
-        except (UnicodeDecodeError, LookupError): continue
-    return data.decode("utf-8", "replace")
+def _trustees(sddl):
+    """The security ids an SDDL access list grants or denies, aliases expanded (SY is SYSTEM). None for an alias this
+    table doesn't know, so the lock refuses rather than guesses."""
+    out = []
+    for t in re.findall(r"\((?:A|D|OA|OD);[^;]*;[^;]*;[^;]*;[^;]*;([^);]+)", sddl.split("S:", 1)[0]):
+        sid = t if t.startswith("S-") else SDDL_ALIASES.get(t)
+        if sid is None: return None
+        out.append(sid)
+    return out
 
 def _is_link(path):
     """A symbolic link or a Windows junction (a reparse point): never locked, since the change would land elsewhere."""
@@ -83,15 +81,23 @@ def make_private(path, windows=None):
     if any(os.scandir(p)):
         r = ok([os.path.join(p, "*"), "/reset", "/T", "/C", "/L", "/Q"])  # 2. the contents inherit the locked folder
         if not r or r.returncode != 0: return False
-    r = ok([p])  # 3. the folder's own grants, listed (raw bytes: decoded below in the code page icacls used)
-    if not r or r.returncode != 0: return False
     me = _sid(who)
-    for line in _decode(r.stdout or b"").splitlines():
-        line = line[len(p):] if line.startswith(p) else line
-        if ":(" not in line: continue
-        name = line.strip().split(":(", 1)[0].strip()
-        sid = _sid(name)
-        if sid == "S-1-5-18" or (me and sid == me) or name.casefold() == who.casefold(): continue  # SYSTEM by its id, and this user
-        rr = ok([p, "/remove:g", name, "/L", "/Q"])
+    if not me: return False
+    fd, save = tempfile.mkstemp(suffix=".acl"); os.close(fd)  # 3. the folder's own grants, as security ids (SDDL): no names, so no translation or code page (Qodo on #29)
+    try:
+        r = ok([p, "/save", save, "/Q"])
+        if not r or r.returncode != 0: return False
+        raw = open(save, "rb").read()
+    except OSError: return False
+    finally:
+        try: os.unlink(save)
+        except OSError: pass
+    text = raw.decode("utf-16") if raw[:2] in (b"\xff\xfe", b"\xfe\xff") or b"\x00" in raw[:8] else raw.decode("utf-8", "replace")
+    lines = [l for l in text.splitlines() if l.strip()]
+    sids = _trustees(lines[-1]) if lines else None
+    if sids is None: return False
+    for sid in dict.fromkeys(sids):
+        if sid in ("S-1-5-18", me): continue  # SYSTEM and this user, by id
+        rr = ok([p, "/remove:g", "*" + sid, "/L", "/Q"])
         if not rr or rr.returncode != 0: return False
     return True

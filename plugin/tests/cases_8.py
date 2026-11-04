@@ -1405,6 +1405,16 @@ def _(d):
 
 # ---- Native Windows and macOS (03 §5.57 item 20) ----
 
+def _icacls_fake(calls, sddl, rc=0):
+    """A stand-in for icacls: records each call and writes `sddl` (UTF-16, as icacls does) for /save."""
+    import subprocess as sp
+    def fake(a, **k):
+        calls.append(a)
+        if "/save" in a: pathlib.Path(a[a.index("/save") + 1]).write_text(f"x\r\n{sddl}\r\n", encoding="utf-16")
+        return sp.CompletedProcess(a, rc, b"", b"")
+    return fake
+
+
 def _enc_misses(paths):
     """Text I/O that names no encoding: read_text(), write_text(x), open(f) in text mode, subprocess with text=True.
     On Windows those use the ANSI code page (cp1252), not UTF-8 (research 3 Nov 2026)."""
@@ -1563,11 +1573,11 @@ def _(d):
 @test("platforms: a private folder (restore copies, scratch copies, the browser's key) is 0700 where POSIX modes exist and locked to the current user with icacls on Windows, through one helper")
 def _(d):
     import privacy, subprocess as sp
-    calls = []; orig = sp.run; sp.run = lambda a, **k: calls.append(a) or sp.CompletedProcess(a, 0, "", "")
+    calls = []; orig = sp.run; sp.run = _icacls_fake(calls, "D:PAI(A;OICI;FA;;;SY)")
     try:
-        old = dict(os.environ); os.environ["USERNAME"] = "ryan"; os.environ["USERDOMAIN"] = "BOX"; osd = privacy._system_dir; privacy._system_dir = lambda: "C:\\Windows\\System32"
+        old = dict(os.environ); os.environ["USERNAME"] = "ryan"; os.environ["USERDOMAIN"] = "BOX"; osd = privacy._system_dir; privacy._system_dir = lambda: "C:\\Windows\\System32"; osid = privacy._sid; privacy._sid = lambda n: "S-1-5-21-1"
         (d / "x").mkdir(); assert privacy.make_private(d / "x", windows=True)
-    finally: sp.run = orig; os.environ.clear(); os.environ.update(old); privacy._system_dir = osd
+    finally: sp.run = orig; os.environ.clear(); os.environ.update(old); privacy._system_dir = osd; privacy._sid = osid
     assert calls and calls[0][0].endswith("icacls.exe") and "/inheritance:r" in calls[0] and any("BOX\\ryan:(OI)(CI)F" == a for a in calls[0]), calls  # the grant comes first (Qodo on #29)
     (d / "y").mkdir(); privacy.make_private(d / "y", windows=False)
     if os.name != "nt": assert oct((d / "y").stat().st_mode & 0o777) == "0o700"  # POSIX modes exist only off Windows
@@ -1593,15 +1603,15 @@ def _(d):
 @test("Qodo on #28: icacls runs from System32, never a project's icacls.exe; existing grants are reset first; a folder that can't be locked stops the copy, the browser key and restore copies; an existing key folder is locked too; Windows separators aren't escapes")
 def _(d):
     import privacy, subprocess as sp, browse
-    calls = []; rc = [0]; orig = sp.run; sp.run = lambda a, **k: calls.append(a) or sp.CompletedProcess(a, rc[0], "", "")
+    calls = []; rc = [0]; orig = sp.run; fk = _icacls_fake(calls, "D:PAI(A;OICI;FA;;;SY)"); sp.run = lambda a, **k: fk(a) if rc[0] == 0 else (calls.append(a) or sp.CompletedProcess(a, rc[0], b"", b""))
     old = dict(os.environ)
     try:
-        os.environ.update({"USERNAME": "ryan", "USERDOMAIN": "BOX"}); osd_ = privacy._system_dir; privacy._system_dir = lambda: "C:\\Windows\\System32"
+        os.environ.update({"USERNAME": "ryan", "USERDOMAIN": "BOX"}); osd_ = privacy._system_dir; privacy._system_dir = lambda: "C:\\Windows\\System32"; osid_ = privacy._sid; privacy._sid = lambda n: "S-1-5-21-1"
         (d / "x").mkdir(); assert privacy.make_private(d / "x", windows=True)
         exe = calls[0][0]; assert exe != "icacls" and exe.endswith("icacls.exe") and exe.startswith("C:\\Windows\\System32"), calls
         assert any("BOX\\ryan:(OI)(CI)F" in c for c in calls[0]) and "/inheritance:r" in calls[0], calls  # existing grants: see Qodo on #29
         rc[0] = 1; assert not privacy.make_private(d / "x", windows=True), "a failed icacls is a failure"
-    finally: sp.run = orig; os.environ.clear(); os.environ.update(old); privacy._system_dir = osd_
+    finally: sp.run = orig; os.environ.clear(); os.environ.update(old); privacy._system_dir = osd_; privacy._sid = osid_
     och = os.chmod
     try:
         os.chmod = lambda *a, **k: (_ for _ in ()).throw(PermissionError("no"))
@@ -1622,60 +1632,21 @@ def _(d):
     assert not _guard(p, p, "Bash", command=f"cd {ws} && python3 -c \"open(r'{own}\\\\notes\\\\out.txt', 'w').write('x')\""), "a Windows separator is not an escape"
     assert _guard(p, p, "Bash", command=f"cd {ws} && python3 -c \"print(open('{own}/notes/\\\\u002e\\\\u002e/\\\\056\\\\056/x').read())\""), "unicode and octal escapes"
 
-@test("Qodo on #29: the Windows lock never follows a link, grants the user before it resets anything, and asks Windows for System32 instead of trusting SystemRoot")
+@test("Qodo on #29: the Windows lock never follows a link, grants the user before anything else, asks Windows for System32, and removes every other account by security id read from icacls /save (no names: a foreign SYSTEM, a translated SYSTEM, a path Windows prints as ?), refusing an alias it doesn't know")
 def _(d):
     import privacy, subprocess as sp
-    calls = []; out = {"listing": ""}
-    def fake(a, **k):
-        calls.append(a)
-        return sp.CompletedProcess(a, 0, out["listing"] if len(a) == 2 else "", "")
-    orig, osd = sp.run, getattr(privacy, "_system_dir", None); sp.run = fake; old = dict(os.environ)
+    orig, osd, osid = sp.run, privacy._system_dir, privacy._sid; old = dict(os.environ)
     try:
         os.environ.update({"USERNAME": "ryan", "USERDOMAIN": "BOX", "SystemRoot": "."})
-        privacy._system_dir = lambda: "C:\\Windows\\System32"
-        (d / "x").mkdir(); out["listing"] = f"{d / 'x'} BOX\\ryan:(OI)(CI)(F)\n      NT AUTHORITY\\SYSTEM:(OI)(CI)(F)\n      Everyone:(OI)(CI)(R)\nSuccessfully processed 1 files"
-        assert privacy.make_private(d / "x", windows=True)
+        privacy._system_dir = lambda: "C:\\Windows\\System32"; privacy._sid = lambda n: "S-1-5-21-1-2-3-1001" if n == "BOX\\ryan" else None
+        calls = []; sp.run = _icacls_fake(calls, "D:PAI(A;OICI;FA;;;S-1-5-21-1-2-3-1001)(A;OICI;FA;;;SY)(A;OICI;0x1200a9;;;WD)(A;OICI;FA;;;S-1-5-21-9-9-9-500)")
+        x = d / "\u00c1sgeir"; x.mkdir(); assert privacy.make_private(x, windows=True)
         assert all(c[0].startswith("C:\\Windows\\System32") for c in calls), ("System32 from Windows, not SystemRoot", calls)
-        assert "/grant:r" in calls[0] and "/inheritance:r" in calls[0], ("the user is granted before anything is reset", calls)
-        assert not any("/reset" in c and c[1] == str(d / "x") for c in calls), ("the folder itself is never reset to inherited", calls)
-        assert all("/L" in c for c in calls if len(c) > 2), ("icacls never follows a link", calls)
-        assert any("/remove:g" in c and "Everyone" in c for c in calls), ("another principal's explicit grant is removed", calls)
+        assert "/grant:r" in calls[0] and "/inheritance:r" in calls[0], ("the user is granted before anything else", calls)
+        assert not any("/reset" in c and c[1] == str(x) for c in calls) and all("/L" in c for c in calls if "/save" not in c), calls
+        assert [c[c.index("/remove:g") + 1] for c in calls if "/remove:g" in c] == ["*S-1-1-0", "*S-1-5-21-9-9-9-500"], calls
+        calls.clear(); sp.run = _icacls_fake(calls, "D:PAI(A;OICI;FA;;;SY)(A;OICI;FA;;;ZZ)")
+        assert not privacy.make_private(x, windows=True), "an alias the table doesn't know refuses the lock"
         calls.clear(); (d / "t").mkdir(); os.symlink(d / "t", d / "link")
         assert not privacy.make_private(d / "link", windows=True) and not calls, "a link is refused before anything runs"
-    finally: sp.run = orig; os.environ.clear(); os.environ.update(old); privacy._system_dir = osd if osd else privacy.__dict__.get("_system_dir")
-
-@test("Qodo on #29 (2): only the real SYSTEM account and the user keep access, by security id, never an account that is merely named SYSTEM")
-def _(d):
-    import privacy, subprocess as sp
-    calls = []
-    listing = (f"{d / 'x'} BOX\\ryan:(OI)(CI)(F)\n      NT AUTHORITY\\SYSTEM:(OI)(CI)(F)\n      EVILDOM\\SYSTEM:(OI)(CI)(R)\n"
-               "      AUTORITE NT\\Syst\u00e8me:(OI)(CI)(F)\nSuccessfully processed 1 files")
-    def fake(a, **k): calls.append(a); return sp.CompletedProcess(a, 0, listing if len(a) == 2 else "", "")
-    sids = {"BOX\\ryan": "S-1-5-21-1-2-3-1001", "NT AUTHORITY\\SYSTEM": "S-1-5-18", "AUTORITE NT\\Syst\u00e8me": "S-1-5-18", "EVILDOM\\SYSTEM": "S-1-5-21-9-9-9-500"}
-    orig, osd, osid = sp.run, privacy._system_dir, getattr(privacy, "_sid", None); old = dict(os.environ)
-    try:
-        sp.run = fake; privacy._system_dir = lambda: "C:\\Windows\\System32"; privacy._sid = lambda n: sids.get(n)
-        os.environ.update({"USERNAME": "ryan", "USERDOMAIN": "BOX"}); (d / "x").mkdir()
-        assert privacy.make_private(d / "x", windows=True)
-    finally:
-        sp.run = orig; privacy._system_dir = osd; os.environ.clear(); os.environ.update(old)
-        if osid: privacy._sid = osid
-    removed = [c[c.index("/remove:g") + 1] for c in calls if "/remove:g" in c]
-    assert removed == ["EVILDOM\\SYSTEM"], removed
-
-@test("Qodo on #29 (3): icacls output in a Windows code page (NT-AUTORIT\u00c4T\\SYSTEM in cp850) is decoded as that code page, so the localized SYSTEM keeps its access and the lock doesn't fail")
-def _(d):
-    import privacy, subprocess as sp
-    calls = []
-    listing = (f"{d / 'x'} BOX\\ryan:(OI)(CI)(F)\r\n      NT-AUTORIT\u00c4T\\SYSTEM:(OI)(CI)(F)\r\n      Jeder:(OI)(CI)(R)\r\n1 Dateien erfolgreich verarbeitet").encode("cp850")
-    def fake(a, **k): calls.append(a); return sp.CompletedProcess(a, 0, listing if len(a) == 2 else b"", b"")
-    sids = {"BOX\\ryan": "S-1-5-21-1-2-3-1001", "NT-AUTORIT\u00c4T\\SYSTEM": "S-1-5-18", "Jeder": "S-1-1-0"}
-    orig, osd, osid, ocp = sp.run, privacy._system_dir, privacy._sid, getattr(privacy, "_console_codepages", None); old = dict(os.environ)
-    try:
-        sp.run = fake; privacy._system_dir = lambda: "C:\\Windows\\System32"; privacy._sid = lambda n: sids.get(n); privacy._console_codepages = lambda: ["cp850", "cp1252"]
-        os.environ.update({"USERNAME": "ryan", "USERDOMAIN": "BOX"}); (d / "x").mkdir()
-        assert privacy.make_private(d / "x", windows=True)
-    finally:
-        sp.run = orig; privacy._system_dir = osd; privacy._sid = osid; os.environ.clear(); os.environ.update(old)
-        if ocp: privacy._console_codepages = ocp
-    assert [c[c.index("/remove:g") + 1] for c in calls if "/remove:g" in c] == ["Jeder"], calls
+    finally: sp.run = orig; privacy._system_dir = osd; privacy._sid = osid; os.environ.clear(); os.environ.update(old)
