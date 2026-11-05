@@ -496,13 +496,14 @@ def _(d):
     rows, st = [], {}
     MU.run(m, ["a.py", "b.py"], lambda *a: rows.append(a), lambda k, s, n="": st.update({k: (s, n)}), given_cmd="python3 t.py", cap=1, timeout=60)
     assert any(r[1] == "mutation-cap-reached" for r in rows) and "not mutated" in st["mutation"][1], (rows, st)
-    h = d / "hang"; h.mkdir(); write(h, "a.py", "a, b = 1, 2\nok = a < b\n")
-    MU.run(h, ["a.py"], lambda *a: None, lambda *a: None, given_cmd="python3 a.py >/dev/null && if grep -q ' <= ' a.py; then sleep 60 & echo $! > child.pid; wait; fi", cap=5, timeout=3)
-    pid = int((h / "child.pid").read_text(encoding="utf-8"))
-    try: alive = "\tZ" not in pathlib.Path(f"/proc/{pid}/status").read_text(encoding="utf-8").split("State:")[1][:4]  # a killed orphan can linger as a zombie, unreaped
-    except (OSError, IndexError): alive = False
-    if alive: os.kill(pid, 9)
-    assert not alive, "a hung mutant's child process is stopped with it"
+    if os.name != "nt":  # the hung mutant is a POSIX shell command (sleep &, /dev/null) checked through /proc; kill_tree's Windows path has its own test (platforms:)
+        h = d / "hang"; h.mkdir(); write(h, "a.py", "a, b = 1, 2\nok = a < b\n")
+        MU.run(h, ["a.py"], lambda *a: None, lambda *a: None, given_cmd="python3 a.py >/dev/null && if grep -q ' <= ' a.py; then sleep 60 & echo $! > child.pid; wait; fi", cap=5, timeout=3)
+        pid = int((h / "child.pid").read_text(encoding="utf-8"))
+        try: alive = "\tZ" not in pathlib.Path(f"/proc/{pid}/status").read_text(encoding="utf-8").split("State:")[1][:4]  # a killed orphan can linger as a zombie, unreaped
+        except (OSError, IndexError): alive = False
+        if alive: os.kill(pid, 9)
+        assert not alive, "a hung mutant's child process is stopped with it"
     AV = run(S / "ast_view.py", "--depth", "3", cwd=d); assert AV.returncode == 2 and "Traceback" not in AV.stderr, AV.stderr
     write(d, "v.py", "x = 1\ny = 2\n"); AV = run(S / "ast_view.py", str(d / "v.py"), "2-1", cwd=d); assert AV.returncode == 2, AV.stdout
 

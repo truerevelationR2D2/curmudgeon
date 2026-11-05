@@ -87,11 +87,19 @@ def load(p):
 # requests are counted in a ledger beside the key, per review run and target, so a fresh or edited session can't reset
 # the scope's request cap. This is a choke point (rung 3 of the escalation ladder): tampering is refused, and defeating
 # it means getting past the guards to the key.
+_LOCKED = set()
+
 def _private():
     d = ROOT / ".critic" / "private"
     if d.is_symlink() or (d.exists() and not d.is_dir()): sys.exit("browse: .critic/private is not a plain folder; refusing")
-    if not d.exists():
-        d.mkdir(parents=True); import privacy; privacy.make_private(d); (d / ".gitignore").write_text("# Curmudgeon's private signing key and request ledger. Never commit.\n*\n", encoding="utf-8")
+    import privacy
+    fresh = not d.exists()
+    if fresh: d.mkdir(parents=True)
+    if str(d) not in _LOCKED:  # a folder made before Windows locking existed is locked too, once per run (Qodo on #28)
+        if not privacy.make_private(d): sys.exit("browse: .critic/private could not be made private to you (its permissions could not be set); the signing key is not written there" + (f" ({privacy.WHY})" if privacy.WHY else ""))
+        _LOCKED.add(str(d))
+    if fresh:
+        (d / ".gitignore").write_text("# Curmudgeon's private signing key and request ledger. Never commit.\n*\n", encoding="utf-8")
     return d
 
 def _key():
@@ -141,7 +149,12 @@ def _locked_add(p, key, add, cap):
             n = int(led.get(key, 0))
             if cap is not None and n + add > cap: return False, n
             led[key] = n + add
-            tmp = p.with_name(f"live-requests.{os.getpid()}.tmp"); tmp.write_text(json.dumps(led, indent=1), encoding="utf-8"); os.replace(tmp, p)
+            tmp = p.with_name(f"live-requests.{os.getpid()}.tmp"); tmp.write_text(json.dumps(led, indent=1), encoding="utf-8")
+            for i in range(50):  # Windows refuses to replace a file another process has open for a moment: retry, as the lock already orders the writers
+                try: os.replace(tmp, p); break
+                except PermissionError:
+                    if i == 49: raise
+                    time.sleep(0.05)
             return True, led[key]
         finally: unlock()
 

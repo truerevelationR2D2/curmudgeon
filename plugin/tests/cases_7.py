@@ -603,6 +603,7 @@ def _(d):
 @test("audit batch 1 review round 3: on git before 2.31, a repository with a filter named with '=' gets no git command at all")
 def _(d):
     import subprocess as sp, shutil
+    if os.name == "nt": raise Skip("the stand-in old git is a shell script, which Windows can't run as git")
     real = shutil.which("git"); fake = d / "bin"; fake.mkdir()
     (fake / "git").write_text(f'#!/bin/sh\n[ "$1" = "--version" ] && {{ echo "git version 2.25.1"; exit 0; }}\nexec {real} "$@"\n', encoding="utf-8"); (fake / "git").chmod(0o755)
     import safegit; safegit._ENV.clear(); safegit._VER.clear()

@@ -821,7 +821,7 @@ def _(d):
         bad = [f"cd {ws} && cat ../../../reviews/review-B.json", f'cd {ws} && cat "../../../reviews/review-B.json"', f"cd {ws} && grep -r SECRET /",
                f"cd {ws} && grep -r SECRET ../../..", f"cd {ws} && grep -f ../../../reviews/review-B.json src", f"cd {ws} && find / -name review-B.json",
                f"cd {ws} && python3 - <<'EOF'\nprint(open('../../../reviews/review-B.json').read())\nEOF", f"cd {ws} && ls /",
-               f"cd {ws} && mkdir x: && cat x://../../../reviews/review-B.json", f"cd {ws} && cat file://{p}/.critic/reviews/review-B.json"]
+               f"cd {ws} && cat file://{p}/.critic/reviews/review-B.json"] + ([] if os.name == "nt" else [f"cd {ws} && mkdir x: && cat x://../../../reviews/review-B.json"])  # on Windows x: is a drive, not a folder
         for c in ok: assert not _guard(p, p, "Bash", role=role, aid=aid, command=c), (role, c)
         for c in bad: assert _guard(p, p, "Bash", role=role, aid=aid, command=c), (role, c)
 
@@ -1060,8 +1060,10 @@ def _(d):
 @test("audit V05: the consent eval's rules.md is committed, as a clone's would be, and its grader needs the scan to report mutation testing blocked")
 def _(d):
     ev = HERE / "evals" / "mutate-needs-consent"
-    r = subprocess.run(["bash", str(ev / "fixture.sh")], cwd=d, capture_output=True, text=True, encoding="utf-8"); assert r.returncode == 0, r.stderr
-    assert ".critic/rules.md" in subprocess.run(["git", "ls-files"], cwd=d, capture_output=True, text=True, encoding="utf-8").stdout
+    if os.name == "nt": raise Skip("bash on a Windows runner is WSL's launcher, not the Git Bash the fixture is written for")
+    r = subprocess.run(["bash", str(ev / "fixture.sh")], cwd=d, capture_output=True, text=True, encoding="utf-8"); assert r.returncode == 0, (r.returncode, r.stdout[-400:], r.stderr[-400:])
+    ls = subprocess.run(["git", "ls-files"], cwd=d, capture_output=True, text=True, encoding="utf-8")
+    assert ".critic/rules.md" in ls.stdout, (ls.returncode, ls.stdout[-400:], ls.stderr[-400:], r.stdout[-300:])
     run(S / "critic_scan.py", ".", "--root", ".", "--mutate", "app.js", cwd=d)
     g = (ev / "graders" / "mutation-reported-blocked.md").read_text(encoding="utf-8"); pat = re.search(r"pattern: '(.*)'", g).group(1)
     assert re.search(pat, (d / ".critic/scan/report.json").read_text(encoding="utf-8")) and not (d / "RAN_FROM_RULES_MD").exists()
@@ -1284,6 +1286,10 @@ def _(d):
 
 # ---- Qodo on #22 ----
 
+def workspace_rec(p):  # what the guard reads, shown when a guard test fails
+    try: return (p / ".critic/scratch/r1/workspace.json").read_text(encoding="utf-8")
+    except OSError as e: return repr(e)
+
 def _q22_proj(d):
     p = d / "proj"; write(p, "src/app.js", "x\n"); write(p, ".critic/reviews/review-B.json", '[{"title": "SECRET-B"}]')
     run(H / "scratch_dir.py", cwd=p, stdin=json.dumps({"agent_type": "curmudgeon:curmudgeon-reviewer", "agent_id": "r1", "cwd": str(p)}))
@@ -1402,6 +1408,16 @@ def _(d):
     assert rec3["a.py"][1] == "failed", "a new edit starts the count again"
 
 # ---- Native Windows and macOS (03 §5.57 item 20) ----
+
+def _icacls_fake(calls, sddl, rc=0):
+    """A stand-in for icacls: records each call and writes `sddl` (UTF-16, as icacls does) for /save."""
+    import subprocess as sp
+    def fake(a, **k):
+        calls.append(a)
+        if "/save" in a: pathlib.Path(a[a.index("/save") + 1]).write_text(f"x\r\n{sddl}\r\n", encoding="utf-16")
+        return sp.CompletedProcess(a, rc, b"", b"")
+    return fake
+
 
 def _enc_misses(paths):
     """Text I/O that names no encoding: read_text(), write_text(x), open(f) in text mode, subprocess with text=True.
@@ -1561,12 +1577,12 @@ def _(d):
 @test("platforms: a private folder (restore copies, scratch copies, the browser's key) is 0700 where POSIX modes exist and locked to the current user with icacls on Windows, through one helper")
 def _(d):
     import privacy, subprocess as sp
-    calls = []; orig = sp.run; sp.run = lambda a, **k: calls.append(a) or sp.CompletedProcess(a, 0, "", "")
+    calls = []; orig = sp.run; sp.run = _icacls_fake(calls, "D:PAI(A;OICI;FA;;;SY)")
     try:
-        old = dict(os.environ); os.environ["USERNAME"] = "ryan"; os.environ["USERDOMAIN"] = "BOX"
+        old = dict(os.environ); os.environ["USERNAME"] = "ryan"; os.environ["USERDOMAIN"] = "BOX"; osd = privacy._system_dir; privacy._system_dir = lambda: "C:\\Windows\\System32"; osid = privacy._sid; privacy._sid = lambda n: "S-1-5-21-1"
         (d / "x").mkdir(); assert privacy.make_private(d / "x", windows=True)
-    finally: sp.run = orig; os.environ.clear(); os.environ.update(old)
-    assert calls and calls[0][0] == "icacls" and "/inheritance:r" in calls[0] and any("BOX\\ryan:(OI)(CI)F" == a for a in calls[0]), calls
+    finally: sp.run = orig; os.environ.clear(); os.environ.update(old); privacy._system_dir = osd; privacy._sid = osid
+    assert calls and calls[0][0].endswith("icacls.exe") and "/inheritance:r" in calls[0] and any("BOX\\ryan:(OI)(CI)F" == a for a in calls[0]), calls  # the grant comes first (Qodo on #29)
     (d / "y").mkdir(); privacy.make_private(d / "y", windows=False)
     if os.name != "nt": assert oct((d / "y").stat().st_mode & 0o777) == "0o700"  # POSIX modes exist only off Windows
     R = HERE.parent; bare = []
@@ -1577,7 +1593,7 @@ def _(d):
 
 @test("Qodo on #27 (2): a root set with a trailing comment is still followed, an own-folder path with escapes in it is never taken as staying inside, and a code file whose name isn't UTF-8 still blocks the stop")
 def _(d):
-    p, ws = _q22_proj(d); own = str(pathlib.Path(ws).parent)
+    p, ws = _q22_proj(d); own = str(pathlib.Path(ws).parent).replace("\\", "/")  # C:/... so the runner's Git Bash form leaves the escapes alone
     bad = ["python3 -c \"import os\nroot = '/'  # the top\nprint(os.listdir(root))\"",
            "python3 - <<'EOF'\nimport os\nroot = '/'  # the top\nprint(os.listdir(root))\nEOF",
            f"python3 -c \"print(open('{own}/notes/\\\\x2e\\\\x2e/\\\\x2e\\\\x2e/\\\\x2e\\\\x2e/ledger.json').read())\""]
@@ -1587,3 +1603,131 @@ def _(d):
         (d / os.fsdecode(b"bad\xff.py")).write_text("x = 1\n", encoding="utf-8")
         r = run(H / "stop_gate.py", cwd=d, stdin=json.dumps({"cwd": str(d)}))
         assert '"block"' in r.stdout, (r.stdout, r.stderr[-400:])
+
+@test("Qodo on #28: icacls runs from System32, never a project's icacls.exe; existing grants are reset first; a folder that can't be locked stops the copy, the browser key and restore copies; an existing key folder is locked too; Windows separators aren't escapes")
+def _(d):
+    import privacy, subprocess as sp, browse
+    calls = []; rc = [0]; orig = sp.run; fk = _icacls_fake(calls, "D:PAI(A;OICI;FA;;;SY)"); sp.run = lambda a, **k: fk(a) if rc[0] == 0 else (calls.append(a) or sp.CompletedProcess(a, rc[0], b"", b""))
+    old = dict(os.environ)
+    try:
+        os.environ.update({"USERNAME": "ryan", "USERDOMAIN": "BOX"}); osd_ = privacy._system_dir; privacy._system_dir = lambda: "C:\\Windows\\System32"; osid_ = privacy._sid; privacy._sid = lambda n: "S-1-5-21-1"
+        (d / "x").mkdir(); assert privacy.make_private(d / "x", windows=True)
+        exe = calls[0][0]; assert exe != "icacls" and exe.endswith("icacls.exe") and exe.startswith("C:\\Windows\\System32"), calls
+        assert any("BOX\\ryan:(OI)(CI)F" in c for c in calls[0]) and "/inheritance:r" in calls[0], calls  # existing grants: see Qodo on #29
+        rc[0] = 1; assert not privacy.make_private(d / "x", windows=True), "a failed icacls is a failure"
+    finally: sp.run = orig; os.environ.clear(); os.environ.update(old); privacy._system_dir = osd_; privacy._sid = osid_
+    och = os.chmod
+    try:
+        os.chmod = lambda *a, **k: (_ for _ in ()).throw(PermissionError("no"))
+        assert not privacy.make_private(d / "x", windows=False), "a failed chmod is a failure"
+    finally: os.chmod = och
+    om = privacy.make_private; seen = []
+    try:
+        privacy.make_private = lambda p, windows=None: seen.append(str(p)) or False
+        broot = browse.ROOT; browse.ROOT = d / "b"; (d / "b/.critic/private").mkdir(parents=True)
+        try:
+            browse._LOCKED.clear() if hasattr(browse, "_LOCKED") else None
+            try: browse._private(); raised = False
+            except SystemExit: raised = True
+            assert raised and seen, ("an existing key folder is locked, and a failed lock refuses", seen)
+        finally: browse.ROOT = broot
+    finally: privacy.make_private = om
+    p, ws = _q22_proj(d); own = str(pathlib.Path(ws).parent)
+    assert not _guard(p, p, "Bash", command=f"cd {ws} && python3 -c \"open(r'{own}\\\\notes\\\\out.txt', 'w').write('x')\""), "a Windows separator is not an escape"
+    cmd_ = f"cd {ws} && python3 -c \"print(open('{own}/notes/\\\\u002e\\\\u002e/\\\\056\\\\056/x').read())\""
+    assert _guard(p, p, "Bash", command=cmd_), ("unicode and octal escapes", cmd_, os.path.realpath(own), workspace_rec(p))
+
+@test("Qodo on #29: the Windows lock never follows a link, grants the user before anything else, asks Windows for System32, and removes every other account by security id read from icacls /save (no names: a foreign SYSTEM, a translated SYSTEM, a path Windows prints as ?), refusing an alias it doesn't know")
+def _(d):
+    import privacy, subprocess as sp
+    orig, osd, osid = sp.run, privacy._system_dir, privacy._sid; old = dict(os.environ)
+    try:
+        os.environ.update({"USERNAME": "ryan", "USERDOMAIN": "BOX", "SystemRoot": "."})
+        privacy._system_dir = lambda: "C:\\Windows\\System32"; privacy._sid = lambda n: "S-1-5-21-1-2-3-1001" if n == "BOX\\ryan" else None
+        calls = []; sp.run = _icacls_fake(calls, "D:PAI(A;OICI;FA;;;S-1-5-21-1-2-3-1001)(A;OICI;FA;;;SY)(A;OICI;0x1200a9;;;WD)(A;OICI;FA;;;S-1-5-21-9-9-9-500)")
+        x = d / "\u00c1sgeir"; x.mkdir(); assert privacy.make_private(x, windows=True)
+        assert all(c[0].startswith("C:\\Windows\\System32") for c in calls), ("System32 from Windows, not SystemRoot", calls)
+        assert "/grant:r" in calls[0] and "/inheritance:r" in calls[0], ("the user is granted before anything else", calls)
+        assert not any("/reset" in c and c[1] == str(x) for c in calls) and all("/L" in c for c in calls if "/save" not in c), calls
+        assert [c[c.index("/remove:g") + 1] for c in calls if "/remove:g" in c] == ["*S-1-1-0", "*S-1-5-21-9-9-9-500"], calls
+        calls.clear(); sp.run = _icacls_fake(calls, "D:PAI(A;OICI;FA;;;SY)(A;OICI;FA;;;ZZ)")
+        assert not privacy.make_private(x, windows=True), "an alias the table doesn't know refuses the lock"
+        calls.clear(); (d / "t").mkdir(); os.symlink(d / "t", d / "link")
+        assert not privacy.make_private(d / "link", windows=True) and not calls, "a link is refused before anything runs"
+    finally: sp.run = orig; privacy._system_dir = osd; privacy._sid = osid; os.environ.clear(); os.environ.update(old)
+
+@test("Qodo on #29 (4): every entry in the saved access list counts, conditional ones too (XA, ZA, with their nested expressions), an entry the lock can't read refuses it, and a temp file that can't be made fails the lock instead of crashing")
+def _(d):
+    import privacy, subprocess as sp, tempfile as tf
+    assert privacy._trustees("D:PAI(A;OICI;FA;;;SY)(XA;;FA;;;S-1-5-21-7-7-7-1100;(@User.Project == \"x\"))(ZA;;FA;;;WD;(Member_of {SID(BA)}))") == ["S-1-5-18", "S-1-5-21-7-7-7-1100", "S-1-1-0"]
+    assert privacy._trustees("D:(QQ;;FA;;;SY)") is None and privacy._trustees("D:(A;;FA;;;SY") is None, "an entry it can't read refuses"
+    orig, osd, osid, omk = sp.run, privacy._system_dir, privacy._sid, tf.mkstemp; old = dict(os.environ)
+    try:
+        os.environ.update({"USERNAME": "ryan", "USERDOMAIN": "BOX"}); privacy._system_dir = lambda: "C:\\Windows\\System32"; privacy._sid = lambda n: "S-1-5-21-1"
+        calls = []; sp.run = _icacls_fake(calls, "D:PAI(A;OICI;FA;;;S-1-5-21-1)(XA;OICI;FA;;;S-1-5-21-7-7-7-1100;(@User.Dept == \"x\"))")
+        (d / "x").mkdir(); assert privacy.make_private(d / "x", windows=True)
+        assert [c[c.index("/remove:g") + 1] for c in calls if "/remove:g" in c] == ["*S-1-5-21-7-7-7-1100"], calls
+        tf.mkstemp = lambda *a, **k: (_ for _ in ()).throw(OSError(28, "No space left on device"))
+        assert privacy.make_private(d / "x", windows=True) is False, "a temp file that can't be made fails the lock"
+    finally: sp.run = orig; privacy._system_dir = osd; privacy._sid = osid; tf.mkstemp = omk; os.environ.clear(); os.environ.update(old)
+
+@test("Qodo on #29 (5): a quoted S: inside a conditional entry doesn't end the access list, a quoted ) doesn't end the entry, and a failed lock says why")
+def _(d):
+    import privacy
+    assert privacy._trustees('D:PAI(A;OICI;FA;;;SY)(XA;;FA;;;S-1-5-21-7-7-7-1100;(@User.Title == "S:contractor"))(ZA;;FA;;;WD;(@User.x == ")"))S:(ML;;NW;;;LW)') == ["S-1-5-18", "S-1-5-21-7-7-7-1100", "S-1-1-0"]
+    assert privacy.make_private(d / "missing", windows=False) is False and privacy.WHY, "a failed lock leaves its reason"
+
+@test("Qodo on #29 (6): an alias that depends on the machine (LA, the local administrator: the Windows CI's own user) is expanded by Windows, so the user's grant is known and kept")
+def _(d):
+    import privacy
+    o = privacy._alias_sid
+    try:
+        privacy._alias_sid = lambda a: {"LA": "S-1-5-21-5-5-5-500"}.get(a)
+        assert privacy._trustees("D:PAI(A;OICI;FA;;;LA)(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;FA;;;OW)") == ["S-1-5-21-5-5-5-500", "S-1-5-18", "S-1-5-32-544", "S-1-3-4"]
+        privacy._alias_sid = lambda a: None
+        assert privacy._trustees("D:(A;;FA;;;LA)") is None, "an alias Windows can't expand still refuses"
+    finally: privacy._alias_sid = o
+
+@test("platforms: the Windows and macOS test jobs are required for release (03 §5.57 item 24): neither the macOS job nor the Windows script-test step may fail without failing the run; WSL2 stays non-blocking until five green runs")
+def _(d):
+    ci = (HERE.parent / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+    jobs = {m.group(1): m.group(2) for m in re.finditer(r"(?ms)^  ([a-z0-9]+):\n(.*?)(?=^  [a-z0-9]+:\n|\Z)", ci)}
+    assert "continue-on-error" not in jobs["macos"], "the macOS job blocks a release"
+    win = jobs["windows"]; step = win[win.index("Script tests on Windows"):win.index("- name:", win.index("Script tests on Windows"))]
+    assert "continue-on-error" not in step, "the Windows script tests block a release"
+    assert "continue-on-error: true" in jobs["wsl2"], "WSL2 isn't required yet"
+
+@test("Qodo on #29 (7): a new start whose lock fails clears the agent's earlier copy record first, so the guard can't accept the old copy; on Windows the real API expands LA and SY; the required-job test covers the Windows job's own setting")
+def _(d):
+    import importlib; sys.path.insert(0, str(H)); wsm = importlib.import_module("workspace")
+    p = d / "proj"; write(p, "src/a.py", "x = 1\n")
+    rec = wsm.make(p, "r1"); assert rec and wsm.info(p, "r1"), "a first copy is made"
+    pv = wsm._privacy(); om = pv.make_private
+    try:
+        pv.make_private = lambda *a, **k: False
+        try: wsm.make(p, "r1"); raised = False
+        except OSError: raised = True
+        assert raised and wsm.info(p, "r1") is None and wsm.record(p, "r1") is None, "the earlier copy's record is gone, so read_guard finds no workspace"
+    finally: pv.make_private = om
+    if os.name == "nt":
+        import privacy
+        assert privacy._alias_sid("SY") == "S-1-5-18", "Windows expands SY"
+        la = privacy._alias_sid("LA"); assert la and la.startswith("S-1-5-21-") and la.endswith("-500"), ("Windows expands LA to this machine's administrator", la)
+    ci = (HERE.parent / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+    jobs = {m.group(1): m.group(2) for m in re.finditer(r"(?ms)^  ([a-z0-9]+):\n(.*?)(?=^  [a-z0-9]+:\n|\Z)", ci)}
+    assert "continue-on-error" not in jobs["windows"].split("steps:")[0], "the Windows job itself isn't allowed to fail"
+
+@test("platforms: the escape check on the agent's own folder holds on every try (on Windows the test harness once turned the escapes into slashes, and the check then held only by chance)")
+def _(d):
+    misses = []
+    for i in range(12 if os.name == "nt" else 3):
+        di = d / f"t{i}"; di.mkdir(); p, ws = _q22_proj(di); own = str(pathlib.Path(ws).parent)
+        cmd_ = f"cd {ws} && python3 -c \"print(open('{own}/notes/\\\\u002e\\\\u002e/\\\\056\\\\056/x').read())\""
+        if not _guard(p, p, "Bash", command=cmd_): misses.append((i, own, os.path.realpath(own), str(p), os.path.realpath(str(p))))
+    assert not misses, misses[:2]
+
+@test("platforms: the Windows test harness turns C:\\ separators into C:/ but keeps code's doubled escapes (\\\\u002e), so the escape check is tested on escapes, not on a plain path")
+def _(d):
+    c = "cd C:\\U\\r1\\payload && python3 -c \"print(open('C:\\U\\r1/notes/\\\\u002e\\\\u002e/\\\\056/x').read())\""
+    out = json.loads(_git_bash_form(json.dumps({"tool_input": {"command": c}})))["tool_input"]["command"]
+    assert out == "cd C:/U/r1/payload && python3 -c \"print(open('C:/U/r1/notes/\\\\u002e\\\\u002e/\\\\056/x').read())\"", out

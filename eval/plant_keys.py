@@ -7,7 +7,7 @@ here at run time, never written to the repository in one piece (03 §5.56 item 1
 Run on its own with a copied fixture's folder (python3 plant_keys.py /tmp/run2), it fills that copy in for a review by
 hand; safe to run twice. It refuses any folder in this repository, so the repository never holds the key."""
 import os as _os, sys as _sys; _sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__))); import utf8io  # UTF-8 output on Windows too (03 §5.57 item 20)
-import pathlib, sys
+import os, pathlib, sys
 
 PLACEHOLDER = "__PLANTED_STRIPE_KEY__"
 FAKE_KEY = "sk_" + "live_" + "51HxQ2bK7mVt9RwPq3LzN8cYdF2gJ6sA"  # not a real key: an invented one in Stripe's live-key shape
@@ -25,7 +25,7 @@ def fill(folder):
 if __name__ == "__main__":
     repo = pathlib.Path(__file__).resolve().parent.parent
     t = pathlib.Path(sys.argv[1]).resolve() if len(sys.argv) == 2 else None
-    inside = t is not None and (str(t).casefold() + "/").startswith(str(repo).casefold() + "/")  # anywhere in the repository, in any case (a case-blind disk)
+    inside = t is not None and (os.path.normcase(str(t)).casefold() + os.sep).startswith(os.path.normcase(str(repo)).casefold() + os.sep)  # anywhere in the repository, in any case (a case-blind disk), with Windows separators too (03 §5.57 item 20)
     if t is None or inside or (t / ".git").exists():
         sys.exit("usage: python3 plant_keys.py <a copy of a fixture, outside this repository>")
     print(f"planted the fake key in {sys.argv[1]}" if fill(sys.argv[1]) else "nothing to plant (already planted, or no placeholder)")

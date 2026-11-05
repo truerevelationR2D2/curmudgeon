@@ -4,6 +4,8 @@ Every release of Curmudgeon, newest first. The repository's history starts at 4.
 
 ## Unreleased: native Windows and macOS (03 §5.57 item 20)
 
+**Windows and macOS failures fail CI** (03 §5.57 item 24): every platform passed on b52d73f. Of 423 tests, Windows passed 410 and skipped 13 (each with its reason), macOS and WSL2 each passed 412 and skipped 11, and Linux passed on Python 3.9–3.14. The Windows script tests and the macOS job no longer may fail without failing the run; blocking a merge on them also needs a required-check rule in the repository's settings, and a test keeps it so. WSL2 joins after five green runs in a row. The Windows test harness rewrote `C:\` paths into `C:/` by turning every backslash into a slash, code's doubled escapes (`\\u002e`) too, so one guard test checked a plain path and passed only by chance on Windows (it failed in 3 of 6 Windows runs, and 2 of 12 repeats in one run); it now rewrites single separators only, and a test keeps it so. The README's Windows limit is rewritten: the tests pass, a full Claude Code session on native Windows hasn't yet been checked by hand, and the hooks need `python3` itself on PATH.
+
 **Qodo on #27** (eight findings, each with a test that fails on the code before it, "Qodo on #27"):
 - **Reviewers' guard (High):** `r = '\x2f'; os.listdir(r)` got past the guard again after the #25 change. The rule is now the one Qodo proposed. Code that lists folders and also builds characters as it runs is refused, unless every built character is clearly harmless (`chr` or `fromCharCode` of codes that are neither `/` nor `\`). That covers a name, a tuple, a loop, a return value and a keyword, and an unrelated `chr(65)` still runs.
 - A path written out from the agent's own folder that stays inside it (`<own>/notes/../notes/out.txt`) is no longer refused.
@@ -17,6 +19,40 @@ Every release of Curmudgeon, newest first. The repository's history starts at 4.
 - `root = '/'  # a comment` is followed like `root = '/'`.
 - A path written out from the agent's own folder that holds escapes (`\x2e\x2e`) is refused. When the code runs, those escapes become `..`.
 - The stop gate hashes a file name that isn't UTF-8 by its bytes. Before, the hash raised and the gate let the stop through.
+
+**Qodo on #29** (three findings on the Windows lock, each with a test that fails on the code before it, "Qodo on #29"):
+- A link or junction is refused before anything runs, and `icacls` is told not to follow links (`/L`), so a junction planted at `.critic/restore` can't send the change to files elsewhere.
+- The steps run in an order where none leaves the folder looser than it was:
+  1. inheritance off, with only the user and SYSTEM granted;
+  2. the folder's contents reset to inherit that;
+  3. any other principal's explicit grant on the folder removed.
+
+  Before this, the folder was reset first, so a failed grant left existing keys under broader permissions.
+- The System32 folder comes from Windows (`GetSystemDirectoryW`), not from `SystemRoot`, which a project's code could set.
+- The lock now identifies SYSTEM and the user by their security ids (SYSTEM is `S-1-5-18`), not by a name ending in `SYSTEM`. A foreign domain's account named `SYSTEM` used to keep its grant, and a translated Windows (`AUTORITE NT\Système`) used to lose the real SYSTEM's. An account whose id can't be resolved is removed (Qodo on #29, second review).
+- The lock reads the folder's grants with `icacls /save`, which writes them in SDDL: every account is a security id or a fixed alias (`SY` is SYSTEM, `WD` is Everyone), and no names appear. It then removes every account that isn't SYSTEM or the user, by id. Before, it parsed the translated text listing, which broke two ways. On a German Windows, `NT-AUTORITÄT\SYSTEM` in the console's code page couldn't be looked up, and the lock failed. A project under `Ásgeir`, which that code page prints as `?`, got no reviewer copy (the Windows CI showed this). An alias the lock doesn't know refuses the lock rather than guessing. (Qodo on #29, third review.)
+- Every entry in the saved access list counts. That includes object and conditional entries (`XA`, `ZA`), whose expressions sit in nested parentheses. An entry the lock can't read, or whose type it doesn't know, refuses the lock. Before, the parser skipped those entries silently and could report a folder private while another account still had a conditional grant. A temp file that can't be made (a full disk) now fails the lock instead of raising. (Qodo on #29, fourth review.)
+- The access list is scanned with quotes and depth tracked, so a quoted `S:` or `)` inside a condition (`@User.Title == "S:contractor"`) doesn't end the list or the entry. A failed lock records why (`privacy.WHY`), and the reviewer copy, the browser driver and restore saves include the reason in their refusal. (Qodo on #29, fifth review.)
+- An SDDL alias whose id depends on the machine or domain is expanded by Windows (`ConvertStringSidToSidW`). One example is `LA`, the local administrator, which is the Windows CI's own user. The fixed table had no entry for it, so the lock refused every private folder on that runner, and no reviewer copy was made. The new failure reason showed it. An alias Windows can't expand still refuses.
+- An own-folder path holding an escape is judged as written. The step that resolves a short name to its long form skips it, because on Windows it would reshape `\x2e` into a path separator.
+
+**Windows CI round** (402 of 407 on 3f936a7, up from 393):
+- The guard reads `/proc` paths after a drive letter, since Git Bash serves `/proc`, and reads a bare `//` as the root.
+- Three tests no longer assume POSIX:
+  - Windows resolves `node_modules/..` by text;
+  - the runner's `bash` is WSL's launcher;
+  - the escape test writes its own path in `C:/` form.
+
+**Qodo on #28** (five findings, each with a test that fails on the code before it, "Qodo on #28"):
+- `icacls.exe` runs from Windows' System32 folder, so a project's own `icacls.exe` can never run instead.
+- The lock resets the folder's existing permissions first, including its contents. It then removes inheritance and grants only the current user and SYSTEM, so an explicit broad grant already on the folder doesn't survive.
+- `make_private()` reports a failed lock, a failed `chmod` included. What happens then depends on the caller:
+  - the reviewer copy isn't made;
+  - the browser driver refuses to write its signing key;
+  - a restore copy, which can hold keys, isn't saved;
+  - the scratch-folder message stops calling the folder private.
+- The browser driver's key folder is locked when it already exists too, once per run.
+- Only an escape that makes `.`, `/` or `\` counts as one in an own-folder path (`\x2e`, `\u002e`, `\056`, `\N{...}`), so a Windows separator or `notes\2024` doesn't.
 
 **Windows guard paths:** the folder-above-the-project check now reads Windows paths (`C:\Users\x`, `C:/Users/x`, `\\server\share`) as well as `/home/x`, and compares the long form Windows resolves a short name to (`RUNNER~1` → `runneradmin`). An absolute path from the agent's own folder that is written in another form is known as its own, unless it holds `..`, which resolving would hide. Two tests stopped replacing the real Windows `msvcrt` and checking POSIX modes on Windows.
 

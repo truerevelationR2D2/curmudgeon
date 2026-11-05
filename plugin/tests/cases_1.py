@@ -59,8 +59,9 @@ def _(d):
 @test("ledger: a restore copy is exact, private (0700) and git-ignored")
 def _(d):
     L = S / "critic_ledger.py"; src = 'const K = "@LIVE@";\nconst a = 1;\n'; write(d, "api.js", src)
-    run(L, "restore", "save", "api.js", cwd=d)
-    assert next((d / ".critic/restore").rglob("api.js")).read_text(encoding="utf-8") == T(src)
+    rs = run(L, "restore", "save", "api.js", cwd=d)
+    saved = list((d / ".critic/restore").rglob("api.js")); assert saved, (rs.returncode, rs.stdout[-300:], rs.stderr[-500:])  # the lock's reason shows when it fails
+    assert saved[0].read_text(encoding="utf-8") == T(src)
     assert (d / ".critic/restore/.gitignore").read_text(encoding="utf-8").strip().endswith("*")
     if os.name != "nt": assert oct((d / ".critic/restore").stat().st_mode & 0o777) == "0o700"  # Windows has no POSIX modes; there the folder's ACL decides (03 §5.57 item 20)
     write(d, "api.js", '// test key @TEST@\nconst a = 2;\n'); run(L, "restore", "apply", cwd=d)

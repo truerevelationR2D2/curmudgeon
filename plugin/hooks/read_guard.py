@@ -94,6 +94,7 @@ def above(base, inner):
     return workspace.within(inner, base)
 
 def resolve(v, root):
+    if os.sep == "\\" and re.fullmatch(r"[/\\]{2,}", str(v)): v = pathlib.Path(root).anchor  # // is the root in Git Bash, not an unnamed share (03 §5.57 item 20)
     p = pathlib.Path(os.path.expanduser(str(v)))
     if not p.is_absolute(): p = root / p
     try: return p.resolve()
@@ -186,6 +187,11 @@ def deny(reason):
 OPAQUE = re.compile(r"\$\{!|\$\{[A-Za-z_][A-Za-z0-9_]*(?:\[[^\]]*\])?(?:%|#|/|\^|,|:[^-=+?])|\$[@*#!?$-]|\$\{[@*#]|\{[^{}\s,]*\.\.[^{}\s,]*\}|\$\"")  # ${!X}, ${X%..} ${X#..} ${X/..} ${X:1}, $@ $* $$, {a..b}, $"..": a path built this way is refused, not guessed
 PROC_ANY = re.compile(r"(?:^|[\s=:'\"])/+proc/+(?:[\d*?\[{$]|thread-self|self/+(?:task|cwd|root|fd))")  # /proc/<pid>, /proc/*, /proc/$PPID ... by text, before any expansion (round 3 review)
 PROC_PID = re.compile(r"/proc/(?:\d+|thread-self|self/task/\d+)(?:/|$)")
+PATH_ESC = re.compile(r"\\(?:x(?:2[EeFf]|5[Cc])|u00(?:2[EeFf]|5[Cc])|U0000(?:2[EeFf]|5[Cc])|N\{|0?5[67]|134)")  # an escape that makes . / or \\ when the code runs (Qodo on #27, #28)
+def procish(path):
+    """A path into another process's /proc entry, written either way: Git Bash on Windows serves /proc too, and there
+    ../../proc/1 resolves to C:\\proc\\1 (03 §5.57 item 20)."""
+    return bool(PROC_PID.match(re.sub(r"^[A-Za-z]:", "", os.path.normpath(str(path)).replace("\\", "/"))))
 VAR_REF = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*|\d+)(?:\[[^\]]*\])?(?:[:%#/^,@+-][^}]*)?\}|\$([A-Za-z_][A-Za-z0-9_]*|\d)")
 VAR_DEFAULT = re.compile(r"\$\{[A-Za-z_][A-Za-z0-9_]*(?:\[[^\]]*\])?(?::?[-=+?]|//?[^/}]*/)([^}]*)\}")  # ${Y:-word}, ${X:+word}, ${X/pat/word}: the shell may put the word there
 
@@ -255,6 +261,7 @@ def own_paths(own, root):
         real_base = os.path.realpath(base)
         for o in list(out):
             if o == real_base or o.startswith(real_base + os.sep): out.add(base + o[len(real_base):])
+    if os.sep == "\\": out |= {o.replace("\\", "/") for o in out}  # C:/Users/... as Git Bash writes it (03 §5.57 item 20)
     return out
 
 def _top(g):  # the root as code writes it: '/', '\\', 'C:\\' or os.sep (g: the number of its quote group)
@@ -401,7 +408,7 @@ def bash_problem(cmd, rec, root, critic, role, me):
             tool_ = next(iter(positional(args)), "")
             if tool_ and "@" not in tool_[1:] and any((pathlib.Path(c) / "node_modules" / ".bin" / tool_).exists() for c in [pay]): return None
         if n in NET: return f"a network command ({n}): reviewers and verifiers work offline in their copy"
-        if n in PROCS or any(a.startswith("/") and re.match(r"/proc/(?:\d+|thread-self)(?:/|$)", os.path.normpath("/" + a.lstrip("/"))) for a in args): return f"{n} {' '.join(args[:1])}: other agents' processes and command lines are not yours to read (audit P3); work on the code in your copy"
+        if n in PROCS or any(a.startswith("/") and re.match(r"/proc/(?:\d+|thread-self)(?:/|$)", os.path.normpath("/" + a.lstrip("/")).replace("\\", "/")) for a in args): return f"{n} {' '.join(args[:1])}: other agents' processes and command lines are not yours to read (audit P3); work on the code in your copy"
         if n == "git":
             sub = next(iter(positional(args, GIT_VALUE)), None)
             if sub in GIT_NET: return f"git {sub} (it reaches the network): review the copy as it is"
@@ -449,17 +456,17 @@ def bash_problem(cmd, rec, root, critic, role, me):
                 if not TRAVERSE.search(c): return False
                 return bool(TOP_START.search(c) or HOME_START.search(c) or starts_from(c))  # from the root or home, or an absolute wildcard ('/**/x')
             def reaches(c):  # names .critic or ~/.curmudgeon and can leave the copy: the project's own path or a "..", never a .critic folder a probe makes inside the copy (batch 5 review)
-                for lit in set(re.findall(r"['\"]((?:/|[A-Za-z]:[\\/])[^'\"\n]*)['\"]", c)):  # the agent's folder written another way (Windows: RUNNER~1 for runneradmin): its long form, so it is known as the agent's own (03 §5.57 item 20); never with .., which resolving would hide
-                    if ".." in lit: continue
+                for lit in set(re.findall(r"['\"]((?:/|[A-Za-z]:[\\/])[^'\"\n]*)['\"]", c) + re.findall(r"(?<![\w'\"])((?:[A-Za-z]:[\\/]|/)[^\s'\";|&<>()]+)", c)):  # the agent's folder written another way, quoted or not (a heredoc's redirect target) (Windows: RUNNER~1 for runneradmin): its long form, so it is known as the agent's own (03 §5.57 item 20); never with .., which resolving would hide
+                    if ".." in lit or PATH_ESC.search(lit): continue  # escapes are judged as written below; resolving would reshape them on Windows
                     rp = os.path.realpath(lit)
                     if rp != lit and any(fold(rp) == fold(o_) or fold(rp).startswith(fold(o_) + os.sep) for o_ in own_spellings): c = c.replace(lit, rp)
                 owns = [re.compile(re.escape(o_) + r"(?=[/\\'\"\s,)]|$)") for o_ in own_spellings]  # the folder itself, never scratch/r10 when it is r1 (guard review)
                 for lit in re.findall(r"(['\"])([^'\"\n]*)\1", c):  # a path written out from the agent's folder that stays inside it (notes/../notes/x) is its own (Qodo on #27)
                     for o_ in own_spellings:
-                        if (lit[1].startswith(o_ + "/") or lit[1].startswith(o_ + os.sep)) and "\\" in lit[1][len(o_):]: return True  # escapes (\x2e\x2e) change the path when the code runs (Qodo on #27)
+                        if (lit[1].startswith(o_ + "/") or lit[1].startswith(o_ + os.sep)) and PATH_ESC.search(lit[1][len(o_):]): return True  # escapes that make . / or \\ (\x2e, \056) change the path when the code runs (Qodo on #27); a Windows separator or notes\\2024 doesn't (Qodo on #28)
                         if lit[1].startswith(o_ + "/") or lit[1].startswith(o_ + os.sep):
-                            q_ = os.path.normpath(lit[1])
-                            if q_ == o_ or q_.startswith(o_ + os.sep): c = c.replace(lit[0] + lit[1] + lit[0], "''"); break
+                            q_ = fold(lit[1]); fo = fold(o_)
+                            if q_ == fo or q_.startswith(fo + os.sep): c = c.replace(lit[0] + lit[1] + lit[0], "''"); break
                 if any(o_.search(c) for o_ in owns) and ".." in c: return True  # a climb out of the agent's own folder, joined in pieces or not (guard review)
                 for o_ in owns: c = o_.sub("", c)
                 if re.search(r"(?i)\.curmudgeon\b", c): return True
@@ -603,16 +610,17 @@ def bash_problem(cmd, rec, root, critic, role, me):
                 pieces += [p_ for p_ in re.split(r"[=:,]", unurl) if p_.strip()]
                 if unurl == w_ and re.search(r"[=:,]", w_): pieces.append(w_)  # the whole word too: a folder named "x:" makes x://../.. a real path
             for piece in pieces:  # --file=../x, PATH-like lists
+                if os.sep == "\\" and re.fullmatch(r"[/\\]{2,}", piece or ""): piece = "/"  # // is the root in Git Bash (03 §5.57 item 20)
                 if not piece or piece.startswith("-") and "/" not in piece: continue
                 if not ("/" in piece or piece in (".", "..", "~") or piece.startswith("~") or any(ch in piece for ch in "*?[")): continue
-                if re.match(r"/proc/(?:\d+|thread-self)(?:/|$)", os.path.normpath("/" + piece.lstrip("/")) if piece.startswith("/") else ""): return f"{piece}: other agents' processes and command lines are not yours to read (audit P3)", cands
+                if re.match(r"/proc/(?:\d+|thread-self)(?:/|$)", os.path.normpath("/" + piece.lstrip("/")).replace("\\", "/") if piece.startswith("/") else ""): return f"{piece}: other agents' processes and command lines are not yours to read (audit P3)", cands
                 for c in cands:
                     q = pathlib.Path(os.path.expanduser(piece)); q = q if q.is_absolute() else c / q
                     if fold(os.path.normpath(str(q))) == own: return f"{piece}: the folder above your workspace (stay inside {payload})", cands
                     hits = _glob.glob(str(q), recursive=True)[:2000] if any(ch in piece for ch in "*?[") else [str(q)]
-                    if PROC_PID.match(os.path.normpath(str(q))): return f"{piece}: other agents' processes and command lines are not yours to read (audit P3)", cands
+                    if procish(q): return f"{piece}: other agents' processes and command lines are not yours to read (audit P3)", cands
                     for h in hits:
-                        if PROC_PID.match(os.path.normpath(h)): return f"{piece}: other agents' processes and command lines are not yours to read (audit P3)", cands  # /proc/*/cmdline, ../../proc/1 (round 2 review)
+                        if procish(h): return f"{piece}: other agents' processes and command lines are not yours to read (audit P3)", cands  # /proc/*/cmdline, ../../proc/1 (round 2 review)
                         try: real = pathlib.Path(h).resolve()
                         except (OSError, RuntimeError, ValueError): continue
                         why = judge(real, critic, role, me, "bash")
@@ -666,7 +674,12 @@ def main(data=None):
         if not why and tool == "Glob" and (any(ch in pat for ch in "*?[{") or "critic" in pat.casefold() or ".." in pat):  # expand it for real and judge what it matches
             import glob as _glob, itertools
             def found_for(one):
-                base_, pat_ = (pathlib.Path(pathlib.Path(one).anchor), one[len(pathlib.Path(one).anchor):]) if os.path.isabs(one) else (pathlib.Path(start), one)
+                if os.path.isabs(one):  # the fixed part resolved, so a Windows short name (RUNNER~1) matches the folder listing (03 §5.57 item 20)
+                    parts_ = re.split(r"[\\/]", one); k_ = next((i for i, x in enumerate(parts_) if any(ch in x for ch in "*?[")), len(parts_))
+                    fixed = os.sep.join(parts_[:k_]) or os.sep
+                    if re.fullmatch(r"[A-Za-z]:", fixed): fixed += os.sep
+                    base_, pat_ = pathlib.Path(os.path.realpath(fixed)), "/".join(parts_[k_:]) or "."
+                else: base_, pat_ = pathlib.Path(start), one
                 try: yield from (str(x) for x in base_.glob(pat_))  # pathlib matches dot-folders on every Python, as Glob does
                 except (NotImplementedError, ValueError, OSError):
                     hidden = {"include_hidden": True} if sys.version_info >= (3, 11) else {}
