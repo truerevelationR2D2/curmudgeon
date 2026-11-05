@@ -215,6 +215,8 @@ def make(root, agent_id):
     root = pathlib.Path(root).resolve(); h = home_for(root, agent_id)
     if not h: return None
     h.mkdir(parents=True, exist_ok=True)
+    try: (h / "workspace.json").unlink()  # an earlier start's record goes first, so a failed lock can't leave the old copy in use (Qodo on #29)
+    except FileNotFoundError: pass
     if not _privacy().make_private(h): raise OSError(f"{h} could not be made private ({_privacy().WHY})")  # no copy in a folder others can read (Qodo on #28)
     payload = h / "payload"; notes = h / "notes"
     if payload.is_symlink(): payload.unlink()

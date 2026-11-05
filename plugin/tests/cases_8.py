@@ -1691,3 +1691,23 @@ def _(d):
     win = jobs["windows"]; step = win[win.index("Script tests on Windows"):win.index("- name:", win.index("Script tests on Windows"))]
     assert "continue-on-error" not in step, "the Windows script tests block a release"
     assert "continue-on-error: true" in jobs["wsl2"], "WSL2 isn't required yet"
+
+@test("Qodo on #29 (7): a new start whose lock fails clears the agent's earlier copy record first, so the guard can't accept the old copy; on Windows the real API expands LA and SY; the required-job test covers the Windows job's own setting")
+def _(d):
+    import importlib; sys.path.insert(0, str(H)); wsm = importlib.import_module("workspace")
+    p = d / "proj"; write(p, "src/a.py", "x = 1\n")
+    rec = wsm.make(p, "r1"); assert rec and wsm.info(p, "r1"), "a first copy is made"
+    pv = wsm._privacy(); om = pv.make_private
+    try:
+        pv.make_private = lambda *a, **k: False
+        try: wsm.make(p, "r1"); raised = False
+        except OSError: raised = True
+        assert raised and wsm.info(p, "r1") is None and wsm.record(p, "r1") is None, "the earlier copy's record is gone, so read_guard finds no workspace"
+    finally: pv.make_private = om
+    if os.name == "nt":
+        import privacy
+        assert privacy._alias_sid("SY") == "S-1-5-18", "Windows expands SY"
+        la = privacy._alias_sid("LA"); assert la and la.startswith("S-1-5-21-") and la.endswith("-500"), ("Windows expands LA to this machine's administrator", la)
+    ci = (HERE.parent / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+    jobs = {m.group(1): m.group(2) for m in re.finditer(r"(?ms)^  ([a-z0-9]+):\n(.*?)(?=^  [a-z0-9]+:\n|\Z)", ci)}
+    assert "continue-on-error" not in jobs["windows"].split("steps:")[0], "the Windows job itself isn't allowed to fail"

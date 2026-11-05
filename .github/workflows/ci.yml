@@ -50,7 +50,7 @@ jobs:
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: "3.12"
-      - name: Script tests on Windows (required for release since 4 Nov 2026, 03 §5.57 item 24)
+      - name: Script tests on Windows (a failure fails the run since 4 Nov 2026, 03 §5.57 item 24)
         # The first 30 failures are reported as annotations; a failure fails the job. Tests that can't apply on native
         # Windows (POSIX modes, /proc, a shell-script git stand-in) are skipped, each with its reason.
         timeout-minutes: 25
@@ -81,7 +81,7 @@ jobs:
           if [ $status -ne 0 ]; then tail -n 15 win.out | cut -c1-900 | sed 's/^/::error title=windows check output::/'; fi
           exit $status
   macos:
-    # 03 §5.56 item 23: paths, links and hooks on macOS (case-insensitive file system by default). Required for release
+    # 03 §5.56 item 23: paths, links and hooks on macOS (case-insensitive file system by default). A failure fails the run
     # since 4 Nov 2026 (03 §5.57 item 24).
     runs-on: macos-latest
     timeout-minutes: 20
