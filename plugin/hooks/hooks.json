@@ -5,62 +5,12 @@
         "hooks": [
           {
             "type": "command",
-            "command": "py",
-            "args": [
-              "-3",
-              "${CLAUDE_PLUGIN_ROOT}/hooks/stop_gate.py",
-              "--via=py"
-            ],
+            "command": "sh \"${CLAUDE_PLUGIN_ROOT}/hooks/run.sh\" \"${CLAUDE_PLUGIN_ROOT}/hooks/stop_gate.py\"",
             "timeout": 20
           },
           {
             "type": "command",
-            "command": "python",
-            "args": [
-              "${CLAUDE_PLUGIN_ROOT}/hooks/stop_gate.py",
-              "--via=python"
-            ],
-            "timeout": 20
-          },
-          {
-            "type": "command",
-            "command": "python3",
-            "args": [
-              "${CLAUDE_PLUGIN_ROOT}/hooks/stop_gate.py",
-              "--via=python3"
-            ],
-            "timeout": 20
-          },
-          {
-            "type": "command",
-            "command": "py",
-            "args": [
-              "-3",
-              "${CLAUDE_PLUGIN_ROOT}/hooks/stop_async.py",
-              "--via=py"
-            ],
-            "timeout": 600,
-            "async": true,
-            "asyncRewake": true
-          },
-          {
-            "type": "command",
-            "command": "python",
-            "args": [
-              "${CLAUDE_PLUGIN_ROOT}/hooks/stop_async.py",
-              "--via=python"
-            ],
-            "timeout": 600,
-            "async": true,
-            "asyncRewake": true
-          },
-          {
-            "type": "command",
-            "command": "python3",
-            "args": [
-              "${CLAUDE_PLUGIN_ROOT}/hooks/stop_async.py",
-              "--via=python3"
-            ],
+            "command": "sh \"${CLAUDE_PLUGIN_ROOT}/hooks/run.sh\" \"${CLAUDE_PLUGIN_ROOT}/hooks/stop_async.py\"",
             "timeout": 600,
             "async": true,
             "asyncRewake": true
@@ -74,30 +24,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "py",
-            "args": [
-              "-3",
-              "${CLAUDE_PLUGIN_ROOT}/hooks/check_contract.py",
-              "--via=py"
-            ],
-            "timeout": 60
-          },
-          {
-            "type": "command",
-            "command": "python",
-            "args": [
-              "${CLAUDE_PLUGIN_ROOT}/hooks/check_contract.py",
-              "--via=python"
-            ],
-            "timeout": 60
-          },
-          {
-            "type": "command",
-            "command": "python3",
-            "args": [
-              "${CLAUDE_PLUGIN_ROOT}/hooks/check_contract.py",
-              "--via=python3"
-            ],
+            "command": "sh \"${CLAUDE_PLUGIN_ROOT}/hooks/run.sh\" \"${CLAUDE_PLUGIN_ROOT}/hooks/check_contract.py\"",
             "timeout": 60
           }
         ]
@@ -107,30 +34,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "py",
-            "args": [
-              "-3",
-              "${CLAUDE_PLUGIN_ROOT}/hooks/record_cost.py",
-              "--via=py"
-            ],
-            "timeout": 20
-          },
-          {
-            "type": "command",
-            "command": "python",
-            "args": [
-              "${CLAUDE_PLUGIN_ROOT}/hooks/record_cost.py",
-              "--via=python"
-            ],
-            "timeout": 20
-          },
-          {
-            "type": "command",
-            "command": "python3",
-            "args": [
-              "${CLAUDE_PLUGIN_ROOT}/hooks/record_cost.py",
-              "--via=python3"
-            ],
+            "command": "sh \"${CLAUDE_PLUGIN_ROOT}/hooks/run.sh\" \"${CLAUDE_PLUGIN_ROOT}/hooks/record_cost.py\"",
             "timeout": 20
           }
         ]
@@ -142,32 +46,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "py",
-            "args": [
-              "-3",
-              "${CLAUDE_PLUGIN_ROOT}/hooks/guard_state.py",
-              "--via=py"
-            ],
-            "timeout": 10,
-            "onFailure": "continue"
-          },
-          {
-            "type": "command",
-            "command": "python",
-            "args": [
-              "${CLAUDE_PLUGIN_ROOT}/hooks/guard_state.py",
-              "--via=python"
-            ],
-            "timeout": 10,
-            "onFailure": "continue"
-          },
-          {
-            "type": "command",
-            "command": "python3",
-            "args": [
-              "${CLAUDE_PLUGIN_ROOT}/hooks/guard_state.py",
-              "--via=python3"
-            ],
+            "command": "sh \"${CLAUDE_PLUGIN_ROOT}/hooks/run.sh\" \"${CLAUDE_PLUGIN_ROOT}/hooks/guard_state.py\"",
             "timeout": 10,
             "onFailure": "continue"
           }
@@ -178,32 +57,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "py",
-            "args": [
-              "-3",
-              "${CLAUDE_PLUGIN_ROOT}/hooks/pre_tool.py",
-              "--via=py"
-            ],
-            "timeout": 10,
-            "onFailure": "continue"
-          },
-          {
-            "type": "command",
-            "command": "python",
-            "args": [
-              "${CLAUDE_PLUGIN_ROOT}/hooks/pre_tool.py",
-              "--via=python"
-            ],
-            "timeout": 10,
-            "onFailure": "continue"
-          },
-          {
-            "type": "command",
-            "command": "python3",
-            "args": [
-              "${CLAUDE_PLUGIN_ROOT}/hooks/pre_tool.py",
-              "--via=python3"
-            ],
+            "command": "sh \"${CLAUDE_PLUGIN_ROOT}/hooks/run.sh\" \"${CLAUDE_PLUGIN_ROOT}/hooks/pre_tool.py\"",
             "timeout": 10,
             "onFailure": "continue"
           }
@@ -216,30 +70,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "py",
-            "args": [
-              "-3",
-              "${CLAUDE_PLUGIN_ROOT}/hooks/scratch_dir.py",
-              "--via=py"
-            ],
-            "timeout": 120
-          },
-          {
-            "type": "command",
-            "command": "python",
-            "args": [
-              "${CLAUDE_PLUGIN_ROOT}/hooks/scratch_dir.py",
-              "--via=python"
-            ],
-            "timeout": 120
-          },
-          {
-            "type": "command",
-            "command": "python3",
-            "args": [
-              "${CLAUDE_PLUGIN_ROOT}/hooks/scratch_dir.py",
-              "--via=python3"
-            ],
+            "command": "sh \"${CLAUDE_PLUGIN_ROOT}/hooks/run.sh\" \"${CLAUDE_PLUGIN_ROOT}/hooks/scratch_dir.py\"",
             "timeout": 120
           }
         ]
@@ -251,30 +82,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "py",
-            "args": [
-              "-3",
-              "${CLAUDE_PLUGIN_ROOT}/hooks/scan_on_write.py",
-              "--via=py"
-            ],
-            "timeout": 20
-          },
-          {
-            "type": "command",
-            "command": "python",
-            "args": [
-              "${CLAUDE_PLUGIN_ROOT}/hooks/scan_on_write.py",
-              "--via=python"
-            ],
-            "timeout": 20
-          },
-          {
-            "type": "command",
-            "command": "python3",
-            "args": [
-              "${CLAUDE_PLUGIN_ROOT}/hooks/scan_on_write.py",
-              "--via=python3"
-            ],
+            "command": "sh \"${CLAUDE_PLUGIN_ROOT}/hooks/run.sh\" \"${CLAUDE_PLUGIN_ROOT}/hooks/scan_on_write.py\"",
             "timeout": 20
           }
         ]
@@ -284,30 +92,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "py",
-            "args": [
-              "-3",
-              "${CLAUDE_PLUGIN_ROOT}/hooks/post_tool.py",
-              "--via=py"
-            ],
-            "timeout": 10
-          },
-          {
-            "type": "command",
-            "command": "python",
-            "args": [
-              "${CLAUDE_PLUGIN_ROOT}/hooks/post_tool.py",
-              "--via=python"
-            ],
-            "timeout": 10
-          },
-          {
-            "type": "command",
-            "command": "python3",
-            "args": [
-              "${CLAUDE_PLUGIN_ROOT}/hooks/post_tool.py",
-              "--via=python3"
-            ],
+            "command": "sh \"${CLAUDE_PLUGIN_ROOT}/hooks/run.sh\" \"${CLAUDE_PLUGIN_ROOT}/hooks/post_tool.py\"",
             "timeout": 10
           }
         ]

@@ -11,7 +11,6 @@ After the third it lets stops through for that batch for good (it says so once);
 Fails open, but never silently: an unexpected error lets the stop through with a message saying the gate is off."""
 import hashlib, json, os, pathlib, shlex, sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import pyfind  # the one copy of this hook that should run here goes on; the others end (03 §5.57 item 29)
 import utf8io  # UTF-8 output on Windows too (03 §5.57 item 20)
 import workspace
 

@@ -1912,51 +1912,69 @@ def _(d):
             assert not privacy.make_private(x, windows=True) and "null DACL" in privacy.WHY, (null, privacy.WHY)
     finally: sp.run = orig; undo()
 
-@test("5.3.1 P1 (the Windows run report of 5 Nov 2026): every hook runs in exec form under py, python and python3, exactly one copy does its work on each system, and a Write or read guard that can't start never blocks the user's work")
+@test("5.3.1 P1 (the Windows run report of 5 Nov 2026): every hook starts through run.sh, which finds a Python 3.9+ that really works (python3, then python, then py -3, skipping a placeholder that fails), keeps the choice only in the plugin's data folder and only as one of those names, and a Write or read guard that can't start never blocks the user's work")
 def _(d):
     import shutil
-    sys.path.insert(0, str(H)); import pyfind
     hooks = json.loads((H / "hooks.json").read_text(encoding="utf-8"))["hooks"]
-    seen = {}
     for ev, groups in hooks.items():
         for g in groups:
             for h in g["hooks"]:
-                assert "args" in h and h["command"] in ("py", "python", "python3"), ("exec form with a bare interpreter, no shell", ev, h)
-                script = next(a for a in h["args"] if a.endswith(".py")); via = next(a for a in h["args"] if a.startswith("--via="))
-                assert via == f"--via={h['command']}" and script.startswith("${CLAUDE_PLUGIN_ROOT}/hooks/"), h
-                seen.setdefault((ev, script), set()).add(h["command"])
+                assert re.fullmatch(r'sh "\$\{CLAUDE_PLUGIN_ROOT\}/hooks/run\.sh" "\$\{CLAUDE_PLUGIN_ROOT\}/hooks/\w+\.py"', h["command"]) and "args" not in h, ("one shell-form entry per hook, through run.sh", ev, h)
                 if ev == "PreToolUse": assert h.get("onFailure") == "continue", ("a guard that can't start lets the call go ahead", h)
-    assert seen and all(v == {"py", "python", "python3"} for v in seen.values()), seen
-    for nt, have, want in ((True, {"py", "python"}, ["py"]), (True, {"python", "python3"}, ["python"]), (False, {"python3"}, ["python3"]), (False, {"python"}, ["python"]), (False, {"python", "python3", "py"}, ["python3"])):
-        got = [v for v in ("py", "python", "python3") if v in have and pyfind.chosen(v, nt=nt, which=lambda n: n in have or None)]  # a copy whose interpreter is missing never starts
-        assert got == want, (nt, have, got)
-    for name in ("check_contract.py", "guard_state.py", "pre_tool.py", "scratch_dir.py", "stop_gate.py"):
-        for via in ("py", "python", "python3"):
-            r = subprocess.run([sys.executable, str(H / name), f"--via={via}"], input='{"tool_name": "Write", "tool_input": {"file_path": "x"}, "cwd": ' + json.dumps(str(d)) + '}',
-                               capture_output=True, text=True, encoding="utf-8", cwd=d, timeout=60)
-            if not pyfind.chosen(via): assert r.returncode == 0 and not r.stdout.strip(), (name, via, r.returncode, r.stdout[:200])
-            else: assert r.returncode in (0, 2) and "Traceback" not in r.stderr, (name, via, r.stderr[-400:])
+    sh = shutil.which("sh")
+    if not sh: raise Skip("needs sh (Git Bash on Windows)")
+    real = sys.executable
+    fake = d / "bin"; fake.mkdir()
+    def tool(name, body):
+        p = fake / name; p.write_text("#!/bin/sh\n" + body + "\n", encoding="utf-8"); p.chmod(0o755)
+    tool("python3", "echo 'Python was not found; run without arguments to install from the Microsoft Store' >&2; exit 9009")  # the Store placeholder
+    tool("python", f'exec "{pathlib.Path(real).as_posix()}" "$@"')
+    hook = d / "hook.py"; hook.write_text("import sys; data = sys.stdin.read(); print('ran', len(data)); sys.exit(2 if 'block' in data else 0)\n", encoding="utf-8")
+    data = d / "data"; data.mkdir()
+    if os.name == "nt": shdir = os.path.dirname(sh)  # Git's usr/bin holds no Python; sh.exe needs its own folder's DLLs
+    else:
+        only = d / "only"; only.mkdir()  # sh and basename alone, so no real Python on the system is found by accident
+        for tname in ("sh", "basename"): os.symlink(shutil.which(tname), only / tname)
+        shdir = str(only)
+    env = dict(os.environ, PATH=f"{fake}{os.pathsep}{shdir}", CLAUDE_PLUGIN_DATA=str(data))
+    go = lambda stdin, **k: subprocess.run([sh, str(H / "run.sh"), str(hook)], input=stdin, capture_output=True, text=True, encoding="utf-8", env=dict(env, **k), timeout=60)
+    r = go("hello")
+    assert r.returncode == 0 and r.stdout.strip() == "ran 5", ("the placeholder is skipped and python runs the hook, stdin passed", r.returncode, r.stdout, r.stderr)
+    assert (data / "python").read_text(encoding="utf-8").strip() == "python", "the choice is kept in the plugin's data folder"
+    assert go("block").returncode == 2, "the hook's own exit code (2 blocks) comes through"
+    (data / "python").write_text("rm -rf /\n", encoding="utf-8")
+    assert go("hello").stdout.strip() == "ran 5", "a cache holding anything but one of the three names is ignored"
+    (fake / "python").unlink()
+    r = go("hello")
+    assert r.returncode == 1 and "no Python 3.9 or later found" in r.stderr, ("nothing works: said, and not a block", r.returncode, r.stderr)
+    nodata = dict(env); nodata.pop("CLAUDE_PLUGIN_DATA")
+    tool("python", f'exec "{pathlib.Path(real).as_posix()}" "$@"')
+    r = subprocess.run([sh, str(H / "run.sh"), str(hook)], input="x", capture_output=True, text=True, encoding="utf-8", env=nodata, timeout=60, cwd=d)
+    assert r.stdout.strip() == "ran 1" and not list(d.glob("python")), "without the data folder nothing is cached anywhere"
 
-@test("5.3.1 P2: a Python file that doesn't parse is reported (an indentation error is a FAIL, kept as High; any other syntax error is a WARN, since it may be syntax newer than the Python running the scan), and a file that parses gets no such row")
+@test("5.3.1 P2: a Python file that doesn't parse is reported as a WARN (never a FAIL: valid Python 2 with tabs, templates and newer syntax fail to parse too), and a file that parses gets no such row")
 def _(d):
-    write(d, "bad.py", "    def f():\n  return 1\n"); write(d, "open.py", "x = (1,\n"); write(d, "py2.py", 'print "hello"\n'); write(d, "good.py", "def f():\n    return 1\n")
+    write(d, "bad.py", "    def f():\n  return 1\n"); write(d, "open.py", "x = (1,\n"); write(d, "py2.py", 'print "hello"\n'); write(d, "good.py", "def f():\n    return 1\n"); write(d, "py2tabs.py", "def f(x):\n        if x:\n\treturn 1\n"); write(d, "tmpl.py", "def f():\n{%- if a %}\n    return 1\n{%- endif %}\n")
     r = run(S / "critic_scan.py", ".", "--root", str(d), cwd=d)
     rows = [x for x in json.loads((d / ".critic/scan/report.json").read_text(encoding="utf-8"))["findings"] if x["rule"] == "python-parse"]
     got = sorted((x["sev"], x["where"].split(":")[0]) for x in rows)
-    assert got == [("FAIL", "bad.py"), ("WARN", "open.py"), ("WARN", "py2.py")], (got, r.stderr[-300:])
-    sys.path.insert(0, str(S)); import critic_merge
-    assert critic_merge.scan_impact("python-parse") == "High"
+    assert got == [("WARN", "bad.py"), ("WARN", "open.py"), ("WARN", "py2.py"), ("WARN", "py2tabs.py"), ("WARN", "tmpl.py")], (got, r.stderr[-300:])  # never a FAIL: Python 2 with tabs and templates fail to parse too
 
 @test("5.3.1 P5 and P7: apply with no verdict files (or a verdicts/*.json pattern that matched nothing) records the run instead of refusing it, and critic_map.py --help shows help without running git or writing anything")
 def _(d):
     write(d, "app.py", "def average(numbers):\n    return sum(numbers) / len(numbers)\n")
     run(S / "critic_ledger.py", "start", "review", "--tier", "trivial", cwd=d)
-    row = {"title": "average() divides by zero on an empty list", "impact": "High", "category": "correctness", "file": "app.py", "line": 2, "quote": "return sum(numbers) / len(numbers)", "verified": "executed", "evidence": "ZeroDivisionError"}
+    row = {"title": "average() divides by zero on an empty list", "impact": "High", "category": "correctness", "file": "app.py", "line": 2, "quote": "return sum(numbers) / len(numbers)", "verified": "executed", "evidence": "ZeroDivisionError", "failing_case": "average([])"}
     _tally3(d, [row], [row], [])
     for args in ([], [".critic/verdicts/*.json"]):
         (d / ".critic/findings.jsonl").unlink(missing_ok=True)
         r = run(S / "critic_merge.py", "apply", *args, cwd=d)
         assert r.returncode == 0 and (d / ".critic/findings.jsonl").is_file(), (args, r.returncode, r.stderr[-400:])
+    T_ = json.loads((d / ".critic/tally.json").read_text(encoding="utf-8")); fid = (T_["kept"] + T_["contested"])[0]["id"]
+    write(d, ".critic/verdicts/v1.json", json.dumps([{"id": fid, "verdict": "confirmed", "reproduced": "executed", "evidence": "ZeroDivisionError"}]))
+    r = run(S / "critic_merge.py", "apply", ".critic/verdicts/*.json", cwd=d)
+    got = [json.loads(l) for l in (d / ".critic/findings.jsonl").read_text(encoding="utf-8").splitlines() if l.strip()]
+    assert r.returncode == 0 and [(x.get("verifier") != "missing", x.get("verifier_reproduced")) for x in got] == [(True, "executed")], ("a pattern left unexpanded (PowerShell, cmd) is expanded, so a verdict that exists is applied", got, r.stderr[-300:])
     e = d / "empty"; e.mkdir()
     h = run(S / "critic_map.py", "--help", cwd=e)
     assert h.returncode == 0 and "usage: critic_map.py" in h.stdout and not (e / ".critic").exists(), (h.stdout[:200], h.stderr[:200])

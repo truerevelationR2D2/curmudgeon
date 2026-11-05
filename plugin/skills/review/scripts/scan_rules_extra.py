@@ -79,8 +79,7 @@ def scan(rel, suffix, text, emit):
         try: scan_python.scan(rel, text, emit); parsed = True  # the parser-based checks replace the text patterns
         except SyntaxError as e:  # unparseable: say so, then fall back to the text patterns below (the Windows run report of 5 Nov 2026, P2)
             where = f"{rel}:{e.lineno}" if e.lineno else rel; ver = f"{sys.version_info[0]}.{sys.version_info[1]}"
-            if isinstance(e, IndentationError): emit("FAIL", "python-parse", "correctness", where, f"the file doesn't parse: {type(e).__name__}: {e.msg}; Python stops here before running any of it", (e.text or "").rstrip("\n"))
-            else: emit("WARN", "python-parse", "correctness", where, f"the file doesn't parse with Python {ver} ({e.msg}): a real error, or syntax newer than this Python reads", (e.text or "").rstrip("\n"))
+            emit("WARN", "python-parse", "correctness", where, f"the file doesn't parse with Python {ver} ({type(e).__name__}: {e.msg}): a real error that stops it running, or not Python 3 source (Python 2, a template, newer syntax, a deliberately broken fixture)", (e.text or "").rstrip("\n"))  # a WARN, never a FAIL: a valid Python 2 file with tabs or a Jinja template fails to parse too (blind round on 5.3.1)
         except (ValueError, RecursionError): pass  # a null byte or a nesting too deep to parse: the text patterns below still run
         if parsed and scan_tests.is_test_file(rel):
             guarded("scan_tests", scan_tests.scan, rel, emit, rel, text, emit)  # the tests-of-the-tests lens (SC-48)
