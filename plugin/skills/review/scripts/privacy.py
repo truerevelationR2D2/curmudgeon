@@ -38,6 +38,10 @@ def _me():
         from ctypes import wintypes
         k, a = ctypes.windll.kernel32, ctypes.windll.advapi32
         k.GetCurrentProcess.restype = wintypes.HANDLE
+        a.OpenProcessToken.argtypes = [wintypes.HANDLE, wintypes.DWORD, ctypes.POINTER(wintypes.HANDLE)]  # the process pseudo-handle is -1: without argtypes ctypes can't pass it
+        a.GetTokenInformation.argtypes = [wintypes.HANDLE, ctypes.c_int, ctypes.c_void_p, wintypes.DWORD, ctypes.POINTER(wintypes.DWORD)]
+        a.ConvertSidToStringSidW.argtypes = [ctypes.c_void_p, ctypes.POINTER(wintypes.LPWSTR)]
+        k.CloseHandle.argtypes = [wintypes.HANDLE]
         tok = wintypes.HANDLE()
         if not a.OpenProcessToken(k.GetCurrentProcess(), 0x0008, ctypes.byref(tok)): return None  # TOKEN_QUERY
         try:
@@ -51,7 +55,7 @@ def _me():
             try: return out.value
             finally: k.LocalFree(out)
         finally: k.CloseHandle(tok)
-    except (AttributeError, OSError, ImportError, ValueError): return None
+    except Exception: return None  # ctypes.ArgumentError too: Windows couldn't be asked, so the lock refuses
 
 def _owner(path):
     """The security id of a file's or folder's owner (GetNamedSecurityInfoW), or None when it can't be read. On Windows
@@ -61,13 +65,15 @@ def _owner(path):
         from ctypes import wintypes
         a, k = ctypes.windll.advapi32, ctypes.windll.kernel32
         psid, psd, out = ctypes.c_void_p(), ctypes.c_void_p(), wintypes.LPWSTR()
+        a.GetNamedSecurityInfoW.argtypes = [wintypes.LPCWSTR, ctypes.c_int, wintypes.DWORD, ctypes.POINTER(ctypes.c_void_p), ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p, ctypes.POINTER(ctypes.c_void_p)]
+        a.ConvertSidToStringSidW.argtypes = [ctypes.c_void_p, ctypes.POINTER(wintypes.LPWSTR)]
         if a.GetNamedSecurityInfoW(str(path), 1, 1, ctypes.byref(psid), None, None, None, ctypes.byref(psd)) != 0: return None  # SE_FILE_OBJECT, OWNER_SECURITY_INFORMATION
         try:
             if not a.ConvertSidToStringSidW(psid, ctypes.byref(out)): return None
             try: return out.value
             finally: k.LocalFree(out)
         finally: k.LocalFree(psd)
-    except (AttributeError, OSError, ImportError, ValueError): return None
+    except Exception: return None  # ctypes.ArgumentError too: Windows couldn't be asked, so the lock refuses
 
 SDDL_ALIASES = {"SY": "S-1-5-18", "WD": "S-1-1-0", "AU": "S-1-5-11", "BU": "S-1-5-32-545", "BA": "S-1-5-32-544", "BG": "S-1-5-32-546",
                 "PU": "S-1-5-32-547", "IU": "S-1-5-4", "NU": "S-1-5-2", "AN": "S-1-5-7", "LS": "S-1-5-19", "NS": "S-1-5-20", "CO": "S-1-3-0",
@@ -88,7 +94,7 @@ def _alias_sid(alias):
             try: return out.value
             finally: ctypes.windll.kernel32.LocalFree(out)
         finally: ctypes.windll.kernel32.LocalFree(psid)
-    except (AttributeError, OSError, ImportError, ValueError): return None
+    except Exception: return None  # ctypes.ArgumentError too: Windows couldn't be asked, so the lock refuses
 
 def _trustees(sddl):
     """(type, flags, security id) for every entry of an SDDL access list, aliases expanded (SY is SYSTEM): allow, deny,

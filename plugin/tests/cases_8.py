@@ -802,7 +802,7 @@ def _(d):
             "try:\n    import msvcrt as _real; m.__dict__.update({k: v for k, v in _real.__dict__.items() if not k.startswith('__')})\nexcept ImportError: pass\n"  # on real Windows, subprocess needs the rest of msvcrt
             "m.LK_LOCK, m.LK_UNLCK = 1, 0\n"
             "m.locking = lambda fd, mode, n: calls.append(mode)\nsys.modules['msvcrt'] = m\n"
-            f"sys.path.insert(0, {str(S)!r}); import browse\n"
+            f"sys.path.insert(0, {str(S)!r}); import privacy; privacy.make_private = lambda *a, **k: True; import browse\n"  # the lock isn't under test here; on macOS it runs chmod -N, and subprocess needs the fcntl this test hides
             "print(browse.live_count('http://t.test', add=2), browse.live_count('http://t.test', add=1), browse.live_count('http://t.test'), calls)\n")
     r = subprocess.run([sys.executable, "-c", prog], capture_output=True, text=True, cwd=d, env=dict(os.environ, CRITIC_ROOT=str(d)), encoding="utf-8")
     assert r.returncode == 0 and r.stdout.split()[:3] == ["2", "3", "3"] and "[1, 0, 1, 0]" in r.stdout, (r.stdout, r.stderr[-600:])
@@ -1810,7 +1810,7 @@ def _(d):
         finally: os.scandir = osc
         assert r is False and "could not be listed" in privacy.WHY, privacy.WHY
         os.environ.update({"USERNAME": "Users", "USERDOMAIN": "BUILTIN"}); calls.clear(); sp.run = _icacls_fake(calls, "D:PAI(A;OICI;FA;;;SY)")
-        assert privacy.make_private(x, windows=True) and calls[0][4] == "*S-1-5-21-1:(OI)(CI)F" and not any("Users" in z for c in calls for z in c), ("the account comes from the token, never USERNAME", calls[0])
+        assert privacy.make_private(x, windows=True) and calls[0][4] == "*S-1-5-21-1:(OI)(CI)F" and not any("Users" in z for c in calls for z in c), ("the account comes from the token, never USERNAME", privacy.WHY, calls[:1])
     finally: sp.run = orig; undo()
 
 @test("Qodo on #30 (2): the browser's private folder gets its .gitignore even when the first lock fails, and the Windows-only checks still run when a script test fails")
