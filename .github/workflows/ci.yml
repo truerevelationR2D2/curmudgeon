@@ -74,6 +74,7 @@ jobs:
           done
           out=$(powershell.exe -NoProfile -Command 'python3 probe.py; if (-not $?) { python probe.py }' 2>&1 | tr -d '\r' | head -n1); echo "::notice title=PowerShell 5.1, python3 then python::${out:-no output}"
       - name: Windows checks
+        if: ${{ !cancelled() }}  # runs and reports even when the script tests fail; the job still fails (Qodo on #30)
         shell: bash
         run: |
           set +e; python plugin/tests/windows_checks.py 2>&1 | tee win.out; status=${PIPESTATUS[0]}

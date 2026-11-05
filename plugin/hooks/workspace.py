@@ -217,10 +217,10 @@ def make(root, agent_id):
     h.mkdir(parents=True, exist_ok=True)
     try: (h / "workspace.json").unlink()  # an earlier start's record goes first, so a failed lock can't leave the old copy in use (Qodo on #29)
     except FileNotFoundError: pass
-    if not _privacy().make_private(h): raise OSError(f"{h} could not be made private ({_privacy().WHY})")  # no copy in a folder others can read (Qodo on #28)
     payload = h / "payload"; notes = h / "notes"
     if payload.is_symlink(): payload.unlink()
-    elif payload.exists(): shutil.rmtree(payload, ignore_errors=True)
+    elif payload.exists(): rmtree(payload)  # the old copy goes before the lock: its dependency links never reach icacls (Qodo on #30)
+    if not _privacy().make_private(h): raise OSError(f"{h} could not be made private ({_privacy().WHY})")  # no copy in a folder others can read (Qodo on #28)
     payload.mkdir(); notes.mkdir(exist_ok=True)
     (h / ".git").write_text("gitdir: .git-none-curmudgeon-agent\n", encoding="utf-8")  # git run from notes/ (or here) stops here, never reaching the project's repository
     rec = {"payload": str(payload.resolve()), "notes": str(notes.resolve()), "root": str(root), "made_at": time.time(), "building": True}
