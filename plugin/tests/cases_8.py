@@ -1810,7 +1810,7 @@ def _(d):
         finally: os.scandir = osc
         assert r is False and "could not be listed" in privacy.WHY, privacy.WHY
         os.environ.update({"USERNAME": "Users", "USERDOMAIN": "BUILTIN"}); calls.clear(); sp.run = _icacls_fake(calls, "D:PAI(A;OICI;FA;;;SY)")
-        assert privacy.make_private(x, windows=True) and calls[0][4] == "*S-1-5-21-1:(OI)(CI)F" and not any("Users" in z for c in calls for z in c), ("the account comes from the token, never USERNAME", privacy.WHY, calls[:1])
+        assert privacy.make_private(x, windows=True) and calls[0][4] == "*S-1-5-21-1:(OI)(CI)F" and not any("BUILTIN" in z or z.startswith("Users") for c in calls for z in c), ("the account comes from the token, never USERNAME", privacy.WHY, calls[:1])
     finally: sp.run = orig; undo()
 
 @test("Qodo on #30 (2): the browser's private folder gets its .gitignore even when the first lock fails, and the Windows-only checks still run when a script test fails")
