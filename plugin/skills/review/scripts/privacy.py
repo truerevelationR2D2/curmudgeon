@@ -188,7 +188,7 @@ def make_private(path, windows=None):
         saved = _saved(ok, [os.path.join(p, "*"), "/T"])
         if isinstance(saved, str): return no(saved)
         for where, ents in saved:
-            why = bad(ents, where)
+            why = bad(ents, where) or (None if any(k in ALLOW and s in ("S-1-5-18", me) for k, _fl, s in ents) else f"{where} has no grant for you or SYSTEM after the lock")
             if why: return no(why)
         if len(saved) < len(kids): return no(f"icacls read back {len(saved)} of the {len(kids)} entries inside the folder")
         other = next((k for k in kids if _owner(k) != me), None)
@@ -207,9 +207,11 @@ def _posix(path, no):
     if sys.platform == "darwin":
         import subprocess
         try:
-            subprocess.run(["/bin/chmod", "-RN", str(path)], capture_output=True, timeout=120)  # every extended entry, inherited ones on the contents too
-            ls = subprocess.run(["/bin/ls", "-lde", str(path)], capture_output=True, timeout=60).stdout.decode("utf-8", "replace")
+            rn = subprocess.run(["/bin/chmod", "-RN", str(path)], capture_output=True, timeout=120)  # every extended entry, inherited ones on the contents too
+            ls = subprocess.run(["/bin/ls", "-lde", str(path)], capture_output=True, timeout=60)
         except (OSError, subprocess.SubprocessError): return no("its macOS access entries could not be checked")
+        if rn.returncode != 0 or ls.returncode != 0 or not ls.stdout.strip(): return no(f"its macOS access entries could not be removed or listed (chmod -N {rn.returncode}, ls -le {ls.returncode})")  # an empty or failed listing proves nothing (Qodo on #31)
+        ls = ls.stdout.decode("utf-8", "replace")
         if re.search(r"(?m)^\s*\d+: ", ls): return no("macOS access entries still grant access after chmod -N")
     try: st = os.stat(path, follow_symlinks=False)
     except OSError: return no("it could not be read back")
@@ -255,6 +257,8 @@ def _saved(ok, target):
     if not lines or len(lines) % 2: return "the saved access list is not in pairs of a name and its entries"
     out = []
     for name, sddl in zip(lines[0::2], lines[1::2]):
+        if "D:" not in sddl or re.search(r"D:[A-Z]*NO_ACCESS_CONTROL", sddl):
+            return f"{name} has no access list (a null DACL lets every account in)"  # Qodo on #31
         got = _trustees(sddl)
         if got is None: return f"the saved access list has an entry the lock can't read: {sddl[:200]}"
         out.append((name, got))
