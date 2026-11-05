@@ -1885,3 +1885,29 @@ def _(d):
         q = d / "q"; (q / ".critic").mkdir(parents=True); (d / "other").mkdir(); _winapi.CreateJunction(str(d / "other"), str(q / ".critic/scratch"))
         assert wsm.home_for(q, "r1") is None, "a junction at .critic/scratch is a link"
         os.rmdir(q / ".critic/scratch")
+
+@test("Qodo on #31: on macOS a failed chmod -N or ls -le refuses the lock (an empty listing proves nothing), and a saved access list with no D: part or NO_ACCESS_CONTROL (a null DACL: everyone in) refuses it on Windows")
+def _(d):
+    import privacy, subprocess as sp
+    x = d / "x"; x.mkdir(); orig, plat = sp.run, sys.platform
+    try:
+        sys.platform = "darwin"
+        for rcs in ((1, 0), (0, 1), (0, None)):
+            def fake(a, rcs=rcs, **k):
+                rc = rcs[0] if "-RN" in a else (rcs[1] or 0)
+                return sp.CompletedProcess(a, rc, b"" if rcs[1] is None and "-lde" in a else b"drwx------  2 me  staff  64 x\n", b"")
+            sp.run = fake
+            assert not privacy.make_private(x, windows=False) and "macOS" in privacy.WHY, (rcs, privacy.WHY)
+    finally: sp.run = orig; sys.platform = plat
+    undo = _win_env()
+    try:
+        (x / "a.txt").write_text("a", encoding="utf-8")
+        for null in ("D:NO_ACCESS_CONTROL", "D:PNO_ACCESS_CONTROL", "O:S-1-5-21-1"):
+            fk = _icacls_fake([], "D:PAI(A;OICI;FA;;;SY)")
+            def child(a, null=null, **k):
+                r = fk(a)
+                if "/save" in a and a[1].endswith("*"): pathlib.Path(a[a.index("/save") + 1]).write_text(f"a.txt\r\n{null}\r\n", encoding="utf-16")
+                return r
+            sp.run = child
+            assert not privacy.make_private(x, windows=True) and "null DACL" in privacy.WHY, (null, privacy.WHY)
+    finally: sp.run = orig; undo()

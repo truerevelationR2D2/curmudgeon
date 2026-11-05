@@ -4,6 +4,8 @@ Every release of Curmudgeon, newest first. The repository's history starts at 4.
 
 ## Unreleased: native Windows and macOS (03 §5.57 item 20)
 
+**Qodo on #31:** on macOS, a failed `chmod -N` or `ls -le`, or an empty listing, now refuses the lock instead of passing it. On Windows, an entry whose saved access list has no `D:` part or says `NO_ACCESS_CONTROL` (a null DACL, which lets every account in) refuses it, and every entry inside must keep a grant for the user or SYSTEM.
+
 **Private folders, redesigned after Qodo's review of #30 and a blind review round** (03 §5.57 item 26). Earlier rounds fixed one finding at a time and tested against a stand-in for `icacls`. This one changes the lock as a whole. Three blind reviewers then read the redesign, and every point that at least two of them raised is fixed here. The lock reports success only after reading the result back:
 - **Who "you" are:** on Windows this comes from the process's own token, never from `USERNAME`/`USERDOMAIN`, which a project's code could set to `Users`.
 - **Links inside:** a folder holding a link, junction or hard link is refused before anything runs, so neither a reset nor Windows' own inheritance can reach a file elsewhere. A folder that can't be listed is refused with its reason.
