@@ -1167,7 +1167,7 @@ def _(d):
     out = run(S / "critic_ledger.py", "tokens", cwd=d).stdout
     assert "| reviewer | 1 | 2 | 6 | 1,000 | 1,000 | 700 |" in out and "verifier | 1 (1 unavailable)" in out, out
     hooks = json.loads((H / "hooks.json").read_text(encoding="utf-8"))["hooks"]
-    n_hooks = sum(len(g["hooks"]) for groups in hooks.values() for g in groups)
+    n_hooks = len({(ev, re.search(r"hooks/(\w+\.py)", hook_cmd(h)).group(1)) for ev, groups in hooks.items() for g in groups for h in g["hooks"]})  # each hook once, however many interpreters list it
     readme = (HERE / "README.md").read_text(encoding="utf-8"); block = readme.split("- **Hooks:**", 1)[1].split("\n## ", 1)[0]
     assert len([l for l in block.splitlines() if l.startswith("  - ")]) == n_hooks, f"the README lists a different number of hooks than hooks.json registers ({n_hooks})"
 

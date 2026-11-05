@@ -6,6 +6,7 @@ rows repeat while it streams, so each request counts once, at its largest values
 and when the host gives no transcript the cost is reported as unavailable, never guessed."""
 import json, os, pathlib, sys, time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import pyfind  # the one copy of this hook that should run here goes on; the others end (03 §5.57 item 29)
 import utf8io  # UTF-8 output on Windows too (03 §5.57 item 20)
 import workspace
 

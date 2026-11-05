@@ -837,7 +837,7 @@ def _(d):
     other = run(H / "guard_state.py", cwd=p, stdin=json.dumps(dict(ev, hook_event_name="PreToolUse", tool_input={"file_path": str(notes), "content": "print(2)\n"}))).stdout
     assert "deny" not in other, other
     cfg = json.loads((H / "hooks.json").read_text(encoding="utf-8"))["hooks"]["PostToolUse"]
-    assert any("scan_on_write" in h["hooks"][0]["command"] and "NotebookEdit" in h["matcher"].split("|") for h in cfg), cfg
+    assert any("scan_on_write" in hook_cmd(h["hooks"][0]) and "NotebookEdit" in h["matcher"].split("|") for h in cfg), cfg
 
 @test("audit Q16, Q01, V27 and Q17: the reviewers' guard expands the command's own variables, refuses inline code naming .critic, expands a Glob's braces and never cuts a Glob off silently")
 def _(d):
@@ -1564,7 +1564,7 @@ def _(d):
     lead = run(H / "read_guard.py", cwd=p, stdin=json.dumps({"tool_name": "PowerShell", "tool_input": {"command": "Get-ChildItem"}, "cwd": str(p)}))
     assert "deny" not in lead.stdout, "the lead's own PowerShell commands are left alone"
     cfg = json.loads((H / "hooks.json").read_text(encoding="utf-8"))["hooks"]["PreToolUse"]
-    m = next(h["matcher"] for h in cfg if any("pre_tool" in x["command"] for x in h["hooks"])).split("|")
+    m = next(h["matcher"] for h in cfg if any("pre_tool" in hook_cmd(x) for x in h["hooks"])).split("|")
     assert "PowerShell" in m and "Monitor" in m, m
 
 @test("platforms: a hook reads Claude Code's input as UTF-8 even where Python's default is cp1252, so a project under a folder named Zoë or Ásgeir is still guarded; output from outside programs is decoded without crashing")
@@ -1911,3 +1911,52 @@ def _(d):
             sp.run = child
             assert not privacy.make_private(x, windows=True) and "null DACL" in privacy.WHY, (null, privacy.WHY)
     finally: sp.run = orig; undo()
+
+@test("5.3.1 P1 (the Windows run report of 5 Nov 2026): every hook runs in exec form under py, python and python3, exactly one copy does its work on each system, and a Write or read guard that can't start never blocks the user's work")
+def _(d):
+    import shutil
+    sys.path.insert(0, str(H)); import pyfind
+    hooks = json.loads((H / "hooks.json").read_text(encoding="utf-8"))["hooks"]
+    seen = {}
+    for ev, groups in hooks.items():
+        for g in groups:
+            for h in g["hooks"]:
+                assert "args" in h and h["command"] in ("py", "python", "python3"), ("exec form with a bare interpreter, no shell", ev, h)
+                script = next(a for a in h["args"] if a.endswith(".py")); via = next(a for a in h["args"] if a.startswith("--via="))
+                assert via == f"--via={h['command']}" and script.startswith("${CLAUDE_PLUGIN_ROOT}/hooks/"), h
+                seen.setdefault((ev, script), set()).add(h["command"])
+                if ev == "PreToolUse": assert h.get("onFailure") == "continue", ("a guard that can't start lets the call go ahead", h)
+    assert seen and all(v == {"py", "python", "python3"} for v in seen.values()), seen
+    for nt, have, want in ((True, {"py", "python"}, ["py"]), (True, {"python", "python3"}, ["python"]), (False, {"python3"}, ["python3"]), (False, {"python"}, ["python"]), (False, {"python", "python3", "py"}, ["python3"])):
+        got = [v for v in ("py", "python", "python3") if v in have and pyfind.chosen(v, nt=nt, which=lambda n: n in have or None)]  # a copy whose interpreter is missing never starts
+        assert got == want, (nt, have, got)
+    for name in ("check_contract.py", "guard_state.py", "pre_tool.py", "scratch_dir.py", "stop_gate.py"):
+        for via in ("py", "python", "python3"):
+            r = subprocess.run([sys.executable, str(H / name), f"--via={via}"], input='{"tool_name": "Write", "tool_input": {"file_path": "x"}, "cwd": ' + json.dumps(str(d)) + '}',
+                               capture_output=True, text=True, encoding="utf-8", cwd=d, timeout=60)
+            if not pyfind.chosen(via): assert r.returncode == 0 and not r.stdout.strip(), (name, via, r.returncode, r.stdout[:200])
+            else: assert r.returncode in (0, 2) and "Traceback" not in r.stderr, (name, via, r.stderr[-400:])
+
+@test("5.3.1 P2: a Python file that doesn't parse is reported (an indentation error is a FAIL, kept as High; any other syntax error is a WARN, since it may be syntax newer than the Python running the scan), and a file that parses gets no such row")
+def _(d):
+    write(d, "bad.py", "    def f():\n  return 1\n"); write(d, "open.py", "x = (1,\n"); write(d, "py2.py", 'print "hello"\n'); write(d, "good.py", "def f():\n    return 1\n")
+    r = run(S / "critic_scan.py", ".", "--root", str(d), cwd=d)
+    rows = [x for x in json.loads((d / ".critic/scan/report.json").read_text(encoding="utf-8"))["findings"] if x["rule"] == "python-parse"]
+    got = sorted((x["sev"], x["where"].split(":")[0]) for x in rows)
+    assert got == [("FAIL", "bad.py"), ("WARN", "open.py"), ("WARN", "py2.py")], (got, r.stderr[-300:])
+    sys.path.insert(0, str(S)); import critic_merge
+    assert critic_merge.scan_impact("python-parse") == "High"
+
+@test("5.3.1 P5 and P7: apply with no verdict files (or a verdicts/*.json pattern that matched nothing) records the run instead of refusing it, and critic_map.py --help shows help without running git or writing anything")
+def _(d):
+    write(d, "app.py", "def average(numbers):\n    return sum(numbers) / len(numbers)\n")
+    run(S / "critic_ledger.py", "start", "review", "--tier", "trivial", cwd=d)
+    row = {"title": "average() divides by zero on an empty list", "impact": "High", "category": "correctness", "file": "app.py", "line": 2, "quote": "return sum(numbers) / len(numbers)", "verified": "executed", "evidence": "ZeroDivisionError"}
+    _tally3(d, [row], [row], [])
+    for args in ([], [".critic/verdicts/*.json"]):
+        (d / ".critic/findings.jsonl").unlink(missing_ok=True)
+        r = run(S / "critic_merge.py", "apply", *args, cwd=d)
+        assert r.returncode == 0 and (d / ".critic/findings.jsonl").is_file(), (args, r.returncode, r.stderr[-400:])
+    e = d / "empty"; e.mkdir()
+    h = run(S / "critic_map.py", "--help", cwd=e)
+    assert h.returncode == 0 and "usage: critic_map.py" in h.stdout and not (e / ".critic").exists(), (h.stdout[:200], h.stderr[:200])

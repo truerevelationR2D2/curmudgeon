@@ -2,6 +2,16 @@
 
 Every release of Curmudgeon, newest first. The repository's history starts at 4.2.1; earlier versions are summarised from the project's own build and review records. Numbers are the ones measured at the time; the README's Benchmarks section has the current ones and how they were measured.
 
+## 5.3.1 (unreleased): fixes from the first Windows run (03 §5.57 item 29)
+
+Ryan's Windows run on 5 November 2026 found 15 problems, on the 4.2.1 copy then installed. Four were still in 5.3.0. Each has a test that fails on the code before it:
+- **P1, hooks on Windows:** every hook ran as the shell string `python3 "…"`. On Windows without Git Bash, or where `python3` is the Microsoft Store placeholder, the file-write guard couldn't start, and Claude Code treated that as a block, so every file write in every project was refused. Each hook is now listed three times in exec form (no shell): `py -3`, `python` and `python3`. A small module, `hooks/pyfind.py`, lets only the copy that fits the system do any work: `py` on Windows, `python` where neither of the others exists, `python3` on macOS and Linux. The PreToolUse hooks are marked `onFailure: "continue"`, so a guard that can't start never blocks the user's own work (03 §5.57 item 29 replaces item 22's "the hooks keep `python3`"). The review skill says to use `py -3` on Windows when `python3` isn't there.
+- **P2, unparseable Python:** the scan reported "pass" on a file that doesn't parse. An indentation error is now a FAIL (`python-parse`, kept as High). Any other syntax error is a WARN, because it may be syntax newer than the Python running the scan.
+- **P5, apply with nothing to apply:** `critic_merge.py apply`, with no verdict files or with a `verdicts/*.json` pattern that matched nothing, now records the run instead of refusing it.
+- **P7, help with side effects:** `critic_map.py --help` showed nothing helpful and ran git first. It now prints its help and does nothing else.
+- **Already fixed in 5.3.0:** P3 and P4 (UTF-8 output on Windows), P6 (the "confidence lowered" note), P12 (the approve skill is gone) and P14 (reviewers work in a private copy without `.critic/`).
+- **Backlog [PROPOSED]:** P8 (exit codes in the run log), P10 (abort, and per-round archives), P11 (amending a recorded decision) and P15 (whether the outside-reviewer answer carries over to a restarted run).
+
 ## 5.3.0 (5 November 2026)
 
 Everything merged after 5.2.6 (pull requests #17 to #28 and #30 to #32; #15, #16 and #29 were closed and their changes carried into later ones): native Windows and macOS support with Windows and macOS failures failing CI, private folders locked and read back on every platform, the reviewers' guard on Windows paths, audit batches 3 to 6, and Qodo's rounds on #15 to #31. Budgets (`claude plugin details`, 5 November 2026, each version installed from its own tag or branch): about 864 tokens added to every session, unchanged from 5.2.6; the review skill about 8.5k when it runs, down from about 8.8k in 5.2.6 because the optional modules moved out of it (batch 6). The sections below are each change as it landed, newest first.

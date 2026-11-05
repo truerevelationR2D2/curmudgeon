@@ -2,7 +2,7 @@
 """PreToolUse guard: Curmudgeon's records may only change through its scripts, never by a direct file edit. This is
 a tripwire against an agent "fixing" its own score, not a lock: shell commands are not intercepted.
 Only active in projects that have a .critic/ folder. Fails open (allows) on any error."""
-import os as _os, sys as _sys; _sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__))); import utf8io  # UTF-8 output on Windows too (03 §5.57 item 20)
+import os as _os, sys as _sys; _sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__))); import pyfind; import utf8io  # UTF-8 output on Windows too (03 §5.57 item 20)
 import json, os, pathlib, re, sys
 
 PROTECTED = {"ledger.json", "tally-reviews.json", "ledger.md", "decisions.md", "gate", "gate-count", "gate-async", "findings.jsonl", "findings.sarif", "tally.json", "counts.md", "async-shown.json", "refutations.jsonl", "runlog.jsonl", "spotcheck.md"}

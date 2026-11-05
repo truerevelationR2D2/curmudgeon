@@ -8,7 +8,7 @@ usage (from the project root, or set CRITIC_ROOT):
                                             --outside adds an outside reviewer's findings (critic_outside.py load): one
                                             extra vote where it agrees with ours, and every finding only it raised is
                                             sent to blind verification, whatever its impact
-  critic_merge.py apply VERDICT_FILE...     the blind verifiers' verdicts
+  critic_merge.py apply [VERDICT_FILE...]   the blind verifiers' verdicts (none: nothing was verified)
 
 Deduplication: two reviewers rarely word the same issue alike, and word overlap can't tell "same issue" from "another
 issue in the same file". So tally also writes .critic/dedup-candidates.json: every finding not already merged, listed by file
@@ -172,7 +172,7 @@ IMP_RANK = {k: i for i, k in enumerate(IMPACTS + (NIT,))}  # a verifier may lowe
 
 # A scripted FAIL's impact by rule (it used to be High for every rule). A live credential is Critical; code that runs
 # input, or a page that throws, is High; an accessibility or layout failure is Medium unless it locks people out.
-SCAN_IMPACT = {"eval": "High", "py-eval": "High", "console-error": "High", "click-error": "High", "not-focusable": "High",
+SCAN_IMPACT = {"eval": "High", "py-eval": "High", "python-parse": "High", "console-error": "High", "click-error": "High", "not-focusable": "High",
                "no-focus-style": "Medium", "focus-obscured": "Medium", "zoom-off": "Medium", "html-nested-interactive": "Medium", "sideways": "Medium",
                "test-const-assert": "Medium", "test-duplicate-name": "Medium",
                "ci-pwn-request": "Critical", "ci-if-always-true": "Medium", "agent-literal-credential": "Critical"}  # a test that can't fail hides bugs; it isn't one itself
@@ -715,6 +715,6 @@ if __name__ == "__main__":
     refuse_linked_state(ROOT)
     log_run(ROOT, "script", "critic_merge.py " + " ".join(a))
     if a[0] == "tally" and len(a) > 1: sys.exit(tally(a[1:]))
-    if a[0] == "apply" and len(a) > 1: sys.exit(apply(a[1:]))
+    if a[0] == "apply": sys.exit(apply([p for p in a[1:] if not (any(c in p for c in "*?[") and not pathlib.Path(p).exists())]))  # a pattern the shell left unexpanded (.critic/verdicts/*.json with no verdicts) is no file  # no verdict files: nothing was verified (a tier that verifies nothing, or nothing contested), and findings that needed a verdict are marked missing (the Windows run report of 5 Nov 2026, P5)
     if a[0] == "show": sys.exit(show())
-    die("usage: tally REVIEW... | apply VERDICT... | show")
+    die("usage: tally REVIEW... | apply [VERDICT...] | show")

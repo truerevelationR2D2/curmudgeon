@@ -8,6 +8,7 @@ copies a verdict (§5.56; guard_state.py keeps both folders from direct edits).
 Never blocks twice in a row (stop_hook_active), and never blocks other agents. Fails open on errors, with a message."""
 import json, os, pathlib, re, sys, time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import pyfind  # the one copy of this hook that should run here goes on; the others end (03 §5.57 item 29)
 import utf8io  # UTF-8 output on Windows too (03 §5.57 item 20)
 import workspace  # this folder's helper: project root, agent workspaces
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent / "skills" / "review" / "scripts"))

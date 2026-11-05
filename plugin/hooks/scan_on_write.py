@@ -9,6 +9,7 @@ Active in projects where Curmudgeon has run (a .critic/ledger.json exists), unti
 last review's report is never overwritten. Fails open and silent: a broken scan never stops the user's work."""
 import hashlib, json, os, pathlib, subprocess, sys, tempfile
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import pyfind  # the one copy of this hook that should run here goes on; the others end (03 §5.57 item 29)
 import utf8io  # UTF-8 output on Windows too (03 §5.57 item 20)
 import workspace
 

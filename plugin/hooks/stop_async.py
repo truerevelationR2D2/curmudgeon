@@ -7,6 +7,7 @@ and the whole check, one scan per 200 changed files (every changed file, never o
 seconds; the next stop starts with the part it had no time for."""
 import hashlib, json, os, pathlib, subprocess, sys, time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import pyfind  # the one copy of this hook that should run here goes on; the others end (03 §5.57 item 29)
 import utf8io  # UTF-8 output on Windows too (03 §5.57 item 20)
 import workspace
 DEADLINE = 300  # seconds for the whole check, well inside the 600 s the hook declares

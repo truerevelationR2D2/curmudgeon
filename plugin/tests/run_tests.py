@@ -22,6 +22,10 @@ def _git_bash_form(stdin):
         return json.dumps(ev)
     return stdin
 
+def hook_cmd(h):
+    """A hook as one string, exec form (command plus args) or shell form alike."""
+    return " ".join([h.get("command", "")] + list(h.get("args", [])))
+
 def run(script, *a, cwd, stdin=None, env=None):
     if os.name == "nt" and stdin and pathlib.Path(str(script)).name in ("read_guard.py", "pre_tool.py"): stdin = _git_bash_form(stdin)
     e = dict(os.environ, CRITIC_ROOT=str(cwd), TMPDIR=TMP, CURMUDGEON_FEED_DIR=os.path.join(TMP, "no-feed"), CURMUDGEON_STATE_DIR=os.path.join(TMP, "state")); e.update(env or {})  # a user's own feed or state never changes a test

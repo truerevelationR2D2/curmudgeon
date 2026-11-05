@@ -6,6 +6,7 @@ can't reach the other reviews or the scan. The read guard (read_guard.py) enforc
 start: when no copy can be made, the agent is told that Bash is off for it and it reviews by reading."""
 import json, os, pathlib, re, shlex, sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import pyfind  # the one copy of this hook that should run here goes on; the others end (03 §5.57 item 29)
 import utf8io  # UTF-8 output on Windows too (03 §5.57 item 20)
 import workspace
 
