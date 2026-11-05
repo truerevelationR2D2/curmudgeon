@@ -91,8 +91,9 @@ _LOCKED = set()
 
 def _private():
     d = ROOT / ".critic" / "private"
-    if d.is_symlink() or (d.exists() and not d.is_dir()): sys.exit("browse: .critic/private is not a plain folder; refusing")
     import privacy
+    for x in (d.parent, d):  # .critic too: a committed link there would put the key in a folder elsewhere (blind round)
+        if (x.exists() or x.is_symlink()) and (privacy._is_link(x) or not x.is_dir()): sys.exit(f"browse: {x.relative_to(ROOT).as_posix()} is not a plain folder; refusing")
     d.mkdir(parents=True, exist_ok=True)
     g = d / ".gitignore"
     if not g.is_symlink() and not g.exists():  # before the lock, so a failed lock still leaves the folder ignored by git (Qodo on #30)

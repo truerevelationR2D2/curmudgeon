@@ -4,14 +4,15 @@ Every release of Curmudgeon, newest first. The repository's history starts at 4.
 
 ## Unreleased: native Windows and macOS (03 §5.57 item 20)
 
-**The Windows lock, redesigned after Qodo's review of #30** (03 §5.57 item 26). Earlier rounds fixed one finding at a time and tested against a stand-in for `icacls`; this one changes the lock as a whole and adds tests on real Windows access lists:
-- The folder is walked before its contents are reset. With no link or junction inside, one recursive reset runs; with one, each ordinary folder's own entries are reset one level at a time, so `icacls` never goes through a junction to files elsewhere. A folder that can't be listed refuses the lock with its reason instead of crashing.
-- Every deny entry is removed, the user's and SYSTEM's too, along with every other account's grant.
-- The access list is read back before the lock reports success: only allow entries for the user and SYSTEM may remain, and the user's must be there.
-- The browser's private folder gets its `.gitignore` before the lock, so a failed first lock no longer leaves a folder git would commit.
-- A reviewer's old copy is deleted before its folder is locked.
-- The Windows-only checks run even when a script test fails; the job still fails.
-- A native Windows test makes a real junction to an outside folder and real deny entries, and checks that the outside folder keeps its permissions and only the user and SYSTEM keep access.
+**Private folders, redesigned after Qodo's review of #30 and a blind review round** (03 §5.57 item 26). Earlier rounds fixed one finding at a time and tested against a stand-in for `icacls`. This one changes the lock as a whole. Three blind reviewers then read the redesign, and every point that at least two of them raised is fixed here. The lock reports success only after reading the result back:
+- **Who "you" are:** on Windows this comes from the process's own token, never from `USERNAME`/`USERDOMAIN`, which a project's code could set to `Users`.
+- **Links inside:** a folder holding a link, junction or hard link is refused before anything runs, so neither a reset nor Windows' own inheritance can reach a file elsewhere. A folder that can't be listed is refused with its reason.
+- **Order:** the folder is granted to you and made yours, then every other account's grant and every deny (yours and SYSTEM's included) are removed and the folder is read back. Only then do the contents inherit from it. They are reset without `/C`, so `icacls` fails on the first entry it can't change. They are made yours, and every entry is read back.
+- **POSIX:** the mode is read back with `os.stat`, so a file system that ignores `chmod` (WSL's `/mnt/c` without `metadata`, FAT, many network shares) refuses the lock. On macOS every extended access entry is removed with `chmod -N`, and `ls -le` must show none.
+- **Callers:** the browser refuses a `.critic` that is a link. A junction at `.critic` or `.critic/scratch` is treated as a link. The browser's private folder gets its `.gitignore` before the lock. A reviewer's old copy is deleted before its folder is locked.
+- **CI:** the Windows-only checks run even when a script test fails.
+- **Tests on real machines:** on Windows, a junction to an outside folder (refused, outside untouched), existing denies and grants, a file with its own Everyone grant, and owners. On macOS, an inherited `staff` access entry.
+- **Not changed** (each raised by only one reviewer, or out of scope): a link swapped in while the lock runs, by another program with write access to the folder.
 
 **Windows and macOS failures fail CI** (03 §5.57 item 24): every platform passed on b52d73f. Of 423 tests, Windows passed 410 and skipped 13 (each with its reason), macOS and WSL2 each passed 412 and skipped 11, and Linux passed on Python 3.9–3.14. The Windows script tests and the macOS job no longer may fail without failing the run; blocking a merge on them also needs a required-check rule in the repository's settings, and a test keeps it so. WSL2 joins after five green runs in a row. The Windows test harness rewrote `C:\` paths into `C:/` by turning every backslash into a slash, code's doubled escapes (`\\u002e`) too, so one guard test checked a plain path and passed only by chance on Windows (it failed in 3 of 6 Windows runs, and 2 of 12 repeats in one run); it now rewrites single separators only, and a test keeps it so. The README's Windows limit is rewritten: the tests pass, a full Claude Code session on native Windows hasn't yet been checked by hand, and the hooks need `python3` itself on PATH.
 

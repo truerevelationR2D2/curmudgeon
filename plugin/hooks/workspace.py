@@ -104,8 +104,17 @@ def home_for(root, agent_id):
     """This agent's folder, or None when it can't be made safely (a planted link on the way)."""
     root = pathlib.Path(root); c = root / ".critic"
     agent_id = clean_id(agent_id)
-    if not agent_id or c.is_symlink() or (c / "scratch").is_symlink() or (c / "scratch" / agent_id).is_symlink(): return None
+    if not agent_id or any(linked(x) for x in (c, c / "scratch", c / "scratch" / agent_id)): return None
     return c / "scratch" / agent_id
+
+def linked(p):
+    """A symbolic link or a Windows junction (Path.is_symlink() misses junctions), never a missing path: a junction at
+    .critic or .critic/scratch would send the copy's deletion and the lock to a folder elsewhere (blind round)."""
+    try: st = os.lstat(p)
+    except FileNotFoundError: return False
+    except OSError: return True
+    import stat
+    return stat.S_ISLNK(st.st_mode) or bool(getattr(st, "st_file_attributes", 0) & 0x400) or bool(getattr(os.path, "isjunction", lambda _: False)(p))  # 0x400: FILE_ATTRIBUTE_REPARSE_POINT
 
 def record(root, agent_id):
     """The raw record (ready or still building), or None. For cleanup and start times."""
