@@ -1286,6 +1286,10 @@ def _(d):
 
 # ---- Qodo on #22 ----
 
+def workspace_rec(p):  # what the guard reads, shown when a guard test fails
+    try: return (p / ".critic/scratch/r1/workspace.json").read_text(encoding="utf-8")
+    except OSError as e: return repr(e)
+
 def _q22_proj(d):
     p = d / "proj"; write(p, "src/app.js", "x\n"); write(p, ".critic/reviews/review-B.json", '[{"title": "SECRET-B"}]')
     run(H / "scratch_dir.py", cwd=p, stdin=json.dumps({"agent_type": "curmudgeon:curmudgeon-reviewer", "agent_id": "r1", "cwd": str(p)}))
@@ -1630,7 +1634,8 @@ def _(d):
     finally: privacy.make_private = om
     p, ws = _q22_proj(d); own = str(pathlib.Path(ws).parent)
     assert not _guard(p, p, "Bash", command=f"cd {ws} && python3 -c \"open(r'{own}\\\\notes\\\\out.txt', 'w').write('x')\""), "a Windows separator is not an escape"
-    assert _guard(p, p, "Bash", command=f"cd {ws} && python3 -c \"print(open('{own}/notes/\\\\u002e\\\\u002e/\\\\056\\\\056/x').read())\""), "unicode and octal escapes"
+    cmd_ = f"cd {ws} && python3 -c \"print(open('{own}/notes/\\\\u002e\\\\u002e/\\\\056\\\\056/x').read())\""
+    assert _guard(p, p, "Bash", command=cmd_), ("unicode and octal escapes", cmd_, os.path.realpath(own), workspace_rec(p))
 
 @test("Qodo on #29: the Windows lock never follows a link, grants the user before anything else, asks Windows for System32, and removes every other account by security id read from icacls /save (no names: a foreign SYSTEM, a translated SYSTEM, a path Windows prints as ?), refusing an alias it doesn't know")
 def _(d):
