@@ -4,7 +4,7 @@ Every release of Curmudgeon, newest first. The repository's history starts at 4.
 
 ## 5.3.0 (5 November 2026)
 
-Everything merged after 5.2.6 (pull requests #17 to #28 and #30 to #32; #15, #16 and #29 were closed and their changes carried into later ones): native Windows and macOS support with Windows and macOS failures failing CI, private folders locked and read back on every platform, the reviewers' guard on Windows paths, audit batches 3 to 6, and Qodo's rounds on #15 to #31. Budgets: about 864 tokens added to every session and about 8.5k for the review skill when it runs (`claude plugin details`, 5 November 2026), both unchanged from 5.2.6. The sections below are each change as it landed, newest first.
+Everything merged after 5.2.6 (pull requests #17 to #28 and #30 to #32; #15, #16 and #29 were closed and their changes carried into later ones): native Windows and macOS support with Windows and macOS failures failing CI, private folders locked and read back on every platform, the reviewers' guard on Windows paths, audit batches 3 to 6, and Qodo's rounds on #15 to #31. Budgets (`claude plugin details`, 5 November 2026, each version installed from its own tag or branch): about 864 tokens added to every session, unchanged from 5.2.6; the review skill about 8.5k when it runs, down from about 8.8k in 5.2.6 because the optional modules moved out of it (batch 6). The sections below are each change as it landed, newest first.
 
 ### native Windows and macOS (03 §5.57 item 20)
 
