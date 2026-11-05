@@ -1716,3 +1716,12 @@ def _(d):
     ci = (HERE.parent / ".github/workflows/ci.yml").read_text(encoding="utf-8")
     jobs = {m.group(1): m.group(2) for m in re.finditer(r"(?ms)^  ([a-z0-9]+):\n(.*?)(?=^  [a-z0-9]+:\n|\Z)", ci)}
     assert "continue-on-error" not in jobs["windows"].split("steps:")[0], "the Windows job itself isn't allowed to fail"
+
+@test("platforms: the escape check on the agent's own folder holds on every try, not just most (a Windows run refused it twice in a row, then passed)")
+def _(d):
+    misses = []
+    for i in range(12 if os.name == "nt" else 3):
+        di = d / f"t{i}"; di.mkdir(); p, ws = _q22_proj(di); own = str(pathlib.Path(ws).parent)
+        cmd_ = f"cd {ws} && python3 -c \"print(open('{own}/notes/\\\\u002e\\\\u002e/\\\\056\\\\056/x').read())\""
+        if not _guard(p, p, "Bash", command=cmd_): misses.append((i, own, os.path.realpath(own), str(p), os.path.realpath(str(p))))
+    assert not misses, misses[:2]
