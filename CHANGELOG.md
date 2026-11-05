@@ -2,7 +2,11 @@
 
 Every release of Curmudgeon, newest first. The repository's history starts at 4.2.1; earlier versions are summarised from the project's own build and review records. Numbers are the ones measured at the time; the README's Benchmarks section has the current ones and how they were measured.
 
-## Unreleased: native Windows and macOS (03 §5.57 item 20)
+## 5.3.0 (5 November 2026)
+
+Everything merged after 5.2.6 (pull requests #17 to #28 and #30 to #32; #15, #16 and #29 were closed and their changes carried into later ones): native Windows and macOS support with Windows and macOS failures failing CI, private folders locked and read back on every platform, the reviewers' guard on Windows paths, audit batches 3 to 6, and Qodo's rounds on #15 to #31. Budgets (`claude plugin details`, 5 November 2026, each version installed from its own tag or branch): about 864 tokens added to every session, unchanged from 5.2.6; the review skill about 8.5k when it runs, down from about 8.8k in 5.2.6 because the optional modules moved out of it (batch 6). The sections below are each change as it landed, newest first.
+
+### native Windows and macOS (03 §5.57 item 20)
 
 **Qodo on #31:** on macOS, a failed `chmod -N` or `ls -le`, or an empty listing, now refuses the lock instead of passing it. On Windows, an entry whose saved access list has no `D:` part or says `NO_ACCESS_CONTROL` (a null DACL, which lets every account in) refuses it, and every entry inside must keep a grant for the user or SYSTEM.
 
@@ -88,19 +92,19 @@ Every release of Curmudgeon, newest first. The repository's history starts at 4.
   - The 0700 check on restore copies runs only where POSIX modes exist. On native Windows, the folder's ACL decides who can read them.
 - **WSL2 in CI.** A job runs the script tests, golden and replays in Ubuntu 24.04 on WSL2 (`Vampire/setup-wsl` v7.2.0, pinned by commit). It isn't a required check until it has passed five runs in a row.
 
-## Unreleased: Qodo on #25
+### Qodo on #25
 
 Four findings. Each has a test that fails on the code before it (`plugin/tests/cases_8.py`, "Qodo on #22" tests (1) and (6)).
 - **Reviewers' guard:** a listing is refused only when its own starting argument is built from character codes or escapes, or names a value that holds the root at that point. An unrelated `chr(65)` elsewhere in the code no longer refuses a listing of the copy. Names are followed in order, statement by statement, so `start = root; start = 'src'; os.walk(start)` runs. `r = chr(47); os.walk(r)` is refused.
 - **Test lens:** a nested `TestCase`'s `test_*`, `setUp` and `__call__` count only when the test hands it to a runner (`loadTestsFromTestCase`, `TestSuite`, `TextTestRunner`, `.run()` and the like). A `TestCase` that is built but never run checks nothing. A nested class's `__init__` counts when the test calls the class.
 
-## Unreleased: Qodo on #24
+### Qodo on #24
 
 Four findings, plus the run-time root from #23 under the owner's ruling that a bypass found in the code is patched (03 §5.57 item 18). Each comes with a test that fails on the code before it (`plugin/tests/cases_8.py`, "Qodo on #22" tests (1) and (6)).
 - **Reviewers' guard:** inline code that lists folders from a path built out of character codes or escapes (`chr(47)`, `String.fromCharCode(47)`, `'\x2f'`, base64, hex) is refused. The guard checks this on the command's raw text, because its words lose their backslashes before they are split. A name that holds the root through an alias (`root = '/'; start = root; os.walk(start)`) is followed.
 - **Test lens:** a nested class's methods count as checks only when its base class names a framework that calls them: `do_GET` for a request handler, `test_a` for a `TestCase` handed to a runner, `get` for a view, `run` for a thread. Any other class's methods count only when the test names them, so an unused `get()` is no check. A method under `if False:` doesn't exist, so it doesn't count.
 
-## Unreleased: Qodo on #23
+### Qodo on #23
 
 Five of six findings fixed, each with a test that fails on the code before it (`plugin/tests/cases_8.py`, "Qodo on #22" tests (1), (2), (5) and (6)).
 - **Reviewers' guard:** `ack -f DIR` lists files and takes no pattern. The #22 fixes had read DIR as the pattern and left it unjudged; it is judged again.
@@ -110,7 +114,7 @@ Five of six findings fixed, each with a test that fails on the code before it (`
 
 Finding 1 (`os.walk(chr(47))`) was first left as a known limit (03 §5.57 item 17), then patched under item 18; see Qodo on #24.
 
-## Unreleased: Qodo on #22
+### Qodo on #22
 
 Seven findings, each with a test that fails on the code before it (`plugin/tests/cases_8.py`, "Qodo on #22").
 - **Reviewers' Bash guard, inline code (High).** Code run by an interpreter (`python3 -c`, a heredoc fed to python, `node -e`) could walk the disk from `/` and build the name `.critic` as it ran (`'.cri' + 'tic'`), so neither the name nor a path above the copy showed. The lone `/` in a heredoc is blanked for the shell's words (audit V22), and the old check needed the name written out. Now code that lists or searches folders from the root, the home folder or an absolute wildcard is refused, and so is code that writes out a folder at or above the project. Splitting or joining on `/`, and walking the copy's own folders, still run. The guard is still a tripwire, not a sandbox: a script written to `notes/` and then run is not read (listed below under batch 5).
@@ -131,11 +135,11 @@ Two blind reviewers checked these fixes, one on the guard and one on the rest, e
 
 Not re-reviewed: these follow-up fixes. A `'/*'` word in a heredoc body is still judged as a path, as before; use `-c` for a probe that counts it.
 
-## Unreleased: audit batch 6 (optional modules)
+### audit batch 6 (optional modules)
 
 Ruled in 03 §5.57.5 and confirmed on 3 Nov 2026 as in-plugin modules, not a companion plugin. Browser checks, live sites, mutation testing and the local security database each have their own instructions file under `plugin/skills/review/references/modules/`, which the review skill reads only on a run that uses that feature. The text was moved, with a few sentences added from the code (which controls count as destructive, the request cap per run, the mutation backups); the consent steps keep their wording, and the scripts still refuse a live host, a real send or an unapproved test command without the owner's record. The background stop check was already the gate skill's. The README has an "Optional modules" table. The review skill's cost when it runs fell from about 8.8k to about 8.5k tokens (`claude plugin details`); the always-on cost is unchanged at about 864. A smoke eval of the skill change is still to run [PROPOSED], since moving instructions can change what the lead does.
 
-## Unreleased: audit batch 5 (Mediums, Lows and Nits)
+### audit batch 5 (Mediums, Lows and Nits)
 
 **After the blind review (3 reviewers, round 1).** They found that several of the guard's new exemptions let a reviewer read `.critic/` again, and each of their cases is now a test. Nothing at or after a redirect is text (`tr a a < FILE`). Separators are per command (`paste -s` and `column -t` are flags). `grep -e.`, `-f`, `--file=`, `rg --files` and `ag -g` leave every operand judged. A here-string, a `<<` inside quotes, a heredoc with no terminator, and a body fed to a shell or `xargs` are judged word for word; only a body read by a script interpreter or written to a file has its lone slashes blanked. Variables are judged with every value the command gave them (prefix assignments, `for` loops, `${X%%...}`, `typeset`, `+=`). `/proc` paths are normalised, so `/proc/self/../1` and `//proc/1` are refused and `/proc/cpuinfo` is allowed. A Glob with 64 or more alternatives, or over 5,000 matches, is refused whenever its pattern can reach `.critic/`. Inline code naming `.critic` is refused only when it can leave the copy.
 **Round 2 (3 reviewers).** They found gaps the round-1 fixes left or opened, and each executed case is now a test. `/proc/*/cmdline`, `/proc/[0-9]*` and climbs to `/proc` are refused after expansion. A variable is judged with its last values first. `${Y:-path}`, `${X:+path}`, `${X/a/b}`, arrays, `set --`, `read`, `printf -v`, `declare -x`, `Y=$X`, Bash braces and `$'..'` are expanded before judging. A heredoc piped on to another command is judged word for word. `cat <<EOF > f`, `tee f <<EOF` and probes opened with `timeout` or `VAR=` keep their division. `grep -T` and `ag -t` take no value, and `ack -g` keeps its operands judged. Inline code naming `.critic` that climbs by API (`parents`, `pardir`, an absolute glob) is refused. A Glob that hides a climb or an absolute path inside its braces is refused past 64 alternatives. A prompt holding several briefs is refused, and briefs are claimed under a lock, so parallel starts can't share one. A nested ledger is copied with its rulings only. A grouped tally must count exactly the reviews of the tally that listed the candidates. A base64 secret with inner slashes is found. `blogger` is no logger. The docs now say that `--online` and `--project-checks` are outside the module table and that local sends need consent only.
@@ -181,7 +185,7 @@ Batch 5 of the ultimate audit of 30 Oct 2026 (03 §5.57). Each fix has a test th
   - No test leaves a file in the system's temporary folder.
   - Rescoring the 5.2.4 archive with these changes gives the same numbers.
 
-## Unreleased: audit batch 4 (documents and the benchmark scorer)
+### audit batch 4 (documents and the benchmark scorer)
 
 Batch 4 of the ultimate audit of 30 Oct 2026 (03 §5.57). The two scorer and number fixes have tests that fail on the code before them (`plugin/tests/cases_8.py`); the rest are document fixes.
 - **The benchmark splitter (V18).** The death match's free-form splitter now keeps a numbered finding's flush bullets with it and ends a list at the prose after it. The old splitter cut the code-review plugin's findings so that the claim and the location landed in different blocks. Rescored with the archived replies: the plugin as it runs found 48 planted bugs, not 34, and its judged findings fell from 130 to 85, because one finding no longer counts as several bullets. Labels moved to the new block numbers wherever the text was already labelled. Two blind labellers labelled the 7 blocks left over and agreed on all 7. The scores before are kept, and so are the labels as first given. The plain-Claude arms were rescored too (89, 102 and 165 of 245). The older death matches can't be rescored, because their replies weren't kept, and the README says so.
@@ -192,13 +196,13 @@ Batch 4 of the ultimate audit of 30 Oct 2026 (03 §5.57). The two scorer and num
 - **What is git-ignored (V04).** PRIVACY.md and the README now say exactly which parts of `.critic/` are ignored. The findings, the teardown, the ledger and the scan's screenshots are not.
 - **Smaller fixes.** Curmudgeon never offers to install Playwright (V11). Only controls that look destructive are simulated in the scan, so the README says so instead of promising that "even a link-style delete never reaches" a running app (V15). CONTRIBUTING points new tests to the highest-numbered part (V21). SECURITY.md gives the right manifest path (V16).
 
-## Unreleased: Qodo on #21
+### Qodo on #21
 
 Two findings, each with a test that fails on the code before it (`plugin/tests/cases_8.py`).
 - A background scan whose report says a check didn't run (degraded), or can't be read, is recorded as failed and retried. Whatever it did find still counts.
 - "Disclosure of sensitive data" (and of personal, customer or credential data) is a security phrase; a disclosure widget still isn't.
 
-## Unreleased: Qodo on #20
+### Qodo on #20
 
 Six findings (one High), each with a test that fails on the code before it (`plugin/tests/cases_8.py`).
 - A stamped file deleted before any review is saved now blocks the gate (High).
@@ -208,7 +212,7 @@ Six findings (one High), each with a test that fails on the code before it (`plu
 - A change that both edits and deletes scans the deletion's callers as well as the edited files.
 - "Disclosure widget" and "data isolation" in tests are not security terms; "information disclosure", "unauthorized disclosure" and "customer isolation" are.
 
-## Unreleased: Qodo on #19
+### Qodo on #19
 
 Five findings, each with a test that fails on the code before it (`plugin/tests/cases_8.py`).
 - The gate's suggested `stamp --add` command quotes each deleted path, so a file name is never shell syntax to copy.
@@ -217,7 +221,7 @@ Five findings, each with a test that fails on the code before it (`plugin/tests/
 - A relative import must resolve to the deleted file's exact path; only non-relative imports may leave out a source root. A same-named module elsewhere no longer joins a deletion's callers.
 - A deletion nothing calls reports the static check as not applicable, not as blocked, so the review isn't marked as degraded.
 
-## Unreleased: the next collected round (Qodo on #18)
+### the next collected round (Qodo on #18)
 
 Six findings, each with a test that fails on the code before it (`plugin/tests/cases_8.py`).
 - A deletion's time is only a best guess (a file created beside it after the review looks the same as a deletion after the review). So when the last review did cover a deletion, stamp the deleted path (`critic_ledger.py stamp --add src/auth.py`) and the gate stops asking; its message says so.
@@ -227,7 +231,7 @@ Six findings, each with a test that fails on the code before it (`plugin/tests/c
 - A bare "tenant" in a title no longer makes a finding a security one; phrases such as "cross-tenant" and "tenant isolation" still do.
 - A deleted file whose first line is longer than the brief's limit (minified code) shows that line's masked start, not "no removed lines".
 
-## Unreleased: the collected round after batches 2 and 3 (Qodo on #15, #16 and #17, and the batch 3 review)
+### the collected round after batches 2 and 3 (Qodo on #15, #16 and #17, and the batch 3 review)
 
 Twenty findings, gathered and fixed together as ruled (03 §5.57.7). Each fix has a test that fails on the code before it (`plugin/tests/cases_8.py`).
 - **Deletions in a review (Qodo on #17).** A deleted file's removed lines reach the brief with secrets masked, each line behind a bar so no removed line can close a fence or start a heading. They count toward the tier. A function moved to another file no longer lists its new callers as broken. A finding at a caller the deletion broke counts as introduced, not as already there. A deletion-only run scans the callers instead of reusing an earlier run's file list.
@@ -249,7 +253,7 @@ Twenty findings, gathered and fixed together as ruled (03 §5.57.7). Each fix ha
   - The background check orders files by a per-file record of what it has scanned, so a new edit never sends it back to the start, and a part that ran out of time goes after the files not reached yet. Its walk outside git stops after 500,000 entries, which bounds the hook's time; files beyond that in walk order are not seen.
   - The adopt code is 32 characters (128 bits), and the gate checks each folder for a nested checkout once.
 
-## Unreleased: fixes from the full audit, batch 3 of 5 (the stop gates and the change map)
+### fixes from the full audit, batch 3 of 5 (the stop gates and the change map)
 
 Each fix has a test that fails on the code before it (`plugin/tests/cases_8.py`).
 - Deleting a file the last review stamped now counts as an edit, so the stop gate asks for a review, alongside any other edit, so a new edit always starts a new batch; a review saved after the deletion covers it, and `stamp --add` drops deleted files (audit O1).
@@ -261,7 +265,7 @@ Each fix has a test that fails on the code before it (`plugin/tests/cases_8.py`)
 - The change map counts deleted files: their names and removed lines are sized and checked for sensitive words, so deleting `auth.py` with a one-line README edit is no longer trivial. The deleted file's callers join the blast radius, and the reviewers' brief shows its removed lines and who still refers to it (audit V30).
 - A changed file with a space or a quote in its name gets its hunks and touched text, and a new one is marked new (audit F-a9c4ecf9).
 
-## Unreleased: fixes from the full audit, batch 2 of 5 (the browser integrity lens)
+### fixes from the full audit, batch 2 of 5 (the browser integrity lens)
 
 Each fix has a test that fails on 5.2.6 (`plugin/tests/cases_8.py`), and the lens fixture (`eval/lens12.json`) gains three plants, a clean-twin page and three decoy pages: 13 of 13 found, 0 wrong rows, nothing on the decoys or the clean twin (5.2.6 on the same fixture: 7 of 13 found, 5 wrong rows on the decoys and 5 on the clean twin).
 - A page that names a new site as its own (canonical, `og:url`) no longer makes that site's forms, scripts and links count as unchanged. The recorded copy keeps the sites each page said it was, and a page that now claims another one fails `integrity-changed` (audit F-9c12cea5, High).
@@ -272,7 +276,7 @@ Each fix has a test that fails on 5.2.6 (`plugin/tests/cases_8.py`), and the len
 
 **After upgrading:** run `critic_scan.py . --integrity-record` again on a version you trust. A copy recorded before this change has no own-site list and isn't noted as yours, so it is ignored until you record it again.
 
-## Unreleased: fixes from Qodo's review of PR #14
+### fixes from Qodo's review of PR #14
 
 Qodo reviewed the batch 1 pull request and raised three Mediums and one Low. Each was checked against the code, and all four are fixed, each with a test that fails on 5.2.6 (`plugin/tests/cases_7.py`).
 - Taking a Critical or a High below High now needs what refuting it would: an executed run for a Critical, and the attacker, the gain and a listed reason for a security finding (03 §5.57.8). Before, a trace was enough to lower a Critical to Low and lift its BLOCK, on less evidence than a refutation needs.
@@ -280,7 +284,7 @@ Qodo reviewed the batch 1 pull request and raised three Mediums and one Low. Eac
 - When the owner's gate record can't be checked, the stop gate and the background check stay off and say why. Before, an error there fell through to the project's own marker, which a repository can commit.
 - The variant hunt prints the same verifier batches as `critic_run.py next`, giving each Critical variant its own verifier in the full tier. Both now use one shared `verifier_batches`.
 
-## 5.2.6 (unreleased): fixes from the full audit, batch 1 of 5
+## 5.2.6 (3 November 2026): fixes from the full audit, batch 1 of 5
 
 The full audit of 5.2.5 (six blind lenses, Curmudgeon's own full-tier review, three outside reviewers and mutation testing) confirmed 89 findings: 5 High, 27 Medium, 51 Low, 5 Nit. Batch 1 fixes the trust and evidence rules. Each fix has a test that fails on 5.2.5 (`plugin/tests/cases_7.py`).
 
