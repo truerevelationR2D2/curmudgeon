@@ -1717,7 +1717,7 @@ def _(d):
     jobs = {m.group(1): m.group(2) for m in re.finditer(r"(?ms)^  ([a-z0-9]+):\n(.*?)(?=^  [a-z0-9]+:\n|\Z)", ci)}
     assert "continue-on-error" not in jobs["windows"].split("steps:")[0], "the Windows job itself isn't allowed to fail"
 
-@test("platforms: the escape check on the agent's own folder holds on every try, not just most (a Windows run refused it twice in a row, then passed)")
+@test("platforms: the escape check on the agent's own folder holds on every try (on Windows the test harness once turned the escapes into slashes, and the check then held only by chance)")
 def _(d):
     misses = []
     for i in range(12 if os.name == "nt" else 3):
@@ -1725,3 +1725,9 @@ def _(d):
         cmd_ = f"cd {ws} && python3 -c \"print(open('{own}/notes/\\\\u002e\\\\u002e/\\\\056\\\\056/x').read())\""
         if not _guard(p, p, "Bash", command=cmd_): misses.append((i, own, os.path.realpath(own), str(p), os.path.realpath(str(p))))
     assert not misses, misses[:2]
+
+@test("platforms: the Windows test harness turns C:\\ separators into C:/ but keeps code's doubled escapes (\\\\u002e), so the escape check is tested on escapes, not on a plain path")
+def _(d):
+    c = "cd C:\\U\\r1\\payload && python3 -c \"print(open('C:\\U\\r1/notes/\\\\u002e\\\\u002e/\\\\056/x').read())\""
+    out = json.loads(_git_bash_form(json.dumps({"tool_input": {"command": c}})))["tool_input"]["command"]
+    assert out == "cd C:/U/r1/payload && python3 -c \"print(open('C:/U/r1/notes/\\\\u002e\\\\u002e/\\\\056/x').read())\"", out

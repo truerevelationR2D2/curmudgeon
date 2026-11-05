@@ -18,7 +18,7 @@ def _git_bash_form(stdin):
     except ValueError: return stdin
     c = (ev.get("tool_input") or {}).get("command")
     if isinstance(c, str):
-        ev["tool_input"]["command"] = re.sub(r"[A-Za-z]:\\[^\s'\";&|<>()]*", lambda m: m.group(0).replace("\\", "/"), c)
+        ev["tool_input"]["command"] = re.sub(r"[A-Za-z]:\\[^\s'\";&|<>()]*", lambda m: re.sub(r"(?<!\\)\\(?!\\)", "/", m.group(0)), c)  # single separators only: a doubled \\ is code's escape (\\u002e) and stays, or the test checks a plain path instead
         return json.dumps(ev)
     return stdin
 
