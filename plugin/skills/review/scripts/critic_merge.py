@@ -720,7 +720,11 @@ if __name__ == "__main__":
         paths = []
         for p in a[1:]:
             if pathlib.Path(p).exists() or not any(c in p for c in "*?["): paths.append(p)  # a real file, or a missing one, which load_review refuses loudly
-            else: paths += sorted(_glob.glob(p))  # a pattern the shell left as written (PowerShell and cmd never expand it): its matches, or nothing (blind round on 5.3.1)
+            else:  # a pattern the shell left as written (PowerShell and cmd never expand one, and bash leaves one that matches nothing)
+                hits = sorted(_glob.glob(p))
+                if not hits and pathlib.Path(p).parent.resolve() not in ((D / "verdicts").resolve(), (D / "verdicts-variants").resolve()):
+                    die(f"{p} matches no file; verdicts are in {D / 'verdicts'}")  # a wrong folder or a typo is refused, never read as "nothing was verified" (blind round on 5.3.1)
+                paths += hits
         sys.exit(apply(paths))  # no verdict files: nothing was verified (a tier that verifies nothing, or nothing contested), and findings that needed a verdict are marked missing (the Windows run report of 5 Nov 2026, P5)
     if a[0] == "show": sys.exit(show())
     die("usage: tally REVIEW... | apply [VERDICT...] | show")

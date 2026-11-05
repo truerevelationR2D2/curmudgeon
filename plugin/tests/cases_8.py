@@ -1933,8 +1933,8 @@ def _(d):
     data = d / "data"; data.mkdir()
     if os.name == "nt": shdir = os.path.dirname(sh)  # Git's usr/bin holds no Python; sh.exe needs its own folder's DLLs
     else:
-        only = d / "only"; only.mkdir()  # sh and basename alone, so no real Python on the system is found by accident
-        for tname in ("sh", "basename"): os.symlink(shutil.which(tname), only / tname)
+        only = d / "only"; only.mkdir()  # sh and the two tools run.sh uses, so no real Python on the system is found by accident
+        for tname in ("sh", "basename", "cat"): os.symlink(shutil.which(tname), only / tname)  # what run.sh uses besides Python
         shdir = str(only)
     env = dict(os.environ, PATH=f"{fake}{os.pathsep}{shdir}", CLAUDE_PLUGIN_DATA=str(data))
     go = lambda stdin, **k: subprocess.run([sh, str(H / "run.sh"), str(hook)], input=stdin, capture_output=True, text=True, encoding="utf-8", env=dict(env, **k), timeout=60)
@@ -1944,6 +1944,15 @@ def _(d):
     assert go("block").returncode == 2, "the hook's own exit code (2 blocks) comes through"
     (data / "python").write_text("rm -rf /\n", encoding="utf-8")
     assert go("hello").stdout.strip() == "ran 5", "a cache holding anything but one of the three names is ignored"
+    (data / "python").write_text("python3\n", encoding="utf-8")  # kept earlier, now the placeholder
+    r = go("hello again")
+    assert r.returncode == 0 and r.stdout.strip() == "ran 11" and (data / "python").read_text(encoding="utf-8").strip() == "python", ("a kept interpreter that stopped working is replaced, and the hook still runs on the same input", r.returncode, r.stdout, r.stderr)
+    r = subprocess.run([sh, str(H / "run.sh"), str(d / "gone.py")], input="x", capture_output=True, text=True, encoding="utf-8", env=env, timeout=60)
+    assert r.returncode == 1 and "missing" in r.stderr, ("a missing hook never exits 2, which would block", r.returncode, r.stderr)
+    if os.name != "nt":
+        (data / "python").unlink(); (d / "target.txt").write_text("keep", encoding="utf-8"); os.symlink(d / "target.txt", data / "python")
+        assert go("hello").stdout.strip() == "ran 5" and (d / "target.txt").read_text(encoding="utf-8") == "keep", "a linked cache file is neither read nor written through"
+        (data / "python").unlink()
     (fake / "python").unlink()
     r = go("hello")
     assert r.returncode == 1 and "no Python 3.9 or later found" in r.stderr, ("nothing works: said, and not a block", r.returncode, r.stderr)
@@ -1975,6 +1984,8 @@ def _(d):
     r = run(S / "critic_merge.py", "apply", ".critic/verdicts/*.json", cwd=d)
     got = [json.loads(l) for l in (d / ".critic/findings.jsonl").read_text(encoding="utf-8").splitlines() if l.strip()]
     assert r.returncode == 0 and [(x.get("verifier") != "missing", x.get("verifier_reproduced")) for x in got] == [(True, "executed")], ("a pattern left unexpanded (PowerShell, cmd) is expanded, so a verdict that exists is applied", got, r.stderr[-300:])
+    r = run(S / "critic_merge.py", "apply", "critic/verdict-*.json", cwd=d)
+    assert r.returncode != 0 and "matches no file" in (r.stdout + r.stderr), ("a pattern in the wrong folder is refused, never read as nothing verified", r.returncode, r.stderr[-300:])
     e = d / "empty"; e.mkdir()
     h = run(S / "critic_map.py", "--help", cwd=e)
     assert h.returncode == 0 and "usage: critic_map.py" in h.stdout and not (e / ".critic").exists(), (h.stdout[:200], h.stderr[:200])
