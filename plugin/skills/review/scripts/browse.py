@@ -91,15 +91,16 @@ _LOCKED = set()
 
 def _private():
     d = ROOT / ".critic" / "private"
-    if d.is_symlink() or (d.exists() and not d.is_dir()): sys.exit("browse: .critic/private is not a plain folder; refusing")
     import privacy
-    fresh = not d.exists()
-    if fresh: d.mkdir(parents=True)
+    for x in (d.parent, d):  # .critic too: a committed link there would put the key in a folder elsewhere (blind round)
+        if (x.exists() or x.is_symlink()) and (privacy._is_link(x) or not x.is_dir()): sys.exit(f"browse: {x.relative_to(ROOT).as_posix()} is not a plain folder; refusing")
+    d.mkdir(parents=True, exist_ok=True)
+    g = d / ".gitignore"
+    if not g.is_symlink() and not g.exists():  # before the lock, so a failed lock still leaves the folder ignored by git (Qodo on #30)
+        g.write_text("# Curmudgeon's private signing key and request ledger. Never commit.\n*\n", encoding="utf-8")
     if str(d) not in _LOCKED:  # a folder made before Windows locking existed is locked too, once per run (Qodo on #28)
         if not privacy.make_private(d): sys.exit("browse: .critic/private could not be made private to you (its permissions could not be set); the signing key is not written there" + (f" ({privacy.WHY})" if privacy.WHY else ""))
         _LOCKED.add(str(d))
-    if fresh:
-        (d / ".gitignore").write_text("# Curmudgeon's private signing key and request ledger. Never commit.\n*\n", encoding="utf-8")
     return d
 
 def _key():

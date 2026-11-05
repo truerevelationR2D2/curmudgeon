@@ -802,7 +802,7 @@ def _(d):
             "try:\n    import msvcrt as _real; m.__dict__.update({k: v for k, v in _real.__dict__.items() if not k.startswith('__')})\nexcept ImportError: pass\n"  # on real Windows, subprocess needs the rest of msvcrt
             "m.LK_LOCK, m.LK_UNLCK = 1, 0\n"
             "m.locking = lambda fd, mode, n: calls.append(mode)\nsys.modules['msvcrt'] = m\n"
-            f"sys.path.insert(0, {str(S)!r}); import browse\n"
+            f"sys.path.insert(0, {str(S)!r}); import privacy; privacy.make_private = lambda *a, **k: True; import browse\n"  # the lock isn't under test here; on macOS it runs chmod -N, and subprocess needs the fcntl this test hides
             "print(browse.live_count('http://t.test', add=2), browse.live_count('http://t.test', add=1), browse.live_count('http://t.test'), calls)\n")
     r = subprocess.run([sys.executable, "-c", prog], capture_output=True, text=True, cwd=d, env=dict(os.environ, CRITIC_ROOT=str(d)), encoding="utf-8")
     assert r.returncode == 0 and r.stdout.split()[:3] == ["2", "3", "3"] and "[1, 0, 1, 0]" in r.stdout, (r.stdout, r.stderr[-600:])
@@ -1409,14 +1409,42 @@ def _(d):
 
 # ---- Native Windows and macOS (03 §5.57 item 20) ----
 
-def _icacls_fake(calls, sddl, rc=0):
-    """A stand-in for icacls: records each call and writes `sddl` (UTF-16, as icacls does) for /save."""
+def _icacls_fake(calls, sddl, rc=0, me="S-1-5-21-1"):
+    """A stand-in for icacls: records each call, writes the current access list (UTF-16, as icacls does) for /save,
+    adds the user's grant (security id `me`) on /grant:r, and drops an entry when /remove:g (a grant) or /remove:d
+    (a deny) names its security id, as icacls would."""
     import subprocess as sp
+    head, ents = sddl.split("(", 1)[0], _aces(sddl)
     def fake(a, **k):
         calls.append(a)
-        if "/save" in a: pathlib.Path(a[a.index("/save") + 1]).write_text(f"x\r\n{sddl}\r\n", encoding="utf-16")
+        if "/grant:r" in a and not any(_ace_sid(e) == me and e[1:].split(";")[0] == "A" for e in ents): ents.append(f"(A;OICI;FA;;;{me})")
+        for flag, kinds in (("/remove:g", ("A", "OA", "XA", "ZA")), ("/remove:d", ("D", "OD", "XD"))):
+            if flag in a:
+                sid = a[a.index(flag) + 1].lstrip("*")
+                ents[:] = [e for e in ents if not (e[1:].split(";")[0] in kinds and _ace_sid(e) == sid)]
+        if "/save" in a and a[1].endswith("*") and "/T" in a:  # the contents: each entry inherits the folder's
+            top = a[1][:-2]; inh = f"D:AI(A;ID;FA;;;SY)(A;ID;FA;;;{me})"
+            pairs = [f"{os.path.relpath(os.path.join(r, n), top)}\r\n{inh}" for r, ds, fs in os.walk(top) for n in ds + fs]
+            pathlib.Path(a[a.index("/save") + 1]).write_text("\r\n".join(pairs) + "\r\n", encoding="utf-16")
+        elif "/save" in a: pathlib.Path(a[a.index("/save") + 1]).write_text(f"x\r\n{head}{''.join(ents)}\r\n", encoding="utf-16")
         return sp.CompletedProcess(a, rc, b"", b"")
     return fake
+
+def _aces(sddl):
+    """The top-level (...) entries of an SDDL access list, nested conditions kept whole."""
+    out, depth, cur = [], 0, ""
+    for ch in sddl[sddl.find("("):] if "(" in sddl else "":
+        if depth or ch == "(": cur += ch
+        depth += ch == "("; depth -= ch == ")"
+        if not depth and cur: out.append(cur); cur = ""
+    return out
+
+def _ace_sid(e):
+    import privacy
+    s = e[1:-1].split(";", 6)[5]
+    return s if s.startswith("S-") else privacy.SDDL_ALIASES.get(s, s)
+
+_sids = lambda got: None if got is None else [e[-1] for e in got]
 
 
 def _enc_misses(paths):
@@ -1579,10 +1607,10 @@ def _(d):
     import privacy, subprocess as sp
     calls = []; orig = sp.run; sp.run = _icacls_fake(calls, "D:PAI(A;OICI;FA;;;SY)")
     try:
-        old = dict(os.environ); os.environ["USERNAME"] = "ryan"; os.environ["USERDOMAIN"] = "BOX"; osd = privacy._system_dir; privacy._system_dir = lambda: "C:\\Windows\\System32"; osid = privacy._sid; privacy._sid = lambda n: "S-1-5-21-1"
+        old = dict(os.environ); os.environ["USERNAME"] = "ryan"; os.environ["USERDOMAIN"] = "BOX"; osd = privacy._system_dir; privacy._system_dir = lambda: "C:\\Windows\\System32"; osid = (privacy._me, privacy._owner); privacy._me = lambda: "S-1-5-21-1"; privacy._owner = lambda p: "S-1-5-21-1"
         (d / "x").mkdir(); assert privacy.make_private(d / "x", windows=True)
-    finally: sp.run = orig; os.environ.clear(); os.environ.update(old); privacy._system_dir = osd; privacy._sid = osid
-    assert calls and calls[0][0].endswith("icacls.exe") and "/inheritance:r" in calls[0] and any("BOX\\ryan:(OI)(CI)F" == a for a in calls[0]), calls  # the grant comes first (Qodo on #29)
+    finally: sp.run = orig; os.environ.clear(); os.environ.update(old); privacy._system_dir = osd; privacy._me, privacy._owner = osid
+    assert calls and calls[0][0].endswith("icacls.exe") and "/inheritance:r" in calls[0] and any("*S-1-5-21-1:(OI)(CI)F" == a for a in calls[0]), calls  # the grant comes first (Qodo on #29)
     (d / "y").mkdir(); privacy.make_private(d / "y", windows=False)
     if os.name != "nt": assert oct((d / "y").stat().st_mode & 0o777) == "0o700"  # POSIX modes exist only off Windows
     R = HERE.parent; bare = []
@@ -1610,12 +1638,12 @@ def _(d):
     calls = []; rc = [0]; orig = sp.run; fk = _icacls_fake(calls, "D:PAI(A;OICI;FA;;;SY)"); sp.run = lambda a, **k: fk(a) if rc[0] == 0 else (calls.append(a) or sp.CompletedProcess(a, rc[0], b"", b""))
     old = dict(os.environ)
     try:
-        os.environ.update({"USERNAME": "ryan", "USERDOMAIN": "BOX"}); osd_ = privacy._system_dir; privacy._system_dir = lambda: "C:\\Windows\\System32"; osid_ = privacy._sid; privacy._sid = lambda n: "S-1-5-21-1"
+        os.environ.update({"USERNAME": "ryan", "USERDOMAIN": "BOX"}); osd_ = privacy._system_dir; privacy._system_dir = lambda: "C:\\Windows\\System32"; osid_ = (privacy._me, privacy._owner); privacy._me = lambda: "S-1-5-21-1"; privacy._owner = lambda p: "S-1-5-21-1"
         (d / "x").mkdir(); assert privacy.make_private(d / "x", windows=True)
         exe = calls[0][0]; assert exe != "icacls" and exe.endswith("icacls.exe") and exe.startswith("C:\\Windows\\System32"), calls
-        assert any("BOX\\ryan:(OI)(CI)F" in c for c in calls[0]) and "/inheritance:r" in calls[0], calls  # existing grants: see Qodo on #29
+        assert any("*S-1-5-21-1:(OI)(CI)F" in c for c in calls[0]) and "/inheritance:r" in calls[0], calls  # existing grants: see Qodo on #29
         rc[0] = 1; assert not privacy.make_private(d / "x", windows=True), "a failed icacls is a failure"
-    finally: sp.run = orig; os.environ.clear(); os.environ.update(old); privacy._system_dir = osd_; privacy._sid = osid_
+    finally: sp.run = orig; os.environ.clear(); os.environ.update(old); privacy._system_dir = osd_; privacy._me, privacy._owner = osid_
     och = os.chmod
     try:
         os.chmod = lambda *a, **k: (_ for _ in ()).throw(PermissionError("no"))
@@ -1640,11 +1668,11 @@ def _(d):
 @test("Qodo on #29: the Windows lock never follows a link, grants the user before anything else, asks Windows for System32, and removes every other account by security id read from icacls /save (no names: a foreign SYSTEM, a translated SYSTEM, a path Windows prints as ?), refusing an alias it doesn't know")
 def _(d):
     import privacy, subprocess as sp
-    orig, osd, osid = sp.run, privacy._system_dir, privacy._sid; old = dict(os.environ)
+    orig, osd, osid = sp.run, privacy._system_dir, (privacy._me, privacy._owner); old = dict(os.environ)
     try:
         os.environ.update({"USERNAME": "ryan", "USERDOMAIN": "BOX", "SystemRoot": "."})
-        privacy._system_dir = lambda: "C:\\Windows\\System32"; privacy._sid = lambda n: "S-1-5-21-1-2-3-1001" if n == "BOX\\ryan" else None
-        calls = []; sp.run = _icacls_fake(calls, "D:PAI(A;OICI;FA;;;S-1-5-21-1-2-3-1001)(A;OICI;FA;;;SY)(A;OICI;0x1200a9;;;WD)(A;OICI;FA;;;S-1-5-21-9-9-9-500)")
+        privacy._system_dir = lambda: "C:\\Windows\\System32"; privacy._me = lambda: "S-1-5-21-1-2-3-1001"; privacy._owner = lambda p: "S-1-5-21-1-2-3-1001"
+        calls = []; sp.run = _icacls_fake(calls, "D:PAI(A;OICI;FA;;;S-1-5-21-1-2-3-1001)(A;OICI;FA;;;SY)(A;OICI;0x1200a9;;;WD)(A;OICI;FA;;;S-1-5-21-9-9-9-500)", me="S-1-5-21-1-2-3-1001")
         x = d / "\u00c1sgeir"; x.mkdir(); assert privacy.make_private(x, windows=True)
         assert all(c[0].startswith("C:\\Windows\\System32") for c in calls), ("System32 from Windows, not SystemRoot", calls)
         assert "/grant:r" in calls[0] and "/inheritance:r" in calls[0], ("the user is granted before anything else", calls)
@@ -1654,27 +1682,27 @@ def _(d):
         assert not privacy.make_private(x, windows=True), "an alias the table doesn't know refuses the lock"
         calls.clear(); (d / "t").mkdir(); os.symlink(d / "t", d / "link")
         assert not privacy.make_private(d / "link", windows=True) and not calls, "a link is refused before anything runs"
-    finally: sp.run = orig; privacy._system_dir = osd; privacy._sid = osid; os.environ.clear(); os.environ.update(old)
+    finally: sp.run = orig; privacy._system_dir = osd; privacy._me, privacy._owner = osid; os.environ.clear(); os.environ.update(old)
 
 @test("Qodo on #29 (4): every entry in the saved access list counts, conditional ones too (XA, ZA, with their nested expressions), an entry the lock can't read refuses it, and a temp file that can't be made fails the lock instead of crashing")
 def _(d):
     import privacy, subprocess as sp, tempfile as tf
-    assert privacy._trustees("D:PAI(A;OICI;FA;;;SY)(XA;;FA;;;S-1-5-21-7-7-7-1100;(@User.Project == \"x\"))(ZA;;FA;;;WD;(Member_of {SID(BA)}))") == ["S-1-5-18", "S-1-5-21-7-7-7-1100", "S-1-1-0"]
+    assert _sids(privacy._trustees("D:PAI(A;OICI;FA;;;SY)(XA;;FA;;;S-1-5-21-7-7-7-1100;(@User.Project == \"x\"))(ZA;;FA;;;WD;(Member_of {SID(BA)}))")) == ["S-1-5-18", "S-1-5-21-7-7-7-1100", "S-1-1-0"]
     assert privacy._trustees("D:(QQ;;FA;;;SY)") is None and privacy._trustees("D:(A;;FA;;;SY") is None, "an entry it can't read refuses"
-    orig, osd, osid, omk = sp.run, privacy._system_dir, privacy._sid, tf.mkstemp; old = dict(os.environ)
+    orig, osd, osid, omk = sp.run, privacy._system_dir, (privacy._me, privacy._owner), tf.mkstemp; old = dict(os.environ)
     try:
-        os.environ.update({"USERNAME": "ryan", "USERDOMAIN": "BOX"}); privacy._system_dir = lambda: "C:\\Windows\\System32"; privacy._sid = lambda n: "S-1-5-21-1"
+        os.environ.update({"USERNAME": "ryan", "USERDOMAIN": "BOX"}); privacy._system_dir = lambda: "C:\\Windows\\System32"; privacy._me = lambda: "S-1-5-21-1"; privacy._owner = lambda p: "S-1-5-21-1"
         calls = []; sp.run = _icacls_fake(calls, "D:PAI(A;OICI;FA;;;S-1-5-21-1)(XA;OICI;FA;;;S-1-5-21-7-7-7-1100;(@User.Dept == \"x\"))")
         (d / "x").mkdir(); assert privacy.make_private(d / "x", windows=True)
         assert [c[c.index("/remove:g") + 1] for c in calls if "/remove:g" in c] == ["*S-1-5-21-7-7-7-1100"], calls
         tf.mkstemp = lambda *a, **k: (_ for _ in ()).throw(OSError(28, "No space left on device"))
         assert privacy.make_private(d / "x", windows=True) is False, "a temp file that can't be made fails the lock"
-    finally: sp.run = orig; privacy._system_dir = osd; privacy._sid = osid; tf.mkstemp = omk; os.environ.clear(); os.environ.update(old)
+    finally: sp.run = orig; privacy._system_dir = osd; privacy._me, privacy._owner = osid; tf.mkstemp = omk; os.environ.clear(); os.environ.update(old)
 
 @test("Qodo on #29 (5): a quoted S: inside a conditional entry doesn't end the access list, a quoted ) doesn't end the entry, and a failed lock says why")
 def _(d):
     import privacy
-    assert privacy._trustees('D:PAI(A;OICI;FA;;;SY)(XA;;FA;;;S-1-5-21-7-7-7-1100;(@User.Title == "S:contractor"))(ZA;;FA;;;WD;(@User.x == ")"))S:(ML;;NW;;;LW)') == ["S-1-5-18", "S-1-5-21-7-7-7-1100", "S-1-1-0"]
+    assert _sids(privacy._trustees('D:PAI(A;OICI;FA;;;SY)(XA;;FA;;;S-1-5-21-7-7-7-1100;(@User.Title == "S:contractor"))(ZA;;FA;;;WD;(@User.x == ")"))S:(ML;;NW;;;LW)')) == ["S-1-5-18", "S-1-5-21-7-7-7-1100", "S-1-1-0"]
     assert privacy.make_private(d / "missing", windows=False) is False and privacy.WHY, "a failed lock leaves its reason"
 
 @test("Qodo on #29 (6): an alias that depends on the machine (LA, the local administrator: the Windows CI's own user) is expanded by Windows, so the user's grant is known and kept")
@@ -1683,7 +1711,7 @@ def _(d):
     o = privacy._alias_sid
     try:
         privacy._alias_sid = lambda a: {"LA": "S-1-5-21-5-5-5-500"}.get(a)
-        assert privacy._trustees("D:PAI(A;OICI;FA;;;LA)(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;FA;;;OW)") == ["S-1-5-21-5-5-5-500", "S-1-5-18", "S-1-5-32-544", "S-1-3-4"]
+        assert _sids(privacy._trustees("D:PAI(A;OICI;FA;;;LA)(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;FA;;;OW)")) == ["S-1-5-21-5-5-5-500", "S-1-5-18", "S-1-5-32-544", "S-1-3-4"]
         privacy._alias_sid = lambda a: None
         assert privacy._trustees("D:(A;;FA;;;LA)") is None, "an alias Windows can't expand still refuses"
     finally: privacy._alias_sid = o
@@ -1731,3 +1759,129 @@ def _(d):
     c = "cd C:\\U\\r1\\payload && python3 -c \"print(open('C:\\U\\r1/notes/\\\\u002e\\\\u002e/\\\\056/x').read())\""
     out = json.loads(_git_bash_form(json.dumps({"tool_input": {"command": c}})))["tool_input"]["command"]
     assert out == "cd C:/U/r1/payload && python3 -c \"print(open('C:/U/r1/notes/\\\\u002e\\\\u002e/\\\\056/x').read())\"", out
+
+def _win_env(me="S-1-5-21-1"):
+    """Patches a Windows lock run off Windows needs: System32, the token's account and the owner Windows reports. Returns an undo."""
+    import privacy
+    old, osd, om = dict(os.environ), privacy._system_dir, (privacy._me, privacy._owner)
+    privacy._system_dir = lambda: "C:\\Windows\\System32"; privacy._me = lambda: me; privacy._owner = lambda p: me
+    def undo(): os.environ.clear(); os.environ.update(old); privacy._system_dir = osd; privacy._me, privacy._owner = om
+    return undo
+
+@test("Qodo on #30 and the blind round: the Windows lock refuses a folder holding a link, junction or hard link, makes the user owner, removes every deny and other grant before the contents inherit, reads the folder and every entry back, and refuses a folder it can't list")
+def _(d):
+    import privacy, subprocess as sp
+    orig, undo = sp.run, _win_env()
+    try:
+        out = d / "outside"; out.mkdir(); (out / "f.txt").write_text("o", encoding="utf-8")
+        x = d / "x"; (x / "sub").mkdir(parents=True); (x / "a.txt").write_text("a", encoding="utf-8"); (x / "sub/b.txt").write_text("b", encoding="utf-8")
+        os.symlink(out, x / "sub" / "j", target_is_directory=True)
+        calls = []; sp.run = _icacls_fake(calls, "D:PAI(A;OICI;FA;;;SY)")
+        assert not privacy.make_private(x, windows=True) and "link" in privacy.WHY and not calls, ("a link inside: refused before icacls runs", privacy.WHY, calls)
+        (x / "sub/j").unlink(); os.link(out / "f.txt", x / "sub/h.txt")
+        assert not privacy.make_private(x, windows=True) and "hard link" in privacy.WHY and not calls, privacy.WHY
+        (x / "sub/h.txt").unlink(); calls.clear(); sp.run = _icacls_fake(calls, "D:PAI(D;OICI;FA;;;WD)(D;;0x2;;;S-1-5-21-1)(D;;0x2;;;SY)(A;OICI;FA;;;SY)(A;OICI;FA;;;BU)")
+        assert privacy.make_private(x, windows=True), privacy.WHY
+        names = [next((z for z in c[2:] if z.startswith("/") and z not in ("/L", "/Q", "/T")), "") for c in calls]
+        assert names.index("/setowner") < names.index("/save"), ("the folder is made the user's first", names)
+        assert sorted(c[c.index("/remove:d") + 1] for c in calls if "/remove:d" in c) == ["*S-1-1-0", "*S-1-5-18", "*S-1-5-21-1"], calls
+        last_remove = max(i for i, c in enumerate(calls) if "/remove:g" in c or "/remove:d" in c); first_reset = min(i for i, c in enumerate(calls) if "/reset" in c)
+        assert last_remove < first_reset, "other accounts leave the folder before anything inherits from it"
+        resets = [c for c in calls if "/reset" in c]
+        assert resets == [[calls[0][0], os.path.join(str(x), "*"), "/reset", "/T", "/L", "/Q"]], ("one reset, no /C, so a skipped file fails it", resets)
+        assert any("/setowner" in c and c[1] == os.path.join(str(x), "*") and "/T" in c for c in calls), "the contents are made the user's too"
+        stuck = _icacls_fake([], "D:PAI(A;OICI;FA;;;SY)(A;OICI;FA;;;WD)")
+        sp.run = lambda a, **k: stuck([z for z in a if z != "/remove:g"] if "/remove:g" in a else a)  # icacls says it worked, but the grant stays
+        assert not privacy.make_private(x, windows=True) and "S-1-1-0" in privacy.WHY, ("the read-back catches what is left", privacy.WHY)
+        fk = _icacls_fake([], "D:PAI(A;OICI;FA;;;SY)")
+        def child_open(a, **k):  # one file inside keeps its own Everyone grant after the reset
+            r = fk(a)
+            if "/save" in a and a[1].endswith("*"):
+                f_ = pathlib.Path(a[a.index("/save") + 1]); f_.write_text(f_.read_text(encoding="utf-16").replace("(A;ID;FA;;;SY)", "(A;;FR;;;WD)(A;ID;FA;;;SY)", 1), encoding="utf-16")
+            return r
+        sp.run = child_open
+        assert not privacy.make_private(x, windows=True) and "S-1-1-0" in privacy.WHY, ("every entry inside is read back", privacy.WHY)
+        sp.run = _icacls_fake([], "D:PAI(A;OICI;FA;;;SY)"); privacy._owner = lambda p: "S-1-5-21-9" if str(p).endswith("b.txt") else "S-1-5-21-1"
+        assert not privacy.make_private(x, windows=True) and "b.txt" in privacy.WHY and "owned" in privacy.WHY, privacy.WHY
+        privacy._owner = lambda p: "S-1-5-21-1"; osc = os.scandir
+        def deny(p): raise PermissionError(13, "Access is denied")
+        os.scandir = deny
+        try: r = privacy.make_private(x, windows=True)
+        finally: os.scandir = osc
+        assert r is False and "could not be listed" in privacy.WHY, privacy.WHY
+        os.environ.update({"USERNAME": "Users", "USERDOMAIN": "BUILTIN"}); calls.clear(); sp.run = _icacls_fake(calls, "D:PAI(A;OICI;FA;;;SY)")
+        assert privacy.make_private(x, windows=True) and calls[0][4] == "*S-1-5-21-1:(OI)(CI)F" and not any("BUILTIN" in z or z.startswith("Users") for c in calls for z in c), ("the account comes from the token, never USERNAME", privacy.WHY, calls[:1])
+    finally: sp.run = orig; undo()
+
+@test("Qodo on #30 (2): the browser's private folder gets its .gitignore even when the first lock fails, and the Windows-only checks still run when a script test fails")
+def _(d):
+    import privacy, browse
+    om, broot = privacy.make_private, browse.ROOT
+    try:
+        browse.ROOT = d; browse._LOCKED.clear(); privacy.make_private = lambda *a, **k: False
+        try: browse._private()
+        except SystemExit: pass
+        privacy.make_private = lambda *a, **k: True; browse._LOCKED.clear(); browse._private()
+        assert (d / ".critic/private/.gitignore").is_file(), "git ignores the key folder however the first lock went"
+    finally: privacy.make_private = om; browse.ROOT = broot; browse._LOCKED.clear()
+    ci = (HERE.parent / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+    step = ci[ci.index("- name: Windows checks"):].split("- name:", 2)[1]
+    assert "if: ${{ !cancelled() }}" in step, step[:200]
+
+@test("Qodo on #30 (3), real Windows: a junction inside a private folder refuses the lock and leaves the outside folder alone; existing denies and other grants go; the user owns the folder and its contents; only the user and SYSTEM keep access")
+def _(d):
+    if os.name != "nt": raise Skip("needs Windows: real junctions, owners and access lists")
+    import privacy, subprocess as sp, _winapi
+    ic = os.path.join(privacy._system_dir(), "icacls.exe"); me = privacy._me()
+    assert me and me.startswith("S-1-5-"), me
+    def sids(p):
+        f = d / "acl.save"; sp.run([ic, str(p), "/save", str(f), "/Q"], capture_output=True, check=True)
+        return _sids(privacy._trustees([l for l in f.read_bytes().decode("utf-16").splitlines() if l.strip()][-1]))
+    out = d / "outside"; out.mkdir(); (out / "keep.txt").write_text("k", encoding="utf-8")
+    sp.run([ic, str(out / "keep.txt"), "/grant", "*S-1-1-0:(R)"], capture_output=True, check=True)
+    x = d / "x"; (x / "sub").mkdir(parents=True); (x / "sub/a.txt").write_text("a", encoding="utf-8"); _winapi.CreateJunction(str(out), str(x / "j"))
+    assert not privacy.make_private(x, windows=True) and "link" in privacy.WHY, privacy.WHY
+    assert "S-1-1-0" in sids(out / "keep.txt"), "the junction's target kept its own grant"
+    os.rmdir(x / "j")
+    sp.run([ic, str(x), "/grant", "*S-1-1-0:(OI)(CI)(R)", "/deny", "*S-1-5-32-545:(OI)(CI)(W)"], capture_output=True, check=True)
+    sp.run([ic, str(x / "sub/a.txt"), "/inheritance:r", "/grant", "*S-1-1-0:(R)", f"*{me}:(F)"], capture_output=True, check=True)
+    assert privacy.make_private(x, windows=True), privacy.WHY
+    assert set(sids(x)) == {"S-1-5-18", me}, sids(x)
+    assert "S-1-1-0" not in sids(x / "sub/a.txt"), "a file inside with its own Everyone grant inherits the lock"
+    assert privacy._owner(x) == me and privacy._owner(x / "sub/a.txt") == me, (privacy._owner(x), privacy._owner(x / "sub/a.txt"))
+    (x / "new.txt").write_text("n", encoding="utf-8")
+
+@test("blind round on the redesign: on POSIX the mode is read back (a file system that ignores chmod refuses the lock), and on macOS extended access entries are removed and checked")
+def _(d):
+    import privacy
+    x = d / "x"; x.mkdir(); os.chmod(x, 0o777); och = os.chmod
+    try:
+        os.chmod = lambda *a, **k: None  # accepted and ignored, as on WSL's /mnt/c without metadata
+        r = privacy.make_private(x, windows=False)
+    finally: os.chmod = och
+    if os.name != "nt": assert r is False and "ignores modes" in privacy.WHY, privacy.WHY
+    assert privacy.make_private(x, windows=False) or os.name == "nt", privacy.WHY
+    if sys.platform == "darwin":
+        import subprocess as sp
+        y = d / "y"; y.mkdir()
+        sp.run(["/bin/chmod", "+a", "group:staff allow list,search,readattr,file_inherit,directory_inherit", str(y)], check=True, capture_output=True)
+        (y / "k").write_text("k", encoding="utf-8")
+        assert privacy.make_private(y, windows=False), privacy.WHY
+        for p in (y, y / "k"): assert not re.search(r"(?m)^\s*\d+: ", sp.run(["/bin/ls", "-lde", str(p)], capture_output=True, text=True, encoding="utf-8").stdout), p
+
+@test("blind round on the redesign (2): the browser refuses a .critic that is a link (the key would land elsewhere), and a junction at .critic/scratch stops a reviewer's copy on Windows")
+def _(d):
+    import browse
+    broot = browse.ROOT
+    try:
+        (d / "elsewhere").mkdir(); p = d / "proj"; p.mkdir(); os.symlink(d / "elsewhere", p / ".critic", target_is_directory=True)
+        browse.ROOT = p; browse._LOCKED.clear()
+        try: browse._private(); raised = False
+        except SystemExit as e: raised = ".critic" in str(e)
+        assert raised and not (d / "elsewhere/private").exists(), "a linked .critic is refused and nothing is made through it"
+    finally: browse.ROOT = broot; browse._LOCKED.clear()
+    if os.name == "nt":
+        import _winapi, importlib; sys.path.insert(0, str(H)); wsm = importlib.import_module("workspace")
+        q = d / "q"; (q / ".critic").mkdir(parents=True); (d / "other").mkdir(); _winapi.CreateJunction(str(d / "other"), str(q / ".critic/scratch"))
+        assert wsm.home_for(q, "r1") is None, "a junction at .critic/scratch is a link"
+        os.rmdir(q / ".critic/scratch")

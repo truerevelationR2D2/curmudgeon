@@ -18,16 +18,18 @@ def main():
     agent_id = workspace.clean_id(data.get("agent_id"))
     if not agent_id: return 0
     root = workspace.project_root(data); c = root / ".critic"
-    if c.is_symlink() or (c / "scratch").is_symlink(): return 0  # never create through a link a cloned repo planted
+    if workspace.linked(c) or workspace.linked(c / "scratch"): return 0  # never create through a link or junction a cloned repo planted
     d = c / "scratch" / agent_id
     d.mkdir(parents=True, exist_ok=True)
-    try: locked = workspace._privacy().make_private(d)
+    rec = None
+    if m.group(1) in ("reviewer", "verifier"):  # the copy first: make() deletes an old copy before it locks the folder, so its links never meet the lock
+        try: rec = workspace.make(root, agent_id)
+        except Exception: rec = None
+    try: locked = bool(rec) or workspace._privacy().make_private(d)
     except OSError: locked = False
     msg = f"Your private scratch folder is {d}. Put any notes there and nowhere else; other agents can't read it, and you can't read theirs." if locked else \
           f"Your scratch folder is {d}. Put any notes there and nowhere else. Its permissions could not be set, so don't put secrets in it."  # never called private when it isn't (Qodo on #28)
     if m.group(1) in ("reviewer", "verifier"):
-        try: rec = workspace.make(root, agent_id)
-        except Exception: rec = None
         if rec:
             q = shlex.quote(rec["payload"])
             msg = (f"Your workspace is {rec['payload']}: a private frozen copy of the project made for you (the project's .critic/ is left out). "
