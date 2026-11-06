@@ -8,7 +8,7 @@ usage (from the project root, or set CRITIC_ROOT):
                                             --outside adds an outside reviewer's findings (critic_outside.py load): one
                                             extra vote where it agrees with ours, and every finding only it raised is
                                             sent to blind verification, whatever its impact
-  critic_merge.py apply VERDICT_FILE...     the blind verifiers' verdicts
+  critic_merge.py apply [VERDICT_FILE...]   the blind verifiers' verdicts (none: nothing was verified)
 
 Deduplication: two reviewers rarely word the same issue alike, and word overlap can't tell "same issue" from "another
 issue in the same file". So tally also writes .critic/dedup-candidates.json: every finding not already merged, listed by file
@@ -715,6 +715,16 @@ if __name__ == "__main__":
     refuse_linked_state(ROOT)
     log_run(ROOT, "script", "critic_merge.py " + " ".join(a))
     if a[0] == "tally" and len(a) > 1: sys.exit(tally(a[1:]))
-    if a[0] == "apply" and len(a) > 1: sys.exit(apply(a[1:]))
+    if a[0] == "apply":  # no verdict files: nothing was verified, and findings that needed a verdict are marked missing (the Windows run report of 5 Nov 2026, P5)
+        import glob as _glob
+        paths = []
+        for p in a[1:]:
+            if pathlib.Path(p).exists() or not any(c in p for c in "*?["): paths.append(p)  # a real file, or a missing one, which load_review refuses loudly
+            else:  # a pattern the shell left as written (PowerShell and cmd never expand one, and bash leaves one that matches nothing)
+                hits = sorted(_glob.glob(p))
+                if not hits and pathlib.Path(p).parent.resolve() not in ((D / "verdicts").resolve(), (D / "verdicts-variants").resolve()):
+                    die(f"{p} matches no file; verdicts are in {D / 'verdicts'}")  # a wrong folder or a typo is refused, never read as "nothing was verified" (blind round on 5.3.1)
+                paths += hits
+        sys.exit(apply(paths))  # no verdict files: nothing was verified (a tier that verifies nothing, or nothing contested), and findings that needed a verdict are marked missing (the Windows run report of 5 Nov 2026, P5)
     if a[0] == "show": sys.exit(show())
-    die("usage: tally REVIEW... | apply VERDICT... | show")
+    die("usage: tally REVIEW... | apply [VERDICT...] | show")

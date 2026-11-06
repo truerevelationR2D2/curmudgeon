@@ -5,7 +5,7 @@ own. Each test here failed on the code before the change."""
 @test("§5.56 item 22: one PreToolUse process runs the blindness guard and the stuck refusal; calls that aren't Curmudgeon's return at once with no output")
 def _(d):
     hooks = json.loads((H / "hooks.json").read_text(encoding="utf-8"))["hooks"]
-    cmds = [h["command"] for ev in ("PreToolUse", "PostToolUse") for m in hooks.get(ev, []) for h in m.get("hooks", [])]
+    cmds = [hook_cmd(h) for ev in ("PreToolUse", "PostToolUse") for m in hooks.get(ev, []) for h in m.get("hooks", [])]
     assert any("pre_tool.py" in c for c in cmds) and any("post_tool.py" in c for c in cmds), cmds
     assert not any(re.search(r"read_guard\.py|stuck\.py", c) for c in cmds), "the two old hooks are replaced, not doubled"
     write(d, ".critic/reviews/review-B.json", "[]"); (d / ".critic/scratch/me").mkdir(parents=True)

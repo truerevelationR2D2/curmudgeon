@@ -161,6 +161,7 @@ def anonymise(text):
     return re.sub(r"\n{3,}", "\n\n", text).strip()
 
 def main(a):
+    if any(x in ("-h", "--help") for x in a): print(__doc__); return 0  # before anything runs or is logged (the Windows run report of 5 Nov 2026, P7)
     refuse_linked_state(ROOT)
     log_run(ROOT, "script", "critic_map.py " + " ".join(a))
     def val(flag):
