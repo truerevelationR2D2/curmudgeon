@@ -30,7 +30,7 @@ import safegit  # git without the repository's own commands (03 §5.57 review)
 HERE = pathlib.Path(__file__).resolve().parent
 ROOT = pathlib.Path(os.environ.get("CRITIC_ROOT") or re.sub(r"[\\/]\.critic[\\/]scratch(?:[\\/].*)?$", "", os.getcwd()) or os.getcwd()).resolve(); D = ROOT / ".critic"
 REVIEWERS = {"trivial": ["A"], "lite": ["A"], "full": ["A", "B", "C"]}
-from critic_findings import VERIFY_BATCH  # packets per verifier agent (03 §5.37); defined once, beside verifier_batches
+from critic_findings import VERIFY_BATCH, py_cmd  # packets per verifier agent (03 §5.37); defined once, beside verifier_batches
 FORCE = False  # next --apply-now: apply with the verdicts there are (a finding with no verdict stays at lower confidence, except single-vote Mediums and outside-only findings, which are left out)
 
 def sh(script, *a):
@@ -53,7 +53,7 @@ def scan_cmd():
     only = " --only .critic/scan-only.txt" if (D / "scan-only.txt").is_file() and not (D / "scan-only.txt").is_symlink() else ""
     try: sec = json.loads((D / "focus.json").read_text(encoding="utf-8")).get("focus") == "security" if (D / "focus.json").is_file() else False
     except (OSError, ValueError): sec = False
-    return f"python3 {HERE / 'critic_scan.py'} . --root .{only}{' --focus security' if sec else ''}"
+    return f"{py_cmd(HERE / 'critic_scan.py')} . --root .{only}{' --focus security' if sec else ''}"
 
 def is_fresh(p, started): return p.is_file() and not p.is_symlink() and mtime(p) >= started
 
@@ -222,14 +222,14 @@ def main(a):
             r = subprocess.run([sys.executable, str(HERE / "security_feed.py"), "status"], capture_output=True, text=True, encoding="utf-8", errors="replace")
             print(r.stdout.strip().splitlines()[0] if r.stdout.strip() else "security feed: status unreadable")
             print(f"  feed step (03 §5.38, §5.40), only if it says never switched on and the user is present; never ask unattended (it stays off): "
-                  f"1. ask once, default off: \"Build a local security database (OSV and CISA's exploited list) so dependency checks send nothing about your project?\" No: python3 {HERE / 'security_feed.py'} set --cadence off. "
-                  f"2. python3 {HERE / 'security_feed.py'} pick-folder opens a folder window (prints the path; NO_WINDOW means ask for the full path instead). "
-                  f"3. python3 {HERE / 'security_feed.py'} estimate --folder <folder> (a size-only request to each source) and show the user the estimate. "
+                  f"1. ask once, default off: \"Build a local security database (OSV and CISA's exploited list) so dependency checks send nothing about your project?\" No: {py_cmd(HERE / 'security_feed.py')} set --cadence off. "
+                  f"2. {py_cmd(HERE / 'security_feed.py')} pick-folder opens a folder window (prints the path; NO_WINDOW means ask for the full path instead). "
+                  f"3. {py_cmd(HERE / 'security_feed.py')} estimate --folder <folder> (a size-only request to each source) and show the user the estimate. "
                   f"4. ask them to sign off on that size and pick a schedule (daily, weekly, biweekly, monthly). "
-                  f"5. python3 {HERE / 'security_feed.py'} set --cadence <schedule> --folder <folder> --signed-off <bytes>, then python3 {HERE / 'security_feed.py'} update. "
-                  f"If it is already on and due: python3 {HERE / 'security_feed.py'} update (exit 5 means the database grew past the signed-off size: show the new estimate and ask again)")
+                  f"5. {py_cmd(HERE / 'security_feed.py')} set --cadence <schedule> --folder <folder> --signed-off <bytes>, then {py_cmd(HERE / 'security_feed.py')} update. "
+                  f"If it is already on and due: {py_cmd(HERE / 'security_feed.py')} update (exit 5 means the database grew past the signed-off size: show the new estimate and ask again)")
             only += " --focus security"
-        print(f"now, in the background (Bash with run_in_background), while the reviewers work: python3 {HERE / 'critic_scan.py'} . --root .{only} "
+        print(f"now, in the background (Bash with run_in_background), while the reviewers work: {py_cmd(HERE / 'critic_scan.py')} . --root .{only} "
               "(add --page <page> for a UI). Reviewers can't read its output (their private copies and the read guard), so it no longer waits for them.")
         st, L, tier, items = state(); say_next(st, tier, items); return 0
     if cmd == "early":

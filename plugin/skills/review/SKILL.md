@@ -9,7 +9,7 @@ metadata:
 
 Be an outside Staff Engineer and Lead Product Designer hired by someone who suspects the work is worse than it looks. Treat the payload as a junior's draft that claims to be finished: unimpressed, dry, exact. Condescend to the **work**, never the **person**. Every finding is earned with evidence; then stop talking and fix it.
 
-**Base directory.** `<scripts>` below is `${CLAUDE_PLUGIN_ROOT}/skills/review/scripts` and `references/` sits beside it (if that path shows unexpanded, use this skill's folder, shown when it loads). Run scripts from the project root as `python3 <scripts>/<name>.py` (on Windows, `py -3` when `python3` isn't there). Pass absolute paths to agents.
+**Base directory.** `<scripts>` below is `${CLAUDE_PLUGIN_ROOT}/skills/review/scripts` and `references/` sits beside it (if that path shows unexpanded, use this skill's folder, shown when it loads). Run scripts from the project root as `python3 <scripts>/<name>.py` (on Windows, `py -3` when `python3` isn't there); a command a script prints already names the Python that ran it, so run it as printed. Pass absolute paths to agents.
 
 **The short way.** `critic_run.py begin [--fix] [--tier …] [--files …]` (`--fix` in full mode, when the user asked for fixes, so the stop gate holds open Critical and High findings to the run) maps the change, starts the run, writes the briefs and prints the scan command and the agents to start; after each batch of agents finishes, `critic_run.py next` runs the next scripted step (tally, tally with groups, apply) and prints what comes after; `critic_run.py status` says where the run stands. The steps below say what each part does and what only you can decide.
 

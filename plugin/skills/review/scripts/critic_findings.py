@@ -16,6 +16,33 @@ VERIFIED = ("executed", "traced", "inferred")
 NON_TEXT = (".png", ".jpg", ".jpeg", ".gif", ".webp", ".ico", ".bmp", ".pdf", ".zip", ".gz", ".tgz", ".bz2", ".xz", ".7z", ".woff", ".woff2", ".ttf", ".otf",
             ".eot", ".mp3", ".mp4", ".wav", ".webm", ".mov", ".wasm", ".bin", ".exe", ".dll", ".so", ".dylib", ".class", ".jar", ".pyc", ".o", ".a")
 
+def _short_path(p):
+    """On Windows, the 8.3 short form of an existing path (C:/PROGRA~1/...), which has no spaces or accents and so needs
+    no quotes; the path unchanged anywhere else, or where short names are switched off."""
+    if os.name != "nt": return p
+    try:
+        import ctypes
+        from ctypes import wintypes
+        f = ctypes.windll.kernel32.GetShortPathNameW
+        f.argtypes, f.restype = [wintypes.LPCWSTR, wintypes.LPWSTR, wintypes.DWORD], wintypes.DWORD
+        n = f(str(p), None, 0)
+        b = ctypes.create_unicode_buffer(n) if n else None
+        return b.value if b is not None and f(str(p), b, n) else p
+    except Exception: return p
+
+def py_cmd(script):
+    """A command line that runs one of these scripts with the Python running this one, for the instructions the scripts
+    print: never a bare python3, which on Windows may be missing or the Store placeholder (Qodo on #34). Forward slashes,
+    and on Windows the short form of a path with a space or an accent, so it runs as printed in Git Bash and in
+    PowerShell, where a quoted first word is text, not a command (blind round). Quotes are left only where neither
+    helps (short names switched off on that drive), and there PowerShell needs & in front."""
+    import shlex
+    def one(x):
+        x = str(x)
+        if shlex.quote(x) != x: x = _short_path(x)
+        return shlex.quote(pathlib.Path(x).as_posix())
+    return " ".join(one(x) for x in (sys.executable, script))
+
 def safe_int(v):
     """Line numbers arrive as 12, "12", "12-14" or junk: take the first number, else 0. Never raises."""
     m = re.match(r"\s*(\d+)", str(v if v is not None else ""))

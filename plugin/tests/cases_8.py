@@ -1934,7 +1934,7 @@ def _(d):
     if os.name == "nt": shdir = os.path.dirname(sh)  # Git's usr/bin holds no Python; sh.exe needs its own folder's DLLs
     else:
         only = d / "only"; only.mkdir()  # sh and the two tools run.sh uses, so no real Python on the system is found by accident
-        for tname in ("sh", "basename", "cat"): os.symlink(shutil.which(tname), only / tname)  # what run.sh uses besides Python
+        for tname in ("sh", "basename", "cat", "mkdir"): os.symlink(shutil.which(tname), only / tname)  # what run.sh and the fakes use besides Python
         shdir = str(only)
     env = dict(os.environ, PATH=f"{fake}{os.pathsep}{shdir}", CLAUDE_PLUGIN_DATA=str(data))
     go = lambda stdin, **k: subprocess.run([sh, str(H / "run.sh"), str(hook)], input=stdin, capture_output=True, text=True, encoding="utf-8", env=dict(env, **k), timeout=60)
@@ -1947,6 +1947,22 @@ def _(d):
     (data / "python").write_text("python3\n", encoding="utf-8")  # kept earlier, now the placeholder
     r = go("hello again")
     assert r.returncode == 0 and r.stdout.strip() == "ran 11" and (data / "python").read_text(encoding="utf-8").strip() == "python", ("a kept interpreter that stopped working is replaced, and the hook still runs on the same input", r.returncode, r.stdout, r.stderr)
+    rp = pathlib.Path(real).as_posix()
+    tool("python3", f'case "$1" in -c) exit 1 ;; esac; echo "SyntaxError: invalid syntax (Python 3.8)" >&2; exit 1')  # kept, but now an older Python
+    r = go("hello")
+    assert r.returncode == 0 and r.stdout.strip() == "ran 5" and (data / "python").read_text(encoding="utf-8").strip() == "python", ("Qodo on #34, 3: a kept name that now starts Python 3.8 is checked again and replaced, not taken as the hook's answer (which let the guards fail open)", r.returncode, r.stdout, r.stderr)
+    tool("python3", "echo 'Python was not found; run without arguments to install from the Microsoft Store' >&2; exit 9009")
+    tool("py", f'shift; exec "{rp}" "$@"')  # py -3 works too, so a second run would be possible
+    count = d / "count.txt"
+    crash = d / "crash.py"; crash.write_text(f"import os\nopen({str(count)!r}, 'a').write('x')\nos._exit(137)\n", encoding="utf-8")
+    r = subprocess.run([sh, str(H / "run.sh"), str(crash)], input="x", capture_output=True, text=True, encoding="utf-8", env=env, timeout=60)
+    assert r.returncode == 1 and count.read_text(encoding="utf-8") == "x", ("Qodo on #34, 4: a hook that ran and was killed runs once, and its exit is an error, never a block", r.returncode, count.read_text(encoding="utf-8"), r.stderr)
+    (fake / "py").unlink()
+    fresh = d / "newdata" / "plugin"
+    r = go("hello", CLAUDE_PLUGIN_DATA=str(fresh))
+    assert r.stdout.strip() == "ran 5" and (fresh / "python").read_text(encoding="utf-8").strip() == "python", ("Qodo on #34, 2: the data folder Claude Code hasn't made yet is made, so the choice is kept and not probed again on every tool call", r.stdout, r.stderr)
+    r = subprocess.run([sh, str(H / "run.sh")], input="x", capture_output=True, text=True, encoding="utf-8", env=env, timeout=60)
+    assert r.returncode == 1, ("blind round: started with no hook, it says so and exits 1, never 2 (dash exits 2 on a failed shift)", r.returncode, r.stderr)
     r = subprocess.run([sh, str(H / "run.sh"), str(d / "gone.py")], input="x", capture_output=True, text=True, encoding="utf-8", env=env, timeout=60)
     assert r.returncode == 1 and "missing" in r.stderr, ("a missing hook never exits 2, which would block", r.returncode, r.stderr)
     if os.name != "nt":
@@ -1989,3 +2005,32 @@ def _(d):
     e = d / "empty"; e.mkdir()
     h = run(S / "critic_map.py", "--help", cwd=e)
     assert h.returncode == 0 and "usage: critic_map.py" in h.stdout and not (e / ".critic").exists(), (h.stdout[:200], h.stderr[:200])
+
+@test("Qodo on #34, 1: the commands the scripts print (the background scan, the waiting scan, the security-feed steps, the briefs' syntax tree) name the Python that ran them, never a bare python3 that on Windows may be missing or the Store placeholder, and the scan command runs exactly as printed")
+def _(d):
+    import shlex, shutil
+    write(d, "src/app.js", APP)
+    exe = shlex.quote(pathlib.Path(sys.executable).as_posix())
+    out = run(S / "critic_run.py", "begin", "--files", "src/app.js", "--tier", "lite", cwd=d).stdout
+    write(d, ".critic/reviews/review-A.json", "[]")
+    out += run(S / "critic_run.py", "next", cwd=d).stdout
+    brief = (d / ".critic/briefs/brief-A.md").read_text(encoding="utf-8")
+    assert not re.search(r"(?<![/\w.-])python3 ", (out + brief).replace(exe, "")), ("no bare python3 in what the lead or a reviewer is told to run", out[-600:])
+    assert f"{exe} " in out and f"{exe} " in brief, (exe, out[-600:])
+    m = re.search(r"while the reviewers work: (.+?) \(add --page", out)
+    assert m, out
+    sh = shutil.which("sh")
+    if not sh: raise Skip("needs sh (Git Bash on Windows)")
+    (d / ".critic/scan").exists() and shutil.rmtree(d / ".critic/scan")
+    r = subprocess.run([sh, "-c", m.group(1)], cwd=d, capture_output=True, text=True, encoding="utf-8", env=dict(os.environ, TMPDIR=TMP), timeout=300)
+    assert (d / ".critic/scan/report.json").is_file(), ("the printed command runs as printed, through sh", m.group(1), r.returncode, r.stderr[-400:])
+    import critic_findings
+    sp = d / "has space é"; sp.mkdir(); write(sp, "s.py", "print('ran as printed')\n")
+    line = critic_findings.py_cmd(sp / "s.py")
+    r = subprocess.run([sh, "-c", line], capture_output=True, text=True, encoding="utf-8", timeout=60)
+    assert r.stdout.strip() == "ran as printed", ("a path with a space and an accent runs as printed through sh", line, r.stderr[-300:])
+    pw = shutil.which("pwsh") or shutil.which("powershell")
+    if os.name == "nt" and pw:  # where PowerShell is the lead's shell: a quoted first word there is text, not a command
+        assert "'" not in line, ("on Windows the short path needs no quotes", line)
+        r = subprocess.run([pw, "-NoProfile", "-Command", line], capture_output=True, text=True, encoding="utf-8", timeout=120)
+        assert r.stdout.strip() == "ran as printed", ("blind round: runs as printed in PowerShell", line, r.stdout[-300:], r.stderr[-300:])
