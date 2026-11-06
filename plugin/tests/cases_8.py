@@ -2010,12 +2010,14 @@ def _(d):
 def _(d):
     import shlex, shutil
     write(d, "src/app.js", APP)
-    exe = shlex.quote(pathlib.Path(sys.executable).as_posix())
+    import critic_findings
+    exe = critic_findings.py_cmd(S / "x.py").rsplit(" ", 1)[0]  # the interpreter as printed (on Windows, maybe its short form)
+    assert "'" not in exe or os.name != "nt", ("on Windows the interpreter is printed without quotes", exe)
     out = run(S / "critic_run.py", "begin", "--files", "src/app.js", "--tier", "lite", cwd=d).stdout
     write(d, ".critic/reviews/review-A.json", "[]")
     out += run(S / "critic_run.py", "next", cwd=d).stdout
     brief = (d / ".critic/briefs/brief-A.md").read_text(encoding="utf-8")
-    assert not re.search(r"(?<![/\w.-])python3 ", (out + brief).replace(exe, "")), ("no bare python3 in what the lead or a reviewer is told to run", out[-600:])
+    assert not re.search(r"(?<![/\w.~-])python3 ", (out + brief).replace(exe, "")), ("no bare python3 in what the lead or a reviewer is told to run", out[-600:])
     assert f"{exe} " in out and f"{exe} " in brief, (exe, out[-600:])
     m = re.search(r"while the reviewers work: (.+?) \(add --page", out)
     assert m, out
@@ -2024,7 +2026,6 @@ def _(d):
     (d / ".critic/scan").exists() and shutil.rmtree(d / ".critic/scan")
     r = subprocess.run([sh, "-c", m.group(1)], cwd=d, capture_output=True, text=True, encoding="utf-8", env=dict(os.environ, TMPDIR=TMP), timeout=300)
     assert (d / ".critic/scan/report.json").is_file(), ("the printed command runs as printed, through sh", m.group(1), r.returncode, r.stderr[-400:])
-    import critic_findings
     sp = d / "has space é"; sp.mkdir(); write(sp, "s.py", "print('ran as printed')\n")
     line = critic_findings.py_cmd(sp / "s.py")
     r = subprocess.run([sh, "-c", line], capture_output=True, text=True, encoding="utf-8", timeout=60)

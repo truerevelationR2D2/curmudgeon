@@ -37,10 +37,12 @@ def py_cmd(script):
     PowerShell, where a quoted first word is text, not a command (blind round). Quotes are left only where neither
     helps (short names switched off on that drive), and there PowerShell needs & in front."""
     import shlex
+    plain = re.compile(r"[\w@%+=:,./~-]+", re.ASCII)  # shlex's safe set plus ~, which no shell expands inside a word
     def one(x):
         x = str(x)
         if shlex.quote(x) != x: x = _short_path(x)
-        return shlex.quote(pathlib.Path(x).as_posix())
+        x = pathlib.Path(x).as_posix()
+        return x if plain.fullmatch(x) and not x.startswith("~") else shlex.quote(x)  # a short name (HOSTED~1) stays unquoted
     return " ".join(one(x) for x in (sys.executable, script))
 
 def safe_int(v):
