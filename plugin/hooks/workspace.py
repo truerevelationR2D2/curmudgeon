@@ -98,7 +98,7 @@ def project_root(data):
     back to the project that holds it."""
     cwd = str(data.get("cwd") or os.getcwd())
     import projroot  # one rule with the scripts (5.4.0 blind round): a project under a folder named .critic stays itself
-    return pathlib.Path(projroot.project_of(cwd))
+    return pathlib.Path(projroot.project_of(cwd, os.environ.get("CLAUDE_PROJECT_DIR")))  # the session's own project bounds it
 
 def home_for(root, agent_id):
     """This agent's folder, or None when it can't be made safely (a planted link on the way)."""

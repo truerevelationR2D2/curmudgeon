@@ -2158,11 +2158,18 @@ def _(d):
     import projroot, shutil
     sys.path.insert(0, str(H)); import workspace
     home = d / "u" / ".critic" / "projects" / "app"; home.mkdir(parents=True)
-    assert projroot.project_of(str(home)) == str(home), "a project under ~/.critic/projects is its own project"
-    assert pathlib.Path(workspace.project_root({"cwd": str(home)})) == home
-    write(home, "a.py", "x = 1\n"); run(S / "critic_run.py", "begin", "--files", "a.py", "--tier", "lite", cwd=home)
-    assert projroot.project_of(str(home / ".critic" / "briefs")) == str(home), "its own briefs folder maps back to it, not to ~/u"
-    assert projroot.project_of(str(home / ".critic" / "scratch" / "x" / "payload" / "pkg" / ".critic")) == str(home)
+    assert projroot.project_of(str(home), str(home)) == str(home), "a project under ~/.critic/projects is its own project, in a session started there"
+    os.environ["CLAUDE_PROJECT_DIR"] = str(home)  # what Claude Code gives every hook
+    try:
+        assert pathlib.Path(workspace.project_root({"cwd": str(home)})) == home
+        assert pathlib.Path(workspace.project_root({"cwd": str(home / ".critic" / "briefs")})) == home, "the hook maps the briefs folder back to the app, never to ~/u"
+    finally: os.environ.pop("CLAUDE_PROJECT_DIR", None)
+    assert projroot.project_of(str(home)) == str(d / "u"), "scripts have no session folder: the first .critic wins (CRITIC_ROOT sets it: documented)"
+    write(home, "a.py", "x = 1\n")
+    assert projroot.project_of(str(home / ".critic" / "scratch" / "x" / "payload" / "pkg" / ".critic"), str(home)) == str(home)
+    for c, want in (("/P/.CRITIC/briefs", "/P"), ("/P/.critic/.critic/x", "/P"), ("/P/.critic/.", "/P"), ("/.critic/briefs", os.sep), ("/P/x.critic/a", "/P/x.critic/a"), ("/P/.critic-old/a", "/P/.critic-old/a")):
+        assert projroot.project_of(c) == os.path.normpath(want), ("round 3", c, projroot.project_of(c))
+    assert projroot.project_of("C:\\.critic\\b") == "C:\\", "a drive root is C:\\, never C: (the current folder on C)"
     n = d / "n"; (n / ".critic" / "outside").mkdir(parents=True); (n / ".critic" / ".critic").mkdir()  # round 2: a .critic holding a .critic of its own
     for c in (n / ".critic", n / ".critic" / "outside", n / ".critic" / ".critic", n / ".critic" / ".critic" / "briefs"):
         assert projroot.project_of(str(c)) == str(n), ("round 2: every folder inside the project's .critic maps back to it, never to .critic itself (that copied briefs and reviews into a reviewer's copy)", c, projroot.project_of(str(c)))

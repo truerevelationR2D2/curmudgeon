@@ -1,23 +1,25 @@
-"""Which project a folder belongs to, for the hooks and every script (one rule, not ten copies: 5.4.0 blind round).
+"""Which project a folder belongs to, for the hooks and every script (one rule, not ten copies: 5.4.0 blind rounds).
 
-The path's .critic folders are tried from the left, and the first that is Curmudgeon's own wins: the path ends at it,
-the next folder is one Curmudgeon writes there (an agent's copy under scratch, the briefs folder a lead cd'd into: run
-report N1), or it holds Curmudgeon's records. Its parent is the project. So <project>/.critic/... always maps back,
-however deep, even when a .critic has a .critic of its own inside it, while a project kept under a folder named .critic
-(~/.critic/projects/app) stays itself."""
+The project is the folder above the first .critic in the path: <project>/.critic/... always maps back, however deep
+(an agent's copy under scratch, the briefs folder a lead cd'd into: run report N1, a .critic inside a .critic, an empty
+one), in any letter case (Windows and macOS ignore it). No guess is made from what a folder holds.
+
+`base` is the project Claude Code's session started in (hooks get it as CLAUDE_PROJECT_DIR, which stays put when the
+session cds; the Bash tool doesn't get it). A .critic above it is ignored, so a project kept under a folder named
+.critic (~/.critic/projects/app) stays itself. Scripts have no base: for such a project, set CRITIC_ROOT."""
 import os, re
 
-NAMES = {"ledger.json", "ledger.md", "runlog.jsonl", "change-map.json", "change-map.md", "plan.json", "focus.json", "briefs",
-         "reviews", "scratch", "outside", "scan", "verify", "verdicts", "history", "restore", "audit-owner.json", "last-review.md",
-         "tally.json", "counts.md", "findings.jsonl", "decisions.md", "scan-only.txt", "manifest.json"}  # what Curmudgeon writes in .critic
-PART = re.compile(r"[\\/]\.critic(?=[\\/]|$)")
+PART = re.compile(r"[\\/]\.critic(?=[\\/]|$)", re.IGNORECASE)
 
-def project_of(cwd):
-    cwd = str(cwd)
+def _fold(p): return os.path.normcase(p).replace("\\", "/").rstrip("/").casefold()
+
+def project_of(cwd, base=None):
+    cwd = os.path.normpath(str(cwd))
+    b = _fold(os.path.normpath(base)) if base else ""
     for m in PART.finditer(cwd):
         prefix = cwd[:m.start()]
-        if not prefix: continue
-        nxt = re.split(r"[\\/]", cwd[m.end():].lstrip("\\/"), maxsplit=1)[0]
-        state = os.path.join(prefix, ".critic")
-        if not nxt or nxt in NAMES or any(os.path.lexists(os.path.join(state, n)) for n in NAMES): return prefix
+        if b and (b + "/").startswith(_fold(cwd[:m.end()]) + "/"): continue  # this .critic holds the session's project: not the project's own
+        if not prefix: return os.sep  # /.critic/...
+        if re.fullmatch(r"[A-Za-z]:", prefix): return prefix + "\\"  # C:\.critic\... -> C:\, never "C:" (the current folder on C)
+        return prefix
     return cwd

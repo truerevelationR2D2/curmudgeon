@@ -225,6 +225,7 @@ Drop a JSON file of rules into your project's `.critic/rules/` (or, to contribut
   - `.gitignore` doesn't stop a Docker build context, a zip or a sync tool from picking up `.critic/`.
   - Ignore rules don't cover files already committed. If an earlier version let you commit `.critic/` review or ledger files, remove them from git with `git rm --cached` (Curmudgeon warns when it sees tracked ones).
   - The verifier's "no hedging" rule is a word list: it stops "probably" or "seems", but not a confident, wrong refutation that cites a real line. Spot-checks (above) are how you catch those.
+- **A project inside a folder named `.critic`** (say `~/.critic/projects/app`): the scripts take the first `.critic` in a path to be the project's own, so set `CRITIC_ROOT` to the project folder before a review there. The hooks use the folder your session started in, so they get it right either way.
 - **Hooks:**
   - Stop: the optional gate, off until you turn it on;
   - Stop, background re-scan: free scripted checks on files edited since the last review, in one scan with a 5-minute limit, run without blocking, off until you turn it on with `/curmudgeon:gate async`;
