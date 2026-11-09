@@ -43,35 +43,27 @@ def _word(x, nt, short):
 def _quote(x, nt):
     """Bare when no shell needs quotes (a short name like HOSTED~1 included). On Windows, double quotes, which Git Bash
     and PowerShell read alike, an apostrophe included (Qodo on #35; Windows names can't hold a double quote), unless
-    the path holds $ or a backtick, which either shell would expand there. Elsewhere, sh quoting."""
+    the path holds $, a backtick or ! (which Bash expands inside double quotes: Qodo on #36). Elsewhere, sh quoting."""
     import shlex
     if _PLAIN.fullmatch(x) and not x.startswith("~"): return x
-    if nt and not re.search(r'[$`"]', x): return f'"{x}"'
+    if nt and not re.search(r'[$`"!]', x): return f'"{x}"'
     return shlex.quote(x)
 
-def _launcher_ok():
-    """On Windows, whether py -3 starts a Python 3.9 or later: asked only when this Python's own path still needs quotes."""
-    import shutil
-    if not shutil.which("py"): return False
-    try: return subprocess.run(["py", "-3", "-c", "import sys; sys.exit(0 if sys.version_info >= (3, 9) else 1)"], capture_output=True, timeout=20).returncode == 0
-    except (OSError, subprocess.SubprocessError): return False
-
-def _py_exe(exe, nt, short, launcher_ok):
-    e = _word(exe, nt, short); q = _quote(e, nt)
-    if nt and q != e and launcher_ok(): return "py -3"  # PowerShell takes a quoted first word as text, not a command
-    return q
+def _py_exe(exe, nt, short):
+    return _quote(_word(exe, nt, short), nt)
 
 def py_exe():
-    """The Python running this script, as the first word of a printed command (see py_cmd)."""
-    return _py_exe(sys.executable, os.name == "nt", _short_path, _launcher_ok)
+    """The Python running this script, as the first word of a printed command (see py_cmd). Never another Python and
+    never a program looked up by name: printing a command starts nothing (Qodo on #36: a bare py would be found in the
+    project's own folder first on Windows, and could pick an install without this one's packages)."""
+    return _py_exe(sys.executable, os.name == "nt", _short_path)
 
 def py_cmd(script):
     """A command line that runs one of these scripts with the Python running this one, for the instructions the scripts
     print: never a bare python3, which on Windows may be missing or the Store placeholder (Qodo on #34). It runs as
     printed in sh, Git Bash and PowerShell: forward slashes; on Windows, the short form of a path with a space or an
-    accent, else double quotes; and where this Python's own path still needs quotes, py -3 when that starts a Python
-    3.9+. Left over: on a Windows drive with short names off, a Python path with a space and no working py launcher
-    stays quoted, which PowerShell needs & in front of."""
+    accent, else double quotes. Left over: on a Windows drive with short names off, a Python path that needs quotes
+    stays quoted, and PowerShell needs & in front of it (Git Bash, which the hooks need anyway, runs it as printed)."""
     nt = os.name == "nt"
     return f"{py_exe()} {_quote(_word(script, nt, _short_path), nt)}"
 

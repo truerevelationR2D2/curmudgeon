@@ -2036,22 +2036,31 @@ def _(d):
         r = subprocess.run([pw, "-NoProfile", "-Command", line], capture_output=True, text=True, encoding="utf-8", timeout=120)
         assert r.stdout.strip() == "ran as printed", ("blind round: runs as printed in PowerShell", line, r.stdout[-300:], r.stderr[-300:])
 
-@test("Qodo on #35: on a Windows drive with short names off, a script path with an apostrophe or a space is printed in double quotes that Git Bash and PowerShell both read, and a Python path that still needs quotes is printed as py -3 when that works (PowerShell won't run a quoted first word)")
+@test("Qodo on #35 and #36: on a Windows drive with short names off, a script path with an apostrophe or a space is printed in double quotes that Git Bash and PowerShell both read, a path with $ or ! never is, and printing a command starts no program and never swaps in another Python")
 def _(d):
     import critic_findings as cf, shutil
     long = lambda x: x  # short names switched off: the path comes back unchanged
     assert cf._quote(cf._word("C:\\Users\\O'Brien\\x.py", True, long), True) == '"C:/Users/O\'Brien/x.py"'
-    assert cf._py_exe("C:\\Program Files\\Python312\\python.exe", True, long, lambda: True) == "py -3"
-    assert cf._py_exe("C:\\Program Files\\Python312\\python.exe", True, long, lambda: False) == '"C:/Program Files/Python312/python.exe"'
-    assert cf._py_exe("C:\\Python312\\python.exe", True, long, lambda: True) == "C:/Python312/python.exe", "a path that needs no quotes is never swapped for py -3"
     assert cf._quote("C:/a$b/x.py", True) == "'C:/a$b/x.py'", "a $ is never put in double quotes, where a shell would expand it"
+    assert cf._quote("C:/tools/tool!abc.py", True) == "'C:/tools/tool!abc.py'", "Qodo on #36, 3: nor a !, which interactive Bash expands there"
+    real_run, started = subprocess.run, []
+    def no_run(*a, **k): started.append(a); raise AssertionError("printing a command started a program")
+    cf.subprocess.run = no_run
+    try:
+        exe = cf._py_exe("C:\\Program Files\\Python312\\python.exe", True, long)
+        line = cf.py_cmd(S / "critic_scan.py")
+    finally: cf.subprocess.run = real_run
+    assert not started, ("Qodo on #36, 1: nothing runs while a command is printed (a bare py is found in the project's folder first on Windows)", started)
+    assert exe == '"C:/Program Files/Python312/python.exe"', ("Qodo on #36, 2: the Python running the review, never another install without its packages", exe)
+    assert "py -3" not in line, line
     if os.name != "nt": return
     sp = d / "O'Brien has space é"; sp.mkdir(); write(sp, "s.py", "print('ran as printed')\n")
-    line = f"{cf._py_exe(sys.executable, True, long, cf._launcher_ok)} {cf._quote(cf._word(sp / 's.py', True, long), True)}"
-    for shell in [s for s in (shutil.which("sh"),) if s]:
-        r = subprocess.run([shell, "-c", line], capture_output=True, text=True, encoding="utf-8", timeout=60)
+    line = f"{cf._py_exe(sys.executable, True, long)} {cf._quote(cf._word(sp / 's.py', True, long), True)}"
+    sh = shutil.which("sh")
+    if sh:
+        r = subprocess.run([sh, "-c", line], capture_output=True, text=True, encoding="utf-8", timeout=60)
         assert r.stdout.strip() == "ran as printed", ("Git Bash runs it as printed", line, r.stderr[-300:])
     pw = shutil.which("pwsh") or shutil.which("powershell")
-    if pw:
+    if pw and not line.startswith('"'):  # a quoted first word needs & in PowerShell: the one case left, documented
         r = subprocess.run([pw, "-NoProfile", "-Command", line], capture_output=True, text=True, encoding="utf-8", timeout=120)
         assert r.stdout.strip() == "ran as printed", ("PowerShell runs it as printed", line, r.stdout[-300:], r.stderr[-300:])
