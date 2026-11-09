@@ -13,7 +13,7 @@ The cost figures are medians of this project's recorded runs (.critic/cost.jsonl
 says so instead of guessing."""
 import json, os, pathlib, re, statistics, sys
 
-ROOT = pathlib.Path(os.environ.get("CRITIC_ROOT") or re.sub(r"[\\/]\.critic[\\/]scratch(?:[\\/].*)?$", "", os.getcwd()) or os.getcwd()).resolve(); D = ROOT / ".critic"
+ROOT = pathlib.Path(os.environ.get("CRITIC_ROOT") or re.sub(r"[\\/]\.critic(?:[\\/].*)?$", "", os.getcwd()) or os.getcwd()).resolve(); D = ROOT / ".critic"
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import utf8io  # UTF-8 output on Windows too (03 §5.57 item 20)
 import scan_tests, scan_ci, scan_agentcfg, scan_migrations, scan_reqs, scan_integrity

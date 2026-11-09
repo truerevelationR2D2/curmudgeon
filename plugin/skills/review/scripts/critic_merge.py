@@ -47,7 +47,7 @@ import utf8io  # UTF-8 output on Windows too (03 §5.57 item 20)
 from critic_findings import is_security, verdict_required, NIT, IMPACTS, extract_findings, norm_code, relocate_quote, fingerprint, quote_check, read_jsonl, refutation_problem, downgrade_problem, confirmation_problem, security_refutation_problem, similar, log_run, append_line, refuse_linked_state, to_sarif, validate, write_jsonl, tokens, scrub, redact_finding_text, write_manifest, strip_workspace_path, _cites_real_line
 import safegit  # git without the repository's own commands (03 §5.57 review)
 
-ROOT = pathlib.Path(os.environ.get("CRITIC_ROOT") or re.sub(r"[\\/]\.critic[\\/]scratch(?:[\\/].*)?$", "", os.getcwd()) or os.getcwd()).resolve(); D = ROOT / ".critic"
+ROOT = pathlib.Path(os.environ.get("CRITIC_ROOT") or re.sub(r"[\\/]\.critic(?:[\\/].*)?$", "", os.getcwd()) or os.getcwd()).resolve(); D = ROOT / ".critic"
 
 # Browser results that are measurements (the same page gives the same number) skip verification. Everything else the
 # detector reports, such as console errors or controls that seem dead, can come from the test setup, so it is verified.
@@ -504,11 +504,11 @@ def revision_stamp(final):
     def git(*a):
         try: return safegit.run([*a], cwd=ROOT, capture_output=True, text=True, timeout=10, encoding="utf-8", errors="replace").stdout.strip()
         except (OSError, subprocess.TimeoutExpired): return ""
-    h = hashlib.sha256()
+    h = hashlib.sha256(); n = 0
     for f in sorted({str(x.get("file") or "") for x in final}):
         p = ROOT / f
-        if f and inside_root(f) and p.is_file(): h.update(f.encode() + b"\0" + p.read_bytes() + b"\0")
-    return {"sha": git("rev-parse", "--short=12", "HEAD") or None, "dirty": bool(git("status", "--porcelain", "--", ".", ":(exclude).critic")), "payload_sha256": h.hexdigest(),
+        if f and inside_root(f) and p.is_file(): h.update(f.encode() + b"\0" + p.read_bytes() + b"\0"); n += 1
+    return {"sha": git("rev-parse", "--short=12", "HEAD") or None, "dirty": bool(git("status", "--porcelain", "--", ".", ":(exclude).critic")), "payload_sha256": h.hexdigest() if n else None,
             "at": time.strftime("%Y-%m-%d %H:%M:%S")}
 
 def mark_origin(final):
@@ -700,7 +700,7 @@ def apply(paths):
     rev = revision_stamp(final)
     put((D / "revision.json"), json.dumps(rev, indent=1) + "\n")
     with open(D / "counts.md", "a", encoding="utf-8") as fh:
-        fh.write(f"\nRevision reviewed: {rev['sha'] or 'not a git repository'}{' (with uncommitted changes)' if rev['dirty'] else ''}; cited files sha256 {rev['payload_sha256'][:16]}.\n")
+        fh.write(f"\nRevision reviewed: {rev['sha'] or 'not a git repository'}{' (with uncommitted changes)' if rev['dirty'] else ''}; {('cited files sha256 ' + rev['payload_sha256'][:16]) if rev.get('payload_sha256') else 'no kept finding cites a file it could read, so no file hash'}.\n")
     write_manifest(D)  # a sha256 of every output, so a later hand edit shows (critic_ledger.py integrity)
     print(f"wrote {D/'findings.jsonl'}, {D/'findings.sarif'}, {D/'counts.md'} (hashes in {D/'manifest.json'})")
     return 0

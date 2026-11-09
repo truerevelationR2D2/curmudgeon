@@ -58,6 +58,11 @@ def py_exe():
     project's own folder first on Windows, and could pick an install without this one's packages)."""
     return _py_exe(sys.executable, os.name == "nt", _short_path)
 
+def sh_path(p):
+    """A path as one word of a printed command, quoted the way py_cmd quotes its script."""
+    nt = os.name == "nt"
+    return _quote(_word(p, nt, _short_path), nt)
+
 def py_cmd(script):
     """A command line that runs one of these scripts with the Python running this one, for the instructions the scripts
     print: never a bare python3, which on Windows may be missing or the Store placeholder (Qodo on #34). It runs as

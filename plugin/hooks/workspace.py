@@ -83,7 +83,7 @@ def escaping_link(folder, root):
 MAX_FILE = 5 * 1024 * 1024
 MAX_TOTAL = 500 * 1024 * 1024
 MAX_FILES = 100_000
-COPY_PART = re.compile(r"[\\/]\.critic[\\/]scratch(?:[\\/].*)?$")  # anywhere in the scratch area (a copy, its notes, the agent folder) belongs to the project above it
+COPY_PART = re.compile(r"[\\/]\.critic(?:[\\/].*)?$")  # anywhere in .critic (a copy, its notes, the agent folder, or the briefs folder a lead cd'd into: run report N1) belongs to the project above it
 
 def clean_id(v): return re.sub(r"[^A-Za-z0-9_-]", "", str(v or ""))[:64]
 

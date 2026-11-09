@@ -45,7 +45,7 @@ import utf8io  # UTF-8 output on Windows too (03 §5.57 item 20)
 from critic_findings import log_run, norm_code, read_jsonl, record_ledger, refuse_linked_state, tokens
 RANK = {"Critical": 0, "High": 1, "Medium": 2, "Low": 3}
 
-ROOT = pathlib.Path(os.environ.get("CRITIC_ROOT") or re.sub(r"[\\/]\.critic[\\/]scratch(?:[\\/].*)?$", "", os.getcwd()) or os.getcwd()).resolve(); D = ROOT / ".critic"; F = D / "ledger.json"
+ROOT = pathlib.Path(os.environ.get("CRITIC_ROOT") or re.sub(r"[\\/]\.critic(?:[\\/].*)?$", "", os.getcwd()) or os.getcwd()).resolve(); D = ROOT / ".critic"; F = D / "ledger.json"
 SCORES = ("Critical", "High", "Medium", "Low"); STATES = ("open", "fixed", "deferred", "wontfix", "dismissed", "refuted")  # refuted: written by the merge after a verifier refutation (ultimate audit V28: it used to load back as open)
 REASONS = ("impossible", "conflicts", "worse"); DISMISS = ("false-positive", "out-of-scope", "redundant", "intended", "preference")
 CLAIMS = ("targeted", "no-new-defect", "behaviour-unchanged")

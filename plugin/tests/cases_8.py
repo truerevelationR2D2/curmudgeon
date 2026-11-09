@@ -2064,3 +2064,42 @@ def _(d):
     if pw and not line.startswith('"'):  # a quoted first word needs & in PowerShell: the one case left, documented
         r = subprocess.run([pw, "-NoProfile", "-Command", line], capture_output=True, text=True, encoding="utf-8", timeout=120)
         assert r.stdout.strip() == "ran as printed", ("PowerShell runs it as printed", line, r.stdout[-300:], r.stderr[-300:])
+
+@test("5.4.0 N1 and N4: with the shell left in .critic/briefs (or any folder inside .critic), the hooks and scripts still find the project, so a reviewer's private copy holds the code and not the briefs, and the printed scan command runs from there")
+def _(d):
+    import shutil
+    write(d, "src/app.js", APP)
+    out = run(S / "critic_run.py", "begin", "--files", "src/app.js", "--tier", "lite", cwd=d).stdout
+    inside = d / ".critic" / "briefs"; assert inside.is_dir()
+    sys.path.insert(0, str(H))
+    import workspace
+    assert workspace.project_root({"cwd": str(inside)}).resolve() == d.resolve(), ("the SubagentStart hook's project, from the briefs folder", workspace.project_root({"cwd": str(inside)}))
+    assert workspace.project_root({"cwd": str(d / ".critic" / "scratch" / "abc" / "payload")}).resolve() == d.resolve(), "a copy still maps back, as before"
+    e = {k: v for k, v in os.environ.items() if k != "CRITIC_ROOT"}; e.update(TMPDIR=TMP, CURMUDGEON_STATE_DIR=os.path.join(TMP, "state"))
+    r = subprocess.run([sys.executable, str(S / "critic_brief.py"), "--help"], cwd=inside, capture_output=True, text=True, encoding="utf-8", env=e, timeout=120)
+    assert not (inside / ".critic").exists(), ("nothing makes a .critic inside .critic/briefs", sorted(p.name for p in inside.iterdir()))
+    m = re.search(r"while the reviewers work: (.+?) \(add --page", out); assert m, out
+    sh = shutil.which("sh")
+    if not sh: raise Skip("needs sh (Git Bash on Windows)")
+    shutil.rmtree(d / ".critic/scan", ignore_errors=True)
+    r = subprocess.run([sh, "-c", m.group(1)], cwd=inside, capture_output=True, text=True, encoding="utf-8", env=e, timeout=300)
+    assert r.returncode == 0 and (d / ".critic/scan/report.json").is_file(), ("the printed scan runs from inside .critic/briefs (it failed: can't read --only list)", m.group(1), r.returncode, r.stderr[-300:])
+    assert not (inside / ".critic").exists(), "and writes its report in the project's .critic, never a nested one"
+
+@test("5.4.0 N2, N3, N6, N8: outside git the intent is 'none given', not a dangling label; a run with no kept finding prints no empty-input hash; the change map shows a tier the owner chose; and plan proposes without starting a run")
+def _(d):
+    write(d, "app.py", "def f(x):\n    return x\n")
+    out = run(S / "critic_run.py", "plan", "--files", "app.py", cwd=d).stdout
+    assert "plan only" in out and not (d / ".critic/ledger.json").exists() and not (d / ".critic/briefs").exists(), ("N8: plan starts no run and writes no briefs", out[-400:])
+    run(S / "critic_run.py", "begin", "--files", "app.py", "--tier", "full", cwd=d)
+    md = (d / ".critic/change-map.md").read_text(encoding="utf-8"); cmj = json.loads((d / ".critic/change-map.json").read_text(encoding="utf-8"))
+    assert "**Tier: full** (mapped trivial; run at full" in md and cmj["tier"] == "full" and cmj.get("mapped_tier") == "trivial", ("N6", md[:300], cmj.get("tier"))
+    assert "From the last commit message" not in md and "From the last commit message" not in (d / ".critic/briefs/brief-A.md").read_text(encoding="utf-8"), "N2: not a git repository, so no commit-message label"
+    assert "_None given" in md, md[:500]
+    import critic_merge
+    rev = critic_merge.revision_stamp([])
+    assert rev["payload_sha256"] is None, ("N3: nothing hashed is not the sha256 of empty input", rev)
+    for k in "ABC": write(d, f".critic/reviews/review-{k}.json", "[]")
+    run(S / "critic_run.py", "next", "--no-scan", cwd=d); run(S / "critic_run.py", "next", "--no-scan", cwd=d)
+    counts = (d / ".critic/counts.md").read_text(encoding="utf-8") if (d / ".critic/counts.md").exists() else ""
+    assert counts and "e3b0c44298fc1c14" not in counts and "no kept finding cites a file" in counts, ("N3 in counts.md", counts[-300:])

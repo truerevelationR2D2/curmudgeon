@@ -888,7 +888,9 @@ def main(argv):
     SCAN_ROOT = pathlib.Path(a.root or os.environ.get("CRITIC_ROOT") or os.getcwd()).resolve()
     refuse_linked_state(SCAN_ROOT)
     if a.only:
-        try: ONLY = {x.strip() for x in pathlib.Path(a.only).read_text(encoding="utf-8").splitlines() if x.strip() and not x.strip().startswith(("/", ".."))}
+        op = pathlib.Path(a.only)
+        if not op.is_absolute() and not op.exists(): op = SCAN_ROOT / op  # relative to --root when the shell is elsewhere (run report N1)
+        try: ONLY = {x.strip() for x in op.read_text(encoding="utf-8").splitlines() if x.strip() and not x.strip().startswith(("/", ".."))}
         except OSError as e: print(f"critic_scan: can't read --only list: {e}", file=sys.stderr); return 2
     log_run(SCAN_ROOT, "script", "critic_scan.py " + " ".join(argv))
     src = pathlib.Path(a.src).resolve()

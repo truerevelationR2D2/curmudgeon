@@ -385,7 +385,7 @@ def _(d):
     write(d, ".critic/scan/report.md", "SCAN-SECRET"); write(d, ".critic/reviews/review-B.json", '[{"title": "OTHER-REVIEW"}]')
     run(S / "critic_ledger.py", "decision", "Prices are in cents", cwd=d)
     out = run(S / "critic_run.py", "begin", "--files", *[f"src/{n}.js" for n in "abcdef"], "--tier", "full", cwd=d).stdout
-    assert "run_in_background" in out and "critic_scan.py . --root . --only .critic/scan-only.txt" in out and ".critic/briefs/brief-B.md" in out, out
+    assert "run_in_background" in out and re.search(r"critic_scan\.py \S+ --root \S+ --only \S*\.critic/scan-only\.txt", out) and ".critic/briefs/brief-B.md" in out, out
     assert sorted((d / ".critic/scan-only.txt").read_text(encoding="utf-8").split()) == [f"src/{n}.js" for n in "abcdef"]
     b = {x: (d / f".critic/briefs/brief-{x}.md").read_text(encoding="utf-8") for x in "ABC"}
     pre = {x: b[x].split("\n---\n")[0] for x in "ABC"}

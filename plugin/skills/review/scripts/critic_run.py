@@ -8,6 +8,9 @@ usage:
         start a run (critic_ledger.py start) and map the change (critic_map.py); prints the reviewers to start. --fix
         records a full-mode run (review and fix), so the stop gate holds open Critical and High findings to it.
         --security is the security scan mode (5.2): the tier's panel, security lenses and focus only, and the feed step
+  critic_run.py plan [same arguments as begin]
+        map the change and propose the job plan, starting nothing: with the user present, show it and take their answer,
+        then begin (run report N8: begin starts the run, so a plan changed after it threw that run's work away)
   critic_run.py next [--apply-now] [--no-scan]
         look at the run and do the next step: the first tally, the tally with the dedup groups, or apply (the stop hook
         saves each verifier's verdicts in .critic/verdicts/); prints the next agents to start, or that the teardown can
@@ -28,9 +31,9 @@ from critic_findings import verifier_batches  # one rule for critic_run next and
 import safegit  # git without the repository's own commands (03 §5.57 review)
 
 HERE = pathlib.Path(__file__).resolve().parent
-ROOT = pathlib.Path(os.environ.get("CRITIC_ROOT") or re.sub(r"[\\/]\.critic[\\/]scratch(?:[\\/].*)?$", "", os.getcwd()) or os.getcwd()).resolve(); D = ROOT / ".critic"
+ROOT = pathlib.Path(os.environ.get("CRITIC_ROOT") or re.sub(r"[\\/]\.critic(?:[\\/].*)?$", "", os.getcwd()) or os.getcwd()).resolve(); D = ROOT / ".critic"
 REVIEWERS = {"trivial": ["A"], "lite": ["A"], "full": ["A", "B", "C"]}
-from critic_findings import VERIFY_BATCH, py_cmd  # packets per verifier agent (03 §5.37); defined once, beside verifier_batches
+from critic_findings import VERIFY_BATCH, py_cmd, sh_path  # packets per verifier agent (03 §5.37); defined once, beside verifier_batches
 FORCE = False  # next --apply-now: apply with the verdicts there are (a finding with no verdict stays at lower confidence, except single-vote Mediums and outside-only findings, which are left out)
 
 def sh(script, *a):
@@ -47,13 +50,29 @@ def mtime(p): return p.stat().st_mtime if p.exists() else 0
 
 SCAN, OUTSIDE, NO_SCAN = D / "scan" / "report.json", D / "outside" / "outside-review.json", D / "scan-skipped"
 
-def scan_cmd():
+def chosen_tier(tier):
+    """The change map shows the tier in force: when the owner chose a different one, both (run report N6: it kept saying
+    trivial after begin --tier full, while the plan and briefs said full)."""
+    try:
+        cmj = json.loads((D / "change-map.json").read_text(encoding="utf-8"))
+        mapped = cmj.get("tier")
+        if not mapped or mapped == tier or (D / "change-map.json").is_symlink() or (D / "change-map.md").is_symlink(): return
+        cmj["tier"], cmj["mapped_tier"] = tier, mapped
+        (D / "change-map.json").write_text(json.dumps(cmj) + "\n", encoding="utf-8")
+        md = (D / "change-map.md").read_text(encoding="utf-8")
+        (D / "change-map.md").write_text(md.replace(f"**Tier: {mapped}**", f"**Tier: {tier}** (mapped {mapped}; run at {tier}, the owner's choice)", 1), encoding="utf-8")
+    except (OSError, ValueError, AttributeError): pass
+
+def scan_cmd(sec=None):
     """The scan command for this run, as begin prints it: limited to the change's files (scan-only.txt) and to security in
-    the security scan mode, so a scan started later (a new round) covers the same ground (§5.56 round 3)."""
-    only = " --only .critic/scan-only.txt" if (D / "scan-only.txt").is_file() and not (D / "scan-only.txt").is_symlink() else ""
-    try: sec = json.loads((D / "focus.json").read_text(encoding="utf-8")).get("focus") == "security" if (D / "focus.json").is_file() else False
-    except (OSError, ValueError): sec = False
-    return f"{py_cmd(HERE / 'critic_scan.py')} . --root .{only}{' --focus security' if sec else ''}"
+    the security scan mode, so a scan started later (a new round) covers the same ground (§5.56 round 3). Every path is
+    the project's own, in full, so it runs the same from whatever folder the shell is in (run report N1)."""
+    only = f" --only {sh_path(D / 'scan-only.txt')}" if (D / "scan-only.txt").is_file() and not (D / "scan-only.txt").is_symlink() else ""
+    if sec is None:
+        try: sec = json.loads((D / "focus.json").read_text(encoding="utf-8")).get("focus") == "security" if (D / "focus.json").is_file() else False
+        except (OSError, ValueError): sec = False
+    r = sh_path(ROOT)
+    return f"{py_cmd(HERE / 'critic_scan.py')} {r} --root {r}{only}{' --focus security' if sec else ''}"
 
 def is_fresh(p, started): return p.is_file() and not p.is_symlink() and mtime(p) >= started
 
@@ -174,6 +193,19 @@ def main(a):
     cmd, rest = a[0], a[1:]
     if cmd in ("begin", "next"):
         from critic_findings import refuse_linked_state; refuse_linked_state(ROOT)
+    if cmd == "plan":  # run report N8: the plan before anything starts, so the owner's answer can still change it
+        security = "--security" in rest
+        rest = [x for x in rest if x not in ("--audit", "--fix", "--security")]
+        D.mkdir(parents=True, exist_ok=True); fp = D / "focus.json"
+        if fp.is_symlink(): sys.exit("critic_run: .critic/focus.json is a link; refusing")
+        if security: fp.write_text(json.dumps({"focus": "security"}) + "\n", encoding="utf-8")
+        elif fp.exists(): fp.unlink()
+        tier = rest[rest.index("--tier") + 1] if "--tier" in rest and rest.index("--tier") + 1 < len(rest) else ""
+        sh("critic_map.py", *[x for i, x in enumerate(rest) if not (x == "--tier" or (i and rest[i - 1] == "--tier"))])
+        sh("critic_plan.py", *(["--tier", tier] if tier else []))
+        print("plan only: no run was started and no agent should start yet. Show the user the plan in two lines and let them "
+              "change it; then run critic_run.py begin with the same arguments (plus --tier <their choice> if they changed it).")
+        return 0
     if cmd == "begin":
         audit = "--audit" in rest; fix = "--fix" in rest and not audit; security = "--security" in rest
         rest = [x for x in rest if x not in ("--audit", "--fix", "--security")]
@@ -206,6 +238,7 @@ def main(a):
         if not tier:
             try: tier = json.loads((D / "plan.json").read_text(encoding="utf-8")).get("tier") or "full"
             except (OSError, ValueError): tier = "full"
+        chosen_tier(tier)
         sh("critic_ledger.py", "start", "audit" if audit else ("full" if fix else "review"), "--tier", tier)
         sh("critic_brief.py", "--letters", ",".join(REVIEWERS.get(tier, REVIEWERS["full"])))
         cmj = json.loads((D / "change-map.json").read_text(encoding="utf-8")) if (D / "change-map.json").exists() else {}
@@ -228,8 +261,7 @@ def main(a):
                   f"4. ask them to sign off on that size and pick a schedule (daily, weekly, biweekly, monthly). "
                   f"5. {py_cmd(HERE / 'security_feed.py')} set --cadence <schedule> --folder <folder> --signed-off <bytes>, then {py_cmd(HERE / 'security_feed.py')} update. "
                   f"If it is already on and due: {py_cmd(HERE / 'security_feed.py')} update (exit 5 means the database grew past the signed-off size: show the new estimate and ask again)")
-            only += " --focus security"
-        print(f"now, in the background (Bash with run_in_background), while the reviewers work: {py_cmd(HERE / 'critic_scan.py')} . --root .{only} "
+        print(f"now, in the background (Bash with run_in_background), while the reviewers work: {scan_cmd(bool(security))} "
               "(add --page <page> for a UI). Reviewers can't read its output (their private copies and the read guard), so it no longer waits for them.")
         st, L, tier, items = state(); say_next(st, tier, items); return 0
     if cmd == "early":

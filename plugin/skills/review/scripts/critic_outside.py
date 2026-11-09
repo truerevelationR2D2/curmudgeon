@@ -25,7 +25,7 @@ import utf8io  # UTF-8 output on Windows too (03 §5.57 item 20)
 from critic_findings import IMPACTS, log_run, redact_secrets, refuse_linked_state
 import safegit  # git without the repository's own commands (03 §5.57 review)
 
-ROOT = pathlib.Path(os.environ.get("CRITIC_ROOT") or re.sub(r"[\\/]\.critic[\\/]scratch(?:[\\/].*)?$", "", os.getcwd()) or os.getcwd()).resolve(); D = ROOT / ".critic"; OUT = D / "outside"
+ROOT = pathlib.Path(os.environ.get("CRITIC_ROOT") or re.sub(r"[\\/]\.critic(?:[\\/].*)?$", "", os.getcwd()) or os.getcwd()).resolve(); D = ROOT / ".critic"; OUT = D / "outside"
 MAX_BYTES, MAX_FINDINGS = 1_000_000, 200
 FIELDS = ("impact", "category", "file", "line", "quote", "title", "evidence", "failing_case", "verified", "remediation")
 
