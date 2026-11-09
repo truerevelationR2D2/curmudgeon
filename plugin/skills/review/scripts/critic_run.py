@@ -31,7 +31,7 @@ from critic_findings import verifier_batches  # one rule for critic_run next and
 import safegit  # git without the repository's own commands (03 §5.57 review)
 
 HERE = pathlib.Path(__file__).resolve().parent
-ROOT = pathlib.Path(os.environ.get("CRITIC_ROOT") or re.sub(r"[\\/]\.critic(?:[\\/].*)?$", "", os.getcwd()) or os.getcwd()).resolve(); D = ROOT / ".critic"
+ROOT = pathlib.Path(os.environ.get("CRITIC_ROOT") or __import__("projroot").project_of(os.getcwd())).resolve(); D = ROOT / ".critic"
 REVIEWERS = {"trivial": ["A"], "lite": ["A"], "full": ["A", "B", "C"]}
 from critic_findings import VERIFY_BATCH, py_cmd, sh_path, log_run  # packets per verifier agent (03 §5.37); defined once, beside verifier_batches
 FORCE = False  # next --apply-now: apply with the verdicts there are (a finding with no verdict stays at lower confidence, except single-vote Mediums and outside-only findings, which are left out)
@@ -51,7 +51,7 @@ def mtime(p): return p.stat().st_mtime if p.exists() else 0
 
 SCAN, OUTSIDE, NO_SCAN = D / "scan" / "report.json", D / "outside" / "outside-review.json", D / "scan-skipped"
 
-def chosen_tier(tier):
+def chosen_tier(tier, why="the owner's choice"):
     """The change map shows the tier in force: when the owner chose a different one, both (run report N6: it kept saying
     trivial after begin --tier full, while the plan and briefs said full)."""
     try:
@@ -61,7 +61,7 @@ def chosen_tier(tier):
         cmj["tier"], cmj["mapped_tier"] = tier, mapped
         (D / "change-map.json").write_text(json.dumps(cmj) + "\n", encoding="utf-8")
         md = (D / "change-map.md").read_text(encoding="utf-8")
-        (D / "change-map.md").write_text(md.replace(f"**Tier: {mapped}**", f"**Tier: {tier}** (mapped {mapped}; run at {tier}, the owner's choice)", 1), encoding="utf-8")
+        (D / "change-map.md").write_text(md.replace(f"**Tier: {mapped}**", f"**Tier: {tier}** (mapped {mapped}; run at {tier}: {why})", 1), encoding="utf-8")
     except (OSError, ValueError, AttributeError): pass
 
 def scan_cmd(sec=None):
@@ -91,6 +91,7 @@ def state():
     L = ledger(); tier = L.get("tier") or "full"
     started = L.get("started_at") or 0
     if not started or mtime(D / "last-review.md") >= started: return "idle", L, tier, []
+    if any(isinstance(a, dict) and a.get("run") == L.get("run") for a in L.get("aborted") or []): return "stopped", L, tier, []  # the owner stopped it (critic_ledger.py abort)
     letters = REVIEWERS.get(tier, REVIEWERS["full"])
     reviews = [D / "reviews" / f"review-{x}.json" for x in letters]
     have = [p for p in reviews if p.exists() and mtime(p) >= started - 2]
@@ -188,22 +189,32 @@ def say_next(st, tier, items):
     elif st == "teardown":
         print("next: write the teardown from .critic/counts.md (references/output-contract.md), save .critic/last-review.md, then critic_ledger.py stamp <payload>.")
     elif st == "idle": print("next: no run is active; critic_run.py begin starts one.")
+    elif st == "stopped": print("next: the owner stopped this run (critic_ledger.py abort), so nothing more runs in it; critic_run.py begin starts a new one.")
 
 def main(a):
     if not a or a[0] in ("-h", "--help"): print(__doc__); return 0
     cmd, rest = a[0], a[1:]
-    if cmd in ("begin", "next"):
+    if cmd in ("plan", "begin", "next"):
         from critic_findings import refuse_linked_state; refuse_linked_state(ROOT)
     if cmd == "plan":  # run report N8: the plan before anything starts, so the owner's answer can still change it
         security = "--security" in rest
         rest = [x for x in rest if x not in ("--audit", "--fix", "--security")]
         D.mkdir(parents=True, exist_ok=True); fp = D / "focus.json"
-        if fp.is_symlink(): sys.exit("critic_run: .critic/focus.json is a link; refusing")
+        touched = [fp] + [D / x for x in ("change-map.json", "change-map.md", "plan.json")]
+        if any(p.is_symlink() for p in touched): sys.exit("critic_run: a .critic file plan would write is a link; refusing")
+        kept = {p: (p.read_bytes() if p.is_file() else None) for p in touched}
         if security: fp.write_text(json.dumps({"focus": "security"}) + "\n", encoding="utf-8")
         elif fp.exists(): fp.unlink()
         tier = rest[rest.index("--tier") + 1] if "--tier" in rest and rest.index("--tier") + 1 < len(rest) else ""
-        sh("critic_map.py", *[x for i, x in enumerate(rest) if not (x == "--tier" or (i and rest[i - 1] == "--tier"))])
-        sh("critic_plan.py", *(["--tier", tier] if tier else []))
+        try:
+            sh("critic_map.py", *[x for i, x in enumerate(rest) if not (x == "--tier" or (i and rest[i - 1] == "--tier"))])
+            sh("critic_plan.py", *(["--tier", tier] if tier else []))
+        finally:  # the plan is printed, then every file it wrote is put back: it changes nothing a run in progress reads (5.4.0 blind round)
+            for p, data in kept.items():
+                try:
+                    if data is None: p.unlink(missing_ok=True)
+                    elif not p.is_symlink(): p.write_bytes(data)
+                except OSError: pass
         print("plan only: no run was started and no agent should start yet. Show the user the plan in two lines and let them "
               "change it; then run critic_run.py begin with the same arguments (plus --tier <their choice> if they changed it).")
         return 0
@@ -215,6 +226,7 @@ def main(a):
         if security: fp.write_text(json.dumps({"focus": "security"}) + "\n", encoding="utf-8")
         elif fp.exists(): fp.unlink()  # a plain run never inherits an earlier run's focus
         tier = rest[rest.index("--tier") + 1] if "--tier" in rest and rest.index("--tier") + 1 < len(rest) else ""
+        asked_tier = "audit" if audit else (tier or "")  # the change map names the owner's choice only when they made one (5.4.0 blind round)
         if audit:
             tier = "full"
             mine = D / "audit-owner.json"  # written by an earlier begin --audit here: that ledger is ours, unless the repository shipped the marker
@@ -239,7 +251,7 @@ def main(a):
         if not tier:
             try: tier = json.loads((D / "plan.json").read_text(encoding="utf-8")).get("tier") or "full"
             except (OSError, ValueError): tier = "full"
-        chosen_tier(tier)
+        if asked_tier: chosen_tier(tier, "audit mode" if audit and asked_tier == "audit" else "the owner's choice")
         sh("critic_ledger.py", "start", "audit" if audit else ("full" if fix else "review"), "--tier", tier)
         sh("critic_brief.py", "--letters", ",".join(REVIEWERS.get(tier, REVIEWERS["full"])))
         cmj = json.loads((D / "change-map.json").read_text(encoding="utf-8")) if (D / "change-map.json").exists() else {}

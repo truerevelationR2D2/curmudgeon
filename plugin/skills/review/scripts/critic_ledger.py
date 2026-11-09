@@ -49,7 +49,7 @@ import utf8io  # UTF-8 output on Windows too (03 §5.57 item 20)
 from critic_findings import log_run, norm_code, read_jsonl, record_ledger, refuse_linked_state, tokens
 RANK = {"Critical": 0, "High": 1, "Medium": 2, "Low": 3}
 
-ROOT = pathlib.Path(os.environ.get("CRITIC_ROOT") or re.sub(r"[\\/]\.critic(?:[\\/].*)?$", "", os.getcwd()) or os.getcwd()).resolve(); D = ROOT / ".critic"; F = D / "ledger.json"
+ROOT = pathlib.Path(os.environ.get("CRITIC_ROOT") or __import__("projroot").project_of(os.getcwd())).resolve(); D = ROOT / ".critic"; F = D / "ledger.json"
 SCORES = ("Critical", "High", "Medium", "Low"); STATES = ("open", "fixed", "deferred", "wontfix", "dismissed", "refuted")  # refuted: written by the merge after a verifier refutation (ultimate audit V28: it used to load back as open)
 REASONS = ("impossible", "conflicts", "worse"); DISMISS = ("false-positive", "out-of-scope", "redundant", "intended", "preference")
 CLAIMS = ("targeted", "no-new-defect", "behaviour-unchanged")
@@ -123,7 +123,7 @@ def render(L):
     md = ["# Curmudgeon ledger", f"Updated {time.strftime('%Y-%m-%d %H:%M')}. Run {L['run']}. Mode: {L['mode'] or 'none'}. Tier: {L['tier'] or 'n/a'}. Review round: {L['round']} of 3.", "",
           "## Findings", "| ID | Impact | Status | Where | Finding | Note |", "| --- | --- | --- | --- | --- | --- |", *rows,
           "", f"## Acted-on rate: {rate}",
-          "", "## Decisions to respect", *[f"- {d['text']} ({d.get('source', '')})" + (f" (amended {len(d['history'])}x; earlier: {d['history'][-1]['text']!r})" if d.get("history") else "") for d in L["decisions"] if not d.get("retracted")],
+          "", "## Decisions to respect", *[f"- {d['text']} ({d.get('source', '')})" + (" (amended; earlier: " + "; then ".join(repr(h.get("text", "")) for h in d["history"]) + ")" if d.get("history") else "") for d in L["decisions"] if not d.get("retracted")],
           *([""] + ["## Retracted decisions"] + [f"- ~~{d['text']}~~ ({d.get('source', '')}): retracted {d['retracted']['at']}: {d['retracted']['why']}" for d in L["decisions"] if d.get("retracted")] if any(d.get("retracted") for d in L["decisions"]) else []),
           *([""] + ["## Stopped runs"] + [f"- run {a['run']}, stopped {a['at']}: {a['why'] or 'no reason given'}" for a in L.get("aborted", [])] if L.get("aborted") else []),
           "", "## Gate overrides", *[f"- {o['at']}: {o['what']} — by {o['who']}: {o['why']}" for o in L["overrides"]],
@@ -594,8 +594,11 @@ def main(a):
         except OSError as e: die(str(e))
     elif cmd == "decision" and rest[:1] in (["--amend"], ["--retract"]):  # P11: a decision recorded wrongly is corrected, never edited by hand; its earlier words stay
         need(rest, 3, "decision --amend N \"text\" [SOURCE] | decision --retract N \"why\"")
-        try: d = L["decisions"][int(rest[1]) - 1]; assert int(rest[1]) >= 1
-        except (ValueError, IndexError, AssertionError): die(f"no decision {rest[1]}: they are numbered from 1 in the order recorded ({len(L['decisions'])} so far)")
+        n = int(rest[1]) if re.fullmatch(r"\d+", rest[1]) else 0
+        if not 1 <= n <= len(L["decisions"]): die(f"no decision {rest[1]}: they are numbered from 1 in the order recorded ({len(L['decisions'])} so far)")
+        d = L["decisions"][n - 1]
+        if not rest[2].strip(): die("give the new text (amend) or the reason (retract): it is what the ledger keeps")
+        if rest[0] == "--amend" and len(rest) > 3 and rest[3].strip().lower() in ("author", "claude", "critic", "curmudgeon", "self"): die("a decision's source is the owner, not the author")
         if d.get("retracted"): die(f"decision {rest[1]} was retracted; record a new one instead")
         if rest[0] == "--amend":
             d.setdefault("history", []).append({"text": d["text"], "source": d.get("source", ""), "until": time.strftime("%Y-%m-%d %H:%M")})
@@ -606,6 +609,8 @@ def main(a):
         need(rest, 1, "decision \"text\" [SOURCE]"); L["decisions"].append({"text": rest[0], "source": rest[1] if len(rest) > 1 else ""})
     elif cmd == "abort":  # P10: the owner stopped this run; it stays in the ledger as stopped, never as started with no outcome
         if not L.get("run"): die("no run has started")
+        lr = D / "last-review.md"
+        if lr.exists() and lr.stat().st_mtime >= (L.get("started_at") or 0): die(f"run {L['run']} already finished (its teardown is written); nothing to stop")
         if any(a.get("run") == L["run"] for a in L.get("aborted", [])): die(f"run {L['run']} is already recorded as stopped")
         L.setdefault("aborted", []).append({"run": L["run"], "at": time.strftime("%Y-%m-%d %H:%M"), "why": rest[0] if rest else ""})
     elif cmd == "log":  # P8: a command the lead ran itself (a sandbox run, a re-check), with its exit code, in the run log

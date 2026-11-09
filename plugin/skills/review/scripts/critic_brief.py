@@ -23,7 +23,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import utf8io; from critic_findings import py_cmd  # UTF-8 output on Windows too (03 §5.57 item 20)
 
 HERE = pathlib.Path(__file__).resolve().parent
-ROOT = pathlib.Path(os.environ.get("CRITIC_ROOT") or re.sub(r"[\\/]\.critic(?:[\\/].*)?$", "", os.getcwd()) or os.getcwd()).resolve(); D = ROOT / ".critic"
+ROOT = pathlib.Path(os.environ.get("CRITIC_ROOT") or __import__("projroot").project_of(os.getcwd())).resolve(); D = ROOT / ".critic"
 
 def load(p, default):
     try: return json.loads(p.read_text(encoding="utf-8")) if p.is_file() and not p.is_symlink() else default
