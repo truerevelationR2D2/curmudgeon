@@ -104,6 +104,7 @@ def load(read_only=False):
     if not isinstance(L["findings"], dict): die(f"ledger 'findings' has the wrong shape; nothing was changed. Fix or move {F}, then run init.")
     for k in ("decisions", "overrides", "false_positives", "dismissals", "memories", "scores", "costs", "restore", "spotchecks", "spotcheck_pending"):
         if not isinstance(L[k], list): die(f"ledger '{k}' has the wrong shape; nothing was changed. Fix or move {F}, then run init.")
+    if any(not isinstance(x, dict) or not isinstance(x.get("history", []), list) for x in L["decisions"]): die(f"ledger 'decisions' has the wrong shape; nothing was changed. Fix or move {F}, then run init.")
     bad = [i for i, x in L["findings"].items() if not isinstance(x, dict)]
     if bad: die(f"ledger finding(s) {', '.join(map(str, bad[:5]))}{' and more' if len(bad) > 5 else ''} are not records, so they would be lost on the next save; nothing was changed. Fix or remove them in {F}, then run again (audit Q10).")
     for i, x in list(L["findings"].items()):

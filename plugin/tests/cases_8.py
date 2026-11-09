@@ -2163,6 +2163,14 @@ def _(d):
     write(home, "a.py", "x = 1\n"); run(S / "critic_run.py", "begin", "--files", "a.py", "--tier", "lite", cwd=home)
     assert projroot.project_of(str(home / ".critic" / "briefs")) == str(home), "its own briefs folder maps back to it, not to ~/u"
     assert projroot.project_of(str(home / ".critic" / "scratch" / "x" / "payload" / "pkg" / ".critic")) == str(home)
+    n = d / "n"; (n / ".critic" / "outside").mkdir(parents=True); (n / ".critic" / ".critic").mkdir()  # round 2: a .critic holding a .critic of its own
+    for c in (n / ".critic", n / ".critic" / "outside", n / ".critic" / ".critic", n / ".critic" / ".critic" / "briefs"):
+        assert projroot.project_of(str(c)) == str(n), ("round 2: every folder inside the project's .critic maps back to it, never to .critic itself (that copied briefs and reviews into a reviewer's copy)", c, projroot.project_of(str(c)))
+    assert pathlib.Path(workspace.project_root({"cwd": str(n / ".critic")})) == n
+    e = d / "e"; (e / ".critic").mkdir(parents=True); assert projroot.project_of(str(e / ".critic")) == str(e), "an empty .critic is still the project's"
+    sh_ = d / "shape"; sh_.mkdir(); own_ledger(sh_, {"version": 4, "run": 1, "findings": {}, "decisions": ["not a dict"]})
+    r = run(S / "critic_ledger.py", "decision", "--amend", "1", "new", cwd=sh_)
+    assert r.returncode != 0 and "wrong shape" in (r.stderr + r.stdout) and "Traceback" not in r.stderr, ("round 2: a badly shaped decision is refused, not a crash", r.stderr[-300:])
     # plan: linked .critic refused; a live run's files put back
     p = d / "p"; write(p, "a.py", "x = 1\n"); out_ = d / "outside"; out_.mkdir(); write(out_, "focus.json", "{}")
     try: os.symlink(out_, p / ".critic", target_is_directory=True); linked = True
