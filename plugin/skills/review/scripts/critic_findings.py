@@ -30,20 +30,42 @@ def _short_path(p):
         return b.value if b is not None and f(str(p), b, n) else p
     except Exception: return p
 
+_PLAIN = re.compile(r"[\w@%+=:,./~-]+", re.ASCII)  # shlex's safe set plus ~, which no shell expands inside a word
+
+def _word(x, nt, short):
+    """One path as a printed word: forward slashes; on Windows, the short form when the long one needs quotes."""
+    x = str(x)
+    if nt:
+        if not _PLAIN.fullmatch(x.replace("\\", "/")): x = str(short(x))
+        return x.replace("\\", "/")
+    return x
+
+def _quote(x, nt):
+    """Bare when no shell needs quotes (a short name like HOSTED~1 included). On Windows, double quotes, which Git Bash
+    and PowerShell read alike, an apostrophe included (Qodo on #35; Windows names can't hold a double quote), unless
+    the path holds $, a backtick or ! (which Bash expands inside double quotes: Qodo on #36). Elsewhere, sh quoting."""
+    import shlex
+    if _PLAIN.fullmatch(x) and not x.startswith("~"): return x
+    if nt and not re.search(r'[$`"!]', x): return f'"{x}"'
+    return shlex.quote(x)
+
+def _py_exe(exe, nt, short):
+    return _quote(_word(exe, nt, short), nt)
+
+def py_exe():
+    """The Python running this script, as the first word of a printed command (see py_cmd). Never another Python and
+    never a program looked up by name: printing a command starts nothing (Qodo on #36: a bare py would be found in the
+    project's own folder first on Windows, and could pick an install without this one's packages)."""
+    return _py_exe(sys.executable, os.name == "nt", _short_path)
+
 def py_cmd(script):
     """A command line that runs one of these scripts with the Python running this one, for the instructions the scripts
-    print: never a bare python3, which on Windows may be missing or the Store placeholder (Qodo on #34). Forward slashes,
-    and on Windows the short form of a path with a space or an accent, so it runs as printed in Git Bash and in
-    PowerShell, where a quoted first word is text, not a command (blind round). Quotes are left only where neither
-    helps (short names switched off on that drive), and there PowerShell needs & in front."""
-    import shlex
-    plain = re.compile(r"[\w@%+=:,./~-]+", re.ASCII)  # shlex's safe set plus ~, which no shell expands inside a word
-    def one(x):
-        x = str(x)
-        if shlex.quote(x) != x: x = _short_path(x)
-        x = pathlib.Path(x).as_posix()
-        return x if plain.fullmatch(x) and not x.startswith("~") else shlex.quote(x)  # a short name (HOSTED~1) stays unquoted
-    return " ".join(one(x) for x in (sys.executable, script))
+    print: never a bare python3, which on Windows may be missing or the Store placeholder (Qodo on #34). It runs as
+    printed in sh, Git Bash and PowerShell: forward slashes; on Windows, the short form of a path with a space or an
+    accent, else double quotes. Left over: on a Windows drive with short names off, a Python path that needs quotes
+    stays quoted, and PowerShell needs & in front of it (Git Bash, which the hooks need anyway, runs it as printed)."""
+    nt = os.name == "nt"
+    return f"{py_exe()} {_quote(_word(script, nt, _short_path), nt)}"
 
 def safe_int(v):
     """Line numbers arrive as 12, "12", "12-14" or junk: take the first number, else 0. Never raises."""
