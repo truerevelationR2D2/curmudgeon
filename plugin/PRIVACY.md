@@ -14,13 +14,14 @@ Your conversation with Claude is handled by Claude Code and Anthropic under Anth
 
 ## What can leave your computer, and only when you choose it
 
-Curmudgeon makes no network call unless you switch on one of these features:
+Curmudgeon makes no network call unless you switch on or ask for one of these features:
 
 | Feature | When | What is sent | To whom | Their privacy policy |
 |---|---|---|---|---|
 | Local security database | Only after you say yes, pick a folder and sign off on the size; then on your chosen schedule | Size requests and downloads of public files. Nothing about your project is sent | OSV.dev bulk files on Google Cloud Storage (`storage.googleapis.com`), and CISA (`www.cisa.gov`) | Google: https://policies.google.com/privacy · CISA: https://www.cisa.gov/privacy-policy |
 | Online dependency lookup | Only on a run with `--online`, after you agree on that run (`critic_ledger.py consent online`) | The names and versions of the packages in your lockfiles | The OSV API (`api.osv.dev`), run by Google | https://policies.google.com/privacy |
 | Live website check | Only for a site listed in your project's `.critic/scope.json`, with the host typed again on that run | Ordinary page requests (GET, HEAD and OPTIONS only, up to a request cap), as a browser would make | The site you named | That site's own policy |
+| Update check | Only when you type `/curmudgeon:check-updates` | One request for the plugin's public version file. Nothing about you or your project is sent, and nothing is downloaded | GitHub (`raw.githubusercontent.com`) | https://docs.github.com/en/site-policy/privacy-policies/github-general-privacy-statement |
 | Outside reviewer | Only if you say yes, and only by your own hand | Whatever you copy and paste into another AI yourself. Curmudgeon never contacts another AI | The AI you choose | That service's own policy |
 
 Each of these is described in the README, under "What it runs, reads and sends" and "Security scan".

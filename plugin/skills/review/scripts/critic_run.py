@@ -33,12 +33,13 @@ import safegit  # git without the repository's own commands (03 §5.57 review)
 HERE = pathlib.Path(__file__).resolve().parent
 ROOT = pathlib.Path(os.environ.get("CRITIC_ROOT") or re.sub(r"[\\/]\.critic(?:[\\/].*)?$", "", os.getcwd()) or os.getcwd()).resolve(); D = ROOT / ".critic"
 REVIEWERS = {"trivial": ["A"], "lite": ["A"], "full": ["A", "B", "C"]}
-from critic_findings import VERIFY_BATCH, py_cmd, sh_path  # packets per verifier agent (03 §5.37); defined once, beside verifier_batches
+from critic_findings import VERIFY_BATCH, py_cmd, sh_path, log_run  # packets per verifier agent (03 §5.37); defined once, beside verifier_batches
 FORCE = False  # next --apply-now: apply with the verdicts there are (a finding with no verdict stays at lower confidence, except single-vote Mediums and outside-only findings, which are left out)
 
 def sh(script, *a):
     r = subprocess.run([sys.executable, str(HERE / script), *a], cwd=ROOT, capture_output=True, text=True, encoding="utf-8", errors="replace")
     sys.stdout.write(r.stdout); sys.stderr.write(r.stderr)
+    log_run(ROOT, "exit", f"{script} {' '.join(a)} (exit {r.returncode})")  # P8: a crash or a refusal no longer looks like a run that worked
     if r.returncode not in (0, 3): sys.exit(f"critic_run: {script} {' '.join(a)} failed (exit {r.returncode}); fix that, then run next again")
     return r
 

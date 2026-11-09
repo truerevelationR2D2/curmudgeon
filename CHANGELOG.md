@@ -2,6 +2,25 @@
 
 Every release of Curmudgeon, newest first. The repository's history starts at 4.2.1; earlier versions are summarised from the project's own build and review records. Numbers are the ones measured at the time; the README's Benchmarks section has the current ones and how they were measured.
 
+## 5.4.0 (unreleased): fixes from the second Windows run, four backlog items and an update check (03 §5.57 item 31)
+
+From the 9 Nov run of 5.3.0 on Windows (the run report's N items):
+- **N1 and N4, reviewer blindness depended on the shell's folder (High).** The lead had `cd`'d into `.critic/briefs`, and the hooks and scripts took that folder as the project: reviewers' private copies held the three briefs and not the code, and the background scan couldn't find its file list. Any folder inside `.critic/` now maps back to the project, in the SubagentStart hook and in every script; the printed scan command names the project and its file list in full, and the scanner reads a relative `--only` against `--root`.
+- **N2.** Outside git, briefs said "From the last commit message:" with nothing after it. Now no intent is stated, as in 4.2.1.
+- **N3.** A run with no kept finding printed the SHA-256 of empty input as the cited files' hash. Now it says no kept finding cites a file.
+- **N6.** The change map kept the mapped tier after the owner chose another. It now shows both.
+- **N8.** `begin` starts the run, so a plan changed afterwards threw away the work. `critic_run.py plan` proposes the plan and starts nothing; with the user present, the skill runs it first.
+- N7 (a 4.2.1 ledger set aside after the upgrade) needs no change: the message names `critic_ledger.py adopt`, and trusting old ledgers automatically would undo the check that stops a planted ledger. N5 (the offline guard refusing a script that only mentions network words in its text) is in the backlog: loosening a guard needs its own design and blind round.
+
+Backlog items:
+- **P8.** Scripts `critic_run.py` starts are logged with their exit codes, and `critic_ledger.py log "<command>" <exit>` records a command the lead runs itself (a sandbox run, a re-check).
+- **P10.** `critic_ledger.py abort ["why"]` records a run the owner stopped; `ledger.md` lists it.
+- **P11.** `critic_ledger.py decision --amend N "text"` and `--retract N "why"` correct a decision; its earlier words stay in the ledger, and a retracted one no longer reaches reviewers.
+- **P15.** A run stopped and begun again on the same change is the same review, so the outside-reviewer question isn't asked again.
+- **`/curmudgeon:check-updates`** (new). Says whether a newer Curmudgeon is on GitHub and how to update. One request to GitHub for the public version file; nothing about the user or the project is sent, nothing is downloaded or installed, and only the user can start it. Listed in PRIVACY.md.
+
+The sandbox-switch card was rechecked against Anthropic's docs (Progress Log): Claude Code's sandbox doesn't run on native Windows, and `sandbox-runtime`'s Windows support is alpha and needs a one-time elevated install.
+
 ## 5.3.1 (unreleased): fixes from the first Windows run (03 §5.57 item 29)
 
 Ryan's Windows run on 5 November 2026 found 15 problems, on the 4.2.1 copy then installed. Four were still in 5.3.0. Each has a test that fails on the code before it:

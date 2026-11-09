@@ -41,6 +41,7 @@ You need Python 3.9 or later. The browser checks also need Playwright with Chrom
 | `/curmudgeon:fix approve` | Keeps the last refactor. |
 | `/curmudgeon:fix rollback` | Undoes the last refactor from its restore point. |
 | `/curmudgeon:gate on\|async\|off` | Turns the optional stop gate on or off. When it's on, the session can't finish while reviewed files have changed since the last review, or while Critical or High findings are still open. |
+| `/curmudgeon:check-updates` | Says whether a newer Curmudgeon is on GitHub, and how to update. One request to GitHub; nothing about you or your project is sent, and nothing is installed. |
 
 You can also just say "tear this apart" or "review my work".
 

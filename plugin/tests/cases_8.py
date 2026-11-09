@@ -2103,3 +2103,45 @@ def _(d):
     run(S / "critic_run.py", "next", "--no-scan", cwd=d); run(S / "critic_run.py", "next", "--no-scan", cwd=d)
     counts = (d / ".critic/counts.md").read_text(encoding="utf-8") if (d / ".critic/counts.md").exists() else ""
     assert counts and "e3b0c44298fc1c14" not in counts and "no kept finding cites a file" in counts, ("N3 in counts.md", counts[-300:])
+
+@test("5.4.0 P8, P10, P11: the runner logs each script's exit code and the lead can log its own re-checks; a stopped run is recorded as stopped; a decision is amended or retracted with its earlier words kept, and a retracted one no longer reaches reviewers")
+def _(d):
+    write(d, "src/app.js", APP)
+    run(S / "critic_run.py", "begin", "--files", "src/app.js", "--tier", "lite", cwd=d)
+    log = (d / ".critic/runlog.jsonl").read_text(encoding="utf-8")
+    assert re.search(r'"what": "exit", "detail": "critic_ledger.py start [^"]*\(exit 0\)"', log), ("P8: the runner logs exit codes", log[-600:])
+    r = run(S / "critic_ledger.py", "log", "python3 -I app.py", "1", cwd=d)
+    assert r.returncode == 0 and "python3 -I app.py (exit 1)" in (d / ".critic/runlog.jsonl").read_text(encoding="utf-8"), ("P8: the lead's own command", r.stderr)
+    assert run(S / "critic_ledger.py", "log", "x", "notanumber", cwd=d).returncode != 0
+    r = run(S / "critic_ledger.py", "abort", "owner said stop", cwd=d)
+    L = json.loads((d / ".critic/ledger.json").read_text(encoding="utf-8"))
+    assert r.returncode == 0 and L["aborted"][-1]["run"] == L["run"] and "Stopped runs" in (d / ".critic/ledger.md").read_text(encoding="utf-8"), ("P10", r.stderr)
+    assert run(S / "critic_ledger.py", "abort", cwd=d).returncode != 0, "a run is stopped once"
+    run(S / "critic_ledger.py", "decision", "Empty list raises ValueError", "approved by owner via 'Yes, fix both'", cwd=d)
+    r = run(S / "critic_ledger.py", "decision", "--amend", "1", "Fix both findings (the design was Claude's choice)", "owner: 'Yes, fix both'", cwd=d)
+    L = json.loads((d / ".critic/ledger.json").read_text(encoding="utf-8")); dec = L["decisions"][0]
+    assert r.returncode == 0 and dec["text"].startswith("Fix both") and dec["history"][0]["text"] == "Empty list raises ValueError", ("P11 amend keeps the earlier words", r.stderr, dec)
+    assert run(S / "critic_ledger.py", "decision", "--amend", "7", "x", cwd=d).returncode != 0, "no decision 7"
+    run(S / "critic_ledger.py", "decision", "Prices are in cents", cwd=d)
+    assert run(S / "critic_ledger.py", "decision", "--retract", "2", "recorded by mistake", cwd=d).returncode == 0
+    run(S / "critic_run.py", "begin", "--files", "src/app.js", "--tier", "lite", cwd=d)
+    brief = (d / ".critic/briefs/brief-A.md").read_text(encoding="utf-8")
+    assert "Fix both findings" in brief and "Prices are in cents" not in brief, ("P11: a retracted decision never reaches a reviewer", brief[-800:])
+    assert "Prices are in cents" not in (d / ".critic/decisions.md").read_text(encoding="utf-8") if (d / ".critic/decisions.md").exists() else True
+    assert "Retracted decisions" in (d / ".critic/ledger.md").read_text(encoding="utf-8")
+
+@test("5.4.0 /curmudgeon:check-updates: compares the installed version with the latest, says how to update, never acts on its own (model can't start it), refuses a non-https source, and fails plainly when the source can't be read")
+def _(d):
+    skill = (HERE / "skills/check-updates/SKILL.md").read_text(encoding="utf-8")
+    assert "disable-model-invocation: true" in skill, "only the user starts it"
+    mine = json.loads((HERE / ".claude-plugin/plugin.json").read_text(encoding="utf-8"))["version"]
+    newer = write(d, "newer.json", json.dumps({"version": "99.0.0"})); same = write(d, "same.json", json.dumps({"version": mine}))
+    r = run(S / "check_updates.py", cwd=d, env={"CURMUDGEON_UPDATE_URL": newer.resolve().as_uri()})
+    assert r.returncode == 0 and f"{mine} -> 99.0.0" in r.stdout and "claude plugin update curmudgeon@curmudgeon" in r.stdout, r.stdout
+    r = run(S / "check_updates.py", cwd=d, env={"CURMUDGEON_UPDATE_URL": same.resolve().as_uri()})
+    assert r.returncode == 0 and "up to date" in r.stdout, r.stdout
+    assert run(S / "check_updates.py", cwd=d, env={"CURMUDGEON_UPDATE_URL": "http://example.com/x"}).returncode == 1, "https only"
+    r = run(S / "check_updates.py", cwd=d, env={"CURMUDGEON_UPDATE_URL": (d / "missing.json").resolve().as_uri()})
+    assert r.returncode == 1 and "Nothing was changed" in r.stdout, r.stdout
+    assert not (d / ".critic").exists(), "it writes nothing in the project"
+    assert "check-updates" in (HERE / "PRIVACY.md").read_text(encoding="utf-8") and "/curmudgeon:check-updates" in (HERE / "README.md").read_text(encoding="utf-8")

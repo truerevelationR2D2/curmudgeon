@@ -107,7 +107,7 @@ def main(a):
     intent = intent if intent is not None else (cm.get("intent") or "")
     from critic_findings import ledger_shipped, one_line
     shipped = ledger_shipped(ROOT)  # a ledger the repository tracks could be anyone's: its decisions and rulings never reach a reviewer
-    decisions = [] if shipped else [one_line(d.get("text", ""), 300) for d in L.get("decisions", []) if isinstance(d, dict) and d.get("text")]
+    decisions = [] if shipped else [one_line(d.get("text", ""), 300) for d in L.get("decisions", []) if isinstance(d, dict) and d.get("text") and not d.get("retracted")]
     fps = []
     for x in ([] if shipped else (L.get("false_positives") or [])[-5:]):
         what = (L.get("findings") or {}).get(x.get("id", ""), {}).get("summary", x.get("rule", ""))

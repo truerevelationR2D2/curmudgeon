@@ -27,6 +27,10 @@ usage (run from the project root, or set CRITIC_ROOT):
   adopt ledger-set-aside-...json [--show]   take back a ledger that was set aside because Curmudgeon didn't write it
                                          here (it shows every ruling first; --show only shows; run only after the owner says yes)
   decision "text" [SOURCE] | override "what" "who" "why"   recorded choices; overrides can't be by "author"
+  decision --amend N "text" [SOURCE] | decision --retract N "why"   correct decision N (numbered from 1); its earlier
+                                         words stay in the ledger, and a retracted one no longer reaches reviewers
+  abort ["why"]                          the owner stopped this run: recorded as stopped (a new begin archives its files)
+  log "command" EXIT                     a command the lead ran itself (a sandbox run, a re-check), with its exit code
   score NAME VALUE MAX | cost SECONDS [NOTE] | tokens [--all] | integrity | fresh [ID...]   (fresh: findings whose code changed since the review; tokens: what each agent role cost this run; integrity: outputs edited since the last apply)
   stamp [--add] PATH... | stale | round [--reset]   (--add keeps earlier stamps: use it for /curmudgeon:fix iterate)
   gate on|async|off                      turn the stop checks on or off (the guard blocks editing these files by hand)
@@ -119,7 +123,9 @@ def render(L):
     md = ["# Curmudgeon ledger", f"Updated {time.strftime('%Y-%m-%d %H:%M')}. Run {L['run']}. Mode: {L['mode'] or 'none'}. Tier: {L['tier'] or 'n/a'}. Review round: {L['round']} of 3.", "",
           "## Findings", "| ID | Impact | Status | Where | Finding | Note |", "| --- | --- | --- | --- | --- | --- |", *rows,
           "", f"## Acted-on rate: {rate}",
-          "", "## Decisions to respect", *[f"- {d['text']} ({d.get('source', '')})" for d in L["decisions"]],
+          "", "## Decisions to respect", *[f"- {d['text']} ({d.get('source', '')})" + (f" (amended {len(d['history'])}x; earlier: {d['history'][-1]['text']!r})" if d.get("history") else "") for d in L["decisions"] if not d.get("retracted")],
+          *([""] + ["## Retracted decisions"] + [f"- ~~{d['text']}~~ ({d.get('source', '')}): retracted {d['retracted']['at']}: {d['retracted']['why']}" for d in L["decisions"] if d.get("retracted")] if any(d.get("retracted") for d in L["decisions"]) else []),
+          *([""] + ["## Stopped runs"] + [f"- run {a['run']}, stopped {a['at']}: {a['why'] or 'no reason given'}" for a in L.get("aborted", [])] if L.get("aborted") else []),
           "", "## Gate overrides", *[f"- {o['at']}: {o['what']} — by {o['who']}: {o['why']}" for o in L["overrides"]],
           "", "## Known false positives", *[f"- {x.get('id', x.get('rule', ''))} {x.get('where', '')}: {x['why']}" for x in L["false_positives"]],
           "", "## Spot-checks (the owner's own answers)", spot_stats(L),
@@ -132,7 +138,7 @@ def render_decisions(L):
     """The recorded decisions alone, for the verifier: no statuses, notes, dismissals or memories, which could sway a
     blind check (memories note findings for the owner; they never reach a verifier)."""
     return "\n".join(["# Recorded decisions", "Choices the owner made on purpose. Respect them; they are not defects to re-argue.", "",
-                      *([f"- {d['text']} ({d.get('source', '')})" for d in L["decisions"]] or ["_None recorded._"])]) + "\n"
+                      *([f"- {d['text']} ({d.get('source', '')})" for d in L["decisions"] if not d.get("retracted")] or ["_None recorded._"])]) + "\n"
 
 def save(L):
     if LOADED_SHIPPED: die("this ledger may have come with the code and was only read; nothing was saved. Run any other critic_ledger.py command to set it aside first")
@@ -586,8 +592,27 @@ def main(a):
         else: die("consent live HOST | consent writes | consent online")
         try: cf_.write_owner_state(ROOT, "consent", cur)
         except OSError as e: die(str(e))
+    elif cmd == "decision" and rest[:1] in (["--amend"], ["--retract"]):  # P11: a decision recorded wrongly is corrected, never edited by hand; its earlier words stay
+        need(rest, 3, "decision --amend N \"text\" [SOURCE] | decision --retract N \"why\"")
+        try: d = L["decisions"][int(rest[1]) - 1]; assert int(rest[1]) >= 1
+        except (ValueError, IndexError, AssertionError): die(f"no decision {rest[1]}: they are numbered from 1 in the order recorded ({len(L['decisions'])} so far)")
+        if d.get("retracted"): die(f"decision {rest[1]} was retracted; record a new one instead")
+        if rest[0] == "--amend":
+            d.setdefault("history", []).append({"text": d["text"], "source": d.get("source", ""), "until": time.strftime("%Y-%m-%d %H:%M")})
+            d["text"] = rest[2]
+            if len(rest) > 3: d["source"] = rest[3]
+        else: d["retracted"] = {"at": time.strftime("%Y-%m-%d %H:%M"), "why": rest[2]}
     elif cmd == "decision":
         need(rest, 1, "decision \"text\" [SOURCE]"); L["decisions"].append({"text": rest[0], "source": rest[1] if len(rest) > 1 else ""})
+    elif cmd == "abort":  # P10: the owner stopped this run; it stays in the ledger as stopped, never as started with no outcome
+        if not L.get("run"): die("no run has started")
+        if any(a.get("run") == L["run"] for a in L.get("aborted", [])): die(f"run {L['run']} is already recorded as stopped")
+        L.setdefault("aborted", []).append({"run": L["run"], "at": time.strftime("%Y-%m-%d %H:%M"), "why": rest[0] if rest else ""})
+    elif cmd == "log":  # P8: a command the lead ran itself (a sandbox run, a re-check), with its exit code, in the run log
+        need(rest, 2, "log \"command\" EXIT")
+        try: code = int(rest[1])
+        except ValueError: die("log \"command\" EXIT: EXIT is the command's exit code, a number")
+        log_run(ROOT, "command", f"{rest[0]} (exit {code})"); print("logged")
     elif cmd == "override":
         need(rest, 3, "override \"what\" \"who\" \"why\"")
         if rest[1].strip().lower() in ("author", "claude", "critic", "curmudgeon", "self"): die("an override must come from the owner, not the author")

@@ -29,7 +29,8 @@ def _(d):
 @test("5.0 SC-68: the four typed fix skills are one /curmudgeon:fix with every function kept, and no old command name is left anywhere")
 def _(d):
     import re as _re
-    assert sorted(p.name for p in (HERE / "skills").iterdir() if p.is_dir()) == ["fix", "gate", "review"]
+    assert sorted(p.name for p in (HERE / "skills").iterdir() if p.is_dir()) == ["check-updates", "fix", "gate", "review"]  # 5.4.0 adds check-updates, which only the user can start (no footprint for the model)
+    assert "disable-model-invocation: true" in (HERE / "skills/check-updates/SKILL.md").read_text(encoding="utf-8")
     fx = (HERE / "skills/fix/SKILL.md").read_text(encoding="utf-8")
     assert "disable-model-invocation: true" in fx and all(f"## {w}" in fx for w in ("patch", "iterate", "approve", "rollback"))
     for p in list(HERE.rglob("*.md")) + list(HERE.rglob("*.py")) + [HERE.parent / "README.md"]:
