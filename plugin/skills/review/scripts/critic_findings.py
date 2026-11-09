@@ -404,7 +404,7 @@ def state_links(root):
 
 def in_scratch():
     """True when this process runs inside an agent's private workspace (.critic/scratch/...)."""
-    return bool(re.search(r"[\\/]\.critic[\\/]scratch(?:[\\/]|$)", os.getcwd()))
+    return bool(re.search(r"[\\/]\.critic[\\/]scratch(?:[\\/]|$)", os.getcwd(), re.IGNORECASE))  # any letter case, like projroot
 
 def refuse_linked_state(root):
     """Every script that changes the run's state calls this first. It refuses (exit 2) when .critic holds a link, and

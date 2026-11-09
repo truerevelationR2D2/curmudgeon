@@ -2076,7 +2076,8 @@ def _(d):
     assert workspace.project_root({"cwd": str(inside)}).resolve() == d.resolve(), ("the SubagentStart hook's project, from the briefs folder", workspace.project_root({"cwd": str(inside)}))
     assert workspace.project_root({"cwd": str(d / ".critic" / "scratch" / "abc" / "payload")}).resolve() == d.resolve(), "a copy still maps back, as before"
     e = {k: v for k, v in os.environ.items() if k != "CRITIC_ROOT"}; e.update(TMPDIR=TMP, CURMUDGEON_STATE_DIR=os.path.join(TMP, "state"))
-    r = subprocess.run([sys.executable, str(S / "critic_brief.py"), "--help"], cwd=inside, capture_output=True, text=True, encoding="utf-8", env=e, timeout=120)
+    r = subprocess.run([sys.executable, str(S / "critic_run.py"), "status"], cwd=inside, capture_output=True, text=True, encoding="utf-8", env=e, timeout=120)
+    assert "no run is active" not in r.stdout and r.returncode == 0, ("self-review: a script started in .critic/briefs sees the project's run", r.stdout[-300:], r.stderr[-300:])
     assert not (inside / ".critic").exists(), ("nothing makes a .critic inside .critic/briefs", sorted(p.name for p in inside.iterdir()))
     m = re.search(r"while the reviewers work: (.+?) \(add --page", out); assert m, out
     sh = shutil.which("sh")
@@ -2109,9 +2110,9 @@ def _(d):
     write(d, "src/app.js", APP)
     run(S / "critic_run.py", "begin", "--files", "src/app.js", "--tier", "lite", cwd=d)
     log = (d / ".critic/runlog.jsonl").read_text(encoding="utf-8")
-    assert re.search(r'"what": "exit", "detail": "critic_ledger.py start [^"]*\(exit 0\)"', log), ("P8: the runner logs exit codes", log[-600:])
+    assert re.search(r'"what": "exit", "detail": "\(exit 0\) critic_ledger.py start', log), ("P8: the runner logs exit codes, first in the line", log[-600:])
     r = run(S / "critic_ledger.py", "log", "python3 -I app.py", "1", cwd=d)
-    assert r.returncode == 0 and "python3 -I app.py (exit 1)" in (d / ".critic/runlog.jsonl").read_text(encoding="utf-8"), ("P8: the lead's own command", r.stderr)
+    assert r.returncode == 0 and "(exit 1) python3 -I app.py" in (d / ".critic/runlog.jsonl").read_text(encoding="utf-8"), ("P8: the lead's own command", r.stderr)
     assert run(S / "critic_ledger.py", "log", "x", "notanumber", cwd=d).returncode != 0
     r = run(S / "critic_ledger.py", "abort", "owner said stop", cwd=d)
     L = json.loads((d / ".critic/ledger.json").read_text(encoding="utf-8"))
@@ -2150,6 +2151,12 @@ def _(d):
     rc, out = go(url=(d / "missing.json").resolve().as_uri()); assert rc == 1 and "Nothing was changed" in out, out
     assert "CURMUDGEON_UPDATE_URL" not in (S / "check_updates.py").read_text(encoding="utf-8"), "blind round: no environment variable can point it elsewhere"
     assert cu._NoRedirect().redirect_request(None, None, 302, "Found", {}, "http://example.com/") is None, "a redirect is never followed"
+    seen = []; real_bo = cu.urllib.request.build_opener
+    def spy(*h): seen.extend(h); raise OSError("stop here")
+    cu.urllib.request.build_opener = spy
+    try: go(url=same.resolve().as_uri() if False else write(d, "x.json", "{}").resolve().as_uri())
+    finally: cu.urllib.request.build_opener = real_bo
+    assert cu._NoRedirect in seen, ("self-review: the request really goes through the no-redirect opener", seen)
     assert not (d / ".critic").exists(), "it writes nothing in the project"
     assert "check-updates" in (HERE / "PRIVACY.md").read_text(encoding="utf-8") and "/curmudgeon:check-updates" in (HERE / "README.md").read_text(encoding="utf-8")
 
@@ -2215,3 +2222,19 @@ def _(d):
     g = d / "g"; write(g, "a.py", "x = 1\n"); run(S / "critic_run.py", "begin", "--audit", "--files", "a.py", cwd=g)
     md = (g / ".critic/change-map.md").read_text(encoding="utf-8")
     assert "the owner's choice" not in md and "audit mode" in md, md[:300]
+
+@test("5.4.0 self-review: plan proposes the tier an audit runs at; early and status refuse a reviewer's copy (they show the scan's FAIL rows); ledger.md numbers decisions as --amend takes them; the change map notes a tier the job plan chose")
+def _(d):
+    write(d, "a.py", "x = 1\n")
+    out = run(S / "critic_run.py", "plan", "--audit", "--files", "a.py", cwd=d).stdout
+    assert json.loads((d / ".critic/plan.json").read_text(encoding="utf-8")).get("tier") == "full" if (d / ".critic/plan.json").exists() else re.search(r"\bfull\b", out), ("plan --audit proposes full", out[-400:])
+    run(S / "critic_run.py", "begin", "--files", "a.py", "--tier", "lite", cwd=d)
+    cp = d / ".critic" / "scratch" / "r1" / "payload"; cp.mkdir(parents=True)
+    for c in ("early", "status"):
+        r = subprocess.run([sys.executable, str(S / "critic_run.py"), c], cwd=cp, capture_output=True, text=True, encoding="utf-8",
+                           env={k: v for k, v in os.environ.items() if k != "CRITIC_ROOT"}, timeout=120)
+        assert r.returncode == 2 and "refusing" in r.stderr, (c, r.returncode, r.stderr[-200:])
+    run(S / "critic_ledger.py", "decision", "First", cwd=d); run(S / "critic_ledger.py", "decision", "Second", cwd=d)
+    run(S / "critic_ledger.py", "decision", "--retract", "1", "wrong", cwd=d)
+    md = (d / ".critic/ledger.md").read_text(encoding="utf-8")
+    assert "- 2. Second" in md and "- 1. ~~First~~" in md, ("numbers stay the ones --amend takes, after a retraction too", md[-500:])

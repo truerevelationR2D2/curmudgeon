@@ -124,8 +124,8 @@ def render(L):
     md = ["# Curmudgeon ledger", f"Updated {time.strftime('%Y-%m-%d %H:%M')}. Run {L['run']}. Mode: {L['mode'] or 'none'}. Tier: {L['tier'] or 'n/a'}. Review round: {L['round']} of 3.", "",
           "## Findings", "| ID | Impact | Status | Where | Finding | Note |", "| --- | --- | --- | --- | --- | --- |", *rows,
           "", f"## Acted-on rate: {rate}",
-          "", "## Decisions to respect", *[f"- {d['text']} ({d.get('source', '')})" + (" (amended; earlier: " + "; then ".join(repr(h.get("text", "")) for h in d["history"]) + ")" if d.get("history") else "") for d in L["decisions"] if not d.get("retracted")],
-          *([""] + ["## Retracted decisions"] + [f"- ~~{d['text']}~~ ({d.get('source', '')}): retracted {d['retracted']['at']}: {d['retracted']['why']}" for d in L["decisions"] if d.get("retracted")] if any(d.get("retracted") for d in L["decisions"]) else []),
+          "", "## Decisions to respect", *[f"- {i}. {d['text']} ({d.get('source', '')})" + (" (amended; earlier: " + "; then ".join(repr(h.get("text", "")) for h in d["history"]) + ")" if d.get("history") else "") for i, d in enumerate(L["decisions"], 1) if not d.get("retracted")],  # numbered as decision --amend/--retract take them (self-review)
+          *([""] + ["## Retracted decisions"] + [f"- {i}. ~~{d['text']}~~ ({d.get('source', '')}): retracted {d['retracted']['at']}: {d['retracted']['why']}" for i, d in enumerate(L["decisions"], 1) if d.get("retracted")] if any(d.get("retracted") for d in L["decisions"]) else []),
           *([""] + ["## Stopped runs"] + [f"- run {a['run']}, stopped {a['at']}: {a['why'] or 'no reason given'}" for a in L.get("aborted", [])] if L.get("aborted") else []),
           "", "## Gate overrides", *[f"- {o['at']}: {o['what']} — by {o['who']}: {o['why']}" for o in L["overrides"]],
           "", "## Known false positives", *[f"- {x.get('id', x.get('rule', ''))} {x.get('where', '')}: {x['why']}" for x in L["false_positives"]],
@@ -618,7 +618,7 @@ def main(a):
         need(rest, 2, "log \"command\" EXIT")
         try: code = int(rest[1])
         except ValueError: die("log \"command\" EXIT: EXIT is the command's exit code, a number")
-        log_run(ROOT, "command", f"{rest[0]} (exit {code})"); print("logged")
+        log_run(ROOT, "command", f"(exit {code}) {rest[0]}"); print("logged")
     elif cmd == "override":
         need(rest, 3, "override \"what\" \"who\" \"why\"")
         if rest[1].strip().lower() in ("author", "claude", "critic", "curmudgeon", "self"): die("an override must come from the owner, not the author")

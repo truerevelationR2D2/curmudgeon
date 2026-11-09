@@ -39,7 +39,7 @@ FORCE = False  # next --apply-now: apply with the verdicts there are (a finding 
 def sh(script, *a):
     r = subprocess.run([sys.executable, str(HERE / script), *a], cwd=ROOT, capture_output=True, text=True, encoding="utf-8", errors="replace")
     sys.stdout.write(r.stdout); sys.stderr.write(r.stderr)
-    log_run(ROOT, "exit", f"{script} {' '.join(a)} (exit {r.returncode})")  # P8: a crash or a refusal no longer looks like a run that worked
+    log_run(ROOT, "exit", f"(exit {r.returncode}) {script} {' '.join(a)}")  # the code first, so a long command line never cuts it off (self-review)  # P8: a crash or a refusal no longer looks like a run that worked
     if r.returncode not in (0, 3): sys.exit(f"critic_run: {script} {' '.join(a)} failed (exit {r.returncode}); fix that, then run next again")
     return r
 
@@ -194,10 +194,10 @@ def say_next(st, tier, items):
 def main(a):
     if not a or a[0] in ("-h", "--help"): print(__doc__); return 0
     cmd, rest = a[0], a[1:]
-    if cmd in ("plan", "begin", "next"):
+    if cmd in ("plan", "begin", "next", "early", "status"):  # early and status too: they show the scan's FAIL rows, which a reviewer in its copy must never read (self-review)
         from critic_findings import refuse_linked_state; refuse_linked_state(ROOT)
     if cmd == "plan":  # run report N8: the plan before anything starts, so the owner's answer can still change it
-        security = "--security" in rest
+        security = "--security" in rest; audit = "--audit" in rest
         rest = [x for x in rest if x not in ("--audit", "--fix", "--security")]
         D.mkdir(parents=True, exist_ok=True); fp = D / "focus.json"
         touched = [fp] + [D / x for x in ("change-map.json", "change-map.md", "plan.json")]
@@ -208,7 +208,7 @@ def main(a):
         tier = rest[rest.index("--tier") + 1] if "--tier" in rest and rest.index("--tier") + 1 < len(rest) else ""
         try:
             sh("critic_map.py", *[x for i, x in enumerate(rest) if not (x == "--tier" or (i and rest[i - 1] == "--tier"))])
-            sh("critic_plan.py", *(["--tier", tier] if tier else []))
+            sh("critic_plan.py", *(["--tier", "full"] if audit else (["--tier", tier] if tier else [])))  # an audit runs at full (self-review: plan proposed another tier)
         finally:  # the plan is printed, then every file it wrote is put back: it changes nothing a run in progress reads (5.4.0 blind round)
             for p, data in kept.items():
                 try:
@@ -251,7 +251,7 @@ def main(a):
         if not tier:
             try: tier = json.loads((D / "plan.json").read_text(encoding="utf-8")).get("tier") or "full"
             except (OSError, ValueError): tier = "full"
-        if asked_tier: chosen_tier(tier, "audit mode" if audit and asked_tier == "audit" else "the owner's choice")
+        chosen_tier(tier, "audit mode" if audit else ("the owner's choice" if asked_tier else "the job plan's choice"))
         sh("critic_ledger.py", "start", "audit" if audit else ("full" if fix else "review"), "--tier", tier)
         sh("critic_brief.py", "--letters", ",".join(REVIEWERS.get(tier, REVIEWERS["full"])))
         cmj = json.loads((D / "change-map.json").read_text(encoding="utf-8")) if (D / "change-map.json").exists() else {}
