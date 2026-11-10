@@ -14,7 +14,7 @@ import utf8io  # UTF-8 output on Windows too (03 §5.57 item 20)
 from critic_findings import log_run, refuse_linked_state, one_line, redact_finding_text
 import safegit  # git without the repository's own commands (03 §5.57 review)
 
-ROOT = pathlib.Path(os.environ.get("CRITIC_ROOT") or re.sub(r"[\\/]\.critic[\\/]scratch(?:[\\/].*)?$", "", os.getcwd()) or os.getcwd()).resolve(); D = ROOT / ".critic"
+ROOT = pathlib.Path(os.environ.get("CRITIC_ROOT") or __import__("projroot").project_of(os.getcwd())).resolve(); D = ROOT / ".critic"
 # whole words only ("author" is not "auth"); paths may also match folder-style names
 SENSITIVE = re.compile(r"(?<![A-Za-z])(auth|authn|authz|authenticate\w*|authoriz\w*|login|logout|sessions?|passwords?|secrets?|payments?|billing|refunds?|checkout|invoices?|crypto|encrypt\w*|decrypt\w*|permissions?|admin|migrations?|webhooks?|uploads?|credentials?|api[_-]?keys?|private[_-]?keys?|tokens?|jwts?|oauth\w*|sso|saml|roles?|rbac|acls?|security|privacy|pii|gdpr|csrf|xsrf|cors|csp|signatures?|hmac|hash(?:es|ing)?|salt|sanitiz\w*|schemas?)(?![A-Za-z])", re.I)
 SENSITIVE_PATH = re.compile(r"(?:^|/)(\.env[\w.]*|config|settings|security|privacy|auth|admin|migrations?|schema)(?:/|\.|$)", re.I)
@@ -195,7 +195,8 @@ def main(a):
     if not intent and "--files" not in a and base != "HEAD":  # commits since --base: their messages describe the change
         intent = "From the commit messages since " + base + ": " + git("log", "--pretty=%s", f"{base}..HEAD").strip().replace("\n", "; ")[:600]
     elif not intent and "--files" in a and not git("status", "--porcelain", "--", ".", ":(exclude).critic").strip():
-        intent = "From the last commit message: " + git("log", "-1", "--pretty=%s%n%n%b").strip()  # files as committed: the last commit is what they are
+        msg = git("log", "-1", "--pretty=%s%n%n%b").strip()  # files as committed: the last commit is what they are
+        intent = "From the last commit message: " + msg if msg else ""  # no repository or no message: none given, never a dangling label (run report N2)
     # an uncommitted change has no stated intent: the last commit's message describes the commit before it
     intent = anonymise(intent)  # it goes into every blind reviewer's brief: never who wrote the change
     def sensitive(x):

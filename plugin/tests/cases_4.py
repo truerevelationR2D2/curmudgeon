@@ -292,7 +292,7 @@ def _(d):
 def _(d):
     write(d, "src/app.js", APP); run(S / "critic_run.py", "begin", "--files", "src/app.js", "--tier", "lite", cwd=d); write(d, ".critic/reviews/review-A.json", "[]")
     out = run(S / "critic_run.py", "next", cwd=d).stdout
-    assert "critic_scan.py . --root ." in out, out
+    assert re.search(r"critic_scan\.py \S+ --root \S+", out), out
     assert "under 12 characters, quote it together with the next line" in (S / "critic_outside.py").read_text(encoding="utf-8")
     write(d, ".critic/verify-variants/V-abc-1.json", json.dumps({"id": "V-abc-1", "impact": "Low", "category": "style", "file": "src/app.js", "line": 2}))
     msg = 'x\n```json\n[{"id": "V-abc-1", "verdict": "refuted", "refutation": "src/app.js:1 defines render() only for the admin page, which escapes every title before this line runs.", "reproduced": "traced"}]\n```\n'
@@ -347,7 +347,7 @@ def _(d):
     e = d / "scan"; write(e, "src/app.js", APP); write(e, "legacy/old.js", "function f(code) {\n  return eval(code);\n}\n")
     run(S / "critic_run.py", "begin", "--files", "src/app.js", "--tier", "lite", cwd=e); write(e, ".critic/reviews/review-A.json", "[]")
     out = run(S / "critic_run.py", "next", cwd=e).stdout
-    assert "--only .critic/scan-only.txt" in out, out
+    assert re.search(r"--only \S*\.critic/scan-only\.txt", out), out
     g = d / "late"; write(g, "src/app.js", APP); run(S / "critic_run.py", "begin", "--files", "src/app.js", "--tier", "full", cwd=g); run(S / "critic_scan.py", ".", "--root", ".", cwd=g)
     x1 = finding(category="domain", impact="Medium", line=4, quote="const price = total * 1.0825;", title="tax rate hard-coded in render code")
     x2 = finding(category="xss", impact="High", line=2, quote="list.innerHTML = `<li>${n.title}</li>`;", title="title written as markup")

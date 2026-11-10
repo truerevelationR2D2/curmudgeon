@@ -83,7 +83,6 @@ def escaping_link(folder, root):
 MAX_FILE = 5 * 1024 * 1024
 MAX_TOTAL = 500 * 1024 * 1024
 MAX_FILES = 100_000
-COPY_PART = re.compile(r"[\\/]\.critic[\\/]scratch(?:[\\/].*)?$")  # anywhere in the scratch area (a copy, its notes, the agent folder) belongs to the project above it
 
 def clean_id(v): return re.sub(r"[^A-Za-z0-9_-]", "", str(v or ""))[:64]
 
@@ -98,7 +97,8 @@ def project_root(data):
     required `cd <copy> && ...` that is the copy itself (or its notes folder), so any cwd in .critic/scratch is mapped
     back to the project that holds it."""
     cwd = str(data.get("cwd") or os.getcwd())
-    return pathlib.Path(COPY_PART.sub("", cwd) or cwd)
+    import projroot  # one rule with the scripts (5.4.0 blind round): a project under a folder named .critic stays itself
+    return pathlib.Path(projroot.project_of(cwd, os.environ.get("CLAUDE_PROJECT_DIR")))  # the session's own project bounds it
 
 def home_for(root, agent_id):
     """This agent's folder, or None when it can't be made safely (a planted link on the way)."""
@@ -255,6 +255,8 @@ def make(root, agent_id):
             try:
                 led = json.loads(open(src, encoding="utf-8").read())
                 keep = {k: led[k] for k in ("version", "decisions", "false_positives", "overrides") if isinstance(led, dict) and k in led}
+                if isinstance(keep.get("decisions"), list):  # a retracted decision, and the words an amend replaced, never reach a reviewer (5.4.0 blind round)
+                    keep["decisions"] = [({k: v for k, v in d.items() if k != "history"} if isinstance(d, dict) else d) for d in keep["decisions"] if not (isinstance(d, dict) and d.get("retracted"))]
             except (OSError, ValueError): keep = {}
             dst.parent.mkdir(parents=True, exist_ok=True); dst.write_text(json.dumps(keep, indent=1), encoding="utf-8"); return True
         if os.path.islink(src):

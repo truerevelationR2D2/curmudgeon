@@ -23,7 +23,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import utf8io; from critic_findings import py_cmd  # UTF-8 output on Windows too (03 §5.57 item 20)
 
 HERE = pathlib.Path(__file__).resolve().parent
-ROOT = pathlib.Path(os.environ.get("CRITIC_ROOT") or re.sub(r"[\\/]\.critic[\\/]scratch(?:[\\/].*)?$", "", os.getcwd()) or os.getcwd()).resolve(); D = ROOT / ".critic"
+ROOT = pathlib.Path(os.environ.get("CRITIC_ROOT") or __import__("projroot").project_of(os.getcwd())).resolve(); D = ROOT / ".critic"
 
 def load(p, default):
     try: return json.loads(p.read_text(encoding="utf-8")) if p.is_file() and not p.is_symlink() else default
@@ -107,7 +107,7 @@ def main(a):
     intent = intent if intent is not None else (cm.get("intent") or "")
     from critic_findings import ledger_shipped, one_line
     shipped = ledger_shipped(ROOT)  # a ledger the repository tracks could be anyone's: its decisions and rulings never reach a reviewer
-    decisions = [] if shipped else [one_line(d.get("text", ""), 300) for d in L.get("decisions", []) if isinstance(d, dict) and d.get("text")]
+    decisions = [] if shipped else [one_line(d.get("text", ""), 300) for d in L.get("decisions", []) if isinstance(d, dict) and d.get("text") and not d.get("retracted")]
     fps = []
     for x in ([] if shipped else (L.get("false_positives") or [])[-5:]):
         what = (L.get("findings") or {}).get(x.get("id", ""), {}).get("summary", x.get("rule", ""))

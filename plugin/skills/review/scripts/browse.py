@@ -57,7 +57,7 @@ sys.path.insert(0, str(HERE))
 import scope as scope_file
 import safe_web
 
-ROOT = pathlib.Path(os.environ.get("CRITIC_ROOT") or re.sub(r"[\\/]\.critic[\\/]scratch(?:[\\/].*)?$", "", os.getcwd()) or os.getcwd()).resolve()
+ROOT = pathlib.Path(os.environ.get("CRITIC_ROOT") or __import__("projroot").project_of(os.getcwd())).resolve()
 DESTRUCTIVE = safe_web.DESTRUCTIVE  # one list for the driver and the scan (safe_web.py)
 VERBS = {"goto": 1, "click": 1, "type": 2, "select": 2, "check": 1, "press": 1, "wait": 1, "snapshot": 0}
 NAME_JS = """el => { const lab = (el.labels && el.labels[0]) || (el.id ? document.querySelector('label[for="' + CSS.escape(el.id) + '"]') : null);
