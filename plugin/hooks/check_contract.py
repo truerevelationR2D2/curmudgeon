@@ -146,9 +146,10 @@ def main():
     root = workspace.project_root(data)
     if not (kind.endswith("curmudgeon-reviewer") or kind.endswith("curmudgeon-verifier")): return 0
     msg = last_reply(data)
-    if data.get("stop_hook_active"): errs = []  # never block twice in a row
-    elif kind.endswith("curmudgeon-reviewer"): errs = problems_review(root, msg, data.get("agent_id"))
-    else: errs = problems_verdict(msg, root)
+    # The reply is checked every time; only the block is skipped on a second stop (never block twice in a row). So a
+    # verdict that still breaks the contract on the retry is never saved either (Qodo on #39).
+    problems = problems_review(root, msg, data.get("agent_id")) if kind.endswith("curmudgeon-reviewer") else problems_verdict(msg, root)
+    errs = [] if data.get("stop_hook_active") else problems
     # What can be recorded is recorded now, block or not: a host may ignore the block and never call again (R1), and
     # then the blindness record and the verdicts must already be saved.
     if kind.endswith("curmudgeon-reviewer"):  # 03 §5.56 item 15: the tally checks that each review came from an agent that worked in its private copy
@@ -157,7 +158,7 @@ def main():
             me = workspace.clean_id(data.get("agent_id")) if data.get("agent_id") else None
             if named and me: write_stop(root, me, {"review": f"review-{named[-1]}.json", "workspace": worked_in_copy(root, data.get("agent_id")), "at": time.time()})
         except Exception: pass
-    elif not errs:  # a verdict that fails the contract is never saved: the merge then counts it missing and marks the run DEGRADED (Qodo on #38)
+    elif not problems:  # a verdict that fails the contract is never saved, on a retry too: the merge counts it missing and marks the run DEGRADED (Qodo on #38, #39)
         try: save_verdicts(root, msg, data.get("agent_id"))
         except Exception as e: print(json.dumps({"systemMessage": f"Curmudgeon could not save this verifier's verdicts ({type(e).__name__}: {e}); critic_run.py next will ask for them again"}))
     if errs:
