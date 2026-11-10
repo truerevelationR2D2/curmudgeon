@@ -2258,7 +2258,8 @@ def _(d):
     assert stop["review"] == "review-A.json" and "workspace" in stop, stop
     assert not (copy / "payload").exists(), "the private copy is removed"
     # a verifier: its verdict block arrives only in the hand-back
-    v = [{"id": "F-1", "verdict": "confirmed", "reproduced": "executed", "verifier_reproduced": "executed", "evidence": "ran it"}]
+    v = [{"id": "F-1", "verdict": "confirmed", "reproduced": "executed", "verifier_reproduced": "executed", "entry": "render(n) is called with a stored title from the list API",
+          "path": "src/app.js:1 render(n) receives n.title unchanged, then src/app.js:2 assigns it to innerHTML, so markup in the title runs"}]  # a verdict that passes the contract
     tv = d / "t-v1.jsonl"; tv.write_text(json.dumps({"type": "assistant", "message": {"role": "assistant", "content": [{"type": "tool_use", "id": "y", "name": "SubagentHandback", "input": {"report": "Verdicts:\n```json\n" + json.dumps(v) + "\n```"}}]}}) + "\n", encoding="utf-8")
     run(H / "check_contract.py", cwd=d, stdin=json.dumps({"agent_id": "v1", "agent_transcript_path": str(tv), "agent_type": "curmudgeon:curmudgeon-verifier", "cwd": str(d), "stop_hook_active": False}))
     saved = d / ".critic/verdicts/v1.json"
@@ -2268,13 +2269,20 @@ def _(d):
     write(d, ".critic/reviews/review-B.json", '[{"title": "x"}]')
     out = run(H / "check_contract.py", cwd=d, stdin=json.dumps({"agent_id": "rv2", "agent_transcript_path": str(tb), "agent_type": "curmudgeon:curmudgeon-reviewer", "cwd": str(d), "stop_hook_active": False})).stdout
     assert '"block"' in out and (d / ".critic/stops/rv2.json").is_file(), ("blocked, and the blindness record is already written", out)
+    bad = [{"id": "F-2", "verdict": "refuted", "attacker": "an outside user", "gain": "nothing", "reason": "guard_blocks", "reproduced": "executed", "refutation": "not real"}]
+    tw = d / "t-v2.jsonl"; tw.write_text(json.dumps({"type": "assistant", "message": {"role": "assistant", "content": [{"type": "text", "text": "```json\n" + json.dumps(bad) + "\n```"}]}}) + "\n", encoding="utf-8")
+    out = run(H / "check_contract.py", cwd=d, stdin=json.dumps({"agent_id": "v2", "agent_transcript_path": str(tw), "agent_type": "curmudgeon:curmudgeon-verifier", "cwd": str(d), "stop_hook_active": False})).stdout
+    assert '"block"' in out and not (d / ".critic/verdicts/v2.json").exists(), ("Qodo on #38: a verdict that fails the contract is never saved, so it counts as missing (DEGRADED)", out)
 
 @test("Qodo on #37: a session started in its project's own .critic still maps back; a relative --only list is always the scanned project's; ledger log writes one line and leaves the ledger alone")
 def _(d):
     import projroot
     p = d / "w" / "app"
-    assert projroot.project_of(str(p / ".critic" / "briefs"), str(p / ".critic" / "briefs")) == str(p), "session started in .critic/briefs"
-    assert projroot.project_of(str(p / ".critic" / "briefs"), str(p / ".critic")) == str(p), "session started in .critic itself"
+    # settled ("Settled design decisions" 1): a session started inside a .critic is not supported, and these two have the same path shape
+    assert projroot.project_of(str(d / "t" / ".critic" / "briefs" / "app"), str(d / "t" / ".critic" / "briefs" / "app")) == str(d / "t" / ".critic" / "briefs" / "app"), "Qodo on #38: a project at .critic/briefs/app stays itself"
+    assert projroot.project_of(str(p / ".critic" / "briefs"), str(p / ".critic" / "briefs")) == str(p / ".critic" / "briefs"), "a session started in P/.critic/briefs takes that folder (unsupported, warned)"
+    r = run(H / "scratch_dir.py", cwd=d, stdin=json.dumps({"agent_type": "curmudgeon:curmudgeon-reviewer", "agent_id": "w1", "cwd": str(d)}), env={"CLAUDE_PROJECT_DIR": str(p / ".critic" / "briefs")})
+    assert "started inside a folder named .critic" in r.stdout, ("the start hook warns", r.stdout[-300:])
     home = d / "u" / ".critic" / "projects" / "app"
     assert projroot.project_of(str(home), str(home)) == str(home), "a project kept under ~/.critic still stays itself"
     # --only: a same-named list in the shell's folder is never used for another project
