@@ -152,13 +152,13 @@ def read_transcript(path):
 def last_reply(data):
     """The agent's final words: the transcript first, because the host's last_assistant_message need not be the report
     (10 Nov acceptance run: the hook blocked replies whose hand-back named the review file and held the verdicts). The
-    last hand-back wins; else the last assistant text; last_assistant_message is the fallback, put first so a later
-    transcript match wins (the contract checks take the last match)."""
+    last hand-back wins; else the host's last_assistant_message; else the last assistant text. One source is checked,
+    never two joined, so an earlier verdict block can't stand in for the final reply (Qodo on #41)."""
     handback, last, _ = read_transcript(data.get("agent_transcript_path"))
     if handback: return handback
     msg = data.get("last_assistant_message")
-    msg = msg if isinstance(msg, str) else ""
-    return "\n".join(x for x in (msg.strip(), last) if x)
+    if isinstance(msg, str) and msg.strip(): return msg  # one final source, never joined with earlier text: an older verdict can't win (Qodo on #41)
+    return last
 
 def main():
     try: data = json.load(sys.stdin)
