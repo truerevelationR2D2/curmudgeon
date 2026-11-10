@@ -2322,3 +2322,15 @@ def _(d):
     run(H / "scratch_dir.py", cwd=d, stdin=json.dumps({"agent_type": "curmudgeon:curmudgeon-reviewer", "agent_id": "rb", "cwd": str(d)}))
     out = run(H / "check_contract.py", cwd=d, stdin=json.dumps({"agent_type": "curmudgeon:curmudgeon-reviewer", "agent_id": "rb", "cwd": str(d), "agent_transcript_path": str(tr("t-rb.jsonl", "Done.")), "last_assistant_message": note, "stop_hook_active": False})).stdout
     assert '"block"' in out and not (d / ".critic/scratch/rb/payload").exists(), ("blocked after a hand-back: the copy is still removed", out)
+
+@test("Qodo on #41: without a hand-back, the hook checks one final reply (last_assistant_message, else the transcript's last text), never the two joined, so an earlier valid verdict can't be saved in place of a final reply that has none")
+def _(d):
+    write(d, "src/app.js", APP)
+    v = [{"id": "F-1", "verdict": "confirmed", "reproduced": "executed", "verifier_reproduced": "executed", "entry": "render(n) is called with a stored title from the list API",
+          "path": "src/app.js:1 render(n) receives n.title unchanged, then src/app.js:2 assigns it to innerHTML, so markup in the title runs"}]
+    t = d / "t-old.jsonl"
+    t.write_text(json.dumps({"type": "assistant", "message": {"role": "assistant", "content": [{"type": "text", "text": "Draft:\n```json\n" + json.dumps(v) + "\n```"}]}}) + "\n", encoding="utf-8")
+    out = run(H / "check_contract.py", cwd=d, stdin=json.dumps({"agent_type": "curmudgeon:curmudgeon-verifier", "agent_id": "vo", "cwd": str(d), "agent_transcript_path": str(t), "last_assistant_message": "I couldn't finish; no verdict.", "stop_hook_active": False})).stdout
+    assert '"block"' in out and not (d / ".critic/verdicts/vo.json").exists(), ("the final reply has no verdict, so none is saved", out)
+    out = run(H / "check_contract.py", cwd=d, stdin=json.dumps({"agent_type": "curmudgeon:curmudgeon-verifier", "agent_id": "vt", "cwd": str(d), "agent_transcript_path": str(t), "stop_hook_active": False})).stdout
+    assert '"block"' not in out and (d / ".critic/verdicts/vt.json").is_file(), ("with no host message, the transcript's last text is the reply", out)

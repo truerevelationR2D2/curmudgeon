@@ -5,7 +5,7 @@ Every release of Curmudgeon, newest first. The repository's history starts at 4.
 ## 5.4.1 (unreleased): the stop hook reads the hand-back first (the 10 Nov acceptance run)
 
 The Windows acceptance run of 5.4.0 (03 §5.57 item 32) still came back DEGRADED: no blindness records, and a verifier's verdict was lost. The hooks did run. On Claude's desktop app an agent ends with a `SubagentHandback` tool call, its report in `input.message`, and the host's `last_assistant_message` was not that report. The 5.4.0 hook read the transcript only when that field was missing, so it checked the wrong text, blocked, and the host, which doesn't resume an agent that has handed back, ignored the block. Now:
-- The hook reads the transcript first and checks the last hand-back report. The last assistant text and `last_assistant_message` are fallbacks.
+- The hook reads the transcript first and checks the last hand-back report. Without one, it checks a single final reply: `last_assistant_message`, else the transcript's last assistant text. It never joins the two, so an earlier verdict can't stand in for the final reply (Qodo on #41).
 - When a block can't take effect, because the agent has already handed back, the private copy is still removed.
 
 The new test uses the shapes recorded on Ryan's machine: the `SubagentHandback` call and a `last_assistant_message` that isn't the report. It fails on 5.4.0 with the run's own error.
