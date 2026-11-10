@@ -157,7 +157,7 @@ def main():
             me = workspace.clean_id(data.get("agent_id")) if data.get("agent_id") else None
             if named and me: write_stop(root, me, {"review": f"review-{named[-1]}.json", "workspace": worked_in_copy(root, data.get("agent_id")), "at": time.time()})
         except Exception: pass
-    else:
+    elif not errs:  # a verdict that fails the contract is never saved: the merge then counts it missing and marks the run DEGRADED (Qodo on #38)
         try: save_verdicts(root, msg, data.get("agent_id"))
         except Exception as e: print(json.dumps({"systemMessage": f"Curmudgeon could not save this verifier's verdicts ({type(e).__name__}: {e}); critic_run.py next will ask for them again"}))
     if errs:
