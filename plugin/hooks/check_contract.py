@@ -112,27 +112,57 @@ def save_verdicts(root, msg, agent_id):
     with os.fdopen(fd, "w", encoding="utf-8") as fh: fh.write(blocks[-1].strip() + "\n")
     return out
 
+def _text(x):
+    """Every string inside a transcript entry's content: text blocks and a tool call's input alike (an agent may hand its
+    report back through a tool rather than a final message)."""
+    if isinstance(x, str): return x
+    if isinstance(x, dict): return "\n".join(_text(v) for k, v in x.items() if k not in ("id", "type", "signature"))
+    if isinstance(x, list): return "\n".join(_text(v) for v in x)
+    return ""
+
+def last_reply(data):
+    """The agent's final words. Claude's app sends no last_assistant_message on SubagentStop (9 Nov Windows run, R1: the
+    hook saw only agent_transcript_path), so it falls back to the last assistant entry with text in the transcript."""
+    msg = data.get("last_assistant_message")
+    if isinstance(msg, str) and msg.strip(): return msg
+    path, last = data.get("agent_transcript_path"), ""
+    try:
+        with open(path, encoding="utf-8", errors="replace") as fh:
+            for line in fh:
+                if '"assistant"' not in line: continue
+                try: j = json.loads(line)
+                except ValueError: continue
+                m = j.get("message") if isinstance(j, dict) else None
+                if isinstance(m, dict) and m.get("role") == "assistant":
+                    t = _text(m.get("content")).strip()
+                    if t: last = t
+    except (OSError, TypeError): pass
+    return last
+
 def main():
     try: data = json.load(sys.stdin)
     except Exception: return 0
     kind = str(data.get("agent_type") or "")
     root = workspace.project_root(data)
+    if not (kind.endswith("curmudgeon-reviewer") or kind.endswith("curmudgeon-verifier")): return 0
+    msg = last_reply(data)
     if data.get("stop_hook_active"): errs = []  # never block twice in a row
-    elif kind.endswith("curmudgeon-reviewer"): errs = problems_review(root, data.get("last_assistant_message", ""), data.get("agent_id"))
-    elif kind.endswith("curmudgeon-verifier"): errs = problems_verdict(data.get("last_assistant_message", ""), root)
-    else: return 0
-    if errs:
-        print(json.dumps({"decision": "block", "reason": "Your output doesn't meet Curmudgeon contract yet: " + " | ".join(errs) + ". Fix it, then finish."}))
-        return 0  # the agent keeps working, so its private copy stays
+    elif kind.endswith("curmudgeon-reviewer"): errs = problems_review(root, msg, data.get("agent_id"))
+    else: errs = problems_verdict(msg, root)
+    # What can be recorded is recorded now, block or not: a host may ignore the block and never call again (R1), and
+    # then the blindness record and the verdicts must already be saved.
     if kind.endswith("curmudgeon-reviewer"):  # 03 §5.56 item 15: the tally checks that each review came from an agent that worked in its private copy
         try:
-            named = re.findall(r"review-([A-Za-z0-9]+)\.json", data.get("last_assistant_message", "") or "")
+            named = re.findall(r"review-([A-Za-z0-9]+)\.json", msg or "")
             me = workspace.clean_id(data.get("agent_id")) if data.get("agent_id") else None
             if named and me: write_stop(root, me, {"review": f"review-{named[-1]}.json", "workspace": worked_in_copy(root, data.get("agent_id")), "at": time.time()})
         except Exception: pass
-    if kind.endswith("curmudgeon-verifier"):
-        try: save_verdicts(root, data.get("last_assistant_message", ""), data.get("agent_id"))
+    else:
+        try: save_verdicts(root, msg, data.get("agent_id"))
         except Exception as e: print(json.dumps({"systemMessage": f"Curmudgeon could not save this verifier's verdicts ({type(e).__name__}: {e}); critic_run.py next will ask for them again"}))
+    if errs:
+        print(json.dumps({"decision": "block", "reason": "Your output doesn't meet Curmudgeon contract yet: " + " | ".join(errs) + ". Fix it, then finish."}))
+        return 0  # the agent keeps working, so its private copy stays
     try: workspace.remove(root, data.get("agent_id"))  # the agent is really finishing: delete its copy, keep its notes (§5.29)
     except Exception: pass
     return 0

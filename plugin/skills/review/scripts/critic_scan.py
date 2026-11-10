@@ -889,7 +889,7 @@ def main(argv):
     refuse_linked_state(SCAN_ROOT)
     if a.only:
         op = pathlib.Path(a.only)
-        if not op.is_absolute() and not op.exists(): op = SCAN_ROOT / op  # relative to --root when the shell is elsewhere (run report N1)
+        if not op.is_absolute(): op = SCAN_ROOT / op  # a relative list is the scanned project's, never the shell folder's (run report N1; Qodo on #37)
         try: ONLY = {x.strip() for x in op.read_text(encoding="utf-8").splitlines() if x.strip() and not x.strip().startswith(("/", ".."))}
         except OSError as e: print(f"critic_scan: can't read --only list: {e}", file=sys.stderr); return 2
     log_run(SCAN_ROOT, "script", "critic_scan.py " + " ".join(argv))
