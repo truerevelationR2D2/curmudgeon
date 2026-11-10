@@ -299,7 +299,9 @@ def main(a):
     cmd, rest = a[0], a[1:]; L = load(read_only=cmd in READ_ONLY and not (cmd == "memories" and rest)); msg = "ok"
     if LOADED_SHIPPED and cmd in ("examples", "memories"):  # a shipped ledger's rulings never reach reviewers, by this path either (batch 1 review round 2)
         print(f"none shown: .critic/ledger.json may have come with the code, so its rulings and memories are not used (run any other critic_ledger.py command to set it aside)"); return 0
-    if cmd not in ("show", "check", "stale", "tokens", "integrity", "fresh"): refuse_linked_state(ROOT); log_run(ROOT, "script", "critic_ledger.py " + " ".join(a))
+    if cmd not in ("show", "check", "stale", "tokens", "integrity", "fresh"):
+        refuse_linked_state(ROOT)
+        if cmd != "log": log_run(ROOT, "script", "critic_ledger.py " + " ".join(a))  # log writes its own line, once (Qodo on #37)
     if cmd in ("fixed", "claim", "restore") and L.get("mode") == "audit":
         die("this run is an audit of someone else's system: it changes nothing, so nothing is fixed, claimed or restored here (start a review of your own code to fix)")
     if cmd == "init": pass
@@ -618,7 +620,7 @@ def main(a):
         need(rest, 2, "log \"command\" EXIT")
         try: code = int(rest[1])
         except ValueError: die("log \"command\" EXIT: EXIT is the command's exit code, a number")
-        log_run(ROOT, "command", f"(exit {code}) {rest[0]}"); print("logged")
+        log_run(ROOT, "command", f"(exit {code}) {rest[0]}"); print("logged"); return 0  # nothing in the ledger changes
     elif cmd == "override":
         need(rest, 3, "override \"what\" \"who\" \"why\"")
         if rest[1].strip().lower() in ("author", "claude", "critic", "curmudgeon", "self"): die("an override must come from the owner, not the author")

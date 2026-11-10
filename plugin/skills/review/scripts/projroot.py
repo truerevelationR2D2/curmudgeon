@@ -9,6 +9,7 @@ session cds; the Bash tool doesn't get it). A .critic above it is ignored, so a 
 .critic (~/.critic/projects/app) stays itself. Scripts have no base: for such a project, set CRITIC_ROOT."""
 import os, re
 
+OWN = {"briefs", "reviews", "scratch", "outside", "scan", "verify", "verdicts", "history", "restore", "stops", "verify-variants", "verdicts-variants", "verify-opened"}  # folders Curmudgeon makes in .critic
 PART = re.compile(r"[\\/]\.critic(?=[\\/]|$)", re.IGNORECASE)
 
 def _fold(p): return os.path.normcase(p).replace("\\", "/").rstrip("/").casefold()
@@ -18,7 +19,11 @@ def project_of(cwd, base=None):
     b = _fold(os.path.normpath(base)) if base else ""
     for m in PART.finditer(cwd):
         prefix = cwd[:m.start()]
-        if b and (b + "/").startswith(_fold(cwd[:m.end()]) + "/"): continue  # this .critic holds the session's project: not the project's own
+        here = _fold(cwd[:m.end()])
+        if b and (b + "/").startswith(here + "/"):  # the session started inside this .critic
+            nxt = b[len(here):].lstrip("/").split("/", 1)[0]
+            if nxt and nxt not in OWN: continue  # ...in a project kept under it (~/.critic/projects/app): not this project's own
+            # else the session started in the project's own .critic (its briefs, say): it still maps back (Qodo on #37)
         if not prefix: return os.sep  # /.critic/...
         if re.fullmatch(r"[A-Za-z]:", prefix): return prefix + "\\"  # C:\.critic\... -> C:\, never "C:" (the current folder on C)
         return prefix

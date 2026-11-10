@@ -2238,3 +2238,55 @@ def _(d):
     run(S / "critic_ledger.py", "decision", "--retract", "1", "wrong", cwd=d)
     md = (d / ".critic/ledger.md").read_text(encoding="utf-8")
     assert "- 2. Second" in md and "- 1. ~~First~~" in md, ("numbers stay the ones --amend takes, after a retraction too", md[-500:])
+
+@test("9 Nov Windows run R1: Claude's app sends no last_assistant_message on SubagentStop, so the stop hook reads the agent's reply from its transcript (a hand-back tool call included): the blindness record and the verifier's verdicts are saved and the copy removed, never a block that loses them")
+def _(d):
+    write(d, "src/app.js", APP)
+    write(d, ".critic/reviews/review-A.json", "[]")
+    run(H / "scratch_dir.py", cwd=d, stdin=json.dumps({"agent_type": "curmudgeon:curmudgeon-reviewer", "agent_id": "rv1", "cwd": str(d)}))
+    copy = d / ".critic/scratch/rv1"; assert copy.is_dir()
+    tr = d / "t-rv1.jsonl"
+    tr.write_text("\n".join(json.dumps(x) for x in [
+        {"type": "user", "message": {"role": "user", "content": "brief"}},
+        {"type": "assistant", "message": {"role": "assistant", "content": [{"type": "text", "text": "Reading the code."}]}},
+        {"type": "assistant", "message": {"role": "assistant", "content": [{"type": "tool_use", "id": "x", "name": "SubagentHandback", "input": {"report": "Wrote .critic/reviews/review-A.json: 0 findings."}}]}},
+    ]) + "\n", encoding="utf-8")
+    keys = {"agent_id": "rv1", "agent_transcript_path": str(tr), "agent_type": "curmudgeon:curmudgeon-reviewer", "cwd": str(d), "hook_event_name": "SubagentStop", "stop_hook_active": False}  # the keys the app sent (R1 log)
+    out = run(H / "check_contract.py", cwd=d, stdin=json.dumps(keys)).stdout
+    assert '"block"' not in out, ("R1: no block when the reply is in the transcript", out)
+    stop = json.loads((d / ".critic/stops/rv1.json").read_text(encoding="utf-8"))
+    assert stop["review"] == "review-A.json" and "workspace" in stop, stop
+    assert not (copy / "payload").exists(), "the private copy is removed"
+    # a verifier: its verdict block arrives only in the hand-back
+    v = [{"id": "F-1", "verdict": "confirmed", "reproduced": "executed", "verifier_reproduced": "executed", "evidence": "ran it"}]
+    tv = d / "t-v1.jsonl"; tv.write_text(json.dumps({"type": "assistant", "message": {"role": "assistant", "content": [{"type": "tool_use", "id": "y", "name": "SubagentHandback", "input": {"report": "Verdicts:\n```json\n" + json.dumps(v) + "\n```"}}]}}) + "\n", encoding="utf-8")
+    run(H / "check_contract.py", cwd=d, stdin=json.dumps({"agent_id": "v1", "agent_transcript_path": str(tv), "agent_type": "curmudgeon:curmudgeon-verifier", "cwd": str(d), "stop_hook_active": False}))
+    saved = d / ".critic/verdicts/v1.json"
+    assert saved.is_file() and json.loads(saved.read_text(encoding="utf-8"))[0]["id"] == "F-1", "R1: a verifier's verdict is never lost"
+    # a reply that breaks the contract still blocks (where the host honours it), but what can be recorded already is
+    tb = d / "t-rv2.jsonl"; tb.write_text(json.dumps({"type": "assistant", "message": {"role": "assistant", "content": [{"type": "text", "text": "Wrote .critic/reviews/review-B.json"}]}}) + "\n", encoding="utf-8")
+    write(d, ".critic/reviews/review-B.json", '[{"title": "x"}]')
+    out = run(H / "check_contract.py", cwd=d, stdin=json.dumps({"agent_id": "rv2", "agent_transcript_path": str(tb), "agent_type": "curmudgeon:curmudgeon-reviewer", "cwd": str(d), "stop_hook_active": False})).stdout
+    assert '"block"' in out and (d / ".critic/stops/rv2.json").is_file(), ("blocked, and the blindness record is already written", out)
+
+@test("Qodo on #37: a session started in its project's own .critic still maps back; a relative --only list is always the scanned project's; ledger log writes one line and leaves the ledger alone")
+def _(d):
+    import projroot
+    p = d / "w" / "app"
+    assert projroot.project_of(str(p / ".critic" / "briefs"), str(p / ".critic" / "briefs")) == str(p), "session started in .critic/briefs"
+    assert projroot.project_of(str(p / ".critic" / "briefs"), str(p / ".critic")) == str(p), "session started in .critic itself"
+    home = d / "u" / ".critic" / "projects" / "app"
+    assert projroot.project_of(str(home), str(home)) == str(home), "a project kept under ~/.critic still stays itself"
+    # --only: a same-named list in the shell's folder is never used for another project
+    tgt = d / "tgt"; write(tgt, "a.py", "import os\nos.system(input())\n"); write(tgt, "b.py", "x = 1\n"); write(tgt, "c.py", "y = 1\n"); write(tgt, ".critic/scan-only.txt", "a.py\n")
+    here = d / "here"; write(here, ".critic/scan-only.txt", "b.py\nc.py\n")  # two files, so the wrong list shows as 2
+    r = subprocess.run([sys.executable, str(S / "critic_scan.py"), str(tgt), "--root", str(tgt), "--only", ".critic/scan-only.txt"], cwd=here, capture_output=True, text=True, encoding="utf-8", env=dict(os.environ, TMPDIR=TMP), timeout=300)
+    rep = json.loads((tgt / ".critic/scan/report.json").read_text(encoding="utf-8"))
+    scanned = [str(f) for f in rep.get("files", [])] if isinstance(rep.get("files"), list) else rep.get("files")
+    assert scanned == 1, ("the project's own list (a.py: 1 file), never the shell folder's (b.py and c.py: 2)", scanned, r.stderr[-200:])
+    # log: one line, ledger untouched
+    write(d, "q/a.py", "x = 1\n"); q = d / "q"; run(S / "critic_run.py", "begin", "--files", "a.py", "--tier", "lite", cwd=q)
+    before = (q / ".critic/ledger.json").read_bytes()
+    run(S / "critic_ledger.py", "log", "python3 -I app.py", "0", cwd=q)
+    lines = [l for l in (q / ".critic/runlog.jsonl").read_text(encoding="utf-8").splitlines() if "python3 -I app.py" in l]
+    assert len(lines) == 1 and (q / ".critic/ledger.json").read_bytes() == before, (lines, "ledger changed" if (q / ".critic/ledger.json").read_bytes() != before else "")
