@@ -48,10 +48,6 @@ def main():
             if rec.get("skipped_large"): msg += f" Files over 5 MB were not copied: {', '.join(rec['skipped_large'][:10])}."
         else:
             msg += " No private copy of the project could be made, so Bash is off for you: review by reading (Read, Grep, Glob)."
-    base = os.environ.get("CLAUDE_PROJECT_DIR") or ""
-    if re.search(r"[\\/]\.critic(?:[\\/]|$)", base, re.IGNORECASE):  # settled ("Settled design decisions" 1): a session started inside a .critic folder isn't supported
-        msg += (" Note for the lead: this Claude session was started inside a folder named .critic, so Curmudgeon takes that folder as the "
-                "project. If it is a project's own .critic, start Claude in the project folder instead.")
     print(json.dumps({"hookSpecificOutput": {"hookEventName": "SubagentStart", "additionalContext": msg}}))
     return 0
 
