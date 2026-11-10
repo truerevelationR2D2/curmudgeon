@@ -120,12 +120,19 @@ def _text(x):
     if isinstance(x, list): return "\n".join(_text(v) for v in x)
     return ""
 
-def last_reply(data):
-    """The agent's final words. Claude's app sends no last_assistant_message on SubagentStop (9 Nov Windows run, R1: the
-    hook saw only agent_transcript_path), so it falls back to the last assistant entry with text in the transcript."""
-    msg = data.get("last_assistant_message")
-    if isinstance(msg, str) and msg.strip(): return msg
-    path, last = data.get("agent_transcript_path"), ""
+def _handback(content):
+    """The report inside a SubagentHandback tool call, when this content block list has one. Claude's desktop app ends an
+    agent with that call, its report in input.message (10 Nov Windows acceptance run, read from the real transcripts)."""
+    if not isinstance(content, list): return ""
+    for blk in content:
+        if isinstance(blk, dict) and blk.get("type") == "tool_use" and blk.get("name") == "SubagentHandback":
+            inp = blk.get("input")
+            if isinstance(inp, dict): return inp["message"] if isinstance(inp.get("message"), str) else _text(inp)
+    return ""
+
+def read_transcript(path):
+    """(the last hand-back report, the last assistant text, whether the last assistant entry was a hand-back)."""
+    handback, last, ended = "", "", False
     try:
         with open(path, encoding="utf-8", errors="replace") as fh:
             for line in fh:
@@ -134,10 +141,24 @@ def last_reply(data):
                 except ValueError: continue
                 m = j.get("message") if isinstance(j, dict) else None
                 if isinstance(m, dict) and m.get("role") == "assistant":
+                    hb = _handback(m.get("content"))
+                    if hb.strip(): handback = hb
+                    ended = bool(hb.strip())
                     t = _text(m.get("content")).strip()
                     if t: last = t
     except (OSError, TypeError): pass
-    return last
+    return handback, last, ended
+
+def last_reply(data):
+    """The agent's final words: the transcript first, because the host's last_assistant_message need not be the report
+    (10 Nov acceptance run: the hook blocked replies whose hand-back named the review file and held the verdicts). The
+    last hand-back wins; else the last assistant text; last_assistant_message is the fallback, put first so a later
+    transcript match wins (the contract checks take the last match)."""
+    handback, last, _ = read_transcript(data.get("agent_transcript_path"))
+    if handback: return handback
+    msg = data.get("last_assistant_message")
+    msg = msg if isinstance(msg, str) else ""
+    return "\n".join(x for x in (msg.strip(), last) if x)
 
 def main():
     try: data = json.load(sys.stdin)
@@ -163,7 +184,10 @@ def main():
         except Exception as e: print(json.dumps({"systemMessage": f"Curmudgeon could not save this verifier's verdicts ({type(e).__name__}: {e}); critic_run.py next will ask for them again"}))
     if errs:
         print(json.dumps({"decision": "block", "reason": "Your output doesn't meet Curmudgeon contract yet: " + " | ".join(errs) + ". Fix it, then finish."}))
-        return 0  # the agent keeps working, so its private copy stays
+        if read_transcript(data.get("agent_transcript_path"))[2]:  # it already handed back: the host won't resume it, so its copy goes now (10 Nov acceptance run)
+            try: workspace.remove(root, data.get("agent_id"))
+            except Exception: pass
+        return 0  # otherwise the agent keeps working, so its private copy stays
     try: workspace.remove(root, data.get("agent_id"))  # the agent is really finishing: delete its copy, keep its notes (§5.29)
     except Exception: pass
     return 0

@@ -2299,3 +2299,26 @@ def _(d):
     run(S / "critic_ledger.py", "log", "python3 -I app.py", "0", cwd=q)
     lines = [l for l in (q / ".critic/runlog.jsonl").read_text(encoding="utf-8").splitlines() if "python3 -I app.py" in l]
     assert len(lines) == 1 and (q / ".critic/ledger.json").read_bytes() == before, (lines, "ledger changed" if (q / ".critic/ledger.json").read_bytes() != before else "")
+
+@test("10 Nov acceptance run: the app sends a last_assistant_message that isn't the report, and the agent's report is in a SubagentHandback tool call's input.message; the hook reads the hand-back first, so no block, the blindness record and the verdicts are saved, and the copy goes (also when a block can't take effect after a hand-back)")
+def _(d):
+    write(d, "src/app.js", APP); write(d, ".critic/reviews/review-A.json", "[]")
+    def tr(name, report, extra=None):
+        p = d / name
+        rows = [{"type": "assistant", "message": {"role": "assistant", "content": [{"type": "text", "text": "Working."}]}},
+                {"type": "assistant", "message": {"role": "assistant", "content": [{"type": "tool_use", "id": "h", "name": "SubagentHandback", "input": {"message": report}}]}}]
+        p.write_text("\n".join(json.dumps(r) for r in rows + (extra or [])) + "\n", encoding="utf-8"); return p
+    note = "Report delivered to your lead."  # a last_assistant_message that is not the report
+    run(H / "scratch_dir.py", cwd=d, stdin=json.dumps({"agent_type": "curmudgeon:curmudgeon-reviewer", "agent_id": "ra", "cwd": str(d)}))
+    out = run(H / "check_contract.py", cwd=d, stdin=json.dumps({"agent_type": "curmudgeon:curmudgeon-reviewer", "agent_id": "ra", "cwd": str(d), "agent_transcript_path": str(tr("t-ra.jsonl", "Wrote .critic/reviews/review-A.json, 0 findings.")), "last_assistant_message": note, "stop_hook_active": False})).stdout
+    assert '"block"' not in out, ("the hand-back names the review file", out)
+    assert json.loads((d / ".critic/stops/ra.json").read_text(encoding="utf-8"))["review"] == "review-A.json"
+    assert not (d / ".critic/scratch/ra/payload").exists()
+    v = [{"id": "F-1", "verdict": "confirmed", "reproduced": "executed", "verifier_reproduced": "executed", "entry": "render(n) is called with a stored title from the list API",
+          "path": "src/app.js:1 render(n) receives n.title unchanged, then src/app.js:2 assigns it to innerHTML, so markup in the title runs"}]
+    out = run(H / "check_contract.py", cwd=d, stdin=json.dumps({"agent_type": "curmudgeon:curmudgeon-verifier", "agent_id": "va", "cwd": str(d), "agent_transcript_path": str(tr("t-va.jsonl", "Verdicts:\n```json\n" + json.dumps(v) + "\n```")), "last_assistant_message": note, "stop_hook_active": False})).stdout
+    assert '"block"' not in out and (d / ".critic/verdicts/va.json").is_file(), ("the verdicts in the hand-back are saved", out)
+    # a hand-back that breaks the contract: blocked, but the host won't resume an agent that handed back, so its copy goes
+    run(H / "scratch_dir.py", cwd=d, stdin=json.dumps({"agent_type": "curmudgeon:curmudgeon-reviewer", "agent_id": "rb", "cwd": str(d)}))
+    out = run(H / "check_contract.py", cwd=d, stdin=json.dumps({"agent_type": "curmudgeon:curmudgeon-reviewer", "agent_id": "rb", "cwd": str(d), "agent_transcript_path": str(tr("t-rb.jsonl", "Done.")), "last_assistant_message": note, "stop_hook_active": False})).stdout
+    assert '"block"' in out and not (d / ".critic/scratch/rb/payload").exists(), ("blocked after a hand-back: the copy is still removed", out)
