@@ -93,7 +93,6 @@ def _(d):
 N5_ALLOWED = [  # network words only as data, in code that can't run text
     "python3 -c 'import json; print(json.dumps({\"title\": \"uses requests and curl\", \"evidence\": \"socket in app.py\"}))'",
     "python3 - <<'EOF'\nimport json\nopen(\"out.json\", \"w\").write(json.dumps([{\"evidence\": \"urllib and http.client are used\", \"tags\": [\"requests\"]}]))\nEOF",
-    "python3 - <<'EOF'\n# no requests or sockets here\nprint(1)\nEOF",
     "node -e 'console.log(JSON.stringify({t: \"fetch( and WebSocket and curl\"}))'",
 ]
 N5_REFUSED = [  # still network code, or text that could become code
@@ -114,6 +113,12 @@ N5_REFUSED = [  # still network code, or text that could become code
     "ruby -e 'puts \"#{Net::HTTP.get(u)}\"'",
     "perl -e 'my $u = \"curl\"; system($u)'",
     "node -e \"x = 'requests\"",
+    # 5.5.0 blind round: a comment in front (the lines reach the guard joined), resolvers by name, builtins by key
+    "python3 - <<'EOF'\n# no requests or sockets here\nprint(1)\nEOF",
+    "python3 - <<'EOF'\n# check the endpoint\nimport urllib.request\nurllib.request.urlopen('http://x.invalid/')\nEOF",
+    "python3 -c 'import pkgutil; pkgutil.resolve_name(\"urllib.request:urlopen\")(\"http://x.invalid/\")'",
+    "python3 -c 'import pydoc; pydoc.locate(\"urllib.request.urlopen\")(\"http://x.invalid/\")'",
+    "python3 -c \"__builtins__.__dict__.get('__import__')('urllib.request').urlopen('http://x.invalid/')\"",
 ]
 
 @test("5.5.0 N5: the offline tripwire lets a reviewer's script carry network words as data, and still refuses network code and anything that could turn text into code")
@@ -132,8 +137,9 @@ def _(d):
 # (Claude Code's app, entrypoint remote_cowork): a user entry whose content is a list holding one tool_result, with the
 # output as a string (Read, Bash) or as a list of text parts (SubagentHandback's own result).
 
-def _tr9(d, name, outputs, report):
+def _tr9(d, name, outputs, report, wrote=None):
     rows = [{"type": "user", "message": {"role": "user", "content": "the brief, as the prompt"}}]
+    if wrote: rows.append({"type": "assistant", "message": {"role": "assistant", "content": [{"type": "tool_use", "id": "w", "name": "Write", "input": {"file_path": str(d / ".critic" / "reviews" / f"review-{wrote}.json"), "content": "[]"}}]}})
     for i, o in enumerate(outputs):
         rows.append({"type": "assistant", "message": {"role": "assistant", "content": [{"type": "tool_use", "id": f"toolu_{i}", "name": "Read", "input": {"file_path": "x"}}]}})
         body = o if i % 2 == 0 else [{"type": "text", "text": o}]
@@ -143,11 +149,11 @@ def _tr9(d, name, outputs, report):
     p = pathlib.Path(TMP) / "transcripts" / d.name / name; p.parent.mkdir(parents=True, exist_ok=True)  # outside the project, as Claude Code keeps them
     p.write_text("\n".join(json.dumps(r) for r in rows) + "\n", encoding="utf-8"); return p
 
-def _stop9(d, aid, letter, outputs, transcript=True):
+def _stop9(d, aid, letter, outputs, transcript=True, report=None):
     run(H / "scratch_dir.py", cwd=d, stdin=json.dumps({"agent_type": "curmudgeon:curmudgeon-reviewer", "agent_id": aid, "cwd": str(d)}))
     ev = {"agent_type": "curmudgeon:curmudgeon-reviewer", "agent_id": aid, "cwd": str(d), "stop_hook_active": False,
           "last_assistant_message": "Report delivered." if transcript else f"Wrote .critic/reviews/review-{letter}.json."}
-    if transcript: ev["agent_transcript_path"] = str(_tr9(d, f"t-{aid}.jsonl", outputs, f"Wrote .critic/reviews/review-{letter}.json."))
+    if transcript: ev["agent_transcript_path"] = str(_tr9(d, f"t-{aid}.jsonl", outputs, report or f"Wrote .critic/reviews/review-{letter}.json.", wrote=letter))
     run(H / "check_contract.py", cwd=d, stdin=json.dumps(ev))
     return json.loads((d / f".critic/stops/{aid}.json").read_text(encoding="utf-8")).get("proctor")
 
@@ -155,7 +161,7 @@ TAX9 = finding(category="domain", impact="Medium", line=4, quote="const price = 
                evidence="src/app.js:4 multiplies by a literal 1.0825, so a rate change in any state ships wrong prices until redeployed",
                failing_case="the state rate becomes 8.5%; every price is still computed at 8.25% and nothing reports it", remediation="read the rate from config")
 
-@test("5.5.0 proctor: a reviewer whose tool output showed another brief, the scan report or another review's text is voided; its own brief, the code it reviewed and quotes of shared files don't count")
+@test("5.5.0 proctor: a reviewer whose tool output showed another brief, the scan report or another review is voided, by the run marks alone; its own brief and review, the code, and output another reviewer also quoted don't count")
 def _(d):
     write(d, "src/app.js", APP)
     run(S / "critic_run.py", "begin", "--files", "src/app.js", "--tier", "full", cwd=d)
@@ -168,12 +174,20 @@ def _(d):
     assert _stop9(d, "a1", "A", [b["A"], code, "1\timport statistics"]) == {"checked": True, "saw": []}, "its own brief and the code"
     assert _stop9(d, "a2", "A", [code, b["B"]])["saw"] == ["the mark of brief-B"]
     assert _stop9(d, "a3", "A", ["1\t" + scan_md.replace("\n", "\n2\t")])["saw"] == ["the mark of the scan report"]
-    raw = (d / ".critic/reviews/review-B.json").read_text(encoding="utf-8")
-    assert _stop9(d, "a4", "A", [raw])["saw"] == ["text from review-B.json"], "read the other review as a file"
-    assert _stop9(d, "a5", "A", [TAX9["failing_case"]])["saw"] == ["text from review-B.json"], "or printed one of its fields"
-    write(d, "src/app.js", APP + "// " + TAX9["evidence"] + "\n")  # the same words are in the code under review: not distinctive
-    assert _stop9(d, "a6", "A", [TAX9["evidence"]])["saw"] == [], "text that is also in the code it reviewed"
+    _stop9(d, "b1", "B", [b["B"]])  # B's stop stamps its review: a mark on every line
+    raw = (d / ".critic/reviews/review-B.json").read_text(encoding="utf-8"); mk = re.search(r"cm-[0-9a-f]{24}", raw).group(0)
+    assert all(mk in line for line in raw.splitlines() if line.strip()), ("every line of a stamped review carries its mark", raw)
+    assert _stop9(d, "a4", "A", [raw])["saw"] == ["the mark of review-B.json"], "read the other review as a file"
+    one = next(l for l in raw.splitlines() if "Tax rate" in l)
+    assert _stop9(d, "a5", "A", ["12:" + one])["saw"] == ["the mark of review-B.json"], "or grepped one finding out of it"
+    assert _stop9(d, "a6", "A", [TAX9["failing_case"], "Traceback (most recent call last): ZeroDivisionError"])["saw"] == [], "the same words, or the same output, with no mark: never voided (5.5.0 blind round)"
     assert _stop9(d, "a7", "A", [], transcript=False) == {"checked": False, "why": "no readable transcript"}
+    write(d, ".critic/reviews/review-A.json", "[]"); _stop9(d, "a8", "A", [b["A"]])
+    own = (d / ".critic/reviews/review-A.json").read_text(encoding="utf-8")
+    assert _stop9(d, "a9", "A", [own, b["A"]])["saw"] == [], "its own review and brief"
+    _stop9(d, "a10", "A", [b["A"]], report="Wrote .critic/reviews/review-A.json. I saw .critic/reviews/review-B.json by accident and didn't read it.")
+    assert json.loads((d / ".critic/stops/a10.json").read_text(encoding="utf-8"))["review"] == "review-A.json", "the review it wrote, not one it mentioned"
+    assert [f["title"] for f in json.loads(raw)["findings"]] == [TAX9["title"]] and "mark" not in run(S / "critic_merge.py", "tally", ".critic/reviews/review-B.json", "--no-scan", cwd=d).stdout
 
 @test("5.5.0 proctor: a voided review's votes don't count; a finding only it raised is kept only when a blind verifier reproduces it by running it, labelled, with no vote; a missing transcript marks the run DEGRADED")
 def _(d):
@@ -232,3 +246,42 @@ def _(d):
     assert "refused: a .critic folder" in log and "withheld" in log and "given" in log, log[-600:]
     out = _rg(p, "Bash", command=f"cd {ws} && {sys.executable} {S / 'critic_proctor.py'} ask read {other}")
     assert "deny" not in out, ("the guard lets a reviewer ask the proctor", out)
+
+@test("5.5.0 blind round on the proctor: two voided reviews' same finding is one finding; a fresh reviewer's clean record replaces a voided one's; a voided-only packet asks for a run; the scan marks every file it writes and every row")
+def _(d):
+    write(d, "src/app.js", APP)
+    run(S / "critic_run.py", "begin", "--files", "src/app.js", "--tier", "full", cwd=d)
+    run(S / "critic_scan.py", ".", "--root", ".", "--only", ".critic/scan-only.txt", cwd=d)
+    sc = d / ".critic/scan"; rep_ = json.loads((sc / "report.json").read_text(encoding="utf-8"))
+    assert rep_["mark"] and all(x.get("mark") == rep_["mark"] for x in rep_["findings"]), "every scan row carries the mark"
+    assert rep_["mark"] in (sc / "scan.sarif").read_text(encoding="utf-8") and (sc / "report.md").read_text(encoding="utf-8").startswith("<!-- run mark ")
+    b = {x: (d / f".critic/briefs/brief-{x}.md").read_text(encoding="utf-8") for x in "ABC"}
+    high = finding(impact="High")
+    write(d, ".critic/reviews/review-A.json", json.dumps([high])); write(d, ".critic/reviews/review-B.json", json.dumps([TAX9])); write(d, ".critic/reviews/review-C.json", json.dumps([high]))
+    _stop9(d, "ra", "A", [b["B"]]); _stop9(d, "rb", "B", [b["B"]]); _stop9(d, "rc", "C", [b["B"]])
+    rv = [f".critic/reviews/review-{x}.json" for x in "ABC"]
+    run(S / "critic_merge.py", "tally", *rv, "--no-scan", cwd=d)
+    t_ = json.loads((d / ".critic/tally.json").read_text(encoding="utf-8"))
+    xss = [f for f in t_["contested"] if f.get("voided_only")]
+    assert len(xss) == 1, ("one finding, not two", [f["id"] for f in xss])
+    assert "running it" in json.loads((d / f".critic/verify/{xss[0]['id']}.json").read_text(encoding="utf-8")).get("needs_a_run", ""), "the verifier is told a trace won't keep it"
+    time.sleep(0.05); _stop9(d, "ra2", "A", [b["A"]])  # a fresh reviewer for A, clean
+    run(S / "critic_merge.py", "tally", *rv, "--no-scan", cwd=d)
+    deg = json.loads((d / ".critic/tally.json").read_text(encoding="utf-8"))["degraded"]
+    assert not any("review voided by the proctor: review-A.json" in x for x in deg) and any("review-C.json" in x and "voided" in x for x in deg), deg
+
+@test("5.5.0 blind round on the request command: blame and path-limited history work, REV:PATH works only alone, and CRITIC_ROOT can't point it elsewhere")
+def _(d):
+    p = d / "proj"; write(p, "src/app.js", APP); write(p, ".critic/secret.md", "RUN-SECRET\n")
+    subprocess.run(["git", "init", "-q"], cwd=p); subprocess.run(["git", "add", "-A", "-f"], cwd=p); subprocess.run(G9 + ["commit", "-qm", "first"], cwd=p)
+    run(S / "critic_run.py", "begin", "--files", "src/app.js", "--tier", "lite", cwd=p); ws = _ws(p)["payload"]
+    ask = lambda *a, env=None: run(S / "critic_proctor.py", "ask", *a, cwd=pathlib.Path(ws), env=dict({"CRITIC_ROOT": ""}, **(env or {})))
+    r = ask("git", "blame", "--", "src/app.js"); assert r.returncode == 0 and "render" in r.stdout, r.stderr
+    r = ask("git", "log", "--oneline", "--", "src/app.js"); assert r.returncode == 0 and "first" in r.stdout, r.stderr
+    r = ask("git", "show", "HEAD:src/app.js"); assert r.returncode == 0 and "render" in r.stdout, r.stderr
+    for bad in (["git", "show", "HEAD:src/app.js", "HEAD"], ["git", "log", "--", ":(top)"], ["git", "blame", "--", ".critic/secret.md"], ["git", "show", "HEAD:"]):
+        r = ask(*bad); assert r.returncode == 2 and "RUN-SECRET" not in r.stdout, bad
+    other = d / "other"; write(other, "x.txt", "x\n")
+    r = ask("read", str(p / ".critic/briefs/brief-A.md"), env={"CRITIC_ROOT": str(other)})
+    assert r.returncode == 2, "CRITIC_ROOT is ignored: .critic stays refused"
+    assert "brief-A" not in (other / ".critic/proctor/requests.jsonl").read_text(encoding="utf-8") if (other / ".critic/proctor/requests.jsonl").exists() else True

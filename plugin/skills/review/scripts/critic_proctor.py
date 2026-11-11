@@ -5,7 +5,9 @@ here, from its copy, instead of reaching for it. The proctor hands it over witho
 usage (from the reviewer's copy: cd <workspace> && python3 <this file> ask ...):
   critic_proctor.py ask read PATH          print a file (at most 200 KB)
   critic_proctor.py ask list FOLDER        list a folder
-  critic_proctor.py ask git log|show|blame|diff|ls-files [ARGS...]
+  critic_proctor.py ask git log|diff|ls-files [OPTIONS] [REV...] [-- PATH...]
+  critic_proctor.py ask git show [OPTIONS] [REV...] [-- PATH...]   or   ask git show REV:PATH
+  critic_proctor.py ask git blame [OPTIONS] [REV] -- PATH
                                            read-only history of the real project (a copy may have none); the
                                            project's .critic/ is always left out
 
@@ -18,7 +20,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import utf8io  # UTF-8 output on Windows too (03 §5.57 item 20)
 import safegit
 
-ROOT = pathlib.Path(os.environ.get("CRITIC_ROOT") or __import__("projroot").project_of(os.getcwd())).resolve(); D = ROOT / ".critic"
+ROOT = pathlib.Path(__import__("projroot").project_of(os.getcwd())).resolve(); D = ROOT / ".critic"  # never CRITIC_ROOT: the reviewer it polices could set that (5.5.0 blind round)
 MAX = 200 * 1024
 GIT_OK = {"log", "show", "blame", "diff", "ls-files"}
 GIT_BAD = re.compile(r"^(?:--output|-o$|--ext-diff|--textconv|--exec|--upload-pack|--receive-pack|-c$|-C$|--git-dir|--work-tree|--config|--open-files-in-pager|-O|--no-index)", re.I)
@@ -75,13 +77,20 @@ def main(a):
             return answer(kind, rest[0], data.decode("utf-8", errors="replace"))
         except OSError as e: print(f"proctor: can't read it ({e.strerror})", file=sys.stderr); return 2
     sub, args = rest[0], rest[1:]
-    bad = [x for x in args if ".critic" in x.lower() or GIT_BAD.match(x) or x == "--"]
-    if sub not in GIT_OK or bad:
-        why = f"git {sub} isn't a read-only history command" if sub not in GIT_OK else f"{bad[0]} (it names .critic, writes a file, runs a program, or sets its own paths)"
-        log("git", " ".join(rest), f"refused: {why}"); print(f"proctor: refused: {why}", file=sys.stderr); return 2
-    blob = any(re.match(r"^[^-][^:]*:", x) for x in args)  # rev:path names one file; a pathspec can't follow it
-    spec = [] if blob else ["--", ".", ":(exclude,icase).critic", ":(exclude,icase).critic/**"]
-    r = safegit.run([sub, *args, *spec], cwd=ROOT, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=60)
+    opts, paths = (args[:args.index("--")], args[args.index("--") + 1:]) if "--" in args else (args, [])
+    refuse = lambda why: (log("git", " ".join(rest), f"refused: {why}"), print(f"proctor: refused: {why}", file=sys.stderr), 2)[2]
+    if sub not in GIT_OK: return refuse(f"git {sub} isn't a read-only history command")
+    bad = [x for x in args if ".critic" in x.lower() or GIT_BAD.match(x)] + [x for x in paths if x.startswith((":", "-")) or refused_path(str(ROOT / x))]
+    if bad: return refuse(f"{bad[0]} (it names .critic, writes a file, runs a program, sets its own paths, or uses pathspec magic)")
+    blobs = [x for x in opts if re.match(r"^[^-][^:]*:", x)]  # REV:PATH names one file
+    if blobs and (sub != "show" or len(opts) != 1 or paths or not blobs[0].split(":", 1)[1]):
+        return refuse("REV:PATH works only alone, as git show REV:PATH (5.5.0 blind round: beside other revisions it lifted the .critic exclusion)")
+    if sub == "blame":
+        if len(paths) != 1: return refuse("git blame needs exactly one file after --")
+        cmd = ["blame", *opts, "--", paths[0]]
+    elif blobs: cmd = ["show", blobs[0]]
+    else: cmd = [sub, *opts, "--", *(paths or ["."]), ":(exclude,icase).critic", ":(exclude,icase).critic/**"]
+    r = safegit.run(cmd, cwd=ROOT, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=60)
     if r.returncode != 0: log("git", " ".join(rest), f"git failed ({r.returncode})"); print(r.stderr[-2000:], file=sys.stderr); return r.returncode
     return answer("git", " ".join(rest), r.stdout)
 

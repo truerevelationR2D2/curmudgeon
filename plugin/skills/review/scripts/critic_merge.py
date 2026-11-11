@@ -92,7 +92,7 @@ def load_review(path):
                 except json.JSONDecodeError: bad.append(i)
             if bad: print(f"critic_merge: {p.name}: line(s) {', '.join(map(str, bad[:10]))}{' and more' if len(bad) > 10 else ''} are not JSON and were left out; the rest of the review counts", file=sys.stderr)
     src = p.stem if p.stem not in ("scan", "outside") else f"file-{p.stem}"  # only scan_rows() and the outside loader name those channels (batch 1 review: a file called scan.json)
-    return [dict(r, source=src) for r in rows if isinstance(r, dict)]  # the channel names the source, never the row: a reviewer's "source": "scan" would skip the quote check (ultimate audit Q05)
+    return [dict({k: x for k, x in r.items() if k != "mark"}, source=src) for r in rows if isinstance(r, dict)]  # a review's run marks (the proctor) never travel with its findings; the channel names the source, never the row: a reviewer's "source": "scan" would skip the quote check (ultimate audit Q05)
 
 def inside_root(rel):
     """Findings may only point inside the project: an absolute path, .. or a link out is never read or verified."""
@@ -299,15 +299,25 @@ def tally(paths):
     # The proctor (03 §5.57 item 35): a review whose agent's transcript shows another reviewer's or the scan's work is
     # voided. Its votes don't count; each of its findings that no honest reviewer also found goes to blind verification
     # and is kept only if the verifier reproduces it by running it, labelled, never as a vote and never raising an impact.
-    voided, unchecked = {}, []
+    latest = {}  # each review's newest stop record: a fresh reviewer who rewrote a voided one's file is judged on its own (5.5.0 blind round)
     for st_ in (D / "stops").glob("*.json") if (D / "stops").is_dir() and not (D / "stops").is_symlink() else []:
         try:
             j_ = json.loads(st_.read_text(encoding="utf-8"))
-            if started and float(j_.get("at") or 0) < started - 2: continue
-            pr = j_.get("proctor") if isinstance(j_.get("proctor"), dict) else None
-            if pr and pr.get("saw"): voided[j_.get("review")] = [str(x)[:120] for x in pr["saw"]][:6]
-            elif pr is not None and not pr.get("checked"): unchecked.append(str(j_.get("review")))
+            if not isinstance(j_, dict) or (started and float(j_.get("at") or 0) < started - 2): continue
+            if float(j_.get("at") or 0) >= float((latest.get(j_.get("review")) or {}).get("at") or 0): latest[j_.get("review")] = j_
         except (OSError, ValueError, AttributeError, TypeError): pass
+    voided, unchecked = {}, []
+    try: sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[3] / "hooks")); import proctor as proctor_
+    except Exception: proctor_ = None
+    for name_, j_ in latest.items():
+        pr = j_.get("proctor") if isinstance(j_.get("proctor"), dict) else None
+        if pr is None: continue
+        saw = list(pr.get("saw") or [])
+        if proctor_ and j_.get("transcript"):  # checked again now, against every mark known by this tally (a review stamped after this reviewer stopped)
+            again = proctor_.check(ROOT, j_["transcript"], name_)
+            if again.get("checked"): saw = sorted(set(saw) | set(again.get("saw") or [])); pr = dict(pr, checked=True)
+        if saw: voided[name_] = [str(x)[:120] for x in saw][:6]
+        elif not pr.get("checked"): unchecked.append(str(name_))
     voided_paths = [p for p in paths if in_reviews(p) and pathlib.Path(p).name in voided]
     paths = [p for p in paths if p not in voided_paths]
     reviews = [load_review(p) for p in paths]
@@ -339,12 +349,12 @@ def tally(paths):
     n = len(reviews); need = 1 if n <= 1 else math.ceil(2 * n / 3)  # no honest reviewer left (all voided): a vote is still one vote, never zero
     # an outside run we can't see never counts as executed: verification decides
     outside_rows = [dict(r, source="outside", verified=r.get("verified") if r.get("verified") == "inferred" else "traced") for r in load_review(outside)] if outside else []
-    voided_rows = [dict(r, source="voided", voided_from=pathlib.Path(p).name, verified=r.get("verified") if r.get("verified") == "inferred" else "traced") for p in voided_paths for r in load_review(p)]  # a voided agent's own run claims nothing
+    voided_rows = [[dict(r, source="voided", voided_from=pathlib.Path(p).name, verified=r.get("verified") if r.get("verified") == "inferred" else "traced") for r in load_review(p)] for p in voided_paths]  # one channel each; a voided agent's own run claims nothing
     L = ledger(); out = {"tier": L.get("tier") or "full", "degraded": degraded, "reviewers": n, "votes_needed": need, "outside": None, "kept": [], "contested": [], "dropped": [], "retracted": [], "rejected": [], "suppressed": [], "ruling_committed": [], "set_aside": set_aside, "sandbox": sandbox, "nits": [], "coverage": coverage_report(coverage)}
     scanned = scan_rows(scan) if scan else []
     accepted = []  # (raw_id, reviewer_index or None for scan, finding)
-    OUTSIDE_RI = len(reviews) + 1; VOIDED_RI = len(reviews) + 2; ASIDE = (OUTSIDE_RI, VOIDED_RI)  # channels that never vote as one of ours
-    for ri, rows in list(enumerate(reviews)) + ([(len(reviews), scanned)] if scanned else []) + ([(OUTSIDE_RI, outside_rows)] if outside else []) + ([(VOIDED_RI, voided_rows)] if voided_rows else []):
+    OUTSIDE_RI = len(reviews) + 1; VOIDED = set(range(len(reviews) + 2, len(reviews) + 2 + len(voided_rows))); ASIDE = {OUTSIDE_RI} | VOIDED  # channels that never vote as one of ours
+    for ri, rows in list(enumerate(reviews)) + ([(len(reviews), scanned)] if scanned else []) + ([(OUTSIDE_RI, outside_rows)] if outside else []) + [(len(reviews) + 2 + k, vr) for k, vr in enumerate(voided_rows)]:
         is_scan = bool(scanned) and ri == len(reviews)
         for k, f in enumerate(rows):
             for k_ in ("impact", "category", "title", "file", "evidence", "failing_case", "verified", "remediation", "quote"):
@@ -396,6 +406,9 @@ def tally(paths):
         for j in range(i + 1, len(accepted)):
             ra, ia, a = accepted[i]; rb, ib, b = accepted[j]
             if ia == ib and ia not in ASIDE and a.get("id") == b.get("id"): union(ra, rb); continue  # one source's repeat of one finding (same file, category and quote) is one finding, never two votes or two packets (§5.56 round 3)
+            if ia in VOIDED and ib in VOIDED and ia != ib:  # two voided reviews' same finding is one finding (5.5.0 blind round: it was listed twice)
+                if similar(a, b): union(ra, rb)
+                continue
             if ia == ib or ia in ASIDE or ib in ASIDE: continue  # outside findings are attached below, one cluster each: they never join two of ours  # never merge two findings from the same reviewer (or two scanner rows: two keys on one line are two leaks)
             if similar(a, b): union(ra, rb)
     is_doc = {r: bool(re.search(r"\.(md|mdx|markdown|rst|txt|adoc)$|(^|/)(readme|changelog|license|contributing)$", f["file"] or "", re.I)) for r, _, f in accepted}  # by file type, never by a name inside a code path
@@ -438,7 +451,7 @@ def tally(paths):
             c["members"].append(f)
             if ri is None: c["scan"] = True
             elif ri == OUTSIDE_RI: c["outside"] = True
-            elif ri == VOIDED_RI: c["voided"] = True
+            elif ri in VOIDED: c["voided"] = True
             else: c["reviewers"].add(ri)
         c["members"] = [x for x in c["members"] if x.get("source") != "voided"] or c["members"]  # a voided review never sets the wording or impact of a finding an honest reviewer raised
         c["votes_matched"] = matched_votes([(ri, f) for _, ri, f in mem if ri is not None and ri not in ASIDE])  # reviewers the script itself matched within this group, without the dedup agent
@@ -500,6 +513,7 @@ def tally(paths):
         if f.get("raised_by") == ["scan"] and f.get("verified") == "executed" and MEASURED.match(str(f.get("category"))): continue  # a measurement, not an interpretation: nothing to reproduce
         packet = {k: f.get(k) for k in ("id", "category", "impact", "file", "line", "quote", "title", "failing_case", "preconditions", "root_cause") if k in f}
         if pk_mark: packet["mark"] = pk_mark
+        if f.get("voided_only"): packet["needs_a_run"] = "This finding is kept only if you reproduce it by running it (reproduced: executed); a trace alone won't keep it."  # 5.5.0 blind round
         if is_security(f): packet["security"] = True  # the verifier is told the security rules apply (collected round review)
         put((vd / f"{f['id']}.json"), json.dumps(scrub(packet), indent=1, ensure_ascii=False))
     out["mark"] = proctor_mark(ROOT, "the tally")
@@ -729,7 +743,7 @@ def apply(paths):
     if notes: md += ["", "## Notes"] + [f"- {x}" for x in notes]
     from critic_findings import proctor_mark
     mk = proctor_mark(ROOT, "the counts")
-    if mk: md += ["", f"<!-- run mark {mk} -->"]
+    if mk: md = [md[0] + f" <!-- run mark {mk} -->"] + md[1:] + ["", f"<!-- run mark {mk} -->"]  # on the title line, so every other line keeps its place
     put((D / "counts.md"), "\n".join(redact_finding_text(x) for x in md) + "\n")
     led = pathlib.Path(__file__).resolve().parent / "critic_ledger.py"
     if (D / "ledger.json").exists():

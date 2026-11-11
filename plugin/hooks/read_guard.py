@@ -391,7 +391,8 @@ def bash_problem(cmd, rec, root, critic, role, me):
                             r"|\bimport\(\s*['\"](?:node:)?(?:https?|net|tls|undici|child_process)['\"]")  # a module named in a string is still code
     RUNS_TEXT = re.compile(r"\b(?:subprocess|system|popen|exec\w*|spawn\w*|pty|commands|eval|compile|__import__|import_module|importlib|getattr|globals|locals|vars|modules|"
                            r"require|Function|child_process|Open3|Kernel|send|public_send|syscall|qx|ctypes|cffi|pickle|marshal|codecs|base64|b64decode|unhexlify|fromhex|"
-                           r"chr|fromCharCode|decode|unescape|atob|Buffer|process|Deno|Bun)\b|\bimport\s*\(|[\w)\]]\s*\[\s*\]")  # what could turn a string into a module, a call or a command
+                           r"chr|fromCharCode|decode|unescape|atob|Buffer|process|Deno|Bun|__builtins__|builtins|__dict__|__getattribute__|__class__|__subclasses__|"
+                           r"__globals__|__loader__|__spec__|attrgetter|methodcaller|pkgutil|resolve_name|pydoc|locate|runpy|zipimport|imp|load_module|exec_module|find_spec|spec_from\w*)\b|\bimport\s*\(|[\w)\]]\s*\[\s*\]")  # what could turn a string into a module, a call or a command
     INTERPOLATES = re.compile(r"`|#\{|\$\{|@\{\[|\{\$|(?<![A-Za-z0-9_])[rRbBuU]?[fF][rR]?['\"]|\$[A-Za-z_(]")  # code that runs inside a string literal (f-strings, templates, #{}, $var)
     def strings_out(c, py):
         """The code with every string literal and (Python) comment removed, or None when that can't be told for sure."""
@@ -399,7 +400,8 @@ def bash_problem(cmd, rec, root, critic, role, me):
             import io, tokenize
             try: toks = list(tokenize.generate_tokens(io.StringIO(c).readline))
             except (tokenize.TokenError, IndentationError, SyntaxError): return None
-            drop = {tokenize.STRING, tokenize.COMMENT} | {getattr(tokenize, x) for x in ("FSTRING_MIDDLE", "TSTRING_MIDDLE") if hasattr(tokenize, x)}
+            if any(tk.type == tokenize.COMMENT for tk in toks): return None  # the command text reaches here with its lines joined, so a comment would hide the code after it (5.5.0 blind round)
+            drop = {tokenize.STRING} | {getattr(tokenize, x) for x in ("FSTRING_MIDDLE", "TSTRING_MIDDLE") if hasattr(tokenize, x)}
             return " ".join(tk.string for tk in toks if tk.type not in drop)
         out, k, q = [], 0, None
         while k < len(c):

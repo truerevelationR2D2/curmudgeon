@@ -764,6 +764,29 @@ def proctor_known(root, mark, what):
     e = (m.get("marks") or {}).get(mark) if isinstance(m, dict) and isinstance(m.get("marks"), dict) else None
     return isinstance(e, dict) and e.get("what") == what
 
+def stamp_review(root, name):
+    """Put the review's own run mark on every line of it (the proctor, 03 §5.57 item 35): the top-level "mark" and one
+    in each finding, written one finding per line, so any part of the file another reviewer reads shows the mark. The
+    review keeps every key it had; a file that isn't JSON is left as it is (it carries no mark). The same review
+    stamped again keeps its mark. The merge drops the marks when it reads findings."""
+    f = pathlib.Path(root) / ".critic" / "reviews" / str(name)
+    if f.is_symlink() or not f.is_file() or f.parent.is_symlink() or not re.fullmatch(r"review-[A-Za-z0-9]+\.json", str(name)): return ""
+    try: v = json.loads(f.read_text(encoding="utf-8"))
+    except (OSError, ValueError): return ""
+    if isinstance(v, list): v = {"findings": v}
+    if not isinstance(v, dict) or not isinstance(v.get("findings", []), list): return ""
+    old = v.get("mark") if isinstance(v.get("mark"), str) else ""
+    mk = old if old and proctor_known(root, old, str(name)) else proctor_mark(root, str(name))
+    if not mk: return ""
+    rows = [dict({"mark": mk}, **{k: x for k, x in r.items() if k != "mark"}) if isinstance(r, dict) else r for r in v.get("findings", [])]
+    rest = {k: x for k, x in v.items() if k not in ("mark", "findings")}
+    head = "{" + json.dumps("mark") + ": " + json.dumps(mk) + "".join(f", {json.dumps(k)}: {json.dumps(x, ensure_ascii=False)}" for k, x in rest.items())
+    body = head + ",\n\"findings\": [" + ",\n".join(json.dumps(r, ensure_ascii=False) for r in rows) + "], \"mark_end\": " + json.dumps(mk) + "}\n"  # every line holds the mark
+    tmp = f.with_name(f.name + ".tmp")
+    try: tmp.write_text(body, encoding="utf-8"); os.replace(tmp, f)
+    except OSError: return ""
+    return mk
+
 def files_key(files):
     """One short key for a set of reviewed files, the same whatever their order (R4: the tier the owner chose for them)."""
     return hashlib.sha256("\n".join(sorted({str(f).replace("\\", "/") for f in files})).encode("utf-8")).hexdigest()[:16]

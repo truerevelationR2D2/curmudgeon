@@ -166,7 +166,7 @@ def _(d):
     r = run(S / "critic_ledger.py", "stamp", "src", cwd=d); assert r.returncode != 0 and "VERDICT section's Counts line" in r.stderr + r.stdout, r.stdout + r.stderr
     tear("**BLOCK** · Counts: 0 Critical, 1 High, 0 Medium, 0 Low", "Counts: 0 Critical, 1 High, 0 Medium, 0 Low")
     r = run(S / "critic_ledger.py", "stamp", "src", cwd=d); assert r.returncode == 0, r.stdout + r.stderr
-    c = (d / ".critic/counts.md").read_text(encoding="utf-8"); (d / ".critic/counts.md").write_text(c.replace("# Curmudgeon merged findings\n", "# Curmudgeon merged findings\n\nDEGRADED: test\n", 1), encoding="utf-8")
+    c = (d / ".critic/counts.md").read_text(encoding="utf-8"); (d / ".critic/counts.md").write_text(re.sub(r"^(# Curmudgeon merged findings[^\n]*\n)", lambda m_: m_.group(1) + "\nDEGRADED: test\n", c, count=1), encoding="utf-8")
     tear("**BLOCK** · Counts: 0 Critical, 1 High, 0 Medium, 0 Low", "Counts: 0 Critical, 1 High, 0 Medium, 0 Low")
     r = run(S / "critic_ledger.py", "stamp", "src", cwd=d); assert r.returncode != 0 and "DEGRADED" in r.stderr + r.stdout, r.stdout + r.stderr
 
@@ -209,7 +209,7 @@ def _(d):
     tear("**BLOCK** · Counts: 0 Critical, 1 High, 0 Medium, 0 Low")
     old = time.time() - 60; os.utime(d / ".critic/last-review.md", (old, old))
     r = stamp(); assert r.returncode != 0 and "older than counts.md" in r.stdout + r.stderr, r.stdout + r.stderr
-    c = (d / ".critic/counts.md").read_text(encoding="utf-8"); (d / ".critic/counts.md").write_text(c.replace("# Curmudgeon merged findings\n", "# Curmudgeon merged findings\n\nDEGRADED: 1 verdict(s) the full tier requires never came back (F-x)\n", 1), encoding="utf-8")
+    c = (d / ".critic/counts.md").read_text(encoding="utf-8"); (d / ".critic/counts.md").write_text(re.sub(r"^(# Curmudgeon merged findings[^\n]*\n)", lambda m_: m_.group(1) + "\nDEGRADED: 1 verdict(s) the full tier requires never came back (F-x)\n", c, count=1), encoding="utf-8")
     tear("DEGRADED: single context (no subagents)\n**BLOCK** · Counts: 0 Critical, 1 High, 0 Medium, 0 Low")
     r = stamp(); assert r.returncode != 0 and "doesn't carry that reason" in r.stdout + r.stderr, r.stdout + r.stderr
     tear("**DEGRADED:** single context; 1 verdict(s) the full tier requires never came back (F-x)\n**BLOCK** · Counts: 0 Critical, 1 High, 0 Medium, 0 Low")

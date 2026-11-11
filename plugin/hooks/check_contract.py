@@ -149,6 +149,26 @@ def read_transcript(path):
     except (OSError, TypeError): pass
     return handback, last, ended
 
+def own_review(transcript_path, msg):
+    """The review file this reviewer wrote: the last one its own Write or Edit calls named (5.5.0 blind round: a reply
+    that mentions another review file, as the instructions ask when one was seen by accident, named the wrong one).
+    Without such a call, the one review file the reply names; none when it names several."""
+    wrote = None
+    try:
+        with open(str(transcript_path or ""), encoding="utf-8", errors="replace") as fh:
+            for line in fh:
+                try: j = json.loads(line)
+                except ValueError: continue
+                c = (j.get("message") or {}).get("content") if isinstance(j, dict) and isinstance(j.get("message"), dict) else None
+                for item in c if isinstance(c, list) else []:
+                    if isinstance(item, dict) and item.get("type") == "tool_use" and item.get("name") in ("Write", "Edit", "MultiEdit"):
+                        m = re.search(r"[\\/]\.critic[\\/]reviews[\\/](review-[A-Za-z0-9]+\.json)$", str((item.get("input") or {}).get("file_path") or ""), re.I)
+                        if m: wrote = m.group(1)
+    except (OSError, TypeError): pass
+    if wrote: return wrote
+    named = sorted(set(re.findall(r"review-[A-Za-z0-9]+\.json", msg or "")))
+    return named[0] if len(named) == 1 else None
+
 def last_reply(data):
     """The agent's final words: the transcript first, because the host's last_assistant_message need not be the report
     (10 Nov acceptance run: the hook blocked replies whose hand-back named the review file and held the verdicts). The
@@ -175,15 +195,16 @@ def main():
     # then the blindness record and the verdicts must already be saved.
     if kind.endswith("curmudgeon-reviewer"):  # 03 §5.56 item 15: the tally checks that each review came from an agent that worked in its private copy
         try:
-            named = re.findall(r"review-([A-Za-z0-9]+)\.json", msg or "")
+            review = own_review(data.get("agent_transcript_path"), msg)
             me = workspace.clean_id(data.get("agent_id")) if data.get("agent_id") else None
-            if named and me:
-                rec = {"review": f"review-{named[-1]}.json", "workspace": worked_in_copy(root, data.get("agent_id")), "at": time.time()}
-                try:  # the proctor (03 §5.57 item 35): what this reviewer's tools showed it, checked before its copy goes
+            if review and me:
+                rec = {"review": review, "workspace": worked_in_copy(root, data.get("agent_id")), "at": time.time()}
+                try:  # the proctor (03 §5.57 item 35): its review gets its marks, then what its tools showed it is checked
+                    from critic_findings import stamp_review
                     import proctor
-                    h = workspace.home_for(root, data.get("agent_id"))
-                    rec["proctor"] = proctor.check(root, data.get("agent_transcript_path"), rec["review"], payload=(h / "payload") if h else None,
-                                                   refs=pathlib.Path(__file__).resolve().parent.parent / "skills" / "review" / "references")
+                    stamp_review(root, review)
+                    rec["transcript"] = str(data.get("agent_transcript_path") or "")
+                    rec["proctor"] = proctor.check(root, rec["transcript"], review)
                 except Exception as e: rec["proctor"] = {"checked": False, "why": f"{type(e).__name__}"}
                 write_stop(root, me, rec)
         except Exception: pass

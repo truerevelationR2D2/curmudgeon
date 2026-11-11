@@ -941,13 +941,16 @@ def main(argv):
     for i, x in enumerate(R, 1): x["id"] = f"S{i:03d}"
     out.mkdir(parents=True, exist_ok=True)
     degraded = [k for k, v in CHECKS.items() if v["state"] in ("blocked", "unavailable") and k in expected]  # n/a is never degraded
-    if REQ_ROWS: (out / "requirements.md").write_text(scan_reqs.table(REQ_ROWS), encoding="utf-8")
     from critic_findings import proctor_mark
-    mk = proctor_mark(root, "the scan report") if pathlib.Path(out).resolve().parent == (pathlib.Path(root) / ".critic").resolve() else ""  # the proctor (03 §5.57 item 35)
+    mk = proctor_mark(root, "the scan report") if pathlib.Path(out).resolve().parent == (pathlib.Path(root) / ".critic").resolve() else ""  # the proctor (03 §5.57 item 35): on every file the scan writes, and on each of its rows
+    tag = f"<!-- run mark {mk} -->\n" if mk else ""
+    if REQ_ROWS: (out / "requirements.md").write_text(tag + scan_reqs.table(REQ_ROWS) + ("\n" + tag if tag else ""), encoding="utf-8")
+    if mk:
+        for x in R: x["mark"] = mk
     (out / "report.json").write_text(json.dumps({"mark": mk, "src": str(src), "root": str(root), "files": nfiles, "stats": stats, "checks": CHECKS, "degraded": degraded, "findings": R, "suppressed": SUPPRESSED}, indent=1), encoding="utf-8")
     from critic_findings import to_sarif
     (out / "scan.sarif").write_text(json.dumps(to_sarif([{"category": x["rule"], "impact": {"FAIL": "High", "WARN": "Medium", "NOTE": "Low"}[x["sev"]], "file": x["where"].split(":")[0] if ":" in x["where"] else x["where"],
-        "line": int(x["where"].rsplit(":", 1)[1]) if re.search(r":\d+$", x["where"]) else 1, "title": x["what"], "id": x["id"], "verified": "executed" if x["level"] == "runtime" else "traced"} for x in R], tool="critic-scan"), indent=1), encoding="utf-8")
+        "line": int(x["where"].rsplit(":", 1)[1]) if re.search(r":\d+$", x["where"]) else 1, "title": x["what"], "id": x["id"], "verified": "executed" if x["level"] == "runtime" else "traced"} for x in R], tool="critic-scan") | ({"properties": {"mark": mk}} if mk else {}), indent=1), encoding="utf-8")
     c = {s: sum(1 for x in R if x["sev"] == s) for s in order}
     ped = sum(1 for x in R if x.get("tier") == "pedantic")
     md = [f"# Curmudgeon scripted checks: {src.name}", f"{nfiles} files · {c['FAIL']} FAIL · {c['WARN']} WARN · {c['NOTE'] - ped} NOTE · {ped} pedantic · {len(SUPPRESSED)} suppressed · {time.time() - t:.1f} s", ""] + \
@@ -956,8 +959,8 @@ def main(argv):
          ["", "## Stats"] + [f"- {k}: {v}" for k, v in stats.items()] + ["", "## Findings", "| ID | Sev | Rule | Level | Where | What | Evidence |", "| --- | --- | --- | --- | --- | --- | --- |"] + \
          [f"| {x['id']} | {x['sev']} | {x['rule']} | {x['level']} | {esc_cell(x['where'])} | {esc_cell(x['what'])} | {esc_cell(x['evidence'][:100])} |" for x in R]
     if SUPPRESSED: md += ["", "## Suppressed (known false positives from the ledger)"] + [f"- `{x['rule']}` at {x['where']}: {x['what']} — {x['why']}" for x in SUPPRESSED]
-    if mk: md += ["", f"<!-- run mark {mk} -->"]
-    (out / "report.md").write_text("\n".join(md) + "\n", encoding="utf-8"); print("\n".join(md[:2])); print("report:", out / "report.md")
+    if mk: md = [f"<!-- run mark {mk} -->"] + md + ["", f"<!-- run mark {mk} -->"]
+    (out / "report.md").write_text("\n".join(md) + "\n", encoding="utf-8"); print("\n".join(md[1:3] if mk else md[:2])); print("report:", out / "report.md")
     return 0
 
 if __name__ == "__main__": sys.exit(main(sys.argv[1:]))
