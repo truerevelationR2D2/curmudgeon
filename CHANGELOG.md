@@ -8,7 +8,9 @@ Every release of Curmudgeon, newest first. The repository's history starts at 4.
 
 The first build also matched pieces of other reviews' wording. The first blind round showed that voided honest reviewers who saw the same test failure or rule another quoted, so only marks count now. That round also caught the stop hook recording the last review file a reply mentions instead of the one the reviewer wrote, live: a reviewer that named another review in its report got that review's stop record. It records the file the reviewer wrote now.
 
-**N5.** A reviewer's inline script that mentions `requests`, `socket` or `curl` only inside a string is data, not network code, when the code has no way to run text. Any Python comment, a builtins lookup, a module named in a string, a resolver by name (`pkgutil.resolve_name`, `pydoc.locate`), decoding or interpolation keeps the whole text judged as before. The case table is the test (3 allowed rows, 22 refused).
+Reviewed blind twice before release (three reviewers and blind verification each time): the first round found 19 problems, the second 12 in the fixes (a stop record from an agent that never wrote the review could clear a void, the marks list could lose marks when stop hooks ran at once, `git blame --contents` could print any file, and more N5 gaps). All are fixed, each with a test that fails on the code before it. The second round's fixes were not reviewed a third time. Reviewers now also read no brief by path (their own is their prompt) and no session transcript under `~/.claude/projects` (the lead's holds other reviewers' reports).
+
+**N5.** A reviewer's inline script that mentions `requests`, `socket` or `curl` only inside a string is data, not network code, when the code has no way to run text. Any Python comment, a builtins lookup, a module named in a string, a resolver by name (`pkgutil.resolve_name`, `pydoc.locate`), decoding or interpolation keeps the whole text judged as before. The case table is the test (3 allowed rows, 29 refused).
 
 **The approved backlog (03 §5.57 item 34):**
 - A run stopped and begun again on the same files carries over the outside answer it had loaded (P15).
