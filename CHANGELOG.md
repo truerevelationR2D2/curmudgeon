@@ -2,6 +2,26 @@
 
 Every release of Curmudgeon, newest first. The repository's history starts at 4.2.1; earlier versions are summarised from the project's own build and review records. Numbers are the ones measured at the time; the README's Benchmarks section has the current ones and how they were measured.
 
+## 5.5.0 (unreleased): the proctor, N5, the approved backlog and WSL2 as a required check (03 §5.57 items 34-36)
+
+**The proctor (03 §5.57 item 35), the permanent check on reviewer blindness.** Curmudgeon writes a unique run mark into every brief's own part, every reviewer's review (on every line, stamped by the stop hook when the reviewer finishes), every file the scan writes and each of its rows, the tally, the counts, the dedup list and each verification packet. At each reviewer's stop, and again at every tally, a script reads that reviewer's own transcript on your machine (the output of every command it ran and every file it read) for any mark but its own brief's and review's. A reviewer that saw one is voided: its votes don't count and the counts name it, with what it saw. A finding only a voided review raised goes to a blind verifier and is kept only if the verifier reproduces it by running it, labelled, with no vote and never at a higher impact. A transcript the proctor can't read leaves the review counted and marks the run DEGRADED. There is no replacement reviewer (Ryan's ruling). Reviewers who need something outside their copy ask `critic_proctor.py ask read|list|git`, which never hands over `.critic/`, `~/.curmudgeon` or `~/.claude`, withholds any answer holding a run mark, and lists every request in `.critic/proctor/requests.jsonl`.
+
+The first build also matched pieces of other reviews' wording. The first blind round showed that voided honest reviewers who saw the same test failure or rule another quoted, so only marks count now. That round also caught the stop hook recording the last review file a reply mentions instead of the one the reviewer wrote, live: a reviewer that named another review in its report got that review's stop record. It records the file the reviewer wrote now.
+
+**N5.** A reviewer's inline script that mentions `requests`, `socket` or `curl` only inside a string is data, not network code, when the code has no way to run text. Any Python comment, a builtins lookup, a module named in a string, a resolver by name (`pkgutil.resolve_name`, `pydoc.locate`), decoding or interpolation keeps the whole text judged as before. The case table is the test (3 allowed rows, 22 refused).
+
+**The approved backlog (03 §5.57 item 34):**
+- A run stopped and begun again on the same files carries over the outside answer it had loaded (P15).
+- A stopped run (`critic_ledger.py abort`) is no longer active for the hooks.
+- The plan mentions the tier you chose last time for the same files (R4), from a ledger written on this machine only.
+- `begin` says when it removes private copies a dead stop hook left behind.
+- The counts say which blindness check failed: no stop record, or a record saying the agent had no private copy.
+- A new round moves the briefs aside with the reviews; `critic_ledger.py round` and `critic_run.py status` name the round's blind re-review step by step.
+- `critic_outside.py brief` prints its own line telling the lead to hand the brief over.
+- The WSL2 CI job is required, after 40 green runs in a row.
+
+Budgets (`claude plugin details`, 10 November 2026, loaded from the repository): about 919 tokens added to every session, unchanged; the review skill about 8.9k when it runs (5.4.2: about 8.7k) and the reviewer agent about 1.9k (5.4.2: about 1.7k), for the proctor's steps.
+
 ## 5.4.2 (10 November 2026)
 
 Everything merged after 5.3.0 (pull requests #34 to #42): the 5.3.1, 5.4.0 and 5.4.1 changes below, released together. 5.4.2 changes no code; it is the version number for this release. The Windows acceptance run in Claude's desktop app (03 §5.57 item 32) covered the 5.4.1 build from #41, not this exact build: it passed with no DEGRADED banner and every reviewer's blindness recorded. Two things it did not cover in the app: #42, merged after it, which changed which single reply the stop hook checks when there is no hand-back (covered by its own tests), and the verifier path, because that run needed no verifier (a verdict saved from a hand-back is covered by the test with the recorded shapes). An outside check was tried twice and not completed: both times the other AI read none of the files, so it is not counted as a review. Budgets (`claude plugin details`, 10 November 2026, loaded from the repository): about 919 tokens added to every session, up from about 864 in 5.3.0, mostly the new `/curmudgeon:check-updates` listing (about 50); the review skill about 8.7k when it runs, up from about 8.5k. The sections below are each change as it landed, newest first.
