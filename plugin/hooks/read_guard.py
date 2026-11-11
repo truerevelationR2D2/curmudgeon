@@ -146,9 +146,13 @@ def brief_problem(root, ti):
 
 def run_active(root):
     led = root / ".critic" / "ledger.json"
-    try: started = json.loads(led.read_text(encoding="utf-8")).get("started_at") if led.is_file() and not led.is_symlink() else None
-    except Exception: started = None
+    try: L = json.loads(led.read_text(encoding="utf-8")) if led.is_file() and not led.is_symlink() else {}
+    except Exception: L = {}
+    started = L.get("started_at") if isinstance(L, dict) else None
     if not started or time.time() - started > 12 * 3600: return False
+    try:
+        if any(isinstance(a, dict) and a.get("run") == L.get("run") for a in L.get("aborted") or []): return False  # the owner stopped it (critic_ledger.py abort): no longer active (5.4.0 self-review)
+    except TypeError: pass
     last = root / ".critic" / "last-review.md"
     return not last.exists() or last.stat().st_mtime < started
 

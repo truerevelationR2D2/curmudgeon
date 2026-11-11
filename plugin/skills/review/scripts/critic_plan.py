@@ -64,6 +64,17 @@ def focus():
     try: return json.loads((D / "focus.json").read_text(encoding="utf-8")).get("focus") if (D / "focus.json").is_file() and not (D / "focus.json").is_symlink() else None
     except (OSError, ValueError): return None
 
+def last_choice(files):
+    """The tier the owner chose the last time these exact files were reviewed (R4), from a ledger Curmudgeon wrote on
+    this machine; a ledger that came with the code is never read for it."""
+    import critic_findings as cf_
+    if not files or cf_.ledger_shipped(ROOT): return None
+    try: L = json.loads((D / "ledger.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError): return None
+    ch = L.get("tier_choices") if isinstance(L, dict) else None
+    c = ch.get(cf_.files_key(files)) if isinstance(ch, dict) else None
+    return {"tier": c["tier"], "run": c.get("run")} if isinstance(c, dict) and c.get("tier") in ("trivial", "lite", "full") else None
+
 def plan(forced=None):
     try: cm = json.loads((D / "change-map.json").read_text(encoding="utf-8"))
     except (OSError, ValueError): sys.exit("critic_plan: no .critic/change-map.json; run critic_map.py first")
@@ -87,6 +98,8 @@ def plan(forced=None):
         p["expected_tokens"] = est; p["expected_basis"] = "medians of this project's recorded runs, by role"
     else: p["expected_tokens"] = None; p["expected_basis"] = "no recorded runs yet: the first run's cost is measured, not guessed"
     if docs_only: p["note"] = "a document doesn't need the full code sweep: one reviewer and the claims check"
+    last = last_choice(files)
+    if last and not forced and last["tier"] != tier: p["last_choice"] = last  # R4: shown beside the proposal, never applied by itself
     if focus() == "security":  # the security scan mode (5.2): same panel size as the tier, security lenses and focus only
         p["focus"] = "security"; p["lenses"] = (["tests of the tests"] if "tests of the tests" in p["lenses"] else []) + SECURITY_LENSES
         p["checks"] = ["scripted security checks (critic_scan.py --focus security)", "the security feed: status, and an update when switched on and due"]
@@ -106,6 +119,7 @@ def main(a):
     print("  checks: " + "; ".join(p["checks"]) + ("; variant hunt" if p["variant_hunt"] else ""))
     print("  expected cost: " + (f"about {p['expected_tokens']:,} tokens ({p['expected_basis']})" if p["expected_tokens"] else p["expected_basis"]))
     if p.get("note"): print("  " + p["note"])
+    if p.get("last_choice"): print(f"  last time: you chose the {p['last_choice']['tier']} tier for these same files (run {p['last_choice'].get('run')})")
     return 0
 
 if __name__ == "__main__": sys.exit(main(sys.argv[1:]))

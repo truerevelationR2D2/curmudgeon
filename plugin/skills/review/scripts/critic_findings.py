@@ -736,6 +736,10 @@ def rules_test_command(text):
     m = re.search(r"(?im)^\s*test command\s*:\s*(.+)$", text or "")
     return m.group(1).strip().strip("`") if m else None
 
+def files_key(files):
+    """One short key for a set of reviewed files, the same whatever their order (R4: the tier the owner chose for them)."""
+    return hashlib.sha256("\n".join(sorted({str(f).replace("\\", "/") for f in files})).encode("utf-8")).hexdigest()[:16]
+
 def ledger_shipped(root):
     """True when .critic/ledger.json could have come with the code, so its rulings and decisions are never applied (the
     merge, the scan and the brief all check this). A ledger git tracks always could (5.2.1 F-76114fb3). Otherwise it is

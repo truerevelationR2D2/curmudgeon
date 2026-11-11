@@ -141,6 +141,9 @@ def brief(args):
     out.parent.mkdir(parents=True, exist_ok=True); out.write_text("\n".join(lines) + "\n", encoding="utf-8")
     print(f"wrote {out.relative_to(ROOT) if out.is_relative_to(ROOT) else out}: {len(files)} file(s), commit {head[:7] or '-'}")
     for w in warn: print("note: " + w)
+    shown = out.relative_to(ROOT).as_posix() if out.is_relative_to(ROOT) else str(out)
+    print(f"next: give the user {shown} now, the whole file, in your reply, with the notes above; they paste it into the other AI. "
+          "Don't wait for the review to finish: the other AI works while the scan and the reviewers do")  # 10 Nov run report, run 8: the brief was written and never handed over
     return 0
 
 CITE = re.compile(r"\u3010[^\u3011]*\u3011")  # ChatGPT-style source markers; code like a[0] is never touched

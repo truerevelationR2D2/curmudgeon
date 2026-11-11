@@ -167,6 +167,11 @@ def say_next(st, tier, items):
         print(f"next: the scripted checks have not written a report for this run (or round) yet. If the background scan is running, wait for it; if none was started "
               f"(a new round, say), run it now: {scan_cmd()} Then run critic_run.py next again. "
               "Only if it can't run at all: critic_run.py next --no-scan goes on without it, and the counts say the run is DEGRADED.")
+    elif st == "reviewing" and not briefs_ready(ledger(), [p.stem[-1] for p in items]):  # 10 Nov run report, runs 5 and 7: round 2 was never re-reviewed
+        L = ledger(); letters = ",".join(REVIEWERS.get(tier, REVIEWERS["full"]))
+        print(f"next: review round {L.get('round', 1)} needs fresh blind reviewers on the fix (SKILL.md step 8.4), and their briefs aren't written yet. "
+              f"Map what the fix changed: {py_cmd(HERE / 'critic_map.py')} --base <the commit before the fix> (or --files <the files it changed>); "
+              f"then write the briefs: {py_cmd(HERE / 'critic_brief.py')} --letters {letters}; run the scan again: {scan_cmd()}; then critic_run.py next starts the reviewers.")
     elif st == "reviewing":
         print(f"next: start {len(items)} curmudgeon:curmudgeon-reviewer agent(s) by name (never a fork), blind, one per letter: "
               + ", ".join(p.stem[-1] for p in items) + ". Give each the text of its brief, unchanged, as its prompt: " + ", ".join(f".critic/briefs/brief-{p.stem[-1]}.md" for p in items) + ". Each writes " + ", ".join(rel(p) for p in items) + ".")
@@ -190,6 +195,29 @@ def say_next(st, tier, items):
         print("next: write the teardown from .critic/counts.md (references/output-contract.md), save .critic/last-review.md, then critic_ledger.py stamp <payload>.")
     elif st == "idle": print("next: no run is active; critic_run.py begin starts one.")
     elif st == "stopped": print("next: the owner stopped this run (critic_ledger.py abort), so nothing more runs in it; critic_run.py begin starts a new one.")
+
+def stopped_run():
+    """The run in the ledger, when the owner stopped it (critic_ledger.py abort): its number, start time and files."""
+    L = ledger()
+    if not L.get("run") or not any(isinstance(a, dict) and a.get("run") == L.get("run") for a in L.get("aborted") or []): return None
+    try: files = json.loads((D / "change-map.json").read_text(encoding="utf-8")).get("files") or [] if (D / "change-map.json").is_file() and not (D / "change-map.json").is_symlink() else []
+    except (OSError, ValueError, AttributeError): files = []
+    return {"run": L.get("run"), "started": L.get("started_at") or 0, "files": sorted(str(f) for f in files)}
+
+def carry_outside(before, files):
+    """P15 carry-over (03 §5.57 item 34): a run stopped and begun again on the same files is the same review, so an
+    outside answer already loaded for the stopped run counts in this one too, without asking the user again. Only from
+    the run directly before, only when it was stopped, and only for exactly the same files."""
+    if not before or not files or before["files"] != sorted(files): return
+    if not OUTSIDE.is_file() or OUTSIDE.is_symlink() or mtime(OUTSIDE) < before["started"]: return
+    try: os.utime(OUTSIDE, None)  # loaded for this run now: tally_extra takes only an answer at least as new as the run
+    except OSError: return
+    print(f"carried over the outside reviewer's answer loaded in stopped run {before['run']} (same files, so the same review): it counts in this run's tally")
+
+def briefs_ready(L, letters):
+    """True when every reviewer's brief for this run or round is there: a new run or round moves the earlier briefs to
+    .critic/history/ (critic_ledger.py), begin writes the run's, and a round needs its own."""
+    return all((D / "briefs" / f"brief-{x}.md").is_file() and not (D / "briefs" / f"brief-{x}.md").is_symlink() for x in letters)
 
 def main(a):
     if not a or a[0] in ("-h", "--help"): print(__doc__); return 0
@@ -246,13 +274,19 @@ def main(a):
                 print("  - WARNING: this repository ships .mcp.json. Its servers start without a prompt in claude -p, SDK and cloud runs: "
                       "audit it with --strict-mcp-config, or block them with disabledMcpjsonServers, before running anything headless here.")
         map_args = [x for i, x in enumerate(rest) if not (x == "--tier" or (i and rest[i - 1] == "--tier"))]
+        before = stopped_run()  # P15 carry-over: read before critic_map rewrites the change map and the ledger starts a new run
         sh("critic_map.py", *map_args)
         sh("critic_plan.py", *(["--tier", tier] if tier else []))  # SC-69: the job plan (tier, agents, lenses, expected cost), showing the tier in force
         if not tier:
             try: tier = json.loads((D / "plan.json").read_text(encoding="utf-8")).get("tier") or "full"
             except (OSError, ValueError): tier = "full"
         chosen_tier(tier, "audit mode" if audit else ("the owner's choice" if asked_tier else "the job plan's choice"))
-        sh("critic_ledger.py", "start", "audit" if audit else ("full" if fix else "review"), "--tier", tier)
+        from critic_findings import files_key
+        cm_files = [str(f) for f in ((json.loads((D / "change-map.json").read_text(encoding="utf-8")) if (D / "change-map.json").is_file() else {}).get("files") or [])]
+        key = files_key(cm_files) if cm_files else ""
+        sh("critic_ledger.py", "start", "audit" if audit else ("full" if fix else "review"), "--tier", tier,
+           *(["--files-key", key] if key else []), *(["--owner-tier"] if asked_tier and not audit else []))
+        carry_outside(before, cm_files)
         sh("critic_brief.py", "--letters", ",".join(REVIEWERS.get(tier, REVIEWERS["full"])))
         cmj = json.loads((D / "change-map.json").read_text(encoding="utf-8")) if (D / "change-map.json").exists() else {}
         files = [str(f) for f in (cmj.get("files") or [])]

@@ -4,7 +4,9 @@ happened to each (new, known, fixed, regressed, acted on), decisions, false posi
 claims, scores, fingerprints, rounds, restore points, gate overrides and run costs, between runs and sessions.
 
 usage (run from the project root, or set CRITIC_ROOT):
-  init | start review|full|audit [--tier trivial|lite|full]   begin a run (round 1; records mode and tier; an audit refuses fixes)
+  init | start review|full|audit [--tier trivial|lite|full] [--files-key K --owner-tier]
+                                         begin a run (round 1; records mode and tier; an audit refuses fixes); with
+                                         --owner-tier, remembers the tier the owner chose for the files keyed K (R4)
   import FINDINGS.jsonl                  record merged findings by stable id: new, known (still there) or regressed
   add ID SCORE WHERE "summary" [--verified]   record one finding by hand (round 3 accepts only --verified)
   status ID open|wontfix|refuted "note" update a finding (refuted: set by the merge script after a verifier's refutation;
@@ -160,15 +162,16 @@ def need(rest, n, usage):
 def archive_reviews(L, label):
     """A new run or round starts with no reviews: earlier ones move to .critic/history/<label>/reviews/, and
     started_at is reset, so the tally refuses any review file written before it."""
-    rv = D / "reviews"
-    if rv.is_dir() and not rv.is_symlink():
-        olds = [p for p in rv.iterdir() if p.is_file() and not p.is_symlink()]
-        if olds:
-            dest, k = D / "history" / label / "reviews", 2
-            while dest.exists():  # never overwrite an earlier archive (round --reset can repeat a label)
-                dest = D / "history" / f"{label}-{k}" / "reviews"; k += 1
-            dest.mkdir(parents=True)
-            for p in olds: os.replace(p, dest / p.name)
+    for sub in ("reviews", "briefs"):  # the briefs too: a new round writes its own, on the fix (10 Nov run report: round 2 started from round 1's briefs, or not at all)
+        rv = D / sub
+        if rv.is_dir() and not rv.is_symlink():
+            olds = [p for p in rv.iterdir() if p.is_file() and not p.is_symlink()]
+            if olds:
+                dest, k = D / "history" / label / sub, 2
+                while dest.exists():  # never overwrite an earlier archive (round --reset can repeat a label)
+                    dest = D / "history" / f"{label}-{k}" / sub; k += 1
+                dest.mkdir(parents=True)
+                for p in olds: os.replace(p, dest / p.name)
     for name_ in ("verdicts", "verdicts-variants"):  # a round's verdicts were on its own packets: the next round starts without them (§5.56 round 2)
         vd_ = D / name_
         if vd_.is_dir() and not vd_.is_symlink() and any(vd_.iterdir()):
@@ -311,6 +314,10 @@ def main(a):
         tier = rest[rest.index("--tier") + 1] if "--tier" in rest and rest.index("--tier") + 1 < len(rest) else ""
         if tier and tier not in ("trivial", "lite", "full"): die("tier must be trivial, lite or full")
         L["mode"], L["round"], L["tier"] = rest[0], 1, tier; L["run"] += 1
+        key = rest[rest.index("--files-key") + 1] if "--files-key" in rest and rest.index("--files-key") + 1 < len(rest) else ""
+        if tier and key and "--owner-tier" in rest and re.fullmatch(r"[0-9a-f]{16}", key):  # R4: the tier the owner chose for these files, so the next plan can mention it
+            ch_ = L.get("tier_choices") if isinstance(L.get("tier_choices"), dict) else {}
+            ch_[key] = {"tier": tier, "run": L["run"]}; L["tier_choices"] = dict(list(ch_.items())[-200:])  # the newest 200 file sets
         for m in L["memories"]:  # retire memories unused for MEMORY_TTL_DAYS
             try:
                 if not m.get("retired") and (time.time() - time.mktime(time.strptime(m.get("last_used", m.get("made")), "%Y-%m-%d"))) > MEMORY_TTL_DAYS * 86400: m["retired"] = True
@@ -318,8 +325,10 @@ def main(a):
         archive_reviews(L, f"run-{L['run'] - 1}")
         sc = D / "scratch"  # the last run's agent scratch folders move aside too: a new run's agents start empty
         if sc.is_dir() and not sc.is_symlink():
+            left = 0
             for pl in sc.glob("*/payload"):  # an agent's copy of the project (hooks/workspace.py) left by a stop that never ran: a copy, never history
-                if pl.is_dir() and not pl.is_symlink() and not pl.parent.is_symlink(): shutil.rmtree(pl, ignore_errors=True)
+                if pl.is_dir() and not pl.is_symlink() and not pl.parent.is_symlink(): shutil.rmtree(pl, ignore_errors=True); left += 1
+            if left: print(f"removed {left} private cop{'y' if left == 1 else 'ies'} of the project left by earlier agents whose stop hook never ran (.critic/scratch/*/payload)")
         for name_ in ("verdicts", "verdicts-variants"):  # the last run's verifier answers: never applied to this run (critic_run.py), kept for audit
             vd_ = D / name_
             if vd_.is_dir() and not vd_.is_symlink() and any(vd_.iterdir()):
@@ -726,6 +735,7 @@ def main(a):
             esc += mole_lines(L)
             for e in esc: print(e if e.startswith("WHACK-A-MOLE") else f"ESCALATE to the owner: {e}")
             print(f"review round {L['round']} of 3" + (" (verify-only: no new findings without an executed case)" if L["round"] == 3 else ""))
+            if L["round"] <= 3: print(f"next: round {L['round']}'s blind re-review of the fix (SKILL.md step 8.4): run critic_run.py status; it names each step (map the fix, write the briefs, run the scan, start the reviewers)")  # 10 Nov run report, runs 5 and 7
             if esc: return 3
             return 1 if L["round"] > 3 else 0
     elif cmd == "restore":

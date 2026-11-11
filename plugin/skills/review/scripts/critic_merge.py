@@ -281,14 +281,20 @@ def tally(paths):
     try: put(snap_f, json.dumps(snap, indent=1))
     except OSError: pass
     reviews = [load_review(p) for p in paths]
-    blind = set()  # 03 §5.56 item 15: reviews whose agent the stop hook saw working in its private copy
+    blind, recorded = set(), set()  # 03 §5.56 item 15: reviews whose agent the stop hook saw working in its private copy, and every review it saw at all
     for st_ in (D / "stops").glob("*.json") if (D / "stops").is_dir() and not (D / "stops").is_symlink() else []:  # written by the stop hook; agents can't write there
         try:
             j_ = json.loads(st_.read_text(encoding="utf-8"))
-            if j_.get("workspace") and (not started or float(j_.get("at") or 0) >= started - 2): blind.add(j_.get("review"))
+            if not started or float(j_.get("at") or 0) >= started - 2:
+                recorded.add(j_.get("review"))
+                if j_.get("workspace"): blind.add(j_.get("review"))
         except (OSError, ValueError, AttributeError, TypeError): pass
-    unproven = [pathlib.Path(p).name for p in paths if pathlib.Path(p).resolve().parent != (D / "reviews").resolve() or pathlib.Path(p).name not in blind]  # a stop record names a file in .critic/reviews/; any other file (an archived one included) came from no hooked reviewer this run
-    if unproven: degraded.append(f"blindness not shown for {', '.join(unproven)} (no record that its agent worked in a private copy: the hooks may not have run)")
+    in_reviews = lambda p: pathlib.Path(p).resolve().parent == (D / "reviews").resolve()  # a stop record names a file in .critic/reviews/; any other file (an archived one included) came from no hooked reviewer this run
+    unproven = [pathlib.Path(p).name for p in paths if not in_reviews(p) or pathlib.Path(p).name not in blind]
+    no_copy = [pathlib.Path(p).name for p in paths if in_reviews(p) and pathlib.Path(p).name in recorded - blind]  # 9 Nov rerun: say which check failed
+    no_record = [n for n in unproven if n not in no_copy]
+    if no_record: degraded.append(f"blindness not shown for {', '.join(no_record)} (no stop record: the stop hook didn't run for its agent, or its reply didn't name the review file)")
+    if no_copy: degraded.append(f"blindness not shown for {', '.join(no_copy)} (its stop record says the agent had no private copy, so it didn't work blind)")
     coverage = {"read": set(), "not_reached": set()}  # files the reviewers say they read, and the ones they didn't reach (SC-46)
     sandbox = []  # sandbox scenario lines: numbered SB1, SB2 ... here, so the teardown's SANDBOX LEDGER has a source (SC: self-review D C6)
     set_aside = []  # candidates a reviewer dropped, with the guard it relied on: logged so the eval can measure self-filtering, never counted
