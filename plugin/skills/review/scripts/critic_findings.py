@@ -239,7 +239,7 @@ def verdict_required(tier, f, contested=False):
     contested finding, one only the outside reviewer raised, and one whose reviewers disagreed on its impact. Full: every
     packet. Lite: Critical and High. Trivial: nothing more. critic_run.py asks for these; apply marks the run DEGRADED
     when one has no verdict."""
-    if contested or f.get("outside_only") or f.get("impact_split"): return True
+    if contested or f.get("outside_only") or f.get("voided_only") or f.get("impact_split"): return True  # voided_only: the proctor's rule (03 §5.57 item 35)
     if tier == "trivial": return False
     if tier == "lite": return f.get("impact") in ("Critical", "High")
     return True
@@ -735,6 +735,34 @@ def rules_commands(text):
 def rules_test_command(text):
     m = re.search(r"(?im)^\s*test command\s*:\s*(.+)$", text or "")
     return m.group(1).strip().strip("`") if m else None
+
+def proctor_mark(root, what):
+    """A new unique mark for one file Curmudgeon writes that reviewers must never see (a brief other than their own, the
+    scan report, a tally, the counts, a verification packet), recorded in .critic/proctor/marks.json, which agents
+    can't read. The proctor looks for these marks in each reviewer's tool output at its stop (03 §5.57 item 35).
+    Returns the mark, or "" when it couldn't be recorded (then the file just carries no mark)."""
+    import secrets
+    d = pathlib.Path(root) / ".critic" / "proctor"; f = d / "marks.json"
+    try:
+        if (pathlib.Path(root) / ".critic").is_symlink() or d.is_symlink() or f.is_symlink(): return ""
+        d.mkdir(parents=True, exist_ok=True)
+        try: m = json.loads(f.read_text(encoding="utf-8")) if f.is_file() else {}
+        except ValueError: m = {}
+        marks = m.get("marks") if isinstance(m, dict) and isinstance(m.get("marks"), dict) else {}
+        mark = "cm-" + secrets.token_hex(12)
+        marks[mark] = {"what": str(what)[:80], "at": int(time.time())}
+        marks = dict(list(marks.items())[-2000:])  # the newest 2,000: older runs' files are archived history
+        tmp = f.with_name(f.name + ".tmp"); tmp.write_text(json.dumps({"marks": marks}), encoding="utf-8"); os.replace(tmp, f)
+        return mark
+    except OSError: return ""
+
+def proctor_known(root, mark, what):
+    """True when mark is recorded in .critic/proctor/marks.json for exactly this file."""
+    f = pathlib.Path(root) / ".critic" / "proctor" / "marks.json"
+    try: m = json.loads(f.read_text(encoding="utf-8")) if f.is_file() and not f.is_symlink() else {}
+    except (OSError, ValueError): return False
+    e = (m.get("marks") or {}).get(mark) if isinstance(m, dict) and isinstance(m.get("marks"), dict) else None
+    return isinstance(e, dict) and e.get("what") == what
 
 def files_key(files):
     """One short key for a set of reviewed files, the same whatever their order (R4: the tier the owner chose for them)."""

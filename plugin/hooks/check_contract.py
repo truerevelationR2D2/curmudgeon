@@ -177,7 +177,15 @@ def main():
         try:
             named = re.findall(r"review-([A-Za-z0-9]+)\.json", msg or "")
             me = workspace.clean_id(data.get("agent_id")) if data.get("agent_id") else None
-            if named and me: write_stop(root, me, {"review": f"review-{named[-1]}.json", "workspace": worked_in_copy(root, data.get("agent_id")), "at": time.time()})
+            if named and me:
+                rec = {"review": f"review-{named[-1]}.json", "workspace": worked_in_copy(root, data.get("agent_id")), "at": time.time()}
+                try:  # the proctor (03 §5.57 item 35): what this reviewer's tools showed it, checked before its copy goes
+                    import proctor
+                    h = workspace.home_for(root, data.get("agent_id"))
+                    rec["proctor"] = proctor.check(root, data.get("agent_transcript_path"), rec["review"], payload=(h / "payload") if h else None,
+                                                   refs=pathlib.Path(__file__).resolve().parent.parent / "skills" / "review" / "references")
+                except Exception as e: rec["proctor"] = {"checked": False, "why": f"{type(e).__name__}"}
+                write_stop(root, me, rec)
         except Exception: pass
     elif not problems:  # a verdict that fails the contract is never saved, on a retry too: the merge counts it missing and marks the run DEGRADED (Qodo on #38, #39)
         try: save_verdicts(root, msg, data.get("agent_id"))

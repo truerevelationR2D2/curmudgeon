@@ -127,3 +127,108 @@ def _(d):
         w2 = _ws(p, aid="v1", role=role)["payload"]
         assert "deny" not in _rg(p, "Bash", role=role, aid="v1", command=f"cd {w2} && {N5_ALLOWED[0]}"), role
         assert "deny" in _rg(p, "Bash", role=role, aid="v1", command=f"cd {w2} && {N5_REFUSED[1]}"), role
+
+# The proctor (03 §5.57 item 35). Transcript rows use the shape recorded from a real reviewer agent on 10 Nov 2026
+# (Claude Code's app, entrypoint remote_cowork): a user entry whose content is a list holding one tool_result, with the
+# output as a string (Read, Bash) or as a list of text parts (SubagentHandback's own result).
+
+def _tr9(d, name, outputs, report):
+    rows = [{"type": "user", "message": {"role": "user", "content": "the brief, as the prompt"}}]
+    for i, o in enumerate(outputs):
+        rows.append({"type": "assistant", "message": {"role": "assistant", "content": [{"type": "tool_use", "id": f"toolu_{i}", "name": "Read", "input": {"file_path": "x"}}]}})
+        body = o if i % 2 == 0 else [{"type": "text", "text": o}]
+        rows.append({"parentUuid": "p", "isSidechain": True, "type": "user", "message": {"role": "user", "content": [{"tool_use_id": f"toolu_{i}", "type": "tool_result", "content": body}]}, "uuid": f"u{i}", "entrypoint": "remote_cowork"})
+    rows.append({"type": "assistant", "message": {"role": "assistant", "content": [{"type": "tool_use", "id": "h", "name": "SubagentHandback", "input": {"message": report}}]}})
+    rows.append({"type": "user", "message": {"role": "user", "content": [{"tool_use_id": "h", "type": "tool_result", "content": [{"type": "text", "text": "{\"success\":true,\"message\":\"Report delivered to your caller.\"}"}]}]}})
+    p = pathlib.Path(TMP) / "transcripts" / d.name / name; p.parent.mkdir(parents=True, exist_ok=True)  # outside the project, as Claude Code keeps them
+    p.write_text("\n".join(json.dumps(r) for r in rows) + "\n", encoding="utf-8"); return p
+
+def _stop9(d, aid, letter, outputs, transcript=True):
+    run(H / "scratch_dir.py", cwd=d, stdin=json.dumps({"agent_type": "curmudgeon:curmudgeon-reviewer", "agent_id": aid, "cwd": str(d)}))
+    ev = {"agent_type": "curmudgeon:curmudgeon-reviewer", "agent_id": aid, "cwd": str(d), "stop_hook_active": False,
+          "last_assistant_message": "Report delivered." if transcript else f"Wrote .critic/reviews/review-{letter}.json."}
+    if transcript: ev["agent_transcript_path"] = str(_tr9(d, f"t-{aid}.jsonl", outputs, f"Wrote .critic/reviews/review-{letter}.json."))
+    run(H / "check_contract.py", cwd=d, stdin=json.dumps(ev))
+    return json.loads((d / f".critic/stops/{aid}.json").read_text(encoding="utf-8")).get("proctor")
+
+TAX9 = finding(category="domain", impact="Medium", line=4, quote="const price = total * 1.0825;", title="Tax rate hard-coded in the price",
+               evidence="src/app.js:4 multiplies by a literal 1.0825, so a rate change in any state ships wrong prices until redeployed",
+               failing_case="the state rate becomes 8.5%; every price is still computed at 8.25% and nothing reports it", remediation="read the rate from config")
+
+@test("5.5.0 proctor: a reviewer whose tool output showed another brief, the scan report or another review's text is voided; its own brief, the code it reviewed and quotes of shared files don't count")
+def _(d):
+    write(d, "src/app.js", APP)
+    run(S / "critic_run.py", "begin", "--files", "src/app.js", "--tier", "full", cwd=d)
+    run(S / "critic_scan.py", ".", "--root", ".", "--only", ".critic/scan-only.txt", cwd=d)
+    b = {x: (d / f".critic/briefs/brief-{x}.md").read_text(encoding="utf-8") for x in "ABC"}
+    assert all("<!-- run mark cm-" in b[x] for x in "ABC") and len({re.search(r"cm-[0-9a-f]+", b[x]).group(0) for x in "ABC"}) == 3, "each brief its own mark"
+    scan_md = (d / ".critic/scan/report.md").read_text(encoding="utf-8"); assert "run mark cm-" in scan_md
+    write(d, ".critic/reviews/review-B.json", json.dumps([TAX9]))
+    code = (d / "src/app.js").read_text(encoding="utf-8")
+    assert _stop9(d, "a1", "A", [b["A"], code, "1\timport statistics"]) == {"checked": True, "saw": []}, "its own brief and the code"
+    assert _stop9(d, "a2", "A", [code, b["B"]])["saw"] == ["the mark of brief-B"]
+    assert _stop9(d, "a3", "A", ["1\t" + scan_md.replace("\n", "\n2\t")])["saw"] == ["the mark of the scan report"]
+    raw = (d / ".critic/reviews/review-B.json").read_text(encoding="utf-8")
+    assert _stop9(d, "a4", "A", [raw])["saw"] == ["text from review-B.json"], "read the other review as a file"
+    assert _stop9(d, "a5", "A", [TAX9["failing_case"]])["saw"] == ["text from review-B.json"], "or printed one of its fields"
+    write(d, "src/app.js", APP + "// " + TAX9["evidence"] + "\n")  # the same words are in the code under review: not distinctive
+    assert _stop9(d, "a6", "A", [TAX9["evidence"]])["saw"] == [], "text that is also in the code it reviewed"
+    assert _stop9(d, "a7", "A", [], transcript=False) == {"checked": False, "why": "no readable transcript"}
+
+@test("5.5.0 proctor: a voided review's votes don't count; a finding only it raised is kept only when a blind verifier reproduces it by running it, labelled, with no vote; a missing transcript marks the run DEGRADED")
+def _(d):
+    write(d, "src/app.js", APP)
+    run(S / "critic_run.py", "begin", "--files", "src/app.js", "--tier", "full", cwd=d)
+    b = {x: (d / f".critic/briefs/brief-{x}.md").read_text(encoding="utf-8") for x in "ABC"}
+    high = finding(impact="High")
+    write(d, ".critic/reviews/review-A.json", json.dumps([high, TAX9])); write(d, ".critic/reviews/review-B.json", json.dumps([high])); write(d, ".critic/reviews/review-C.json", "[]")
+    _stop9(d, "ra", "A", [b["C"]]); _stop9(d, "rb", "B", [b["B"]]); _stop9(d, "rc", "C", [b["C"]], transcript=False)
+    rv = [f".critic/reviews/review-{x}.json" for x in "ABC"]
+    r = run(S / "critic_merge.py", "tally", *rv, "--no-scan", cwd=d); assert r.returncode == 0, r.stderr
+    t = json.loads((d / ".critic/tally.json").read_text(encoding="utf-8"))
+    assert t["reviewers"] == 2 and any("review voided by the proctor: review-A.json" in x for x in t["degraded"]), t["degraded"]
+    assert any("the proctor couldn't check review-C.json" in x for x in t["degraded"]), t["degraded"]
+    xss = [f for f in t["kept"] + t["contested"] if f["category"] == "xss"][0]
+    assert xss["votes"] == 1 and xss["of"] == 2, ("only the honest reviewer's vote", xss)
+    tax = [f for f in t["contested"] if f.get("voided_only")]
+    assert len(tax) == 1 and tax[0]["votes"] == 0 and (d / f".critic/verify/{tax[0]['id']}.json").is_file(), ("verified blind", t["contested"])
+    assert '"mark": "cm-' in (d / f".critic/verify/{tax[0]['id']}.json").read_text(encoding="utf-8") and t.get("mark", "").startswith("cm-")
+    traced = {"id": tax[0]["id"], "verdict": "confirmed", "reproduced": "traced", "entry": "price is computed on every order",
+              "path": "src/app.js:4 multiplies total by the literal 1.0825, so the rate can't change without a redeploy"}
+    run(S / "critic_merge.py", "apply", str(hook_verdicts(d, [traced], "v1")), cwd=d)
+    final = [json.loads(l) for l in (d / ".critic/findings.jsonl").read_text(encoding="utf-8").splitlines() if l.strip()]
+    assert not any(f["category"] == "domain" for f in final), ("traced is not reproduced", final)
+    run(S / "critic_merge.py", "tally", *rv, "--no-scan", cwd=d)
+    tid = [f for f in json.loads((d / ".critic/tally.json").read_text(encoding="utf-8"))["contested"] if f.get("voided_only")][0]["id"]
+    ran = dict(traced, id=tid, reproduced="executed")
+    run(S / "critic_merge.py", "apply", str(hook_verdicts(d, [ran], "v2")), cwd=d)
+    final = [json.loads(l) for l in (d / ".critic/findings.jsonl").read_text(encoding="utf-8").splitlines() if l.strip()]
+    kept = [f for f in final if f["category"] == "domain"]
+    assert len(kept) == 1 and kept[0]["voided_only"] and kept[0]["votes"] == 0 and kept[0]["impact"] in ("Medium", "Low"), ("reproduced by running it: kept, labelled", kept)
+    c = (d / ".critic/counts.md").read_text(encoding="utf-8")
+    assert "## From voided reviews" in c and f"{tid} " in c.split("## From voided reviews")[1] and "<!-- run mark cm-" in c, c[-900:]
+
+@test("5.5.0 proctor request command: from its copy a reviewer gets files elsewhere and the project's history, never .critic, Curmudgeon's or Claude's own folders, or an answer holding a run mark; every request is logged")
+def _(d):
+    p = d / "proj"; write(p, "src/app.js", APP); write(p, ".critic/secret.md", "RUN-SECRET\n")
+    subprocess.run(["git", "init", "-q"], cwd=p); subprocess.run(["git", "add", "-A", "-f"], cwd=p); subprocess.run(G9 + ["commit", "-qm", "first"], cwd=p)
+    run(S / "critic_run.py", "begin", "--files", "src/app.js", "--tier", "lite", cwd=p)
+    ws = _ws(p)["payload"]; other = write(d, "elsewhere/lib.py", "def helper():\n    return 1\n")
+    ask = lambda *a, cwd=ws: run(S / "critic_proctor.py", "ask", *a, cwd=pathlib.Path(cwd), env={"CRITIC_ROOT": ""})
+    r = ask("read", str(other)); assert r.returncode == 0 and "def helper" in r.stdout, r.stderr
+    assert ask("read", str(p / ".critic/secret.md")).returncode == 2 and ask("read", str(p / ".CRITIC" / "secret.md")).returncode == 2
+    try: os.symlink(p / ".critic", d / "sneaky", target_is_directory=True); linked = True
+    except (OSError, NotImplementedError): linked = False
+    if linked: assert ask("list", str(d / "sneaky")).returncode == 2, "a link into .critic"
+    assert ask("read", os.path.join(os.environ["CURMUDGEON_STATE_DIR"], "x")).returncode == 2
+    assert ask("list", str(pathlib.Path.home() / ".claude")).returncode == 2
+    r = ask("git", "log", "--oneline"); assert r.returncode == 0 and "first" in r.stdout, r.stderr
+    r = ask("git", "show", "--stat", "HEAD"); assert r.returncode == 0 and "src/app.js" in r.stdout and ".critic" not in r.stdout, r.stdout
+    for bad in (["git", "show", "HEAD:.critic/secret.md"], ["git", "diff", "--output=/tmp/x"], ["git", "push"], ["git", "log", "--", ".critic"]):
+        assert ask(*bad).returncode == 2, bad
+    brief = write(d, "elsewhere/copied-brief.md", (p / ".critic/briefs/brief-A.md").read_text(encoding="utf-8"))
+    r = ask("read", str(brief)); assert r.returncode == 3 and "brief" not in r.stdout, ("a run mark in the answer: withheld", r.stdout[:200])
+    log = (p / ".critic/proctor/requests.jsonl").read_text(encoding="utf-8")
+    assert "refused: a .critic folder" in log and "withheld" in log and "given" in log, log[-600:]
+    out = _rg(p, "Bash", command=f"cd {ws} && {sys.executable} {S / 'critic_proctor.py'} ask read {other}")
+    assert "deny" not in out, ("the guard lets a reviewer ask the proctor", out)
