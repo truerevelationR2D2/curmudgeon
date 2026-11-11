@@ -87,6 +87,8 @@ def main(a):
         return refuse("REV:PATH works only alone, as git show REV:PATH (5.5.0 blind round: beside other revisions it lifted the .critic exclusion)")
     if sub == "blame":
         if len(paths) != 1: return refuse("git blame needs exactly one file after --")
+        odd = [x for x in opts if x.startswith("-") and not re.fullmatch(r"-L\d*,?[+-]?\d*|-[wsenlftpMC]+|--porcelain|--line-porcelain|--show-email|--show-name|--show-number", x)]
+        if odd: return refuse(f"{odd[0]} (git blame takes only -L, -w, -s, -e, -n, -l, -f, -t, -p, -M, -C and the porcelain forms here; --contents would print any file)")  # 5.5.0 blind round 2
         cmd = ["blame", *opts, "--", paths[0]]
     elif blobs: cmd = ["show", blobs[0]]
     else: cmd = [sub, *opts, "--", *(paths or ["."]), ":(exclude,icase).critic", ":(exclude,icase).critic/**"]

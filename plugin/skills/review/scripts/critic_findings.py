@@ -742,18 +742,32 @@ def proctor_mark(root, what):
     can't read. The proctor looks for these marks in each reviewer's tool output at its stop (03 §5.57 item 35).
     Returns the mark, or "" when it couldn't be recorded (then the file just carries no mark)."""
     import secrets
-    d = pathlib.Path(root) / ".critic" / "proctor"; f = d / "marks.json"
+    d = pathlib.Path(root) / ".critic" / "proctor"; f = d / "marks.json"; lock = d / "marks.lock"
     try:
         if (pathlib.Path(root) / ".critic").is_symlink() or d.is_symlink() or f.is_symlink(): return ""
         d.mkdir(parents=True, exist_ok=True)
-        try: m = json.loads(f.read_text(encoding="utf-8")) if f.is_file() else {}
-        except ValueError: m = {}
-        marks = m.get("marks") if isinstance(m, dict) and isinstance(m.get("marks"), dict) else {}
-        mark = "cm-" + secrets.token_hex(12)
-        marks[mark] = {"what": str(what)[:80], "at": int(time.time())}
-        marks = dict(list(marks.items())[-2000:])  # the newest 2,000: older runs' files are archived history
-        tmp = f.with_name(f.name + ".tmp"); tmp.write_text(json.dumps({"marks": marks}), encoding="utf-8"); os.replace(tmp, f)
-        return mark
+        fd = None
+        for _ in range(200):  # the reviewers' stop hooks and the scan stamp at once: one writer at a time (5.5.0 blind round 2 lost marks)
+            try: fd = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY); break
+            except FileExistsError:
+                try:
+                    if time.time() - lock.stat().st_mtime > 10: lock.unlink()  # a lock left by a killed process
+                except OSError: pass
+                time.sleep(0.02)
+        if fd is None: return ""
+        try:
+            try: m = json.loads(f.read_text(encoding="utf-8")) if f.is_file() else {}
+            except ValueError: return ""  # never start the list again over an unreadable one: earlier marks would be lost
+            marks = m.get("marks") if isinstance(m, dict) and isinstance(m.get("marks"), dict) else {}
+            mark = "cm-" + secrets.token_hex(12)
+            marks[mark] = {"what": str(what)[:80], "at": int(time.time())}
+            marks = dict(list(marks.items())[-2000:])  # the newest 2,000: older runs' files are archived history
+            tmp = f.with_name(f"{f.name}.{os.getpid()}.tmp"); tmp.write_text(json.dumps({"marks": marks}), encoding="utf-8"); os.replace(tmp, f)
+            return mark
+        finally:
+            os.close(fd)
+            try: lock.unlink()
+            except OSError: pass
     except OSError: return ""
 
 def proctor_known(root, mark, what):

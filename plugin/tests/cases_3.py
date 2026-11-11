@@ -315,11 +315,11 @@ def _(d):
     import safe_web, browse as bw
     for w in ("Clear all", "Reset database", "Discard changes", "Revoke key", "Log out", "Terminate session"): assert safe_web.looks_destructive(w, bw.DESTRUCTIVE), w
 
-@test("5.0 self-review (scanners run): a reviewer may read its brief by path (a brief holds no findings), and still not another review")
+@test("5.0 self-review (scanners run), changed in 5.5.0: a reviewer reads no brief by path (its own is its prompt, and the proctor voids one that read another's), and still not another review")
 def _(d):
     run(S / "critic_ledger.py", "start", "review", "--tier", "full", cwd=d); write(d, ".critic/briefs/brief-A.md", "brief"); write(d, ".critic/reviews/review-B.json", "[]")
     ask = lambda f: run(H / "read_guard.py", cwd=d, stdin=json.dumps({"tool_name": "Read", "tool_input": {"file_path": str(d / f)}, "agent_type": "curmudgeon:curmudgeon-reviewer", "agent_id": "r1", "cwd": str(d)})).stdout
-    assert "deny" not in ask(".critic/briefs/brief-A.md") and "deny" in ask(".critic/reviews/review-B.json")
+    assert "deny" in ask(".critic/briefs/brief-A.md") and "deny" in ask(".critic/reviews/review-B.json")
 
 @test("5.0 self-review (evidence rules): no dismissal, ruling or refutation hides a finding of higher impact, a refuted finding reopens, and an unverified outside-only finding isn't counted")
 def _(d):

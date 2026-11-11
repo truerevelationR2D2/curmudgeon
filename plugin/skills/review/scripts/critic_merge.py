@@ -282,14 +282,20 @@ def tally(paths):
     try: put(snap_f, json.dumps(snap, indent=1))
     except OSError: pass
     reviews = [load_review(p) for p in paths]
-    blind, recorded = set(), set()  # 03 §5.56 item 15: reviews whose agent the stop hook saw working in its private copy, and every review it saw at all
+    # One stop record speaks for each review (5.5.0 blind rounds 1 and 2): the newest from an agent whose own Write or
+    # Edit made the file, else the newest at all. So a fresh reviewer who rewrote a voided review is judged on its own,
+    # and one who never wrote it can neither clear a void nor lend its blindness to the file.
+    latest = {}
     for st_ in (D / "stops").glob("*.json") if (D / "stops").is_dir() and not (D / "stops").is_symlink() else []:  # written by the stop hook; agents can't write there
         try:
             j_ = json.loads(st_.read_text(encoding="utf-8"))
-            if not started or float(j_.get("at") or 0) >= started - 2:
-                recorded.add(j_.get("review"))
-                if j_.get("workspace"): blind.add(j_.get("review"))
+            if not isinstance(j_, dict) or (started and float(j_.get("at") or 0) < started - 2): continue
+            key_ = (bool(j_.get("wrote", True)), float(j_.get("at") or 0))  # a record from before "wrote" existed counts as a writer's
+            old_ = latest.get(j_.get("review"))
+            if old_ is None or key_ >= (bool(old_.get("wrote", True)), float(old_.get("at") or 0)): latest[j_.get("review")] = j_
         except (OSError, ValueError, AttributeError, TypeError): pass
+    recorded = set(latest)  # 03 §5.56 item 15: reviews whose agent the stop hook saw working in its private copy, and every review it saw at all
+    blind = {k for k, v in latest.items() if v.get("workspace")}
     in_reviews = lambda p: pathlib.Path(p).resolve().parent == (D / "reviews").resolve()  # a stop record names a file in .critic/reviews/; any other file (an archived one included) came from no hooked reviewer this run
     unproven = [pathlib.Path(p).name for p in paths if not in_reviews(p) or pathlib.Path(p).name not in blind]
     no_copy = [pathlib.Path(p).name for p in paths if in_reviews(p) and pathlib.Path(p).name in recorded - blind]  # 9 Nov rerun: say which check failed
@@ -299,13 +305,6 @@ def tally(paths):
     # The proctor (03 §5.57 item 35): a review whose agent's transcript shows another reviewer's or the scan's work is
     # voided. Its votes don't count; each of its findings that no honest reviewer also found goes to blind verification
     # and is kept only if the verifier reproduces it by running it, labelled, never as a vote and never raising an impact.
-    latest = {}  # each review's newest stop record: a fresh reviewer who rewrote a voided one's file is judged on its own (5.5.0 blind round)
-    for st_ in (D / "stops").glob("*.json") if (D / "stops").is_dir() and not (D / "stops").is_symlink() else []:
-        try:
-            j_ = json.loads(st_.read_text(encoding="utf-8"))
-            if not isinstance(j_, dict) or (started and float(j_.get("at") or 0) < started - 2): continue
-            if float(j_.get("at") or 0) >= float((latest.get(j_.get("review")) or {}).get("at") or 0): latest[j_.get("review")] = j_
-        except (OSError, ValueError, AttributeError, TypeError): pass
     voided, unchecked = {}, []
     try: sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[3] / "hooks")); import proctor as proctor_
     except Exception: proctor_ = None
@@ -405,7 +404,7 @@ def tally(paths):
     for i in range(len(accepted)):
         for j in range(i + 1, len(accepted)):
             ra, ia, a = accepted[i]; rb, ib, b = accepted[j]
-            if ia == ib and ia not in ASIDE and a.get("id") == b.get("id"): union(ra, rb); continue  # one source's repeat of one finding (same file, category and quote) is one finding, never two votes or two packets (§5.56 round 3)
+            if ia == ib and ia != OUTSIDE_RI and a.get("id") == b.get("id"): union(ra, rb); continue  # a voided review's own repeat too (5.5.0 blind round 2)  # one source's repeat of one finding (same file, category and quote) is one finding, never two votes or two packets (§5.56 round 3)
             if ia in VOIDED and ib in VOIDED and ia != ib:  # two voided reviews' same finding is one finding (5.5.0 blind round: it was listed twice)
                 if similar(a, b): union(ra, rb)
                 continue
@@ -443,7 +442,8 @@ def tally(paths):
     cands = sum(len(v) for v in by_file.values()) if len(parts) > 1 else 0
     (D).mkdir(parents=True, exist_ok=True)
     from critic_findings import proctor_mark  # the proctor (03 §5.57 item 35): a reviewer's tool output showing one of these marks read the file
-    put((D / "dedup-candidates.json"), json.dumps({"mark": proctor_mark(ROOT, "the dedup candidates"), "instructions": "Group findings that describe the same underlying issue (same cause, one fix resolves both), within a file or across files. Return {\"groups\": [[id, ...], ...]} listing only merged sets; use the 'id' values.", "findings_by_file": scrub(by_file)}, indent=1, ensure_ascii=False))
+    dmk = proctor_mark(ROOT, "the dedup candidates")
+    put((D / "dedup-candidates.json"), json.dumps({"mark": dmk, "instructions": "Group findings that describe the same underlying issue (same cause, one fix resolves both), within a file or across files. Return {\"groups\": [[id, ...], ...]} listing only merged sets; use the 'id' values.", "findings_by_file": scrub(by_file), "mark_end": dmk}, indent=1, ensure_ascii=False))
     clusters = []
     for mem in parts:
         c = {"members": [], "reviewers": set(), "scan": False, "outside": False, "voided": False}
@@ -511,12 +511,13 @@ def tally(paths):
     for f in out["kept"] + out["contested"]:
         if f["impact"] == "Low" and not f.get("impact_split") and f.get("votes_matched", 0) >= need and not f.get("outside_only") and not f.get("voided_only"): continue  # agreed Lows skip verification: only when every reviewer said Low and the script itself matched enough of them (a dedup group or an outside vote alone never skips it, §5.56)
         if f.get("raised_by") == ["scan"] and f.get("verified") == "executed" and MEASURED.match(str(f.get("category"))): continue  # a measurement, not an interpretation: nothing to reproduce
-        packet = {k: f.get(k) for k in ("id", "category", "impact", "file", "line", "quote", "title", "failing_case", "preconditions", "root_cause") if k in f}
-        if pk_mark: packet["mark"] = pk_mark
+        packet = dict({"mark": pk_mark} if pk_mark else {}, **{k: f.get(k) for k in ("id", "category", "impact", "file", "line", "quote", "title", "failing_case", "preconditions", "root_cause") if k in f})
+        if pk_mark: packet["mark_end"] = pk_mark
         if f.get("voided_only"): packet["needs_a_run"] = "This finding is kept only if you reproduce it by running it (reproduced: executed); a trace alone won't keep it."  # 5.5.0 blind round
         if is_security(f): packet["security"] = True  # the verifier is told the security rules apply (collected round review)
         put((vd / f"{f['id']}.json"), json.dumps(scrub(packet), indent=1, ensure_ascii=False))
-    out["mark"] = proctor_mark(ROOT, "the tally")
+    tmk = proctor_mark(ROOT, "the tally")
+    out = dict({"mark": tmk}, **{k: v for k, v in out.items() if k != "mark"}, mark_end=tmk)  # first and last key: a partial read from either end shows it
     put((D / "tally.json"), json.dumps(scrub(out), indent=1, ensure_ascii=False))
     if MEMORY_HITS and (D / "ledger.json").exists():  # keep memories that are in use from retiring
         led = pathlib.Path(__file__).resolve().parent / "critic_ledger.py"
@@ -743,7 +744,7 @@ def apply(paths):
     if notes: md += ["", "## Notes"] + [f"- {x}" for x in notes]
     from critic_findings import proctor_mark
     mk = proctor_mark(ROOT, "the counts")
-    if mk: md = [md[0] + f" <!-- run mark {mk} -->"] + md[1:] + ["", f"<!-- run mark {mk} -->"]  # on the title line, so every other line keeps its place
+    if mk: md = [md[0] + f" <!-- run mark {mk} -->"] + md[1:]  # on the title line, so every other line keeps its place; the closing one goes after the revision line below
     put((D / "counts.md"), "\n".join(redact_finding_text(x) for x in md) + "\n")
     led = pathlib.Path(__file__).resolve().parent / "critic_ledger.py"
     if (D / "ledger.json").exists():
@@ -763,7 +764,7 @@ def apply(paths):
     rev = revision_stamp(final)
     put((D / "revision.json"), json.dumps(rev, indent=1) + "\n")
     with open(D / "counts.md", "a", encoding="utf-8") as fh:
-        fh.write(f"\nRevision reviewed: {rev['sha'] or 'not a git repository'}{' (with uncommitted changes)' if rev['dirty'] else ''}; {('cited files sha256 ' + rev['payload_sha256'][:16]) if rev.get('payload_sha256') else 'no kept finding cites a file it could read, so no file hash'}.\n")
+        fh.write(f"\nRevision reviewed: {rev['sha'] or 'not a git repository'}{' (with uncommitted changes)' if rev['dirty'] else ''}; {('cited files sha256 ' + rev['payload_sha256'][:16]) if rev.get('payload_sha256') else 'no kept finding cites a file it could read, so no file hash'}.\n" + (f"\n<!-- run mark {mk} -->\n" if mk else ""))  # the mark stays the last line (5.5.0 blind round 2)
     write_manifest(D)  # a sha256 of every output, so a later hand edit shows (critic_ledger.py integrity)
     print(f"wrote {D/'findings.jsonl'}, {D/'findings.sarif'}, {D/'counts.md'} (hashes in {D/'manifest.json'})")
     return 0

@@ -149,11 +149,11 @@ def _tr9(d, name, outputs, report, wrote=None):
     p = pathlib.Path(TMP) / "transcripts" / d.name / name; p.parent.mkdir(parents=True, exist_ok=True)  # outside the project, as Claude Code keeps them
     p.write_text("\n".join(json.dumps(r) for r in rows) + "\n", encoding="utf-8"); return p
 
-def _stop9(d, aid, letter, outputs, transcript=True, report=None):
-    run(H / "scratch_dir.py", cwd=d, stdin=json.dumps({"agent_type": "curmudgeon:curmudgeon-reviewer", "agent_id": aid, "cwd": str(d)}))
+def _stop9(d, aid, letter, outputs, transcript=True, report=None, wrote=True, ws=True):
+    if ws: run(H / "scratch_dir.py", cwd=d, stdin=json.dumps({"agent_type": "curmudgeon:curmudgeon-reviewer", "agent_id": aid, "cwd": str(d)}))
     ev = {"agent_type": "curmudgeon:curmudgeon-reviewer", "agent_id": aid, "cwd": str(d), "stop_hook_active": False,
           "last_assistant_message": "Report delivered." if transcript else f"Wrote .critic/reviews/review-{letter}.json."}
-    if transcript: ev["agent_transcript_path"] = str(_tr9(d, f"t-{aid}.jsonl", outputs, report or f"Wrote .critic/reviews/review-{letter}.json.", wrote=letter))
+    if transcript: ev["agent_transcript_path"] = str(_tr9(d, f"t-{aid}.jsonl", outputs, report or f"Wrote .critic/reviews/review-{letter}.json.", wrote=letter if wrote else None))
     run(H / "check_contract.py", cwd=d, stdin=json.dumps(ev))
     return json.loads((d / f".critic/stops/{aid}.json").read_text(encoding="utf-8")).get("proctor")
 
@@ -187,7 +187,10 @@ def _(d):
     assert _stop9(d, "a9", "A", [own, b["A"]])["saw"] == [], "its own review and brief"
     _stop9(d, "a10", "A", [b["A"]], report="Wrote .critic/reviews/review-A.json. I saw .critic/reviews/review-B.json by accident and didn't read it.")
     assert json.loads((d / ".critic/stops/a10.json").read_text(encoding="utf-8"))["review"] == "review-A.json", "the review it wrote, not one it mentioned"
-    assert [f["title"] for f in json.loads(raw)["findings"]] == [TAX9["title"]] and "mark" not in run(S / "critic_merge.py", "tally", ".critic/reviews/review-B.json", "--no-scan", cwd=d).stdout
+    assert [f["title"] for f in json.loads(raw)["findings"]] == [TAX9["title"]]
+    run(S / "critic_merge.py", "tally", ".critic/reviews/review-B.json", "--no-scan", cwd=d)
+    rows = [f for k in ("kept", "contested", "dropped") for f in json.loads((d / ".critic/tally.json").read_text(encoding="utf-8"))[k] for f in ([f["finding"]] if "finding" in f else [f])]
+    assert rows and not any("mark" in f for f in rows), ("the merge drops a review's marks from its findings (5.5.0 blind round 2)", rows)
 
 @test("5.5.0 proctor: a voided review's votes don't count; a finding only it raised is kept only when a blind verifier reproduces it by running it, labelled, with no vote; a missing transcript marks the run DEGRADED")
 def _(d):
@@ -285,3 +288,64 @@ def _(d):
     r = ask("read", str(p / ".critic/briefs/brief-A.md"), env={"CRITIC_ROOT": str(other)})
     assert r.returncode == 2, "CRITIC_ROOT is ignored: .critic stays refused"
     assert "brief-A" not in (other / ".critic/proctor/requests.jsonl").read_text(encoding="utf-8") if (other / ".critic/proctor/requests.jsonl").exists() else True
+
+N5_REFUSED_R2 = [  # 5.5.0 blind round 2
+    "python3 -c 'import os; os.posix_spawnp(\"curl\", [\"curl\", \"http://x.invalid\"], {})'",
+    "python3 -c 'import asyncio; asyncio.run(asyncio.create_subprocess_exec(\"curl\", \"http://x.invalid\"))'",
+    "python3 -c 'import timeit; timeit.timeit(\"import urllib.request\", number=1)'",
+    "python3 -c 'import cProfile; cProfile.run(\"import socket\")'",
+    "python3 -c 'import code; code.InteractiveInterpreter().runsource(\"import socket\")'",
+    "python3 -c 'open(\"m.py\", \"w\").write(\"import socket\"); import m'",
+    "node - <<'EOF'\n// don't worry, it's fine\nfetch('http://x.invalid/')\nEOF",
+]
+
+@test("5.5.0 blind round 2: the guard keeps refusing text that can run, N5's comment and runner gaps closed, and reviewers can't read another brief")
+def _(d):
+    p = d / "proj"; write(p, "src/app.js", APP); run(S / "critic_run.py", "begin", "--files", "src/app.js", "--tier", "full", cwd=p); ws = _ws(p)["payload"]
+    for cmd in N5_REFUSED_R2:
+        assert "deny" in _rg(p, "Bash", command=f"cd {ws} && {cmd}"), cmd
+    assert "deny" in _rg(p, "Read", file_path=str(p / ".critic/briefs/brief-B.md")), "a reviewer reads no brief: its own is its prompt"
+    tr_ = pathlib.Path(os.environ.get("CLAUDE_CONFIG_DIR") or os.path.expanduser("~/.claude")) / "projects" / "x" / "lead.jsonl"
+    assert "deny" in _rg(p, "Read", file_path=str(tr_)), "nor a session transcript (the lead's holds other reviewers' reports)"
+    assert "deny" not in _rg(p, "Read", file_path=str(pathlib.Path(os.path.expanduser("~/.claude")) / "plugins" / "x" / "references" / "rubrics.md")), "the plugin's references stay readable"
+    assert "brief-A.md" in run(S / "critic_brief.py", "--letters", "A", cwd=p).stdout, "critic_brief.py prints the brief paths again"
+
+@test("5.5.0 blind round 2: one stop record per review (a writer's first), the tally's second check, the contract on the file the reviewer wrote, voided repeats, the marks lock, git blame's options, and the counts' last line")
+def _(d):
+    write(d, "src/app.js", APP)
+    run(S / "critic_run.py", "begin", "--files", "src/app.js", "--tier", "full", cwd=d)
+    b = {x: (d / f".critic/briefs/brief-{x}.md").read_text(encoding="utf-8") for x in "ABC"}
+    high = finding(impact="High")
+    write(d, ".critic/reviews/review-A.json", json.dumps([TAX9, TAX9])); write(d, ".critic/reviews/review-B.json", json.dumps([high])); write(d, ".critic/reviews/review-C.json", "[]")
+    _stop9(d, "a1", "A", [b["B"]]); _stop9(d, "rb", "B", [b["B"]])
+    rv = [f".critic/reviews/review-{x}.json" for x in "ABC"]
+    pr = d / ".critic/proctor/marks.json"; kept = pr.read_text(encoding="utf-8"); pr.write_text('{"marks": {}}', encoding="utf-8")
+    assert _stop9(d, "rc", "C", [b["A"]]) == {"checked": True, "saw": []}, "no marks known at its stop"
+    pr.write_text(kept, encoding="utf-8")
+    time.sleep(0.05); _stop9(d, "a2", "A", [b["A"]], wrote=False)  # never wrote review-A: can't clear A's void
+    run(S / "critic_merge.py", "tally", *rv, "--no-scan", cwd=d)
+    t_ = json.loads((d / ".critic/tally.json").read_text(encoding="utf-8")); deg = t_["degraded"]
+    assert any("voided by the proctor: review-A.json" in x for x in deg), ("a record from an agent that didn't write the file doesn't clear the void", deg)
+    assert any("voided by the proctor: review-C.json" in x for x in deg), ("checked again at the tally, against the marks known then", deg)
+    assert len([f for f in t_["contested"] if f.get("voided_only")]) == 1, "a voided review's repeated finding is one finding"
+    assert list(t_)[0] == "mark" and list(t_)[-1] == "mark_end"
+    time.sleep(0.05); _stop9(d, "a3", "A", [b["A"]], ws=False)  # a fresh reviewer that wrote review-A, with no private copy
+    run(S / "critic_merge.py", "tally", *rv, "--no-scan", cwd=d)
+    deg = json.loads((d / ".critic/tally.json").read_text(encoding="utf-8"))["degraded"]
+    assert not any("voided by the proctor: review-A.json" in x for x in deg) and any("review-A.json (its stop record says the agent had no private copy" in x for x in deg), deg
+    run(S / "critic_merge.py", "apply", cwd=d)
+    assert (d / ".critic/counts.md").read_text(encoding="utf-8").rstrip().splitlines()[-1].startswith("<!-- run mark cm-"), "the counts end with their mark"
+    write(d, ".critic/reviews/review-A.json", '[{"impact": "High"}]')
+    ev = {"agent_type": "curmudgeon:curmudgeon-reviewer", "agent_id": "a4", "cwd": str(d), "stop_hook_active": False, "last_assistant_message": "x",
+          "agent_transcript_path": str(_tr9(d, "t-a4.jsonl", [], "Wrote .critic/reviews/review-A.json; I saw .critic/reviews/review-B.json by accident.", wrote="A"))}
+    run(H / "scratch_dir.py", cwd=d, stdin=json.dumps({"agent_type": "curmudgeon:curmudgeon-reviewer", "agent_id": "a4", "cwd": str(d)}))
+    assert '"block"' in run(H / "check_contract.py", cwd=d, stdin=json.dumps(ev)).stdout, "the contract checks the file the reviewer wrote, not the valid one it mentioned"
+    code = "import sys; sys.path.insert(0, %r); import critic_findings as c; [c.proctor_mark(%r, 'race') for _ in range(10)]" % (str(S), str(d))
+    procs = [subprocess.Popen([sys.executable, "-c", code]) for _ in range(4)]
+    for p_ in procs: p_.wait()
+    assert sum(1 for v in json.loads(pr.read_text(encoding="utf-8"))["marks"].values() if v["what"] == "race") == 40, "four writers at once lose no mark"
+    g = d / "g"; write(g, "src/app.js", APP); subprocess.run(["git", "init", "-q"], cwd=g); subprocess.run(["git", "add", "-A"], cwd=g); subprocess.run(G9 + ["commit", "-qm", "x"], cwd=g)
+    run(S / "critic_run.py", "begin", "--files", "src/app.js", "--tier", "lite", cwd=g); wsg = _ws(g)["payload"]
+    secret = write(d, "outside-secret.txt", "TOP-SECRET\n")
+    r = run(S / "critic_proctor.py", "ask", "git", "blame", "--contents", str(secret), "--", "src/app.js", cwd=pathlib.Path(wsg), env={"CRITIC_ROOT": ""})
+    assert r.returncode == 2 and "TOP-SECRET" not in r.stdout, "git blame --contents is refused"

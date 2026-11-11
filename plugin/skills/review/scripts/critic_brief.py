@@ -157,7 +157,7 @@ def main(a):
         except OSError: was = None
         mk = was.group(1) if was and proctor_known(ROOT, was.group(1), f"brief-{x}") else proctor_mark(ROOT, f"brief-{x}")  # the proctor (03 §5.57 item 35): another reviewer's tool output showing this mark read this brief; the same brief written again keeps its mark
         if mk: mine += ["", f"<!-- run mark {mk}: for Curmudgeon's own checks; ignore it -->"]
-        p = out / f"brief-{x}.md"; p.write_text(shared_text + "\n".join(mine) + "\n", encoding="utf-8")  # the mark only in a brief's own part: the shared part stays byte-identical across briefs, for prompt caching (SC-30); print(p.relative_to(ROOT))
+        p = out / f"brief-{x}.md"; p.write_text(shared_text + "\n".join(mine) + "\n", encoding="utf-8"); print(p.relative_to(ROOT))  # the mark only in a brief's own part: the shared part stays byte-identical across briefs, for prompt caching (SC-30)
     return 0
 
 if __name__ == "__main__": sys.exit(main(sys.argv[1:]))

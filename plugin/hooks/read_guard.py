@@ -32,7 +32,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import utf8io  # UTF-8 output on Windows too (03 §5.57 item 20)
 import workspace
 
-ALLOW = {"reviewer": {"rules", "rules.md", "change-map.md", "change-map.json", "risk-map.md", ".gitignore", "briefs"},  # a brief holds no findings, so reading one by path (a lead that passed the path, not the text) breaks no blindness
+ALLOW = {"reviewer": {"rules", "rules.md", "change-map.md", "change-map.json", "risk-map.md", ".gitignore"},  # no briefs: a reviewer gets its own brief as its prompt (brief_problem holds the lead to that), and the proctor voids one that read another's (03 §5.57 item 35; 5.5.0 blind round 2)
          "verifier": {"rules", "rules.md", "change-map.md", "change-map.json", "risk-map.md", ".gitignore", "verify", "verify-variants", "decisions.md"},  # never ledger.md: it holds dismissal notes and memories; never the scan (03 §5.56 item 13)
          "dedup": {"rules", "rules.md", ".gitignore", "dedup-candidates.json", "groups.json"}}
 
@@ -47,6 +47,8 @@ def judge(target, critic, role, me, via="read"):
     a verifier's packets are read only that way, so each one opened is counted (03 §5.56 item 13)."""
     t, c = fold(target), fold(critic)
     if t == c: return ".critic (the whole folder)"
+    cl = fold(os.path.join(os.environ.get("CLAUDE_CONFIG_DIR") or os.path.expanduser("~/.claude"), "projects"))
+    if t == cl or t.startswith(cl + os.sep): return "Claude's session transcripts (they hold the lead's conversation, other agents' reports included; 5.5.0 blind round 2)"
     g = fold(os.path.join(os.path.dirname(str(critic)), ".git"))
     if t == g or t.startswith(g + os.sep): return "the project's own .git (its history and authors; your copy has its own, without them)"
     if not t.startswith(c + os.sep):
@@ -389,10 +391,12 @@ def bash_problem(cmd, rec, root, critic, role, me):
                           r"|\bimport\(\s*['\"](?:node:)?(?:https?|net|tls|undici)['\"]|\bWebSocket\b|\bwget\b|\bcurl\b")  # audit V14: require("https").get(...) and its relatives
     NET_IN_STR = re.compile(r"\brequire\(\s*['\"](?:node:)?(?:https?|http2|net|tls|dgram|dns|undici|child_process)['\"]|\bfrom\s+['\"](?:node:)?(?:https?|http2|net|tls|dgram|undici|child_process)['\"]"
                             r"|\bimport\(\s*['\"](?:node:)?(?:https?|net|tls|undici|child_process)['\"]")  # a module named in a string is still code
-    RUNS_TEXT = re.compile(r"\b(?:subprocess|system|popen|exec\w*|spawn\w*|pty|commands|eval|compile|__import__|import_module|importlib|getattr|globals|locals|vars|modules|"
+    RUNS_TEXT = re.compile(r"(?<![A-Za-z0-9])(?:subprocess|system|popen|exec\w*|spawn\w*|pty|commands|eval|compile|__import__|import_module|importlib|getattr|globals|locals|vars|modules|"
                            r"require|Function|child_process|Open3|Kernel|send|public_send|syscall|qx|ctypes|cffi|pickle|marshal|codecs|base64|b64decode|unhexlify|fromhex|"
                            r"chr|fromCharCode|decode|unescape|atob|Buffer|process|Deno|Bun|__builtins__|builtins|__dict__|__getattribute__|__class__|__subclasses__|"
-                           r"__globals__|__loader__|__spec__|attrgetter|methodcaller|pkgutil|resolve_name|pydoc|locate|runpy|zipimport|imp|load_module|exec_module|find_spec|spec_from\w*)\b|\bimport\s*\(|[\w)\]]\s*\[\s*\]")  # what could turn a string into a module, a call or a command
+                           r"__globals__|__loader__|__spec__|attrgetter|methodcaller|pkgutil|resolve_name|pydoc|locate|runpy|zipimport|imp|load_module|exec_module|find_spec|spec_from\w*|"
+                           r"create_subprocess\w*|posix_spawn\w*|timeit|cProfile|profile|code|runsource|runcode|interact|InteractiveInterpreter|InteractiveConsole|compile_command|"
+                           r"pdb|bdb|trace|webbrowser)(?![A-Za-z0-9])|\bimport\s*\(|[\w)\]]\s*\[\s*\]")  # what could turn a string into a module, a call or a command
     INTERPOLATES = re.compile(r"`|#\{|\$\{|@\{\[|\{\$|(?<![A-Za-z0-9_])[rRbBuU]?[fF][rR]?['\"]|\$[A-Za-z_(]")  # code that runs inside a string literal (f-strings, templates, #{}, $var)
     def strings_out(c, py):
         """The code with every string literal and (Python) comment removed, or None when that can't be told for sure."""
@@ -403,6 +407,7 @@ def bash_problem(cmd, rec, root, critic, role, me):
             if any(tk.type == tokenize.COMMENT for tk in toks): return None  # the command text reaches here with its lines joined, so a comment would hide the code after it (5.5.0 blind round)
             drop = {tokenize.STRING} | {getattr(tokenize, x) for x in ("FSTRING_MIDDLE", "TSTRING_MIDDLE") if hasattr(tokenize, x)}
             return " ".join(tk.string for tk in toks if tk.type not in drop)
+        if re.search(r"//|/\*|#", c): return None  # a comment, whose apostrophes would read as quotes on the joined line (5.5.0 blind round 2)
         out, k, q = [], 0, None
         while k < len(c):
             ch = c[k]
@@ -421,7 +426,8 @@ def bash_problem(cmd, rec, root, critic, role, me):
         if not NET_CODE.search(c): return False
         if NET_IN_STR.search(c) or INTERPOLATES.search(c): return True
         bare = strings_out(c, py)
-        return bare is None or bool(NET_CODE.search(bare)) or bool(RUNS_TEXT.search(bare))
+        if bare is None or NET_CODE.search(bare) or RUNS_TEXT.search(bare): return True
+        return bool(re.search(r"\.py[cw]?\b|\.pth\b", c) and re.search(r"(?<![A-Za-z0-9])(?:open|write\w*|Path|copy\w*|move|rename|replace|symlink|link)(?![A-Za-z0-9])", bare))  # writes a module it could then import (5.5.0 blind round 2)
     def positional(args, value_opts=()):
         out, k = [], 0
         while k < len(args):

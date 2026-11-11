@@ -6,9 +6,10 @@ own brief's and its own review's marks don't count.
 
 Only marks count, never similar text: text two honest reviewers both saw (the same test failure, a project rule)
 would void one of them (5.5.0 blind round: three reviewers showed it), and precision comes first. The marks go on
-every line of a review (one finding per line), and at the top and the bottom of every other file, so a partial read
-of a review shows one; a grep of one line of a brief or the scan report may not, and the guard and the private copy
-stay the first layers there.
+every line of a review (one finding per line) and of every scan row, at the top and the bottom of the counts and the
+scan's markdown, as the first and last keys of the tally, the dedup list and each packet, and in a brief's own part
+(its shared part stays byte-identical across briefs, for prompt caching). A grep of one line elsewhere may miss them;
+the guard and the private copy stay the first layers there.
 
 The check runs at the reviewer's stop (its record in .critic/stops/) and again at each tally, against every mark known
 by then, so a reviewer that read a review stamped after it stopped is caught too. Only tool results are read: what the
