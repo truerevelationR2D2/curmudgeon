@@ -352,22 +352,30 @@ def _(d):
 
 # 5.6.0: the sandbox switch (03 §5.57 items 17 and 20).
 
-@test("5.6.0 sandbox switch: begin asks for the boundary probe; the probe records os-enforced when the read is refused and tripwire-only when it works; the counts say which")
+@test("5.6.0 sandbox switch: begin asks for the two-step probe; the probe prints a code, recorded outside the sandbox against the token: the token's hash is tripwire-only, MISSING or REFUSED with the token there is os-enforced, once per run; a shipped folder can't forge it")
 def _(d):
-    write(d, "src/app.js", APP)
+    write(d, "src/app.js", APP); (d / ".critic/proctor/probe.txt").mkdir(parents=True)  # a repository ships a folder where the token goes
     out = run(S / "critic_run.py", "begin", "--files", "src/app.js", "--tier", "lite", cwd=d).stdout
-    assert re.search(r"boundary check, now, as one command exactly as written .*: cd \S+ && \S+ \S*critic_run\.py probe", out), out
-    assert (d / ".critic/proctor/probe.txt").is_file()
-    r = run(S / "critic_run.py", "probe", cwd=d); assert "boundary: tripwire-only" in r.stdout, r.stdout + r.stderr
-    assert json.loads((d / ".critic/boundary.json").read_text(encoding="utf-8"))["result"] == "tripwire-only"
+    assert re.search(r"boundary check, now, in two commands\. First, exactly as written .*: cd \S+ && \S+ \S*critic_run\.py probe; then, without a cd", out), out
+    assert (d / ".critic/proctor/probe.txt").is_file(), "begin replaces whatever stood where the token goes"
+    r = run(S / "critic_run.py", "probe", cwd=d); code = re.search(r"boundary probe: (SAW [0-9a-f]{16}|MISSING|REFUSED)", r.stdout).group(1)
+    assert code.startswith("SAW ") and f"boundary-record {code}" in r.stdout and not (d / ".critic/boundary.json").exists(), r.stdout
+    assert run(S / "critic_run.py", "boundary-record", "SAW 0000000000000000", cwd=d).returncode != 0, "a code that isn't the token's"
+    r = run(S / "critic_run.py", "boundary-record", *code.split(), cwd=d); assert "boundary: tripwire-only" in r.stdout, r.stdout + r.stderr
+    assert run(S / "critic_run.py", "boundary-record", "MISSING", cwd=d).returncode != 0, "one record per run: tripwire-only stays"
     write(d, ".critic/reviews/review-A.json", "[]"); run(S / "critic_run.py", "next", "--no-scan", cwd=d); run(S / "critic_run.py", "next", "--no-scan", cwd=d)
     assert "Boundary: tripwire-only" in (d / ".critic/counts.md").read_text(encoding="utf-8")
-    (d / ".critic/proctor/probe.txt").unlink(); (d / ".critic/proctor/probe.txt").mkdir()  # an unreadable probe, as a sandbox makes it
-    assert "boundary: os-enforced" in run(S / "critic_run.py", "probe", cwd=d).stdout
+    time.sleep(0.05); run(S / "critic_run.py", "begin", "--files", "src/app.js", "--tier", "lite", cwd=d)
+    assert "boundary: os-enforced" in run(S / "critic_run.py", "boundary-record", "MISSING", cwd=d).stdout, "the sandbox's empty folder on Linux and WSL2"
     ws = _ws(d)["payload"]
     assert run(S / "critic_run.py", "probe", cwd=pathlib.Path(ws), env={"CRITIC_ROOT": ""}).returncode != 0, "a reviewer's copy can't run the probe"
-    for cmd in (f"cd {ws} && python3 {S / 'critic_run.py'} probe", f"cd {ws} && python3 {S / 'critic_run.py'} boundary-record os-enforced", f"cd {ws} && python3 {S / 'critic_ledger.py'} boundary off"):
+    for cmd in (f"cd {ws} && python3 {S / 'critic_run.py'} probe", f"cd {ws} && python3 {S / 'critic_run.py'} boundary-record MISSING", f"cd {ws} && python3 {S / 'critic_ledger.py'} boundary off"):
         assert "deny" in _rg(d, "Bash", command=cmd), cmd
+    w = d / "w"; write(w, "x.txt", "x\n")
+    try: os.symlink(w / "x.txt", d / ".claude" / ".settings.planted.tmp") if (d / ".claude").mkdir() is None else None; linked = True
+    except (OSError, NotImplementedError): linked = False
+    write(d, ".claude/settings.local.json.tmp", "planted\n")
+    assert run(S / "critic_ledger.py", "boundary", "write", cwd=d).returncode == 0 and (w / "x.txt").read_text(encoding="utf-8") == "x\n", "a planted temp file or link is never written through"
 
 @test("5.6.0 sandbox switch: require holds every reviewer until the boundary is os-enforced; off skips the check; the settings are printed with absolute paths and written only by boundary write, merged into what is there")
 def _(d):
@@ -375,21 +383,31 @@ def _(d):
     assert run(S / "critic_ledger.py", "boundary", "require", cwd=d).returncode == 0
     out = run(S / "critic_run.py", "begin", "--files", "src/app.js", "--tier", "lite", cwd=d).stdout
     assert "requires the OS boundary" in out and "start 1 curmudgeon" not in out, out
-    run(S / "critic_run.py", "probe", cwd=d)
-    s = run(S / "critic_run.py", "status", cwd=d).stdout; assert "tripwire-only" in s and "boundary-settings" in s and "start 1" not in s, s
-    run(S / "critic_run.py", "boundary-record", "os-enforced", cwd=d)
+    s = run(S / "critic_run.py", "status", cwd=d).stdout; assert "hasn't been checked" in s and "start 1" not in s, s
+    run(S / "critic_run.py", "boundary-record", "REFUSED", cwd=d)
     assert "start 1 curmudgeon:curmudgeon-reviewer" in run(S / "critic_run.py", "status", cwd=d).stdout
+    time.sleep(0.05); out = run(S / "critic_run.py", "begin", "--files", "src/app.js", "--tier", "lite", cwd=d).stdout
+    assert "requires the OS boundary" in out, ("an earlier run's os-enforced record doesn't open this run", out)
     run(S / "critic_ledger.py", "boundary", "off", cwd=d)
     out = run(S / "critic_run.py", "begin", "--files", "src/app.js", "--tier", "lite", cwd=d).stdout
     assert "boundary check" not in out and "start 1 curmudgeon" in out, out
     st = run(S / "critic_run.py", "boundary-settings", cwd=d).stdout
     j = json.loads(st[st.index("{"):])["sandbox"]
-    assert j["enabled"] is True and j["allowUnsandboxedCommands"] is False and "./.critic" in j["filesystem"]["denyRead"], j
-    assert any(x.endswith("/critic_*.py *") and x.startswith(sys.executable.replace("\\", "/")) for x in j["excludedCommands"]), j["excludedCommands"]
-    assert "a new Claude Code session" in st and "only after the user says yes" in st
+    assert j["enabled"] is True and j["allowUnsandboxedCommands"] is False and j["autoAllowBashIfSandboxed"] is False and "./.critic" in j["filesystem"]["denyRead"], j
+    assert "*/skills/review/scripts/critic_*.py *" in j["excludedCommands"] and "*/skills/review/scripts/security_feed.py *" in j["excludedCommands"], j["excludedCommands"]
+    assert "a new Claude Code session" in st and "only after the user says yes" in st and "theirs included" in st
     write(d, ".claude/settings.local.json", json.dumps({"permissions": {"allow": ["Bash(ls)"]}, "sandbox": {"filesystem": {"denyRead": ["~/.aws"]}}}))
     assert run(S / "critic_ledger.py", "boundary", "write", cwd=d).returncode == 0
     w = json.loads((d / ".claude/settings.local.json").read_text(encoding="utf-8"))
     assert w["permissions"] == {"allow": ["Bash(ls)"]} and w["sandbox"]["filesystem"]["denyRead"][:2] == ["~/.aws", "./.critic"] and w["sandbox"]["enabled"] is True, w
     write(d, ".claude/settings.local.json", "{not json")
     assert run(S / "critic_ledger.py", "boundary", "write", cwd=d).returncode != 0 and (d / ".claude/settings.local.json").read_text(encoding="utf-8") == "{not json"
+
+@test("5.6.0 blind round: the request command fails closed when it can't read the run marks (Claude Code's sandbox hides .critic/): files and listings are refused, git still works")
+def _(d):
+    p = d / "proj"; write(p, "src/app.js", APP); subprocess.run(["git", "init", "-q"], cwd=p); subprocess.run(["git", "add", "-A"], cwd=p); subprocess.run(G9 + ["commit", "-qm", "first"], cwd=p)
+    run(S / "critic_run.py", "begin", "--files", "src/app.js", "--tier", "lite", cwd=p); ws = _ws(p)["payload"]; other = write(d, "elsewhere/lib.py", "x = 1\n")
+    (p / ".critic/proctor/marks.json").rename(p / ".critic/proctor/marks.hidden")  # as the sandbox's empty folder shows it
+    ask = lambda *a: run(S / "critic_proctor.py", "ask", *a, cwd=pathlib.Path(ws), env={"CRITIC_ROOT": ""})
+    assert ask("read", str(other)).returncode == 2 and ask("list", str(d / "elsewhere")).returncode == 2
+    r = ask("git", "log", "--oneline"); assert r.returncode == 0 and "first" in r.stdout, r.stderr

@@ -49,14 +49,18 @@ def refused_path(raw):
     return None
 
 def marked(text):
-    """True when text holds any of Curmudgeon's run marks."""
+    """True when text holds any of Curmudgeon's run marks; None when the marks can't be read (Claude Code's sandbox
+    hides .critic/ from a reviewer's command, or no run has written any), so the check fails closed (5.6.0 blind round)."""
     f = D / "proctor" / "marks.json"
-    try: m = json.loads(f.read_text(encoding="utf-8")).get("marks") if f.is_file() and not f.is_symlink() else {}
-    except (OSError, ValueError, AttributeError): m = {}
-    return any(k in text for k in (m or {}))
+    try: m = json.loads(f.read_text(encoding="utf-8")).get("marks") if f.is_file() and not f.is_symlink() else None
+    except (OSError, ValueError, AttributeError): m = None
+    return None if not isinstance(m, dict) else any(k in text for k in m)
 
 def answer(kind, what, text):
-    if marked(text):
+    seen = marked(text)
+    if seen is None and kind != "git":  # git leaves .critic/ out by itself; a file or a listing can't be checked
+        log(kind, what, "refused: the run marks can't be read here"); print("proctor: refused: the run marks can't be read from here (Claude Code's sandbox hides .critic/, or no run is active), so a file can't be checked; read it with the Read tool, whose reads the guard checks", file=sys.stderr); return 2
+    if seen:
         log(kind, what, "withheld: it holds a run mark"); print("proctor: withheld: the answer holds another part of this review's work", file=sys.stderr); return 3
     log(kind, what, f"given ({len(text)} characters)")
     sys.stdout.write(text if len(text) <= MAX else text[:MAX] + f"\n[proctor: cut at {MAX // 1024} KB]\n"); return 0

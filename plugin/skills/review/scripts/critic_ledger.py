@@ -612,9 +612,12 @@ def main(a):
         sb = cur.get("sandbox") if isinstance(cur.get("sandbox"), dict) else {}
         fs = sb.get("filesystem") if isinstance(sb.get("filesystem"), dict) else {}
         for k_ in ("denyRead", "allowRead"): fs[k_] = list(dict.fromkeys([*(fs.get(k_) or []), *want["filesystem"][k_]]))
-        sb.update(enabled=True, allowUnsandboxedCommands=False, filesystem=fs, excludedCommands=list(dict.fromkeys([*(sb.get("excludedCommands") or []), *want["excludedCommands"]])))
+        sb.update(enabled=True, allowUnsandboxedCommands=False, autoAllowBashIfSandboxed=sb.get("autoAllowBashIfSandboxed", False), filesystem=fs, excludedCommands=list(dict.fromkeys([*(sb.get("excludedCommands") or []), *want["excludedCommands"]])))
         cur["sandbox"] = sb; f.parent.mkdir(parents=True, exist_ok=True)
-        tmp = f.with_name(f.name + ".tmp"); tmp.write_text(json.dumps(cur, indent=2) + "\n", encoding="utf-8"); os.replace(tmp, f)
+        import tempfile  # a temp name the repository can't have shipped as a link (5.6.0 blind round)
+        fd_, tmp_ = tempfile.mkstemp(prefix=".settings.", suffix=".tmp", dir=str(f.parent))
+        with os.fdopen(fd_, "w", encoding="utf-8") as fh_: fh_.write(json.dumps(cur, indent=2) + "\n")
+        os.replace(tmp_, f)
         print(f"wrote the sandbox settings to {f} (the user said yes); they take effect in a new Claude Code session. Then critic_run.py probe should say os-enforced."); return 0
     elif cmd == "consent":  # 03 §5.56 item 12: run by the lead only after the owner said yes (live: they typed the host)
         need(rest, 1, "consent live HOST | consent writes | consent online")

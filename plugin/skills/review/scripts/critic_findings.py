@@ -811,15 +811,15 @@ def boundary_mode(root):
 def boundary_settings(root, scripts):
     """The Claude Code settings that make the sandbox the reviewers' boundary, for .claude/settings.local.json in the
     project (paths resolve against the project there). Read on code.claude.com (settings reference and sandboxing,
-    checked 11 Nov 2026): subagents share the session's sandbox; hooks and file tools run outside it; an excluded
+    checked 10 Nov 2026): subagents share the session's sandbox; hooks and file tools run outside it; an excluded
     command leaves the sandbox only when the call holds no cd, so the lead's own script calls are excluded while every
     reviewer command, which must start with cd into its copy, stays inside."""
     state = owner_state_base()
-    py = str(sys.executable).replace("\\", "/")
-    sc = str(scripts).replace("\\", "/")
-    return {"sandbox": {"enabled": True, "allowUnsandboxedCommands": False,
+    tail = "/skills/review/scripts/"  # not the versioned plugin folder or one Python's path, so an update or another interpreter still matches (5.6.0 blind round)
+    pats = [f"*{tail}{n} *" for n in ("critic_*.py", "security_feed.py")] + [f"*{tail}{n}\" *" for n in ("critic_*.py", "security_feed.py")]  # and the quoted form py_cmd prints for a path with spaces
+    return {"sandbox": {"enabled": True, "allowUnsandboxedCommands": False, "autoAllowBashIfSandboxed": False,  # sandboxed commands still ask, as before (its default is true: 5.6.0 blind round)
                         "filesystem": {"denyRead": ["./.critic", str(state).replace("\\", "/")], "allowRead": ["./.critic/scratch/*/payload"]},
-                        "excludedCommands": [f"{py} {sc}/critic_*.py *", f"python3 {sc}/critic_*.py *"]}}
+                        "excludedCommands": pats}}
 
 def files_key(files):
     """One short key for a set of reviewed files, the same whatever their order (R4: the tier the owner chose for them)."""

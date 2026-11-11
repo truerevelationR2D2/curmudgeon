@@ -19,12 +19,12 @@ usage:
   critic_run.py status
         say where the run stands, change nothing
   critic_run.py probe
-        the boundary check (the sandbox switch): run it as `cd <project> && <python> critic_run.py probe`, so Claude
-        Code's sandbox, when it is on, applies to it as it does to every reviewer command. It tries to read a file in
-        .critic/ and records os-enforced (the read was refused) or tripwire-only in .critic/boundary.json
-  critic_run.py boundary-record os-enforced|tripwire-only
-        record what the probe printed, when its own write to .critic/boundary.json didn't last (a sandbox may hide
-        what a sandboxed command writes there)
+        the boundary check (the sandbox switch), step 1: run it as `cd <project> && <python> critic_run.py probe`, so
+        Claude Code's sandbox, when it is on, applies to it as it does to every reviewer command. It tries to read a
+        token in .critic/ and prints one code (SAW <hash>, MISSING or REFUSED)
+  critic_run.py boundary-record CODE
+        step 2, without a cd: checks the probe's code against the token and records os-enforced or tripwire-only in
+        .critic/boundary.json (once per run)
   critic_run.py boundary-settings
         print the Claude Code settings that make the sandbox the reviewers' boundary, and why
   critic_run.py early
@@ -207,25 +207,37 @@ def say_next(st, tier, items):
     elif st == "boundary":
         b = boundary(ledger().get("started_at") or 0)
         print(("next: the owner requires the OS boundary (critic_ledger.py boundary require) and " + (f"the check says {b['result']}: {b['why']}. " if b else "it hasn't been checked for this run. ")
-               + f"Check it: cd {sh_path(ROOT)} && {py_cmd(HERE / 'critic_run.py')} probe. If it isn't os-enforced, show the user critic_run.py boundary-settings and stop: no reviewer starts until it is."))
+               + f"Check it: cd {sh_path(ROOT)} && {py_cmd(HERE / 'critic_run.py')} probe, then the boundary-record command it prints. If it isn't os-enforced, show the user critic_run.py boundary-settings and stop: no reviewer starts until it is."))
     elif st == "idle": print("next: no run is active; critic_run.py begin starts one.")
     elif st == "stopped": print("next: the owner stopped this run (critic_ledger.py abort), so nothing more runs in it; critic_run.py begin starts a new one.")
 
 PROBE, BOUNDARY = D / "proctor" / "probe.txt", D / "boundary.json"
 
 def probe(path=None):
-    """Try to read the probe file the way a reviewer's command would, and record what happened. A refused read is the
-    sandbox at work (os-enforced); a read that works means only Curmudgeon's own guard stands between a reviewer and
-    .critic/ (tripwire-only). Native Windows has no Claude Code sandbox (code.claude.com, checked 11 Nov 2026)."""
+    """Try to read the probe token the way a reviewer's command would, and say what happened, as one code for the lead
+    to record: SAW <hash> (the read worked), MISSING (the file looked absent: on Linux and WSL2 the sandbox covers a
+    denied folder with an empty one) or REFUSED (the read was refused). It writes nothing: what a sandboxed command
+    writes in .critic/ may not last (5.6.0 blind round)."""
     path = pathlib.Path(path or PROBE)
-    try: path.read_bytes(); result, why = "tripwire-only", "a command could read .critic/: only Curmudgeon's guard keeps reviewers out"
-    except FileNotFoundError: result, why = "unchecked", "no probe file: run critic_run.py begin first"
-    except OSError as e: result, why = "os-enforced", f"Claude Code's sandbox refused a read of .critic/ ({e.strerror or type(e).__name__})"
-    if result == "tripwire-only" and os.name == "nt": why += " (native Windows: Claude Code has no sandbox there; WSL2 has one)"
+    try: return "SAW " + __import__("hashlib").sha256(path.read_bytes()).hexdigest()[:16]
+    except FileNotFoundError: return "MISSING"
+    except OSError: return "REFUSED"
+
+def record_boundary(code):
+    """Turn the probe's code into this run's boundary record, outside the sandbox, against the token begin wrote. Only
+    the token's own hash means tripwire-only; MISSING or REFUSED while the token is there means os-enforced. One record
+    per run: a tripwire-only result can't be replaced by os-enforced in the same run (5.6.0 blind round)."""
+    import hashlib
+    if not PROBE.is_file() or PROBE.is_symlink(): return None, "there is no probe token for this run: run critic_run.py begin"
+    want = "SAW " + hashlib.sha256(PROBE.read_bytes()).hexdigest()[:16]
+    if code == want: result, why = "tripwire-only", "a command could read .critic/: only Curmudgeon's guard keeps reviewers out" + (" (native Windows: Claude Code has no sandbox there; WSL2 has one)" if os.name == "nt" else "")
+    elif code in ("MISSING", "REFUSED"): result, why = "os-enforced", "a command inside Claude Code's sandbox couldn't read .critic/ (" + ("the folder looked empty" if code == "MISSING" else "the read was refused") + ")"
+    else: return None, f"{code!r} is not what the probe printed for this run's token"
+    old = boundary(ledger().get("started_at") or 0)
+    if old and old.get("result") != result: return None, f"this run's boundary is already recorded as {old['result']}; a new run checks it again"
+    if BOUNDARY.is_symlink(): return None, ".critic/boundary.json is a link; refusing"
     rec = {"result": result, "why": why, "at": time.time(), "platform": sys.platform}
-    try: (BOUNDARY.write_text(json.dumps(rec) + "\n", encoding="utf-8") if not BOUNDARY.is_symlink() else None)
-    except OSError: pass
-    return rec
+    BOUNDARY.write_text(json.dumps(rec) + "\n", encoding="utf-8"); return rec, ""
 
 def boundary(started):
     """The boundary record for this run, or None."""
@@ -258,7 +270,10 @@ def briefs_ready(L, letters):
 def main(a):
     if not a or a[0] in ("-h", "--help"): print(__doc__); return 0
     cmd, rest = a[0], a[1:]
-    if cmd in ("plan", "begin", "next", "early", "status", "probe", "boundary-record"):  # early and status too: they show the scan's FAIL rows, which a reviewer in its copy must never read (self-review)
+    if cmd == "probe":  # inside the sandbox .critic/ can't even be looked at (macOS refuses the stat), so only the copy check runs here (5.6.0 blind round)
+        from critic_findings import in_scratch
+        if in_scratch(): print("critic: refusing to run from inside an agent's workspace (.critic/scratch): the lead checks the boundary, never a reviewer", file=sys.stderr); return 2
+    if cmd in ("plan", "begin", "next", "early", "status", "boundary-record"):  # early and status too: they show the scan's FAIL rows, which a reviewer in its copy must never read (self-review)
         from critic_findings import refuse_linked_state; refuse_linked_state(ROOT)
     if cmd == "plan":  # run report N8: the plan before anything starts, so the owner's answer can still change it
         security = "--security" in rest; audit = "--audit" in rest
@@ -346,25 +361,31 @@ def main(a):
                   f"If it is already on and due: {py_cmd(HERE / 'security_feed.py')} update (exit 5 means the database grew past the signed-off size: show the new estimate and ask again)")
         from critic_findings import boundary_mode
         if boundary_mode(ROOT) != "off" and not PROBE.parent.is_symlink():  # the sandbox switch: one token to try to read, from a command the sandbox covers
-            import secrets; PROBE.parent.mkdir(parents=True, exist_ok=True)
-            if not PROBE.is_symlink(): PROBE.write_text(secrets.token_hex(16) + "\n", encoding="utf-8")
-            print(f"boundary check, now, as one command exactly as written (the cd keeps it inside Claude Code's sandbox when one is on): cd {sh_path(ROOT)} && {py_cmd(HERE / 'critic_run.py')} probe")
+            import secrets, shutil; PROBE.parent.mkdir(parents=True, exist_ok=True)
+            if PROBE.is_symlink() or (PROBE.exists() and not PROBE.is_file()):  # never a folder or a link a repository shipped (5.6.0 blind round)
+                shutil.rmtree(PROBE, ignore_errors=True) if PROBE.is_dir() and not PROBE.is_symlink() else PROBE.unlink()
+            PROBE.write_text(secrets.token_hex(16) + "\n", encoding="utf-8")
+            print(f"boundary check, now, in two commands. First, exactly as written (the cd keeps it inside Claude Code's sandbox when one is on): cd {sh_path(ROOT)} && {py_cmd(HERE / 'critic_run.py')} probe; "
+                  f"then, without a cd, the boundary-record command it prints")
         print(f"now, in the background (Bash with run_in_background), while the reviewers work: {scan_cmd(bool(security))} "
               "(add --page <page> for a UI). Reviewers can't read its output (their private copies and the read guard), so it no longer waits for them.")
         st, L, tier, items = state(); say_next(st, tier, items); return 0
     if cmd == "probe":
-        rec = probe(); print(f"boundary: {rec['result']} ({rec['why']})"); return 0
+        code = probe(); print(f"boundary probe: {code}")
+        print(f"next, without a cd: {py_cmd(HERE / 'critic_run.py')} boundary-record {code}"); return 0
     if cmd == "boundary-record":
-        if not rest or rest[0] not in ("os-enforced", "tripwire-only"): print(__doc__); return 2
-        if BOUNDARY.is_symlink(): sys.exit("critic_run: .critic/boundary.json is a link; refusing")
-        BOUNDARY.write_text(json.dumps({"result": rest[0], "why": "recorded by the lead from the probe's output", "at": time.time(), "platform": sys.platform, "by": "lead"}) + "\n", encoding="utf-8")
-        print(f"boundary: {rest[0]} recorded for this run"); return 0
+        if not rest: print(__doc__); return 2
+        rec, why = record_boundary(" ".join(rest))
+        if not rec: print(f"critic_run: boundary not recorded: {why}", file=sys.stderr); return 2
+        print(f"boundary: {rec['result']} ({rec['why']})"); return 0
     if cmd == "boundary-settings":
         from critic_findings import boundary_settings
         print("To make Claude Code's sandbox the reviewers' boundary, these settings go in this project's .claude/settings.local.json "
               "(critic_ledger.py boundary write merges them in, only after the user says yes). Why, in one line: the operating system then refuses every "
-              "reviewer command's read of .critic/ and of Curmudgeon's own records, whatever the command says. It needs macOS, Linux or WSL2 "
-              "(on Linux and WSL2, bubblewrap and socat), and a new Claude Code session to take effect.")
+              "reviewer command's read of .critic/ and of Curmudgeon's own records, whatever the command says. Tell the user too: every Bash command in this project's "
+              "sessions then runs in the sandbox, theirs included, with no unsandboxed retry; Curmudgeon's own scripts run without a cd are excluded. It needs macOS, Linux or WSL2 "
+              "(on Linux and WSL2, bubblewrap and socat), and a new Claude Code session to take effect. Where an administrator requires the sandbox, Claude Code ignores a project's "
+              "excludedCommands: those entries then belong in ~/.claude/settings.json.")
         print(json.dumps(boundary_settings(ROOT, HERE), indent=1)); return 0
     if cmd == "early":
         if not early(force=True): print("early results: the scan has not written its report for this run yet")
