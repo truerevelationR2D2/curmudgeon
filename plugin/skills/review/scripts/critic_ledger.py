@@ -4,6 +4,10 @@ happened to each (new, known, fixed, regressed, acted on), decisions, false posi
 claims, scores, fingerprints, rounds, restore points, gate overrides and run costs, between runs and sessions.
 
 usage (run from the project root, or set CRITIC_ROOT):
+  boundary auto|require|off | boundary write
+                                         the sandbox switch: whether each run checks the OS boundary (auto, the
+                                         default), requires it, or skips it; write merges the sandbox settings into
+                                         .claude/settings.local.json, only after the user says yes
   init | start review|full|audit [--tier trivial|lite|full] [--files-key K --owner-tier]
                                          begin a run (round 1; records mode and tier; an audit refuses fixes); with
                                          --owner-tier, remembers the tier the owner chose for the files keyed K (R4)
@@ -591,6 +595,27 @@ def main(a):
         try: cf_.write_owner_state(ROOT, "approvals", {"files": files})
         except OSError as e: die(str(e))
         msg = f"approved .critic/{which} as it is now (any change needs approving again); the approval is kept outside the project, where a repository can't ship one"
+    elif cmd == "boundary":  # the sandbox switch (03 §5.57 items 17 and 20): the owner's choice, and the settings, written only on their yes
+        need(rest, 1, "boundary auto|require|off | boundary write")
+        import critic_findings as cf_
+        if rest[0] in ("auto", "require", "off"):
+            try: cf_.write_owner_state(ROOT, "boundary", {"mode": rest[0]})
+            except OSError as e: die(str(e))
+            print(f"boundary: {rest[0]}" + {"auto": " (checked each run and reported)", "require": " (no reviewer starts unless Claude Code's sandbox refuses a read of .critic/)", "off": " (not checked)"}[rest[0]]); return 0
+        if rest[0] != "write": die("boundary auto|require|off | boundary write")
+        f = ROOT / ".claude" / "settings.local.json"
+        if f.is_symlink() or f.parent.is_symlink(): die(f"{f} is a link; refusing")
+        try: cur = json.loads(f.read_text(encoding="utf-8")) if f.is_file() else {}
+        except ValueError as e: die(f"{f} isn't valid JSON ({e}); nothing was written. Fix it, or add the settings by hand (critic_run.py boundary-settings)")
+        if not isinstance(cur, dict): die(f"{f} isn't a JSON object; nothing was written")
+        want = cf_.boundary_settings(ROOT, pathlib.Path(__file__).resolve().parent)["sandbox"]
+        sb = cur.get("sandbox") if isinstance(cur.get("sandbox"), dict) else {}
+        fs = sb.get("filesystem") if isinstance(sb.get("filesystem"), dict) else {}
+        for k_ in ("denyRead", "allowRead"): fs[k_] = list(dict.fromkeys([*(fs.get(k_) or []), *want["filesystem"][k_]]))
+        sb.update(enabled=True, allowUnsandboxedCommands=False, filesystem=fs, excludedCommands=list(dict.fromkeys([*(sb.get("excludedCommands") or []), *want["excludedCommands"]])))
+        cur["sandbox"] = sb; f.parent.mkdir(parents=True, exist_ok=True)
+        tmp = f.with_name(f.name + ".tmp"); tmp.write_text(json.dumps(cur, indent=2) + "\n", encoding="utf-8"); os.replace(tmp, f)
+        print(f"wrote the sandbox settings to {f} (the user said yes); they take effect in a new Claude Code session. Then critic_run.py probe should say os-enforced."); return 0
     elif cmd == "consent":  # 03 §5.56 item 12: run by the lead only after the owner said yes (live: they typed the host)
         need(rest, 1, "consent live HOST | consent writes | consent online")
         import critic_findings as cf_

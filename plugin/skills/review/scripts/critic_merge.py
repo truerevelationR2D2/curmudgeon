@@ -603,6 +603,19 @@ def fix_status(f):
             return "not offerable: unbalanced brackets or quotes"
     return "partial" if re.search(r"(?i)\bpartial(ly)?\b|\bonly part\b|\bstop-?gap\b|\bworkaround\b", rem) else "usable"
 
+def boundary_line():
+    """What kept reviewers out of .critic/ this run (the sandbox switch): the probe's record, if this run has one."""
+    import critic_findings as cf_
+    mode = cf_.boundary_mode(ROOT)
+    if mode == "off": return "Boundary: not checked (the owner switched the check off)."
+    try:
+        b = json.loads((D / "boundary.json").read_text(encoding="utf-8")) if (D / "boundary.json").is_file() and not (D / "boundary.json").is_symlink() else None
+        started = ledger().get("started_at") or 0
+        if b and float(b.get("at") or 0) < started - 2: b = None
+    except (OSError, ValueError, TypeError): b = None
+    if not b or b.get("result") not in ("os-enforced", "tripwire-only"): return "Boundary: not checked this run (critic_run.py probe wasn't run); say so under Not checked."
+    return f"Boundary: {b['result']} ({str(b.get('why') or '')[:160]})."
+
 def apply(paths):
     try: T = json.loads((D / "tally.json").read_text(encoding="utf-8"))
     except Exception as e: die(f"run tally first ({e})")
@@ -684,6 +697,7 @@ def apply(paths):
         + ([f"verdicts not saved by the verifier's stop hook (written or edited outside .critic/verdicts/, so no record shows a verifier returned them): {', '.join(by_hand[:8])}"] if by_hand else [])
     md = ["# Curmudgeon merged findings", ""] + ([f"DEGRADED: {'; '.join(why_degraded)}", "(Copy that line as the teardown's first line, before the verdict.)", ""] if why_degraded else []) + [
           f"Reviewers: {T['reviewers']} (votes needed: {T['votes_needed']}; {tier} tier).",
+          boundary_line(),
           "Counts for the VERDICT (copy exactly): " + " · ".join(f"{k} {v}" for k, v in cnt.items()) + f" · total {len(final)}",
           f"Verdict word (copy exactly): **{verdict_word(cnt)}** (BLOCK: a Critical or High is counted; CONCERNS: only Medium or Low; CLEAN: nothing counted)", "",
           "| ID | Impact | Confidence | Votes | Verifier | Where | Title |", "| --- | --- | --- | --- | --- | --- | --- |"]

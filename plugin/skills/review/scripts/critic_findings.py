@@ -801,6 +801,26 @@ def stamp_review(root, name):
     except OSError: return ""
     return mk
 
+def boundary_mode(root):
+    """The owner's choice for the OS boundary (the sandbox switch, 03 §5.57 items 17 and 20): auto (the default: check
+    it each run and say what it is), require (no reviewer starts unless Claude Code's sandbox refuses a read of
+    .critic/), or off (don't check). Kept in the owner's record outside the project, where a repository can't set it."""
+    m = read_owner_state(root, "boundary").get("mode")
+    return m if m in ("auto", "require", "off") else "auto"
+
+def boundary_settings(root, scripts):
+    """The Claude Code settings that make the sandbox the reviewers' boundary, for .claude/settings.local.json in the
+    project (paths resolve against the project there). Read on code.claude.com (settings reference and sandboxing,
+    checked 11 Nov 2026): subagents share the session's sandbox; hooks and file tools run outside it; an excluded
+    command leaves the sandbox only when the call holds no cd, so the lead's own script calls are excluded while every
+    reviewer command, which must start with cd into its copy, stays inside."""
+    state = owner_state_base()
+    py = str(sys.executable).replace("\\", "/")
+    sc = str(scripts).replace("\\", "/")
+    return {"sandbox": {"enabled": True, "allowUnsandboxedCommands": False,
+                        "filesystem": {"denyRead": ["./.critic", str(state).replace("\\", "/")], "allowRead": ["./.critic/scratch/*/payload"]},
+                        "excludedCommands": [f"{py} {sc}/critic_*.py *", f"python3 {sc}/critic_*.py *"]}}
+
 def files_key(files):
     """One short key for a set of reviewed files, the same whatever their order (R4: the tier the owner chose for them)."""
     return hashlib.sha256("\n".join(sorted({str(f).replace("\\", "/") for f in files})).encode("utf-8")).hexdigest()[:16]
