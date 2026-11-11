@@ -387,6 +387,39 @@ def bash_problem(cmd, rec, root, critic, role, me):
     NET_CODE = re.compile(r"\b(?:socket|urllib|http\.client|requests|httpx|aiohttp|fetch\(|net\.|https?\.(?:get|request)|XMLHttpRequest|LWP|Net::HTTP|open-uri|curl_)"
                           r"|\brequire\(\s*['\"](?:node:)?(?:https?|http2|net|tls|dgram|dns|undici)['\"]\s*\)|\bfrom\s+['\"](?:node:)?(?:https?|http2|net|tls|dgram|undici)['\"]"
                           r"|\bimport\(\s*['\"](?:node:)?(?:https?|net|tls|undici)['\"]|\bWebSocket\b|\bwget\b|\bcurl\b")  # audit V14: require("https").get(...) and its relatives
+    NET_IN_STR = re.compile(r"\brequire\(\s*['\"](?:node:)?(?:https?|http2|net|tls|dgram|dns|undici|child_process)['\"]|\bfrom\s+['\"](?:node:)?(?:https?|http2|net|tls|dgram|undici|child_process)['\"]"
+                            r"|\bimport\(\s*['\"](?:node:)?(?:https?|net|tls|undici|child_process)['\"]")  # a module named in a string is still code
+    RUNS_TEXT = re.compile(r"\b(?:subprocess|system|popen|exec\w*|spawn\w*|pty|commands|eval|compile|__import__|import_module|importlib|getattr|globals|locals|vars|modules|"
+                           r"require|Function|child_process|Open3|Kernel|send|public_send|syscall|qx|ctypes|cffi|pickle|marshal|codecs|base64|b64decode|unhexlify|fromhex|"
+                           r"chr|fromCharCode|decode|unescape|atob|Buffer|process|Deno|Bun)\b|\bimport\s*\(|[\w)\]]\s*\[\s*\]")  # what could turn a string into a module, a call or a command
+    INTERPOLATES = re.compile(r"`|#\{|\$\{|@\{\[|\{\$|(?<![A-Za-z0-9_])[rRbBuU]?[fF][rR]?['\"]|\$[A-Za-z_(]")  # code that runs inside a string literal (f-strings, templates, #{}, $var)
+    def strings_out(c, py):
+        """The code with every string literal and (Python) comment removed, or None when that can't be told for sure."""
+        if py:
+            import io, tokenize
+            try: toks = list(tokenize.generate_tokens(io.StringIO(c).readline))
+            except (tokenize.TokenError, IndentationError, SyntaxError): return None
+            drop = {tokenize.STRING, tokenize.COMMENT} | {getattr(tokenize, x) for x in ("FSTRING_MIDDLE", "TSTRING_MIDDLE") if hasattr(tokenize, x)}
+            return " ".join(tk.string for tk in toks if tk.type not in drop)
+        out, k, q = [], 0, None
+        while k < len(c):
+            ch = c[k]
+            if q:
+                if ch == "\\": k += 2; continue
+                if ch == q: q = None
+                elif ch == "\n": return None  # a quote left open: not sure where the strings are
+            elif ch in "'\"": q = ch
+            else: out.append(ch)
+            k += 1
+        return None if q else "".join(out)
+    def net_code(c, py):
+        """N5 (9 Nov run): network words only in a string or a comment, in code that has no way to run text, are data
+        (a reviewer writing JSON that mentions 'requests'), not network code. Anything that can run text, build a name
+        or interpolate into a string stays judged on the whole text, and a module named in a string is still code."""
+        if not NET_CODE.search(c): return False
+        if NET_IN_STR.search(c) or INTERPOLATES.search(c): return True
+        bare = strings_out(c, py)
+        return bare is None or bool(NET_CODE.search(bare)) or bool(RUNS_TEXT.search(bare))
     def positional(args, value_opts=()):
         out, k = [], 0
         while k < len(args):
@@ -426,7 +459,7 @@ def bash_problem(cmd, rec, root, critic, role, me):
         if n.startswith("python") or n in ("node", "deno", "bun", "ruby", "perl", "php", "osascript", "pwsh", "powershell"):
             code = [args[k + 1] for k in range(len(args) - 1) if args[k] in INLINE] + [x for k, x in enumerate(args) if k and args[k - 1] in ("<<<",)]
             if "<<" in args or "<<-" in args: code.append(flat_orig)  # the body as written, before its lone slashes were blanked (round 3 review)  # the body is on the lines after, in the same command text
-            if any(NET_CODE.search(c) for c in code): return f"{n} with network code: reviewers and verifiers work offline"
+            if any(net_code(c, n.startswith("python")) for c in code): return f"{n} with network code: reviewers and verifiers work offline"
             own_spellings = sorted(own_paths(pay.parent, root), key=len, reverse=True)
             def starts_from(c, raw=False):
                 """A listing whose starting argument is built from character codes or escapes (os.walk(chr(47)): 03

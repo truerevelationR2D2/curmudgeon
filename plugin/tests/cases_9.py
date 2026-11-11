@@ -88,3 +88,42 @@ def _(d):
     run(S / "critic_map.py", "--files", "src/app.js", cwd=d); run(S / "critic_ledger.py", "start", "review", cwd=d)
     r = run(S / "critic_outside.py", "brief", cwd=d); assert r.returncode == 0, r.stderr
     assert re.search(r"^next: give the user \.critic/outside/brief\.md now", r.stdout, re.M), r.stdout
+
+# N5 (03 §5.57 item 34): it loosens a guard, so every row of its case table is a test, refused and allowed alike.
+N5_ALLOWED = [  # network words only as data, in code that can't run text
+    "python3 -c 'import json; print(json.dumps({\"title\": \"uses requests and curl\", \"evidence\": \"socket in app.py\"}))'",
+    "python3 - <<'EOF'\nimport json\nopen(\"out.json\", \"w\").write(json.dumps([{\"evidence\": \"urllib and http.client are used\", \"tags\": [\"requests\"]}]))\nEOF",
+    "python3 - <<'EOF'\n# no requests or sockets here\nprint(1)\nEOF",
+    "node -e 'console.log(JSON.stringify({t: \"fetch( and WebSocket and curl\"}))'",
+]
+N5_REFUSED = [  # still network code, or text that could become code
+    "python3 -c 'import urllib.request'",
+    "python3 -c '__import__(\"socket\")'",
+    "python3 -c 'import importlib; importlib.import_module(\"urllib.request\")'",
+    "python3 -c 'import os; os.system(\"curl http://x.invalid\")'",
+    "python3 -c 'import subprocess; subprocess.run([\"curl\", \"http://x.invalid\"])'",
+    "python3 -c 'exec(\"import socket\")'",
+    "python3 -c 'import sys; print(sys.modules[\"socket\"])'",
+    "python3 -c 'print(globals()[\"__builtins__\"]); x = \"requests\"'",
+    "python3 - <<'EOF'\nprint(f\"{__import__('socket')}\")\nEOF",
+    "python3 - <<'EOF'\nimport codecs\nx = codecs.decode('erdhrfgf', 'rot13')  # requests\nEOF",
+    "node -e 'require(\"https\").get(\"http://x.invalid\")'",
+    "node -e 'const cp = require(\"child_process\"); cp.execSync(\"curl http://x.invalid\")'",
+    "node -e 'console.log(`${\"curl\"}`)'",
+    "node -e 'globalThis[\"eval\"](\"fetch(1)\"); const s = \"curl\"'",
+    "ruby -e 'puts \"#{Net::HTTP.get(u)}\"'",
+    "perl -e 'my $u = \"curl\"; system($u)'",
+    "node -e \"x = 'requests\"",
+]
+
+@test("5.5.0 N5: the offline tripwire lets a reviewer's script carry network words as data, and still refuses network code and anything that could turn text into code")
+def _(d):
+    p = d / "proj"; write(p, "src/app.js", APP); ws = _ws(p)["payload"]
+    for cmd in N5_ALLOWED:
+        assert "deny" not in _rg(p, "Bash", command=f"cd {ws} && {cmd}"), ("allowed", cmd)
+    for cmd in N5_REFUSED:
+        assert "deny" in _rg(p, "Bash", command=f"cd {ws} && {cmd}"), ("refused", cmd)
+    for role in ("verifier",):
+        w2 = _ws(p, aid="v1", role=role)["payload"]
+        assert "deny" not in _rg(p, "Bash", role=role, aid="v1", command=f"cd {w2} && {N5_ALLOWED[0]}"), role
+        assert "deny" in _rg(p, "Bash", role=role, aid="v1", command=f"cd {w2} && {N5_REFUSED[1]}"), role
