@@ -422,3 +422,14 @@ def _(d):
     t = dm.allowed_tools({"tools": ["Read", "Bash(python3:*)"]})
     assert f"Bash({exe}:*)" in t and f"Bash({os.path.realpath(exe)}:*)" in t and t[:2] == ["Read", "Bash(python3:*)"], t
     assert dm.allowed_tools({"tools": ["Read"]}) == ["Read"], "an arm without python3 gets nothing added"
+
+
+@test("5.6.0 eval harness: a second report of a credited plant is neither waiting for a label nor counted, as label.py leaves it out (it kept the 12 Nov lite precision NOT MEASURED)")
+def _(d):
+    import importlib
+    sys.path.insert(0, str(HERE.parent / "eval")); dm = importlib.import_module("deathmatch")
+    key = d / "key.json"; key.write_text(json.dumps({"X": {"file": "app.js", "lines": [40, 44], "any": ["escap"]}}), encoding="utf-8")
+    blocks = [{"loc": "app.js:42", "claim": "app.js:42 titles not escaped (XSS)"}, {"loc": "app.js:43", "claim": "app.js:43 the same title is not escaped in the list"},
+              {"loc": "app.js:90", "claim": "app.js:90 search ignores case"}]
+    r = dm.score_task({"key": str(key)}, blocks, {"a/t/2": "real"}, "a/t")
+    assert r["found"] == 1 and r["unlabelled"] == 0 and r["precision"] == "2 of 2", r

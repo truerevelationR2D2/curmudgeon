@@ -145,7 +145,7 @@ def score_task(task, blocks, labels, prefix):
         unl = [i for i, b in enumerate(blocks) if i not in fa and lab(i) is None]
         return {"false_alarms": len(fa), "blocks": len(blocks), "unlabelled": len(unl), "precision": None if unl else (f"0 of {len(fa)}" if fa else "no findings")}
     plants = plants_of(json.loads((HERE / task["key"]).read_text(encoding="utf-8")))
-    hit = match_plants(plants, blocks); used = set(hit.values())
+    hit = match_plants(plants, blocks); used = set(hit.values()) | plant_blocks(plants, blocks)  # a second report of a credited plant is neither labelled (label.py leaves it out) nor counted (12 Nov 2026: it left 5.6.0's lite precision NOT MEASURED)
     unl = [i for i in range(len(blocks)) if i not in used and f"{prefix}/{i}" not in labels]
     real = sum(1 for i in range(len(blocks)) if i not in used and labels.get(f"{prefix}/{i}") == "real")
     false = sum(1 for i in range(len(blocks)) if i not in used and labels.get(f"{prefix}/{i}") == "false")
