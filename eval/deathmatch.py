@@ -192,6 +192,19 @@ def installed_plugins():
     except (OSError, subprocess.TimeoutExpired): return []
     return sorted(set(re.findall(r"^\s*>\s*(\S+@\S+)", out, re.M)))
 
+def allowed_tools(a):
+    """The arm's allowed tools. Curmudgeon prints its commands with the full path of the Python running it (py_cmd,
+    5.3.1, so they run on Windows), and a headless lead copies them as printed; an arm allowed python3 is allowed that
+    same Python by its full path too, or every printed command waits for an approval nobody gives (12 Nov 2026: the
+    5.6.0 lite runs stalled at the probe and the tally, 60 refusals)."""
+    import shutil
+    tools = list(a.get("tools", ["Read", "Grep", "Glob"]))
+    if "Bash(python3:*)" in tools:
+        found = shutil.which("python3")
+        for exe in dict.fromkeys(x for x in (found, found and os.path.realpath(found)) if x):
+            if f"Bash({exe}:*)" not in tools: tools.append(f"Bash({exe}:*)")
+    return tools
+
 def one_run(a, w, td, model):
     """One arm on one task in the work folder w; returns its meta (an error is recorded, never raised past here except
     a timeout, which the caller records)."""
@@ -201,7 +214,7 @@ def one_run(a, w, td, model):
         if r.returncode not in (0, 1): meta["error"] = f"exit {r.returncode}: {(r.stderr or '')[-200:]}"
         return meta
     prompt = a["prompt"].replace("{plugin}", str(PLUGIN))  # an arm given part of Curmudgeon's material names it here (03 §5.56 item 20)
-    cmd = ["claude", "-p", prompt, "--output-format", "json", "--allowedTools", ",".join(a.get("tools", ["Read", "Grep", "Glob"]))]
+    cmd = ["claude", "-p", prompt, "--output-format", "json", "--allowedTools", ",".join(allowed_tools(a))]
     for ad in a.get("add_dirs") or []: cmd += ["--add-dir", str(pathlib.Path(ad.replace("{plugin}", str(PLUGIN))).resolve())]  # read-only material outside the task folder
     if model: cmd += ["--model", model]
     if a.get("plugin"): cmd += ["--plugin-dir", str(PLUGIN)]
