@@ -2,17 +2,20 @@
 
 Every release of Curmudgeon, newest first. The repository's history starts at 4.2.1; earlier versions are summarised from the project's own build and review records. Numbers are the ones measured at the time; the README's Benchmarks section has the current ones and how they were measured.
 
-## 5.6.0 (unreleased): the sandbox switch (03 §5.57 items 17, 20 and 36)
+## 5.6.0 (unreleased): the proctor, the sandbox switch, N5, the approved backlog and WSL2 as a required check (03 §5.57 items 17, 20, 34-36)
 
-Claude Code's own sandbox, where it runs (macOS, Linux and WSL2), becomes the reviewers' real boundary; the guard stays as the tripwire everywhere, and the only boundary on native Windows.
-- **Each run checks it.** `begin` prints one probe command, `cd <project> && … critic_run.py probe`. The `cd` keeps it inside the sandbox, as every reviewer command is. It tries to read a token in `.critic/` and records `os-enforced` (refused) or `tripwire-only`. The counts carry a Boundary line.
+One release for all of this work (Ryan, 12 Nov 2026: no separate 5.5.0 build).
+
+**The sandbox switch.** Claude Code's own sandbox, where it runs (macOS, Linux and WSL2), becomes the reviewers' real boundary; the guard stays as the tripwire everywhere, and the only boundary on native Windows.
+- **Each run checks it, in two steps.** `begin` writes a token in `.critic/proctor/` and prints both steps. Step 1, `cd <project> && … critic_run.py probe`, runs inside the sandbox (the `cd` keeps it there, as it keeps every reviewer command), prints `SAW <hash>`, `MISSING` or `REFUSED`, and writes nothing. Step 2, `critic_run.py boundary-record <code>`, checks the code against the token: a matching `SAW` records `tripwire-only`, and `MISSING` or `REFUSED` with the token in place records `os-enforced` (on Linux a denied folder shows as empty; macOS refuses it). The counts carry a Boundary line.
 - **The owner chooses** with `critic_ledger.py boundary auto|require|off`: auto checks and reports (the default), require holds every reviewer until the boundary is enforced, off skips the check. The choice is kept in the owner's record outside the project.
 - **Turning it on.** `critic_run.py boundary-settings` prints the settings: `sandbox.enabled`, `allowUnsandboxedCommands: false`, `denyRead` on `./.critic` and Curmudgeon's own records, `allowRead` on the reviewers' copies, and `excludedCommands` for Curmudgeon's own scripts. Only on the user's yes, `critic_ledger.py boundary write` merges them into `.claude/settings.local.json`. They take effect in a new session.
 - **Why the lead's scripts still work.** Anthropic's docs (settings reference and sandboxing, checked 10 Nov 2026) say an excluded command leaves the sandbox only when the call holds no `cd`. The lead's own script calls hold none and are excluded. Every reviewer command must start with `cd` into its copy, so none is.
 
 Not built: wrapping reviewer commands with Anthropic's `sandbox-runtime` on native Windows. It is alpha there, and its install needs administrator rights and changes the machine, so it stays a decision (see the Progress Log).
 
-## 5.5.0 (unreleased): the proctor, N5, the approved backlog and WSL2 as a required check (03 §5.57 items 34-36)
+The sandbox switch was reviewed blind once (three reviewers and blind verification): 15 problems (6 High, 7 Medium, 2 Low), all fixed, each with a test that fails on the code before it, and not reviewed a second time. Among them: the first probe could never report os-enforced on Linux, the settings let sandboxed commands run without asking, and the request command answered when it could not read the marks.
+
 
 **The proctor (03 §5.57 item 35), the permanent check on reviewer blindness.** Curmudgeon writes a unique run mark into every brief's own part, every reviewer's review (on every line, stamped by the stop hook when the reviewer finishes), every file the scan writes and each of its rows, the tally, the counts, the dedup list and each verification packet. At each reviewer's stop, and again at every tally, a script reads that reviewer's own transcript on your machine (the output of every command it ran and every file it read) for any mark but its own brief's and review's. A reviewer that saw one is voided: its votes don't count and the counts name it, with what it saw. A finding only a voided review raised goes to a blind verifier and is kept only if the verifier reproduces it by running it, labelled, with no vote and never at a higher impact. A transcript the proctor can't read leaves the review counted and marks the run DEGRADED. There is no replacement reviewer (Ryan's ruling). Reviewers who need something outside their copy ask `critic_proctor.py ask read|list|git`, which never hands over `.critic/`, `~/.curmudgeon` or `~/.claude`, withholds any answer holding a run mark, and lists every request in `.critic/proctor/requests.jsonl`.
 
@@ -32,7 +35,7 @@ Reviewed blind twice before release (three reviewers and blind verification each
 - `critic_outside.py brief` prints its own line telling the lead to hand the brief over.
 - The WSL2 CI job is required, after 40 green runs in a row.
 
-Budgets (`claude plugin details`, 10 November 2026, loaded from the repository): about 919 tokens added to every session, unchanged; the review skill about 8.9k when it runs (5.4.2: about 8.7k) and the reviewer agent about 1.9k (5.4.2: about 1.7k), for the proctor's steps.
+Budgets (`claude plugin details`, 12 November 2026, loaded from the repository with `--plugin-dir`): about 919 tokens added to every session, unchanged; the review skill about 9.3k when it runs (5.4.2: about 8.7k), for the proctor's and the boundary's steps; the reviewer agent about 1.9k (5.4.2: about 1.7k).
 
 ## 5.4.2 (10 November 2026)
 
