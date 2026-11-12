@@ -43,10 +43,10 @@ def write_stop(root, me, rec):
     fd = os.open(str(d / f"{me}.json"), os.O_WRONLY | os.O_CREAT | os.O_TRUNC | getattr(os, "O_NOFOLLOW", 0), 0o644)
     with os.fdopen(fd, "w") as fh: fh.write(json.dumps(rec))
 
-def problems_review(root, msg, agent_id=None):
+def problems_review(root, msg, agent_id=None, review=None):
     d = root / ".critic" / "reviews"
-    named = re.findall(r"review-([A-Za-z0-9]+)\.json", msg or "")
-    if named: rv = [d / f"review-{named[-1]}.json"]  # the file this reviewer says it wrote
+    review = review or own_review(None, msg)[0]  # the file this reviewer wrote (own_review), not the last one its reply mentions (5.5.0 blind round 2)
+    if review: rv = [d / review]
     else: return ["the reply must name the review file it wrote (.critic/reviews/review-<letter>.json)"]
     if not rv[0].exists(): return [f"{rv[0].name} was not written"]
     began = started_at(root, agent_id)
@@ -149,6 +149,26 @@ def read_transcript(path):
     except (OSError, TypeError): pass
     return handback, last, ended
 
+def own_review(transcript_path, msg):
+    """The review file this reviewer wrote: the last one its own Write or Edit calls named (5.5.0 blind round: a reply
+    that mentions another review file, as the instructions ask when one was seen by accident, named the wrong one).
+    Without such a call, the one review file the reply names; none when it names several. Returns (name, wrote)."""
+    wrote = None
+    try:
+        with open(str(transcript_path or ""), encoding="utf-8", errors="replace") as fh:
+            for line in fh:
+                try: j = json.loads(line)
+                except ValueError: continue
+                c = (j.get("message") or {}).get("content") if isinstance(j, dict) and isinstance(j.get("message"), dict) else None
+                for item in c if isinstance(c, list) else []:
+                    if isinstance(item, dict) and item.get("type") == "tool_use" and item.get("name") in ("Write", "Edit", "MultiEdit"):
+                        m = re.search(r"[\\/]\.critic[\\/]reviews[\\/](review-[A-Za-z0-9]+\.json)$", str((item.get("input") or {}).get("file_path") or ""), re.I)
+                        if m: wrote = m.group(1)
+    except (OSError, TypeError): pass
+    if wrote: return wrote, True
+    named = sorted(set(re.findall(r"review-[A-Za-z0-9]+\.json", msg or "")))
+    return (named[0], False) if len(named) == 1 else (None, False)
+
 def last_reply(data):
     """The agent's final words: the transcript first, because the host's last_assistant_message need not be the report
     (10 Nov acceptance run: the hook blocked replies whose hand-back named the review file and held the verdicts). The
@@ -169,15 +189,24 @@ def main():
     msg = last_reply(data)
     # The reply is checked every time; only the block is skipped on a second stop (never block twice in a row). So a
     # verdict that still breaks the contract on the retry is never saved either (Qodo on #39).
-    problems = problems_review(root, msg, data.get("agent_id")) if kind.endswith("curmudgeon-reviewer") else problems_verdict(msg, root)
+    review, wrote = own_review(data.get("agent_transcript_path"), msg) if kind.endswith("curmudgeon-reviewer") else (None, False)
+    problems = problems_review(root, msg, data.get("agent_id"), review) if kind.endswith("curmudgeon-reviewer") else problems_verdict(msg, root)
     errs = [] if data.get("stop_hook_active") else problems
     # What can be recorded is recorded now, block or not: a host may ignore the block and never call again (R1), and
     # then the blindness record and the verdicts must already be saved.
     if kind.endswith("curmudgeon-reviewer"):  # 03 §5.56 item 15: the tally checks that each review came from an agent that worked in its private copy
         try:
-            named = re.findall(r"review-([A-Za-z0-9]+)\.json", msg or "")
             me = workspace.clean_id(data.get("agent_id")) if data.get("agent_id") else None
-            if named and me: write_stop(root, me, {"review": f"review-{named[-1]}.json", "workspace": worked_in_copy(root, data.get("agent_id")), "at": time.time()})
+            if review and me:
+                rec = {"review": review, "wrote": wrote, "workspace": worked_in_copy(root, data.get("agent_id")), "at": time.time()}  # wrote: its own Write or Edit made the file; only such a record speaks for the review when there is one (5.5.0 blind round 2)
+                try:  # the proctor (03 §5.57 item 35): its review gets its marks, then what its tools showed it is checked
+                    from critic_findings import stamp_review
+                    import proctor
+                    stamp_review(root, review)
+                    rec["transcript"] = str(data.get("agent_transcript_path") or "")
+                    rec["proctor"] = proctor.check(root, rec["transcript"], review)
+                except Exception as e: rec["proctor"] = {"checked": False, "why": f"{type(e).__name__}"}
+                write_stop(root, me, rec)
         except Exception: pass
     elif not problems:  # a verdict that fails the contract is never saved, on a retry too: the merge counts it missing and marks the run DEGRADED (Qodo on #38, #39)
         try: save_verdicts(root, msg, data.get("agent_id"))

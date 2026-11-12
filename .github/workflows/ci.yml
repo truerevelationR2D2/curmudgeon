@@ -101,11 +101,10 @@ jobs:
           tail -n 1 tests.out | sed 's/^/::notice title=script tests on macOS::/'
           exit $status
   wsl2:
-    # 03 §5.57 item 20: Claude Code runs on WSL2 (where its own sandbox works), so Curmudgeon is tested there too. Not a
-    # required check until it has passed five runs in a row (whether WSL2 stays reliable on hosted runners is unconfirmed).
+    # 03 §5.57 item 20: Claude Code runs on WSL2 (where its own sandbox works), so Curmudgeon is tested there too. A
+    # required check since 5.5.0 (03 §5.57 item 34): it passed 40 runs in a row first (9-11 Nov 2026).
     runs-on: windows-latest
     timeout-minutes: 30
-    continue-on-error: true
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

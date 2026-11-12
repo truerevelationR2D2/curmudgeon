@@ -239,7 +239,7 @@ def verdict_required(tier, f, contested=False):
     contested finding, one only the outside reviewer raised, and one whose reviewers disagreed on its impact. Full: every
     packet. Lite: Critical and High. Trivial: nothing more. critic_run.py asks for these; apply marks the run DEGRADED
     when one has no verdict."""
-    if contested or f.get("outside_only") or f.get("impact_split"): return True
+    if contested or f.get("outside_only") or f.get("voided_only") or f.get("impact_split"): return True  # voided_only: the proctor's rule (03 §5.57 item 35)
     if tier == "trivial": return False
     if tier == "lite": return f.get("impact") in ("Critical", "High")
     return True
@@ -735,6 +735,95 @@ def rules_commands(text):
 def rules_test_command(text):
     m = re.search(r"(?im)^\s*test command\s*:\s*(.+)$", text or "")
     return m.group(1).strip().strip("`") if m else None
+
+def proctor_mark(root, what):
+    """A new unique mark for one file Curmudgeon writes that reviewers must never see (a brief other than their own, the
+    scan report, a tally, the counts, a verification packet), recorded in .critic/proctor/marks.json, which agents
+    can't read. The proctor looks for these marks in each reviewer's tool output at its stop (03 §5.57 item 35).
+    Returns the mark, or "" when it couldn't be recorded (then the file just carries no mark)."""
+    import secrets
+    d = pathlib.Path(root) / ".critic" / "proctor"; f = d / "marks.json"; lock = d / "marks.lock"
+    try:
+        if (pathlib.Path(root) / ".critic").is_symlink() or d.is_symlink() or f.is_symlink(): return ""
+        d.mkdir(parents=True, exist_ok=True)
+        fd = None
+        for _ in range(200):  # the reviewers' stop hooks and the scan stamp at once: one writer at a time (5.5.0 blind round 2 lost marks)
+            try: fd = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY); break
+            except FileExistsError:
+                try:
+                    if time.time() - lock.stat().st_mtime > 10: lock.unlink()  # a lock left by a killed process
+                except OSError: pass
+                time.sleep(0.02)
+        if fd is None: return ""
+        try:
+            try: m = json.loads(f.read_text(encoding="utf-8")) if f.is_file() else {}
+            except ValueError: return ""  # never start the list again over an unreadable one: earlier marks would be lost
+            marks = m.get("marks") if isinstance(m, dict) and isinstance(m.get("marks"), dict) else {}
+            mark = "cm-" + secrets.token_hex(12)
+            marks[mark] = {"what": str(what)[:80], "at": int(time.time())}
+            marks = dict(list(marks.items())[-2000:])  # the newest 2,000: older runs' files are archived history
+            tmp = f.with_name(f"{f.name}.{os.getpid()}.tmp"); tmp.write_text(json.dumps({"marks": marks}), encoding="utf-8"); os.replace(tmp, f)
+            return mark
+        finally:
+            os.close(fd)
+            try: lock.unlink()
+            except OSError: pass
+    except OSError: return ""
+
+def proctor_known(root, mark, what):
+    """True when mark is recorded in .critic/proctor/marks.json for exactly this file."""
+    f = pathlib.Path(root) / ".critic" / "proctor" / "marks.json"
+    try: m = json.loads(f.read_text(encoding="utf-8")) if f.is_file() and not f.is_symlink() else {}
+    except (OSError, ValueError): return False
+    e = (m.get("marks") or {}).get(mark) if isinstance(m, dict) and isinstance(m.get("marks"), dict) else None
+    return isinstance(e, dict) and e.get("what") == what
+
+def stamp_review(root, name):
+    """Put the review's own run mark on every line of it (the proctor, 03 §5.57 item 35): the top-level "mark" and one
+    in each finding, written one finding per line, so any part of the file another reviewer reads shows the mark. The
+    review keeps every key it had; a file that isn't JSON is left as it is (it carries no mark). The same review
+    stamped again keeps its mark. The merge drops the marks when it reads findings."""
+    f = pathlib.Path(root) / ".critic" / "reviews" / str(name)
+    if f.is_symlink() or not f.is_file() or f.parent.is_symlink() or not re.fullmatch(r"review-[A-Za-z0-9]+\.json", str(name)): return ""
+    try: v = json.loads(f.read_text(encoding="utf-8"))
+    except (OSError, ValueError): return ""
+    if isinstance(v, list): v = {"findings": v}
+    if not isinstance(v, dict) or not isinstance(v.get("findings", []), list): return ""
+    old = v.get("mark") if isinstance(v.get("mark"), str) else ""
+    mk = old if old and proctor_known(root, old, str(name)) else proctor_mark(root, str(name))
+    if not mk: return ""
+    rows = [dict({"mark": mk}, **{k: x for k, x in r.items() if k != "mark"}) if isinstance(r, dict) else r for r in v.get("findings", [])]
+    rest = {k: x for k, x in v.items() if k not in ("mark", "findings")}
+    head = "{" + json.dumps("mark") + ": " + json.dumps(mk) + "".join(f", {json.dumps(k)}: {json.dumps(x, ensure_ascii=False)}" for k, x in rest.items())
+    body = head + ",\n\"findings\": [" + ",\n".join(json.dumps(r, ensure_ascii=False) for r in rows) + "], \"mark_end\": " + json.dumps(mk) + "}\n"  # every line holds the mark
+    tmp = f.with_name(f.name + ".tmp")
+    try: tmp.write_text(body, encoding="utf-8"); os.replace(tmp, f)
+    except OSError: return ""
+    return mk
+
+def boundary_mode(root):
+    """The owner's choice for the OS boundary (the sandbox switch, 03 §5.57 items 17 and 20): auto (the default: check
+    it each run and say what it is), require (no reviewer starts unless Claude Code's sandbox refuses a read of
+    .critic/), or off (don't check). Kept in the owner's record outside the project, where a repository can't set it."""
+    m = read_owner_state(root, "boundary").get("mode")
+    return m if m in ("auto", "require", "off") else "auto"
+
+def boundary_settings(root, scripts):
+    """The Claude Code settings that make the sandbox the reviewers' boundary, for .claude/settings.local.json in the
+    project (paths resolve against the project there). Read on code.claude.com (settings reference and sandboxing,
+    checked 10 Nov 2026): subagents share the session's sandbox; hooks and file tools run outside it; an excluded
+    command leaves the sandbox only when the call holds no cd, so the lead's own script calls are excluded while every
+    reviewer command, which must start with cd into its copy, stays inside."""
+    state = owner_state_base()
+    tail = "/skills/review/scripts/"  # not the versioned plugin folder or one Python's path, so an update or another interpreter still matches (5.6.0 blind round)
+    pats = [f"*{tail}{n} *" for n in ("critic_*.py", "security_feed.py")] + [f"*{tail}{n}\" *" for n in ("critic_*.py", "security_feed.py")]  # and the quoted form py_cmd prints for a path with spaces
+    return {"sandbox": {"enabled": True, "allowUnsandboxedCommands": False, "autoAllowBashIfSandboxed": False,  # sandboxed commands still ask, as before (its default is true: 5.6.0 blind round)
+                        "filesystem": {"denyRead": ["./.critic", str(state).replace("\\", "/")], "allowRead": ["./.critic/scratch/*/payload"]},
+                        "excludedCommands": pats}}
+
+def files_key(files):
+    """One short key for a set of reviewed files, the same whatever their order (R4: the tier the owner chose for them)."""
+    return hashlib.sha256("\n".join(sorted({str(f).replace("\\", "/") for f in files})).encode("utf-8")).hexdigest()[:16]
 
 def ledger_shipped(root):
     """True when .critic/ledger.json could have come with the code, so its rulings and decisions are never applied (the

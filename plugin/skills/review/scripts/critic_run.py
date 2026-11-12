@@ -18,6 +18,15 @@ usage:
         for this run's scan report, and --no-scan goes on without it, which marks the run DEGRADED
   critic_run.py status
         say where the run stands, change nothing
+  critic_run.py probe
+        the boundary check (the sandbox switch), step 1: run it as `cd <project> && <python> critic_run.py probe`, so
+        Claude Code's sandbox, when it is on, applies to it as it does to every reviewer command. It tries to read a
+        token in .critic/ and prints one code (SAW <hash>, MISSING or REFUSED)
+  critic_run.py boundary-record CODE
+        step 2, without a cd: checks the probe's code against the token and records os-enforced or tripwire-only in
+        .critic/boundary.json (once per run)
+  critic_run.py boundary-settings
+        print the Claude Code settings that make the sandbox the reviewers' boundary, and why
   critic_run.py early
         the scripted checks' FAIL rows, as soon as the background scan has written its report (SC-80, fastest results
         first): show them to the user while the reviewers work; they are scripted, not yet reviewed, and the teardown
@@ -93,6 +102,8 @@ def state():
     if not started or mtime(D / "last-review.md") >= started: return "idle", L, tier, []
     if any(isinstance(a, dict) and a.get("run") == L.get("run") for a in L.get("aborted") or []): return "stopped", L, tier, []  # the owner stopped it (critic_ledger.py abort)
     letters = REVIEWERS.get(tier, REVIEWERS["full"])
+    from critic_findings import boundary_mode
+    if boundary_mode(ROOT) == "require" and (boundary(started) or {}).get("result") != "os-enforced": return "boundary", L, tier, []  # the owner requires the OS boundary: no reviewer starts without it
     reviews = [D / "reviews" / f"review-{x}.json" for x in letters]
     have = [p for p in reviews if p.exists() and mtime(p) >= started - 2]
     if len(have) < len(reviews): return "reviewing", L, tier, [p for p in reviews if p not in have]
@@ -167,6 +178,11 @@ def say_next(st, tier, items):
         print(f"next: the scripted checks have not written a report for this run (or round) yet. If the background scan is running, wait for it; if none was started "
               f"(a new round, say), run it now: {scan_cmd()} Then run critic_run.py next again. "
               "Only if it can't run at all: critic_run.py next --no-scan goes on without it, and the counts say the run is DEGRADED.")
+    elif st == "reviewing" and not briefs_ready(ledger(), [p.stem[-1] for p in items]):  # 10 Nov run report, runs 5 and 7: round 2 was never re-reviewed
+        L = ledger(); letters = ",".join(REVIEWERS.get(tier, REVIEWERS["full"]))
+        print(f"next: review round {L.get('round', 1)} needs fresh blind reviewers on the fix (SKILL.md step 8.4), and their briefs aren't written yet. "
+              f"Map what the fix changed: {py_cmd(HERE / 'critic_map.py')} --base <the commit before the fix> (or --files <the files it changed>); "
+              f"then write the briefs: {py_cmd(HERE / 'critic_brief.py')} --letters {letters}; run the scan again: {scan_cmd()}; then critic_run.py next starts the reviewers.")
     elif st == "reviewing":
         print(f"next: start {len(items)} curmudgeon:curmudgeon-reviewer agent(s) by name (never a fork), blind, one per letter: "
               + ", ".join(p.stem[-1] for p in items) + ". Give each the text of its brief, unchanged, as its prompt: " + ", ".join(f".critic/briefs/brief-{p.stem[-1]}.md" for p in items) + ". Each writes " + ", ".join(rel(p) for p in items) + ".")
@@ -188,13 +204,76 @@ def say_next(st, tier, items):
         else: print("next: no variant verdicts came back. Run critic_variants.py apply with no files (every variant is listed as not verified), then critic_run.py next.")
     elif st == "teardown":
         print("next: write the teardown from .critic/counts.md (references/output-contract.md), save .critic/last-review.md, then critic_ledger.py stamp <payload>.")
+    elif st == "boundary":
+        b = boundary(ledger().get("started_at") or 0)
+        print(("next: the owner requires the OS boundary (critic_ledger.py boundary require) and " + (f"the check says {b['result']}: {b['why']}. " if b else "it hasn't been checked for this run. ")
+               + f"Check it: cd {sh_path(ROOT)} && {py_cmd(HERE / 'critic_run.py')} probe, then the boundary-record command it prints. If it isn't os-enforced, show the user critic_run.py boundary-settings and stop: no reviewer starts until it is."))
     elif st == "idle": print("next: no run is active; critic_run.py begin starts one.")
     elif st == "stopped": print("next: the owner stopped this run (critic_ledger.py abort), so nothing more runs in it; critic_run.py begin starts a new one.")
+
+PROBE, BOUNDARY = D / "proctor" / "probe.txt", D / "boundary.json"
+
+def probe(path=None):
+    """Try to read the probe token the way a reviewer's command would, and say what happened, as one code for the lead
+    to record: SAW <hash> (the read worked), MISSING (the file looked absent: on Linux and WSL2 the sandbox covers a
+    denied folder with an empty one) or REFUSED (the read was refused). It writes nothing: what a sandboxed command
+    writes in .critic/ may not last (5.6.0 blind round)."""
+    path = pathlib.Path(path or PROBE)
+    try: return "SAW " + __import__("hashlib").sha256(path.read_bytes()).hexdigest()[:16]
+    except FileNotFoundError: return "MISSING"
+    except OSError: return "REFUSED"
+
+def record_boundary(code):
+    """Turn the probe's code into this run's boundary record, outside the sandbox, against the token begin wrote. Only
+    the token's own hash means tripwire-only; MISSING or REFUSED while the token is there means os-enforced. One record
+    per run: a tripwire-only result can't be replaced by os-enforced in the same run (5.6.0 blind round)."""
+    import hashlib
+    if not PROBE.is_file() or PROBE.is_symlink(): return None, "there is no probe token for this run: run critic_run.py begin"
+    want = "SAW " + hashlib.sha256(PROBE.read_bytes()).hexdigest()[:16]
+    if code == want: result, why = "tripwire-only", "a command could read .critic/: only Curmudgeon's guard keeps reviewers out" + (" (native Windows: Claude Code has no sandbox there; WSL2 has one)" if os.name == "nt" else "")
+    elif code in ("MISSING", "REFUSED"): result, why = "os-enforced", "a command inside Claude Code's sandbox couldn't read .critic/ (" + ("the folder looked empty" if code == "MISSING" else "the read was refused") + ")"
+    else: return None, f"{code!r} is not what the probe printed for this run's token"
+    old = boundary(ledger().get("started_at") or 0)
+    if old and old.get("result") != result: return None, f"this run's boundary is already recorded as {old['result']}; a new run checks it again"
+    if BOUNDARY.is_symlink(): return None, ".critic/boundary.json is a link; refusing"
+    rec = {"result": result, "why": why, "at": time.time(), "platform": sys.platform}
+    BOUNDARY.write_text(json.dumps(rec) + "\n", encoding="utf-8"); return rec, ""
+
+def boundary(started):
+    """The boundary record for this run, or None."""
+    try: return json.loads(BOUNDARY.read_text(encoding="utf-8")) if is_fresh(BOUNDARY, started) else None
+    except (OSError, ValueError): return None
+
+def stopped_run():
+    """The run in the ledger, when the owner stopped it (critic_ledger.py abort): its number, start time and files."""
+    L = ledger()
+    if not L.get("run") or not any(isinstance(a, dict) and a.get("run") == L.get("run") for a in L.get("aborted") or []): return None
+    try: files = json.loads((D / "change-map.json").read_text(encoding="utf-8")).get("files") or [] if (D / "change-map.json").is_file() and not (D / "change-map.json").is_symlink() else []
+    except (OSError, ValueError, AttributeError): files = []
+    return {"run": L.get("run"), "started": L.get("started_at") or 0, "files": sorted(str(f) for f in files)}
+
+def carry_outside(before, files):
+    """P15 carry-over (03 §5.57 item 34): a run stopped and begun again on the same files is the same review, so an
+    outside answer already loaded for the stopped run counts in this one too, without asking the user again. Only from
+    the run directly before, only when it was stopped, and only for exactly the same files."""
+    if not before or not files or before["files"] != sorted(files): return
+    if not OUTSIDE.is_file() or OUTSIDE.is_symlink() or mtime(OUTSIDE) < before["started"]: return
+    try: os.utime(OUTSIDE, None)  # loaded for this run now: tally_extra takes only an answer at least as new as the run
+    except OSError: return
+    print(f"carried over the outside reviewer's answer loaded in stopped run {before['run']} (same files, so the same review): it counts in this run's tally")
+
+def briefs_ready(L, letters):
+    """True when every reviewer's brief for this run or round is there: a new run or round moves the earlier briefs to
+    .critic/history/ (critic_ledger.py), begin writes the run's, and a round needs its own."""
+    return all((D / "briefs" / f"brief-{x}.md").is_file() and not (D / "briefs" / f"brief-{x}.md").is_symlink() for x in letters)
 
 def main(a):
     if not a or a[0] in ("-h", "--help"): print(__doc__); return 0
     cmd, rest = a[0], a[1:]
-    if cmd in ("plan", "begin", "next", "early", "status"):  # early and status too: they show the scan's FAIL rows, which a reviewer in its copy must never read (self-review)
+    if cmd == "probe":  # inside the sandbox .critic/ can't even be looked at (macOS refuses the stat), so only the copy check runs here (5.6.0 blind round)
+        from critic_findings import in_scratch
+        if in_scratch(): print("critic: refusing to run from inside an agent's workspace (.critic/scratch): the lead checks the boundary, never a reviewer", file=sys.stderr); return 2
+    if cmd in ("plan", "begin", "next", "early", "status", "boundary-record"):  # early and status too: they show the scan's FAIL rows, which a reviewer in its copy must never read (self-review)
         from critic_findings import refuse_linked_state; refuse_linked_state(ROOT)
     if cmd == "plan":  # run report N8: the plan before anything starts, so the owner's answer can still change it
         security = "--security" in rest; audit = "--audit" in rest
@@ -246,13 +325,19 @@ def main(a):
                 print("  - WARNING: this repository ships .mcp.json. Its servers start without a prompt in claude -p, SDK and cloud runs: "
                       "audit it with --strict-mcp-config, or block them with disabledMcpjsonServers, before running anything headless here.")
         map_args = [x for i, x in enumerate(rest) if not (x == "--tier" or (i and rest[i - 1] == "--tier"))]
+        before = stopped_run()  # P15 carry-over: read before critic_map rewrites the change map and the ledger starts a new run
         sh("critic_map.py", *map_args)
         sh("critic_plan.py", *(["--tier", tier] if tier else []))  # SC-69: the job plan (tier, agents, lenses, expected cost), showing the tier in force
         if not tier:
             try: tier = json.loads((D / "plan.json").read_text(encoding="utf-8")).get("tier") or "full"
             except (OSError, ValueError): tier = "full"
         chosen_tier(tier, "audit mode" if audit else ("the owner's choice" if asked_tier else "the job plan's choice"))
-        sh("critic_ledger.py", "start", "audit" if audit else ("full" if fix else "review"), "--tier", tier)
+        from critic_findings import files_key
+        cm_files = [str(f) for f in ((json.loads((D / "change-map.json").read_text(encoding="utf-8")) if (D / "change-map.json").is_file() else {}).get("files") or [])]
+        key = files_key(cm_files) if cm_files else ""
+        sh("critic_ledger.py", "start", "audit" if audit else ("full" if fix else "review"), "--tier", tier,
+           *(["--files-key", key] if key else []), *(["--owner-tier"] if asked_tier and not audit else []))
+        carry_outside(before, cm_files)
         sh("critic_brief.py", "--letters", ",".join(REVIEWERS.get(tier, REVIEWERS["full"])))
         cmj = json.loads((D / "change-map.json").read_text(encoding="utf-8")) if (D / "change-map.json").exists() else {}
         files = [str(f) for f in (cmj.get("files") or [])]
@@ -274,9 +359,34 @@ def main(a):
                   f"4. ask them to sign off on that size and pick a schedule (daily, weekly, biweekly, monthly). "
                   f"5. {py_cmd(HERE / 'security_feed.py')} set --cadence <schedule> --folder <folder> --signed-off <bytes>, then {py_cmd(HERE / 'security_feed.py')} update. "
                   f"If it is already on and due: {py_cmd(HERE / 'security_feed.py')} update (exit 5 means the database grew past the signed-off size: show the new estimate and ask again)")
+        from critic_findings import boundary_mode
+        if boundary_mode(ROOT) != "off" and not PROBE.parent.is_symlink():  # the sandbox switch: one token to try to read, from a command the sandbox covers
+            import secrets, shutil; PROBE.parent.mkdir(parents=True, exist_ok=True)
+            if PROBE.is_symlink() or (PROBE.exists() and not PROBE.is_file()):  # never a folder or a link a repository shipped (5.6.0 blind round)
+                shutil.rmtree(PROBE, ignore_errors=True) if PROBE.is_dir() and not PROBE.is_symlink() else PROBE.unlink()
+            PROBE.write_text(secrets.token_hex(16) + "\n", encoding="utf-8")
+            print(f"boundary check, now, in two commands. First, exactly as written (the cd keeps it inside Claude Code's sandbox when one is on): cd {sh_path(ROOT)} && {py_cmd(HERE / 'critic_run.py')} probe; "
+                  f"then, without a cd, the boundary-record command it prints")
         print(f"now, in the background (Bash with run_in_background), while the reviewers work: {scan_cmd(bool(security))} "
               "(add --page <page> for a UI). Reviewers can't read its output (their private copies and the read guard), so it no longer waits for them.")
         st, L, tier, items = state(); say_next(st, tier, items); return 0
+    if cmd == "probe":
+        code = probe(); print(f"boundary probe: {code}")
+        print(f"next, without a cd: {py_cmd(HERE / 'critic_run.py')} boundary-record {code}"); return 0
+    if cmd == "boundary-record":
+        if not rest: print(__doc__); return 2
+        rec, why = record_boundary(" ".join(rest))
+        if not rec: print(f"critic_run: boundary not recorded: {why}", file=sys.stderr); return 2
+        print(f"boundary: {rec['result']} ({rec['why']})"); return 0
+    if cmd == "boundary-settings":
+        from critic_findings import boundary_settings
+        print("To make Claude Code's sandbox the reviewers' boundary, these settings go in this project's .claude/settings.local.json "
+              "(critic_ledger.py boundary write merges them in, only after the user says yes). Why, in one line: the operating system then refuses every "
+              "reviewer command's read of .critic/ and of Curmudgeon's own records, whatever the command says. Tell the user too: every Bash command in this project's "
+              "sessions then runs in the sandbox, theirs included, with no unsandboxed retry; Curmudgeon's own scripts run without a cd are excluded. It needs macOS, Linux or WSL2 "
+              "(on Linux and WSL2, bubblewrap and socat), and a new Claude Code session to take effect. Where an administrator requires the sandbox, Claude Code ignores a project's "
+              "excludedCommands: those entries then belong in ~/.claude/settings.json.")
+        print(json.dumps(boundary_settings(ROOT, HERE), indent=1)); return 0
     if cmd == "early":
         if not early(force=True): print("early results: the scan has not written its report for this run yet")
         return 0

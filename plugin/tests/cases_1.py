@@ -807,7 +807,7 @@ def _(d):
     run(S / "critic_merge.py", "apply", str(write(d, "v.json", "[]")), cwd=d)  # no verdicts came back
     final = [json.loads(l) for l in (d / ".critic/findings.jsonl").read_text(encoding="utf-8").splitlines()]
     assert not any(f["title"] == "Invented by the outside AI" for f in final), final
-    assert "Outside findings not verified" in (d / ".critic/counts.md").read_text(encoding="utf-8")
+    assert "Outside or voided-review findings not kept" in (d / ".critic/counts.md").read_text(encoding="utf-8")
     write(d, "deep.txt", "[" * 3000 + "\n" + json.dumps([dict(finding(), id="N1")]))
     r = run(S / "critic_outside.py", "load", "deep.txt", cwd=d); assert r.returncode == 0 and "1 finding(s)" in r.stdout and "Traceback" not in r.stderr, r.stdout + r.stderr
     many = [dict(finding(line=2, title=f"t{i}"), id=f"N{i}") for i in range(150)]

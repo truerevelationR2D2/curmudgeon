@@ -32,7 +32,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import utf8io  # UTF-8 output on Windows too (03 §5.57 item 20)
 import workspace
 
-ALLOW = {"reviewer": {"rules", "rules.md", "change-map.md", "change-map.json", "risk-map.md", ".gitignore", "briefs"},  # a brief holds no findings, so reading one by path (a lead that passed the path, not the text) breaks no blindness
+ALLOW = {"reviewer": {"rules", "rules.md", "change-map.md", "change-map.json", "risk-map.md", ".gitignore"},  # no briefs: a reviewer gets its own brief as its prompt (brief_problem holds the lead to that), and the proctor voids one that read another's (03 §5.57 item 35; 5.5.0 blind round 2)
          "verifier": {"rules", "rules.md", "change-map.md", "change-map.json", "risk-map.md", ".gitignore", "verify", "verify-variants", "decisions.md"},  # never ledger.md: it holds dismissal notes and memories; never the scan (03 §5.56 item 13)
          "dedup": {"rules", "rules.md", ".gitignore", "dedup-candidates.json", "groups.json"}}
 
@@ -47,6 +47,8 @@ def judge(target, critic, role, me, via="read"):
     a verifier's packets are read only that way, so each one opened is counted (03 §5.56 item 13)."""
     t, c = fold(target), fold(critic)
     if t == c: return ".critic (the whole folder)"
+    cl = fold(os.path.join(os.environ.get("CLAUDE_CONFIG_DIR") or os.path.expanduser("~/.claude"), "projects"))
+    if t == cl or t.startswith(cl + os.sep): return "Claude's session transcripts (they hold the lead's conversation, other agents' reports included; 5.5.0 blind round 2)"
     g = fold(os.path.join(os.path.dirname(str(critic)), ".git"))
     if t == g or t.startswith(g + os.sep): return "the project's own .git (its history and authors; your copy has its own, without them)"
     if not t.startswith(c + os.sep):
@@ -146,9 +148,13 @@ def brief_problem(root, ti):
 
 def run_active(root):
     led = root / ".critic" / "ledger.json"
-    try: started = json.loads(led.read_text(encoding="utf-8")).get("started_at") if led.is_file() and not led.is_symlink() else None
-    except Exception: started = None
+    try: L = json.loads(led.read_text(encoding="utf-8")) if led.is_file() and not led.is_symlink() else {}
+    except Exception: L = {}
+    started = L.get("started_at") if isinstance(L, dict) else None
     if not started or time.time() - started > 12 * 3600: return False
+    try:
+        if any(isinstance(a, dict) and a.get("run") == L.get("run") for a in L.get("aborted") or []): return False  # the owner stopped it (critic_ledger.py abort): no longer active (5.4.0 self-review)
+    except TypeError: pass
     last = root / ".critic" / "last-review.md"
     return not last.exists() or last.stat().st_mtime < started
 
@@ -383,6 +389,45 @@ def bash_problem(cmd, rec, root, critic, role, me):
     NET_CODE = re.compile(r"\b(?:socket|urllib|http\.client|requests|httpx|aiohttp|fetch\(|net\.|https?\.(?:get|request)|XMLHttpRequest|LWP|Net::HTTP|open-uri|curl_)"
                           r"|\brequire\(\s*['\"](?:node:)?(?:https?|http2|net|tls|dgram|dns|undici)['\"]\s*\)|\bfrom\s+['\"](?:node:)?(?:https?|http2|net|tls|dgram|undici)['\"]"
                           r"|\bimport\(\s*['\"](?:node:)?(?:https?|net|tls|undici)['\"]|\bWebSocket\b|\bwget\b|\bcurl\b")  # audit V14: require("https").get(...) and its relatives
+    NET_IN_STR = re.compile(r"\brequire\(\s*['\"](?:node:)?(?:https?|http2|net|tls|dgram|dns|undici|child_process)['\"]|\bfrom\s+['\"](?:node:)?(?:https?|http2|net|tls|dgram|undici|child_process)['\"]"
+                            r"|\bimport\(\s*['\"](?:node:)?(?:https?|net|tls|undici|child_process)['\"]")  # a module named in a string is still code
+    RUNS_TEXT = re.compile(r"(?<![A-Za-z0-9])(?:subprocess|system|popen|exec\w*|spawn\w*|pty|commands|eval|compile|__import__|import_module|importlib|getattr|globals|locals|vars|modules|"
+                           r"require|Function|child_process|Open3|Kernel|send|public_send|syscall|qx|ctypes|cffi|pickle|marshal|codecs|base64|b64decode|unhexlify|fromhex|"
+                           r"chr|fromCharCode|decode|unescape|atob|Buffer|process|Deno|Bun|__builtins__|builtins|__dict__|__getattribute__|__class__|__subclasses__|"
+                           r"__globals__|__loader__|__spec__|attrgetter|methodcaller|pkgutil|resolve_name|pydoc|locate|runpy|zipimport|imp|load_module|exec_module|find_spec|spec_from\w*|"
+                           r"create_subprocess\w*|posix_spawn\w*|timeit|cProfile|profile|code|runsource|runcode|interact|InteractiveInterpreter|InteractiveConsole|compile_command|"
+                           r"pdb|bdb|trace|webbrowser)(?![A-Za-z0-9])|\bimport\s*\(|[\w)\]]\s*\[\s*\]")  # what could turn a string into a module, a call or a command
+    INTERPOLATES = re.compile(r"`|#\{|\$\{|@\{\[|\{\$|(?<![A-Za-z0-9_])[rRbBuU]?[fF][rR]?['\"]|\$[A-Za-z_(]")  # code that runs inside a string literal (f-strings, templates, #{}, $var)
+    def strings_out(c, py):
+        """The code with every string literal and (Python) comment removed, or None when that can't be told for sure."""
+        if py:
+            import io, tokenize
+            try: toks = list(tokenize.generate_tokens(io.StringIO(c).readline))
+            except (tokenize.TokenError, IndentationError, SyntaxError): return None
+            if any(tk.type == tokenize.COMMENT for tk in toks): return None  # the command text reaches here with its lines joined, so a comment would hide the code after it (5.5.0 blind round)
+            drop = {tokenize.STRING} | {getattr(tokenize, x) for x in ("FSTRING_MIDDLE", "TSTRING_MIDDLE") if hasattr(tokenize, x)}
+            return " ".join(tk.string for tk in toks if tk.type not in drop)
+        if re.search(r"//|/\*|#", c): return None  # a comment, whose apostrophes would read as quotes on the joined line (5.5.0 blind round 2)
+        out, k, q = [], 0, None
+        while k < len(c):
+            ch = c[k]
+            if q:
+                if ch == "\\": k += 2; continue
+                if ch == q: q = None
+                elif ch == "\n": return None  # a quote left open: not sure where the strings are
+            elif ch in "'\"": q = ch
+            else: out.append(ch)
+            k += 1
+        return None if q else "".join(out)
+    def net_code(c, py):
+        """N5 (9 Nov run): network words only in a string or a comment, in code that has no way to run text, are data
+        (a reviewer writing JSON that mentions 'requests'), not network code. Anything that can run text, build a name
+        or interpolate into a string stays judged on the whole text, and a module named in a string is still code."""
+        if not NET_CODE.search(c): return False
+        if NET_IN_STR.search(c) or INTERPOLATES.search(c): return True
+        bare = strings_out(c, py)
+        if bare is None or NET_CODE.search(bare) or RUNS_TEXT.search(bare): return True
+        return bool(re.search(r"\.py[cw]?\b|\.pth\b", c) and re.search(r"(?<![A-Za-z0-9])(?:open|write\w*|Path|copy\w*|move|rename|replace|symlink|link)(?![A-Za-z0-9])", bare))  # writes a module it could then import (5.5.0 blind round 2)
     def positional(args, value_opts=()):
         out, k = [], 0
         while k < len(args):
@@ -396,7 +441,8 @@ def bash_problem(cmd, rec, root, critic, role, me):
         mode): reviewers and verifiers send nothing over the network and install nothing, from their copy."""
         n = name.rsplit("/", 1)[-1]
         for k, a in enumerate(args[:-1]):
-            if a.endswith("critic_ledger.py") and args[k + 1] in ("consent", "approve", "adopt"): return f"critic_ledger.py {args[k + 1]}: only the owner gives consent, approves a file or adopts a set-aside ledger, through the lead"
+            if a.endswith("critic_ledger.py") and args[k + 1] in ("consent", "approve", "adopt", "boundary"): return f"critic_ledger.py {args[k + 1]}: only the owner gives consent, approves a file, adopts a set-aside ledger or sets the boundary, through the lead"
+            if a.endswith("critic_run.py") and args[k + 1] in ("probe", "boundary-record"): return f"critic_run.py {args[k + 1]}: the lead checks the boundary, never a reviewer"
         if (n == "poetry" and args[:1] == ["run"]) or (n in ("pnpm", "yarn") and args[:1] == ["exec"]):  # poetry run pip install ...: judge what they launch
             return tripwire(args[1], args[2:]) if len(args) > 1 else None
         if n in WRAPPERS:  # timeout 10 curl ..., nice -n 5 pip install ..., xargs -n1 curl: judge the command they run
@@ -422,7 +468,7 @@ def bash_problem(cmd, rec, root, critic, role, me):
         if n.startswith("python") or n in ("node", "deno", "bun", "ruby", "perl", "php", "osascript", "pwsh", "powershell"):
             code = [args[k + 1] for k in range(len(args) - 1) if args[k] in INLINE] + [x for k, x in enumerate(args) if k and args[k - 1] in ("<<<",)]
             if "<<" in args or "<<-" in args: code.append(flat_orig)  # the body as written, before its lone slashes were blanked (round 3 review)  # the body is on the lines after, in the same command text
-            if any(NET_CODE.search(c) for c in code): return f"{n} with network code: reviewers and verifiers work offline"
+            if any(net_code(c, n.startswith("python")) for c in code): return f"{n} with network code: reviewers and verifiers work offline"
             own_spellings = sorted(own_paths(pay.parent, root), key=len, reverse=True)
             def starts_from(c, raw=False):
                 """A listing whose starting argument is built from character codes or escapes (os.walk(chr(47)): 03

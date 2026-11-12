@@ -4,7 +4,13 @@ happened to each (new, known, fixed, regressed, acted on), decisions, false posi
 claims, scores, fingerprints, rounds, restore points, gate overrides and run costs, between runs and sessions.
 
 usage (run from the project root, or set CRITIC_ROOT):
-  init | start review|full|audit [--tier trivial|lite|full]   begin a run (round 1; records mode and tier; an audit refuses fixes)
+  boundary auto|require|off | boundary write
+                                         the sandbox switch: whether each run checks the OS boundary (auto, the
+                                         default), requires it, or skips it; write merges the sandbox settings into
+                                         .claude/settings.local.json, only after the user says yes
+  init | start review|full|audit [--tier trivial|lite|full] [--files-key K --owner-tier]
+                                         begin a run (round 1; records mode and tier; an audit refuses fixes); with
+                                         --owner-tier, remembers the tier the owner chose for the files keyed K (R4)
   import FINDINGS.jsonl                  record merged findings by stable id: new, known (still there) or regressed
   add ID SCORE WHERE "summary" [--verified]   record one finding by hand (round 3 accepts only --verified)
   status ID open|wontfix|refuted "note" update a finding (refuted: set by the merge script after a verifier's refutation;
@@ -160,15 +166,16 @@ def need(rest, n, usage):
 def archive_reviews(L, label):
     """A new run or round starts with no reviews: earlier ones move to .critic/history/<label>/reviews/, and
     started_at is reset, so the tally refuses any review file written before it."""
-    rv = D / "reviews"
-    if rv.is_dir() and not rv.is_symlink():
-        olds = [p for p in rv.iterdir() if p.is_file() and not p.is_symlink()]
-        if olds:
-            dest, k = D / "history" / label / "reviews", 2
-            while dest.exists():  # never overwrite an earlier archive (round --reset can repeat a label)
-                dest = D / "history" / f"{label}-{k}" / "reviews"; k += 1
-            dest.mkdir(parents=True)
-            for p in olds: os.replace(p, dest / p.name)
+    for sub in ("reviews", "briefs"):  # the briefs too: a new round writes its own, on the fix (10 Nov run report: round 2 started from round 1's briefs, or not at all)
+        rv = D / sub
+        if rv.is_dir() and not rv.is_symlink():
+            olds = [p for p in rv.iterdir() if p.is_file() and not p.is_symlink()]
+            if olds:
+                dest, k = D / "history" / label / sub, 2
+                while dest.exists():  # never overwrite an earlier archive (round --reset can repeat a label)
+                    dest = D / "history" / f"{label}-{k}" / sub; k += 1
+                dest.mkdir(parents=True)
+                for p in olds: os.replace(p, dest / p.name)
     for name_ in ("verdicts", "verdicts-variants"):  # a round's verdicts were on its own packets: the next round starts without them (§5.56 round 2)
         vd_ = D / name_
         if vd_.is_dir() and not vd_.is_symlink() and any(vd_.iterdir()):
@@ -311,6 +318,10 @@ def main(a):
         tier = rest[rest.index("--tier") + 1] if "--tier" in rest and rest.index("--tier") + 1 < len(rest) else ""
         if tier and tier not in ("trivial", "lite", "full"): die("tier must be trivial, lite or full")
         L["mode"], L["round"], L["tier"] = rest[0], 1, tier; L["run"] += 1
+        key = rest[rest.index("--files-key") + 1] if "--files-key" in rest and rest.index("--files-key") + 1 < len(rest) else ""
+        if tier and key and "--owner-tier" in rest and re.fullmatch(r"[0-9a-f]{16}", key):  # R4: the tier the owner chose for these files, so the next plan can mention it
+            ch_ = L.get("tier_choices") if isinstance(L.get("tier_choices"), dict) else {}
+            ch_[key] = {"tier": tier, "run": L["run"]}; L["tier_choices"] = dict(list(ch_.items())[-200:])  # the newest 200 file sets
         for m in L["memories"]:  # retire memories unused for MEMORY_TTL_DAYS
             try:
                 if not m.get("retired") and (time.time() - time.mktime(time.strptime(m.get("last_used", m.get("made")), "%Y-%m-%d"))) > MEMORY_TTL_DAYS * 86400: m["retired"] = True
@@ -318,8 +329,10 @@ def main(a):
         archive_reviews(L, f"run-{L['run'] - 1}")
         sc = D / "scratch"  # the last run's agent scratch folders move aside too: a new run's agents start empty
         if sc.is_dir() and not sc.is_symlink():
+            left = 0
             for pl in sc.glob("*/payload"):  # an agent's copy of the project (hooks/workspace.py) left by a stop that never ran: a copy, never history
-                if pl.is_dir() and not pl.is_symlink() and not pl.parent.is_symlink(): shutil.rmtree(pl, ignore_errors=True)
+                if pl.is_dir() and not pl.is_symlink() and not pl.parent.is_symlink(): shutil.rmtree(pl, ignore_errors=True); left += 1
+            if left: print(f"removed {left} private cop{'y' if left == 1 else 'ies'} of the project left by earlier agents whose stop hook never ran (.critic/scratch/*/payload)")
         for name_ in ("verdicts", "verdicts-variants"):  # the last run's verifier answers: never applied to this run (critic_run.py), kept for audit
             vd_ = D / name_
             if vd_.is_dir() and not vd_.is_symlink() and any(vd_.iterdir()):
@@ -582,6 +595,30 @@ def main(a):
         try: cf_.write_owner_state(ROOT, "approvals", {"files": files})
         except OSError as e: die(str(e))
         msg = f"approved .critic/{which} as it is now (any change needs approving again); the approval is kept outside the project, where a repository can't ship one"
+    elif cmd == "boundary":  # the sandbox switch (03 §5.57 items 17 and 20): the owner's choice, and the settings, written only on their yes
+        need(rest, 1, "boundary auto|require|off | boundary write")
+        import critic_findings as cf_
+        if rest[0] in ("auto", "require", "off"):
+            try: cf_.write_owner_state(ROOT, "boundary", {"mode": rest[0]})
+            except OSError as e: die(str(e))
+            print(f"boundary: {rest[0]}" + {"auto": " (checked each run and reported)", "require": " (no reviewer starts unless Claude Code's sandbox refuses a read of .critic/)", "off": " (not checked)"}[rest[0]]); return 0
+        if rest[0] != "write": die("boundary auto|require|off | boundary write")
+        f = ROOT / ".claude" / "settings.local.json"
+        if f.is_symlink() or f.parent.is_symlink(): die(f"{f} is a link; refusing")
+        try: cur = json.loads(f.read_text(encoding="utf-8")) if f.is_file() else {}
+        except ValueError as e: die(f"{f} isn't valid JSON ({e}); nothing was written. Fix it, or add the settings by hand (critic_run.py boundary-settings)")
+        if not isinstance(cur, dict): die(f"{f} isn't a JSON object; nothing was written")
+        want = cf_.boundary_settings(ROOT, pathlib.Path(__file__).resolve().parent)["sandbox"]
+        sb = cur.get("sandbox") if isinstance(cur.get("sandbox"), dict) else {}
+        fs = sb.get("filesystem") if isinstance(sb.get("filesystem"), dict) else {}
+        for k_ in ("denyRead", "allowRead"): fs[k_] = list(dict.fromkeys([*(fs.get(k_) or []), *want["filesystem"][k_]]))
+        sb.update(enabled=True, allowUnsandboxedCommands=False, autoAllowBashIfSandboxed=sb.get("autoAllowBashIfSandboxed", False), filesystem=fs, excludedCommands=list(dict.fromkeys([*(sb.get("excludedCommands") or []), *want["excludedCommands"]])))
+        cur["sandbox"] = sb; f.parent.mkdir(parents=True, exist_ok=True)
+        import tempfile  # a temp name the repository can't have shipped as a link (5.6.0 blind round)
+        fd_, tmp_ = tempfile.mkstemp(prefix=".settings.", suffix=".tmp", dir=str(f.parent))
+        with os.fdopen(fd_, "w", encoding="utf-8") as fh_: fh_.write(json.dumps(cur, indent=2) + "\n")
+        os.replace(tmp_, f)
+        print(f"wrote the sandbox settings to {f} (the user said yes); they take effect in a new Claude Code session. Then critic_run.py probe should say os-enforced."); return 0
     elif cmd == "consent":  # 03 §5.56 item 12: run by the lead only after the owner said yes (live: they typed the host)
         need(rest, 1, "consent live HOST | consent writes | consent online")
         import critic_findings as cf_
@@ -726,6 +763,7 @@ def main(a):
             esc += mole_lines(L)
             for e in esc: print(e if e.startswith("WHACK-A-MOLE") else f"ESCALATE to the owner: {e}")
             print(f"review round {L['round']} of 3" + (" (verify-only: no new findings without an executed case)" if L["round"] == 3 else ""))
+            if L["round"] <= 3: print(f"next: round {L['round']}'s blind re-review of the fix (SKILL.md step 8.4): run critic_run.py status; it names each step (map the fix, write the briefs, run the scan, start the reviewers)")  # 10 Nov run report, runs 5 and 7
             if esc: return 3
             return 1 if L["round"] > 3 else 0
     elif cmd == "restore":
