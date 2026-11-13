@@ -389,7 +389,7 @@ def _(d):
     _del_repo(e, {"helpers.py": "def x(p):\n    return p\n# reads the session token and the password hash\n"}, ["helpers.py"])
     write(e, "README.md", "hi\n"); run(S / "critic_map.py", cwd=e)
     cm = json.loads((e / ".critic/change-map.json").read_text(encoding="utf-8"))
-    assert "token" in cm["sensitive"].get("helpers.py", []) and cm["tier"] == "full", (cm["sensitive"], cm["tier"])
+    assert "token" in cm["sensitive"].get("helpers.py", []) and cm["tier"] == "lite" and cm["suggest"]["tier"] == "full", (cm["sensitive"], cm["tier"], cm.get("suggest"))
     m = d / "m"; m.mkdir()
     _del_repo(m, {"old.py": "def compute_total(xs):\n    return sum(xs)\n", "app.py": "from old import compute_total\nprint(compute_total([1]))\n"}, ["old.py"])
     write(m, "new.py", "def compute_total(xs):\n    return sum(xs)\n"); write(m, "app.py", "from new import compute_total\nprint(compute_total([1]))\n")

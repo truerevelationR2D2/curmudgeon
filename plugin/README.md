@@ -60,13 +60,13 @@ To try it on code with known bugs, the test apps in `eval/` (for example `eval/f
 
 ## How a review runs
 
-1. **Size it.** A script sets the tier from what changed and how sensitive it is:
-   - trivial: one reviewer, with verification of contested findings only;
-   - lite: one reviewer, plus verification of Critical and High findings;
-   - full: three blind reviewers and full verification.
-   The same script lists what calls the changed code.
+1. **Size it.** A script sets the tier from what changed:
+   - trivial (two files or fewer, under 20 changed lines, nothing sensitive): one reviewer, with verification of contested findings only;
+   - lite, the default for everything else: one reviewer, plus verification of Critical and High findings;
+   - full, only when you ask (`deep`, audit mode, or `--tier full`): three blind reviewers, verification of every finding and the variant hunt.
+   When a change touches sensitive code (auth, secrets, payments, CI and the like) or is large (more than 10 files or 400 lines), the plan suggests full in one line and says why; it doesn't switch by itself. On 12 November 2026, lite on 5.6.0 found 85 of 98 planted bugs over 12 runs with no false alarms (111 of 111 findings real), at a median $0.69 a run (`eval/lite-2026-11-12.md`). The same script lists what calls the changed code.
 
-   **A security scan** (`/curmudgeon:review security [what]`) is sized the same way, one reviewer for a small change and three for a large one, and it changes no file in your project. What differs:
+   **A security scan** (`/curmudgeon:review security [what]`) is sized the same way, one reviewer unless you ask for full, and it changes no file in your project. What differs:
    - the reviewers' briefs ask about security only: injection, access control, secrets, unsafe parsing, server-side requests, path traversal, the supply chain, and what a page loads, links to or posts to;
    - the report keeps only the security rows of the scripted checks: secrets, dependencies, CI and supply chain, agent and MCP configuration, browser integrity, and secrets in logs or DEBUG left on;
    - the **local security database is off by default.** The first security scan asks you once whether to build it, with Off as the default, and an unattended run never asks. With it off, dependencies are checked offline only (unpinned versions, install scripts, packages from URLs). If you say yes, you pick its folder, see a size estimate and sign off on it, and choose how often it refreshes. After that, each security scan refreshes it first when your schedule says it is due, and stops to ask again if it would grow more than 25% past the size you signed off on. The database is checked on your machine, so no package name leaves it. [Security scan](#security-scan) below has the details and the sources.

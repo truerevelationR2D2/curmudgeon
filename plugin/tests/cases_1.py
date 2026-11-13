@@ -107,10 +107,10 @@ def _(d):
     assert '"block"' in out
     assert not run(H / "check_contract.py", cwd=d, stdin=json.dumps({"agent_type": "general-purpose", "cwd": str(d)})).stdout.strip()
 
-@test("map: a refund change is the full tier; a two-line note is trivial")
+@test("map: a refund change is lite with full suggested (03 §5.57 item 39); a two-line note is trivial")
 def _(d):
     write(d, "api.js", "export function refund(id) { return fetch('/api/refund', {method:'POST'}); }\n"); write(d, "app.js", "import { refund } from './api.js';\nrefund(1);\n")
-    r = run(S / "critic_map.py", "--files", "api.js", "app.js", cwd=d); assert json.loads(r.stdout)["tier"] == "full", r.stdout
+    r = run(S / "critic_map.py", "--files", "api.js", "app.js", cwd=d); assert json.loads(r.stdout)["tier"] == "lite" and json.loads(r.stdout)["suggest"] == "full", r.stdout
     write(d, "notes.txt", "hello\n"); write(d, "b.css", "a{}\n")
     r = run(S / "critic_map.py", "--files", "b.css", cwd=d); assert json.loads(r.stdout)["tier"] == "trivial", r.stdout
 
@@ -291,11 +291,11 @@ def _(d):
     run(S / "critic_ledger.py", "approve", "rules.md", cwd=d)
     run(S / "critic_scan.py", ".", "--root", ".", "--project-checks", cwd=d); assert (d / "ran.txt").exists()
 
-@test("round 2 N5: token, role and security code is the full tier")
+@test("round 2 N5: token, role and security code suggests the full tier (03 §5.57 item 39: suggested, not switched to)")
 def _(d):
     write(d, "jwt.js", "export function verify(token) { return jwt.verify(token, KEY) }\n"); write(d, "roles.py", 'return user.role == "owner"\n')
     for f_ in ("jwt.js", "roles.py"):
-        assert json.loads(run(S / "critic_map.py", "--files", f_, cwd=d).stdout)["tier"] == "full", f_
+        o = json.loads(run(S / "critic_map.py", "--files", f_, cwd=d).stdout); assert o["tier"] == "lite" and o["suggest"] == "full", (f_, o)
 
 @test("round 2 N6 / F-dadeba3d / round 4 N2: a refutation needs an existing file:line, a run or trace, and no hedging")
 def _(d):

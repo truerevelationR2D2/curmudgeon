@@ -433,3 +433,37 @@ def _(d):
               {"loc": "app.js:90", "claim": "app.js:90 search ignores case"}]
     r = dm.score_task({"key": str(key)}, blocks, {"a/t/2": "real"}, "a/t")
     assert r["found"] == 1 and r["unlabelled"] == 0 and r["precision"] == "2 of 2", r
+
+
+@test("5.7.0 lite default (03 §5.57 item 39): a sensitive or large change stays lite, and the plan suggests full in one line with its reasons; --tier full and a small change don't")
+def _(d):
+    write(d, "auth.py", "def login(user, password):\n    return check(password)\n")
+    for i in range(12): write(d, f"m{i}.py", "x = 1\n")
+    o = json.loads(run(S / "critic_map.py", "--files", "auth.py", cwd=d).stdout)
+    assert o["tier"] == "lite" and o["suggest"] == "full", o
+    cm = (d / ".critic/change-map.md").read_text(encoding="utf-8"); assert "**Full suggested** (sensitive: " in cm, cm[:400]
+    p = run(S / "critic_plan.py", cwd=d).stdout
+    assert "plan: lite tier" in p and p.count("suggested: the full tier (sensitive: ") == 1, p
+    assert "suggested" not in run(S / "critic_plan.py", "--tier", "full", cwd=d).stdout, "a tier the user chose gets no suggestion"
+    o = json.loads(run(S / "critic_map.py", "--files", *[f"m{i}.py" for i in range(12)], cwd=d).stdout)
+    assert o["tier"] == "lite" and o["suggest"] == "full", o
+    assert "12 files" in json.loads((d / ".critic/change-map.json").read_text(encoding="utf-8"))["suggest"]["why"], "the reason names the size"
+    o = json.loads(run(S / "critic_map.py", "--files", "m0.py", cwd=d).stdout)
+    assert o["tier"] == "trivial" and o["suggest"] is None, o
+    assert "suggested" not in run(S / "critic_plan.py", cwd=d).stdout
+
+
+@test("5.7.0 eval harness (03 §5.57 item 39): the strict gate reads the blind labels (label.py score-labels) and the runner's cost (total_cost_usd) in the baseline's unit")
+def _(d):
+    E = HERE.parent / "eval"
+    t = d / "run" / "curmudgeon-lite" / "suite1-clean~1"; t.mkdir(parents=True)
+    row = {"id": "f-1", "file": "store.js", "line": 75, "category": "data-loss", "impact": "High", "title": "a second tab's save deletes the first tab's notes", "quote": "localStorage.setItem(KEY, JSON.stringify(notes))", "evidence": "the whole list is written from one tab's memory", "failing_case": "two tabs", "remediation": "merge on save"}
+    (t / "findings.jsonl").write_text(json.dumps(row) + "\n", encoding="utf-8")
+    (t / "last-review.md").write_text("# Teardown\n\n## VERDICT\nBLOCK\n", encoding="utf-8")
+    (t / "meta.json").write_text(json.dumps({"total_cost_usd": 0.5, "tokens": 1000}), encoding="utf-8")
+    (d / "run" / "labels.json").write_text(json.dumps({"curmudgeon-lite/suite1-clean~1/0": "real"}), encoding="utf-8")
+    r = run(E / "label.py", "score-labels", str(d / "run"), cwd=E); assert (d / "run" / "score-labels.json").is_file(), r.stdout + r.stderr
+    env = dict(os.environ, CURMUDGEON_STATE_DIR=str(d / "state"))
+    o = subprocess.run([sys.executable, str(E / "score.py"), str(t / "last-review.md"), "--clean", "1", "--labels", str(d / "run" / "score-labels.json")], cwd=E, capture_output=True, text=True, env=env, encoding="utf-8").stdout
+    assert "real (unplanted bugs) 1" in o and "unlabelled 0" in o, o
+    assert "Cost per run: $0.50" in o, "the runner's total_cost_usd, in the baseline's dollars: " + o[-600:]
