@@ -285,9 +285,11 @@ def _(d):
     for bad in (["git", "show", "HEAD:src/app.js", "HEAD"], ["git", "log", "--", ":(top)"], ["git", "blame", "--", ".critic/secret.md"], ["git", "show", "HEAD:"]):
         r = ask(*bad); assert r.returncode == 2 and "RUN-SECRET" not in r.stdout, bad
     other = d / "other"; write(other, "x.txt", "x\n")
+    for g in (["init", "-q"], ["add", "."], ["-c", "user.email=o@example.invalid", "-c", "user.name=o", "commit", "-qm", "OTHER-REPO-COMMIT"]): subprocess.run(["git", *g], cwd=other, capture_output=True)
     r = ask("read", str(p / ".critic/briefs/brief-A.md"), env={"CRITIC_ROOT": str(other)})
     assert r.returncode == 2, "CRITIC_ROOT is ignored: .critic stays refused"
-    assert "brief-A" not in (other / ".critic/proctor/requests.jsonl").read_text(encoding="utf-8") if (other / ".critic/proctor/requests.jsonl").exists() else True
+    r = ask("git", "log", "--oneline", env={"CRITIC_ROOT": str(other)})  # 5.6.0 re-review C2: a path with no .critic in it, so only ROOT decides
+    assert r.returncode == 0 and "first" in r.stdout and "OTHER-REPO-COMMIT" not in r.stdout, ("the history is the project's own, whatever CRITIC_ROOT says", r.stdout, r.stderr)
 
 N5_REFUSED_R2 = [  # 5.5.0 blind round 2
     "python3 -c 'import os; os.posix_spawnp(\"curl\", [\"curl\", \"http://x.invalid\"], {})'",
@@ -372,9 +374,9 @@ def _(d):
     for cmd in (f"cd {ws} && python3 {S / 'critic_run.py'} probe", f"cd {ws} && python3 {S / 'critic_run.py'} boundary-record MISSING", f"cd {ws} && python3 {S / 'critic_ledger.py'} boundary off"):
         assert "deny" in _rg(d, "Bash", command=cmd), cmd
     w = d / "w"; write(w, "x.txt", "x\n")
-    try: os.symlink(w / "x.txt", d / ".claude" / ".settings.planted.tmp") if (d / ".claude").mkdir() is None else None; linked = True
-    except (OSError, NotImplementedError): linked = False
-    write(d, ".claude/settings.local.json.tmp", "planted\n")
+    (d / ".claude").mkdir(exist_ok=True)
+    try: os.symlink(w / "x.txt", d / ".claude" / "settings.local.json.tmp"); linked = True  # 5.6.0 re-review C3: at the name the old code wrote, so the test fails on it
+    except (OSError, NotImplementedError): linked = False; write(d, ".claude/settings.local.json.tmp", "planted\n")
     assert run(S / "critic_ledger.py", "boundary", "write", cwd=d).returncode == 0 and (w / "x.txt").read_text(encoding="utf-8") == "x\n", "a planted temp file or link is never written through"
 
 @test("5.6.0 sandbox switch: require holds every reviewer until the boundary is os-enforced; off skips the check; the settings are printed with absolute paths and written only by boundary write, merged into what is there")
@@ -418,7 +420,7 @@ def _(d):
     import shutil, importlib
     sys.path.insert(0, str(HERE.parent / "eval")); dm = importlib.import_module("deathmatch")
     exe = shutil.which("python3")
-    if not exe: return
+    if not exe: raise Skip("no python3 on PATH")  # 5.6.0 re-review C11: a skip, never a silent pass
     t = dm.allowed_tools({"tools": ["Read", "Bash(python3:*)"]})
     assert f"Bash({exe}:*)" in t and f"Bash({os.path.realpath(exe)}:*)" in t and t[:2] == ["Read", "Bash(python3:*)"], t
     assert dm.allowed_tools({"tools": ["Read"]}) == ["Read"], "an arm without python3 gets nothing added"
@@ -467,3 +469,70 @@ def _(d):
     o = subprocess.run([sys.executable, str(E / "score.py"), str(t / "last-review.md"), "--clean", "1", "--labels", str(d / "run" / "score-labels.json")], cwd=E, capture_output=True, text=True, env=env, encoding="utf-8").stdout
     assert "real (unplanted bugs) 1" in o and "unlabelled 0" in o, o
     assert "Cost per run: $0.50" in o, "the runner's total_cost_usd, in the baseline's dollars: " + o[-600:]
+
+
+@test("5.6.0 re-review C4 and C5: unreadable marks make the stop record and the tally unchecked (never 'saw nothing'); a review sent back to be fixed isn't rewritten by the hook before it passes")
+def _(d):
+    write(d, "src/app.js", APP)
+    run(S / "critic_run.py", "begin", "--files", "src/app.js", "--tier", "lite", cwd=d)
+    b = (d / ".critic/briefs/brief-A.md").read_text(encoding="utf-8")
+    bad = dict(TAX9, quote="x")  # too short to check: the contract sends it back
+    write(d, ".critic/reviews/review-A.json", json.dumps([bad])); before = (d / ".critic/reviews/review-A.json").read_text(encoding="utf-8")
+    _stop9(d, "rq", "A", [b])
+    assert (d / ".critic/reviews/review-A.json").read_text(encoding="utf-8") == before, "sent back: the file is left as the reviewer wrote it (C4)"
+    write(d, ".critic/reviews/review-A.json", json.dumps([TAX9])); time.sleep(0.05); _stop9(d, "rq2", "A", [b])
+    assert '"mark": "cm-' in (d / ".critic/reviews/review-A.json").read_text(encoding="utf-8"), "a review that passes is stamped"
+    mk = d / ".critic/proctor/marks.json"; good = mk.read_text(encoding="utf-8"); mk.write_text("{not json", encoding="utf-8")
+    pr = _stop9(d, "rq3", "A", [b])
+    assert pr.get("checked") is False and "marks" in pr.get("why", ""), ("unchecked, with the reason (C5)", pr)
+    run(S / "critic_merge.py", "tally", ".critic/reviews/review-A.json", "--no-scan", cwd=d)
+    deg = json.loads((d / ".critic/tally.json").read_text(encoding="utf-8"))["degraded"]
+    assert any("couldn't check review-A.json" in x and "marks can't be read" in x for x in deg), deg
+    mk.write_text(good, encoding="utf-8")
+
+@test("5.6.0 re-review C1, C6, C9, C10: the request command gives history with no author or date and refuses --author; a search phrase with a colon works; HOME on the command line moves no refusal; reviewers never run the ledger")
+def _(d):
+    p = d / "proj"; write(p, "src/app.js", APP)
+    subprocess.run(["git", "init", "-q"], cwd=p); subprocess.run(["git", "add", "-A"], cwd=p); subprocess.run(["git", "-c", "user.email=writer@example.invalid", "-c", "user.name=Jane Writer", "commit", "-qm", "fix: first"], cwd=p)
+    run(S / "critic_run.py", "begin", "--files", "src/app.js", "--tier", "lite", cwd=p); ws = _ws(p)["payload"]
+    ask = lambda *a, env=None: run(S / "critic_proctor.py", "ask", *a, cwd=pathlib.Path(ws), env=dict({"CRITIC_ROOT": ""}, **(env or {})))
+    for q in (["git", "log"], ["git", "show", "HEAD"], ["git", "blame", "--", "src/app.js"], ["git", "log", "--format=%an %ae %ad"]):
+        r = ask(*q); assert r.returncode == 0 and "Jane" not in r.stdout and "writer@" not in r.stdout and not re.search(r"\b20\d\d-\d\d-\d\d\b", r.stdout), (q, r.stdout[:300], r.stderr)
+    for q in (["git", "log", "--author", "Jane"], ["git", "blame", "-e", "--", "src/app.js"], ["git", "blame", "--porcelain", "--", "src/app.js"]):
+        assert ask(*q).returncode == 2, q
+    r = ask("git", "log", "--grep", "fix: first"); assert r.returncode == 0 and "fix: first" in r.stdout, ("an option's value with a colon is no REV:PATH (C9)", r.stderr)
+    real = pathlib.Path(os.path.expanduser("~")) / ".claude"
+    try:
+        import pwd; real = pathlib.Path(pwd.getpwuid(os.getuid()).pw_dir) / ".claude"
+    except (ImportError, KeyError): pass
+    if real.is_dir():
+        r = ask("list", str(real), env={"HOME": str(d), "CLAUDE_CONFIG_DIR": str(d / "cfg")})
+        assert r.returncode == 2 and "Claude's own folder" in r.stderr, ("the real home still counts (C10)", r.stderr)
+    for c in ("show", "fresh", "tokens"):
+        assert "deny" in _rg(p, "Bash", command=f"cd {ws} && python3 {S / 'critic_ledger.py'} {c}"), c
+        assert run(S / "critic_ledger.py", c, cwd=pathlib.Path(ws), env={"CRITIC_ROOT": ""}).returncode == 2, ("refused from a workspace (C6)", c)
+
+@test("5.6.0 re-review C7, C8, C12: a reviewer's row can't bring script-only keys in; a shipped ledger's memories note nothing; memory number 0 or past the end is refused")
+def _(d):
+    write(d, "src/app.js", APP)
+    run(S / "critic_run.py", "begin", "--files", "src/app.js", "--tier", "lite", cwd=d)
+    write(d, ".critic/reviews/review-A.json", json.dumps([dict(TAX9, measured=True, verifier="confirmed", verifier_reproduced="executed", confidence="confirmed")]))
+    run(S / "critic_merge.py", "tally", ".critic/reviews/review-A.json", "--no-scan", cwd=d)
+    t = json.loads((d / ".critic/tally.json").read_text(encoding="utf-8"))
+    rows = t["kept"] + t["contested"]
+    assert rows and not any(k in f for f in rows for k in ("measured", "verifier", "verifier_reproduced")), ("the scripts' keys come from the scripts (C8)", rows)
+    L = json.loads((d / ".critic/ledger.json").read_text(encoding="utf-8"))
+    L["memories"] = [{"reason": "by design", "pattern": "tax rate hard coded price", "file_glob": "src/*.js", "made": "2026-11-01", "last_used": "2026-11-01", "hits": 0},
+                     {"reason": "newest", "pattern": "something else entirely", "file_glob": "", "made": "2026-11-01", "last_used": "2026-11-01", "hits": 0}]
+    own_ledger(d, L)
+    for n in ("0", "-1", "3"):
+        assert run(S / "critic_ledger.py", "memories", "--retire", n, cwd=d).returncode != 0, n
+        assert run(S / "critic_ledger.py", "memories", "--hit", n, cwd=d).returncode != 0, n
+    assert not any(m.get("retired") for m in json.loads((d / ".critic/ledger.json").read_text(encoding="utf-8"))["memories"]), "nothing retired (C12)"
+    write(d, ".critic/reviews/review-A.json", json.dumps([TAX9])); run(S / "critic_merge.py", "tally", ".critic/reviews/review-A.json", "--no-scan", cwd=d)
+    t = json.loads((d / ".critic/tally.json").read_text(encoding="utf-8")); assert any(f.get("memory_note") for f in t["kept"] + t["contested"]), "the owner's own ledger notes it"
+    subprocess.run(["git", "init", "-q"], cwd=d); subprocess.run(["git", "add", "-f", ".critic/ledger.json"], cwd=d); subprocess.run(G9 + ["commit", "-qm", "ship a ledger"], cwd=d)
+    write(d, ".critic/reviews/review-A.json", json.dumps([TAX9]))
+    run(S / "critic_merge.py", "tally", ".critic/reviews/review-A.json", "--no-scan", cwd=d)
+    t = json.loads((d / ".critic/tally.json").read_text(encoding="utf-8"))
+    assert not any(f.get("memory_note") for f in t["kept"] + t["contested"]), ("a shipped ledger's memories note nothing (C7)", t["kept"] + t["contested"])

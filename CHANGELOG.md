@@ -2,7 +2,36 @@
 
 Every release of Curmudgeon, newest first. The repository's history starts at 4.2.1; earlier versions are summarised from the project's own build and review records. Numbers are the ones measured at the time; the README's Benchmarks section has the current ones and how they were measured.
 
-## 5.6.0 (unreleased): the proctor, the sandbox switch, N5, the approved backlog and WSL2 as a required check (03 §5.57 items 17, 20, 34-36)
+## 5.7.0 (unreleased): lite is the default, and the fixes from the 5.6.0 re-review (03 §5.57 items 37 to 39)
+
+**Lite is every review's default** (ruling 39). A change that touches sensitive code or is large (more than 10 files or 400 changed lines) stays lite, and the plan suggests the full tier in one line with the reasons. `deep`, audit mode and `--tier full` still switch to full. It was measured first, on 5.6.0, over the same 12 eval runs per tier (suites 1 to 4 and two clean twins, twice each, Sonnet 5.5), with every finding that matched no planted bug judged by two blind labellers and a tiebreaker:
+
+| | Lite | Full |
+|---|---|---|
+| Planted bugs found | 85 of 98 | 96 of 98 |
+| Findings judged real | 111 of 111 | 135 of 135 |
+| Real bugs found in the clean twins | 19 | 28 |
+| Cost for 12 runs (median per run) | $8.95 ($0.69) | $20.00 ($1.42) |
+
+Write-up: `eval/lite-2026-11-12.md`.
+
+**Fixes from the blind re-review of the 5.5.0 and 5.6.0 fixes** (three reviewers on 5.6.0, blind verification; 12 findings, 8 Medium and 4 Low, all fixed, each with a test that fails on the old code, and not reviewed again; this was the third round on the 5.5.0 fixes, the last allowed):
+- The proctor's request command gives history with no author, email or date (`git log` and `git show` print only the short hash and the subject; `git blame` runs with `-s`), and refuses `--author` and `--committer`.
+- It refuses Claude's and Curmudgeon's own folders at the account's real home as well as where the environment says, so a reviewer that sets `HOME` on its command line moves nothing.
+- A search phrase with a colon (`--grep "fix: x"`) is no longer read as `REV:PATH`.
+- An unreadable `marks.json` makes the proctor report unchecked, and the tally says DEGRADED, where it said "saw nothing".
+- A review the hook sends back to be fixed is no longer rewritten with its marks first; it is stamped once it passes.
+- Reviewers and verifiers can't run `critic_ledger.py` at all, so its read-only commands can't show them earlier findings; those commands also refuse to run from a workspace.
+- A reviewer's own row can't bring in keys only the scripts set (`measured`, `verifier`, `verifier_reproduced`, `confidence` and others).
+- A ledger that came with the code no longer notes findings with its memories.
+- `memories --retire 0` (or `--hit`, or `dismiss --like`, with 0, a negative number or one past the end) is refused instead of picking the newest memory.
+- Three tests that could not fail now can: the CRITIC_ROOT test, the settings temp-file test (its link now sits where the old code wrote) and the eval harness test, which now skips when there is no `python3` instead of passing.
+
+**Eval harness.** Headless arms allow the Python Curmudgeon prints by its full path. The scorer leaves out a repeat report of a credited plant, as labelling does. `label.py score-labels` gives the strict gate (`score.py`) the same blind labels, and `score.py` reads the runner's cost in the baseline's unit. With these, the 12 lite runs pass the strict gate on suites 1, 3 and 4 and both clean twins. Suite 2 is NOT MEASURED because the leak check matched a 31-character phrase a review used for a real finding; the leak check is unchanged.
+
+Budgets (`claude plugin details`, 12 November 2026): about 919 tokens added to every session, unchanged; the review skill about 9.4k when it runs (5.6.0: about 9.3k); the reviewer agent about 1.9k, unchanged.
+
+## 5.6.0 (12 November 2026): the proctor, the sandbox switch, N5, the approved backlog and WSL2 as a required check (03 §5.57 items 17, 20, 34-36)
 
 One release for all of this work (Ryan, 12 Nov 2026: no separate 5.5.0 build).
 

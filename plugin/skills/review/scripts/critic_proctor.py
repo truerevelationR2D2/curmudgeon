@@ -8,8 +8,9 @@ usage (from the reviewer's copy: cd <workspace> && python3 <this file> ask ...):
   critic_proctor.py ask git log|diff|ls-files [OPTIONS] [REV...] [-- PATH...]
   critic_proctor.py ask git show [OPTIONS] [REV...] [-- PATH...]   or   ask git show REV:PATH
   critic_proctor.py ask git blame [OPTIONS] [REV] -- PATH
-                                           read-only history of the real project (a copy may have none); the
-                                           project's .critic/ is always left out
+                                           read-only history of the real project (a copy may have none), with
+                                           no author, email or date (the copy and the brief hide who wrote it);
+                                           the project's .critic/ is always left out
 
 Refused, whatever the spelling or link: any .critic folder, Curmudgeon's own records (~/.curmudgeon), Claude's own
 folder (~/.claude: agents' transcripts), other processes (/proc), and git options that write files or run programs.
@@ -23,7 +24,9 @@ import safegit
 ROOT = pathlib.Path(__import__("projroot").project_of(os.getcwd())).resolve(); D = ROOT / ".critic"  # never CRITIC_ROOT: the reviewer it polices could set that (5.5.0 blind round)
 MAX = 200 * 1024
 GIT_OK = {"log", "show", "blame", "diff", "ls-files"}
-GIT_BAD = re.compile(r"^(?:--output|-o$|--ext-diff|--textconv|--exec|--upload-pack|--receive-pack|-c$|-C$|--git-dir|--work-tree|--config|--open-files-in-pager|-O|--no-index)", re.I)
+GIT_BAD = re.compile(r"^(?:--output|-o$|--ext-diff|--textconv|--exec|--upload-pack|--receive-pack|-c$|-C$|--git-dir|--work-tree|--config|--open-files-in-pager|-O|--no-index|--author|--committer|--mailmap|--use-mailmap)", re.I)  # --author and --committer would let a search find who wrote the code (5.6.0 re-review C1)
+NO_WHO = "--format=%h %s"  # history without authors or dates, which the private copy and the brief keep from reviewers (5.6.0 re-review C1); git uses the last --format given, so this one wins
+VALUE_OPTS = {"--grep", "-S", "-G", "--since", "--until", "--after", "--before", "-n", "--max-count", "--skip", "-L", "--format", "--pretty", "--diff-filter", "--stat", "-U", "--unified", "--find-renames", "-M", "--relative"}  # options whose value is the next argument (5.6.0 re-review C9)
 
 def log(kind, what, answer):
     try:
@@ -34,16 +37,33 @@ def log(kind, what, answer):
         with open(f, "a", encoding="utf-8") as fh: fh.write(json.dumps({"at": time.strftime("%Y-%m-%d %H:%M:%S"), "kind": kind, "what": what[:300], "answer": answer}) + "\n")
     except OSError: pass
 
+def bases():
+    """[(folder, why)] never handed over: the owner's records and Claude's own folder, both where the environment says
+    and where they are by default under the account's real home (from the password database, not HOME), so a reviewer
+    that sets HOME, CLAUDE_CONFIG_DIR or CURMUDGEON_STATE_DIR on its own command line moves nothing (5.6.0 re-review C10)."""
+    homes = {pathlib.Path.home()}
+    try:
+        import pwd; homes.add(pathlib.Path(pwd.getpwuid(os.getuid()).pw_dir))
+    except (ImportError, KeyError, AttributeError, OSError): pass
+    if os.environ.get("USERPROFILE"): homes.add(pathlib.Path(os.environ["USERPROFILE"]))  # Windows has no password database
+    out = []
+    for h in homes:
+        out += [(h / ".curmudgeon", "Curmudgeon's own records"), (h / ".claude", "Claude's own folder (agents' transcripts)")]
+    for v, why in (("CURMUDGEON_STATE_DIR", "Curmudgeon's own records"), ("CLAUDE_CONFIG_DIR", "Claude's own folder (agents' transcripts)")):
+        if os.environ.get(v): out.append((pathlib.Path(os.environ[v]), why))
+    res = []
+    for b, why in out:
+        try: res.append((pathlib.Path(os.path.realpath(b)), why))
+        except (OSError, ValueError): pass
+    return res
+
 def refused_path(raw):
     """Why this path is never handed over, or None."""
     try: real = pathlib.Path(os.path.realpath(os.path.expanduser(raw)))
     except (OSError, ValueError): return "an unreadable path"
     parts = [x.lower() for x in real.parts]
     if ".critic" in parts or ".critic" in [x.lower() for x in pathlib.Path(raw).parts]: return "a .critic folder (the run's own records)"
-    home = pathlib.Path.home().resolve()
-    owner = pathlib.Path(os.environ.get("CURMUDGEON_STATE_DIR") or home / ".curmudgeon").resolve()
-    claude = pathlib.Path(os.environ.get("CLAUDE_CONFIG_DIR") or home / ".claude").resolve()
-    for base, why in ((owner, "Curmudgeon's own records"), (claude, "Claude's own folder (agents' transcripts)")):
+    for base, why in bases():
         if real == base or base in real.parents: return why
     if parts[:2] == [real.anchor.lower(), "proc"] or str(real).replace("\\", "/").startswith("/proc/"): return "another process's details (/proc)"
     return None
@@ -86,15 +106,16 @@ def main(a):
     if sub not in GIT_OK: return refuse(f"git {sub} isn't a read-only history command")
     bad = [x for x in args if ".critic" in x.lower() or GIT_BAD.match(x)] + [x for x in paths if x.startswith((":", "-")) or refused_path(str(ROOT / x))]
     if bad: return refuse(f"{bad[0]} (it names .critic, writes a file, runs a program, sets its own paths, or uses pathspec magic)")
-    blobs = [x for x in opts if re.match(r"^[^-][^:]*:", x)]  # REV:PATH names one file
+    blobs = [x for i, x in enumerate(opts) if re.match(r"^[^-][^:]*:", x) and not (i and opts[i - 1] in VALUE_OPTS)]  # REV:PATH names one file; an option's value (--grep "fix: x") is not one (5.6.0 re-review C9)
     if blobs and (sub != "show" or len(opts) != 1 or paths or not blobs[0].split(":", 1)[1]):
         return refuse("REV:PATH works only alone, as git show REV:PATH (5.5.0 blind round: beside other revisions it lifted the .critic exclusion)")
     if sub == "blame":
         if len(paths) != 1: return refuse("git blame needs exactly one file after --")
-        odd = [x for x in opts if x.startswith("-") and not re.fullmatch(r"-L\d*,?[+-]?\d*|-[wsenlftpMC]+|--porcelain|--line-porcelain|--show-email|--show-name|--show-number", x)]
-        if odd: return refuse(f"{odd[0]} (git blame takes only -L, -w, -s, -e, -n, -l, -f, -t, -p, -M, -C and the porcelain forms here; --contents would print any file)")  # 5.5.0 blind round 2
-        cmd = ["blame", *opts, "--", paths[0]]
+        odd = [x for x in opts if x.startswith("-") and not re.fullmatch(r"-L\d*,?[+-]?\d*|-[wsnlfMC]+|--show-name|--show-number", x)]
+        if odd: return refuse(f"{odd[0]} (git blame takes only -L, -w, -s, -n, -l, -f, -M and -C here: --contents would print any file, and the porcelain, email and time forms name who wrote it)")  # 5.5.0 blind round 2; 5.6.0 re-review C1
+        cmd = ["blame", "-s", *opts, "--", paths[0]]  # -s: no author and no date
     elif blobs: cmd = ["show", blobs[0]]
+    elif sub in ("log", "show"): cmd = [sub, *opts, NO_WHO, "--", *(paths or ["."]), ":(exclude,icase).critic", ":(exclude,icase).critic/**"]
     else: cmd = [sub, *opts, "--", *(paths or ["."]), ":(exclude,icase).critic", ":(exclude,icase).critic/**"]
     r = safegit.run(cmd, cwd=ROOT, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=60)
     if r.returncode != 0: log("git", " ".join(rest), f"git failed ({r.returncode})"); print(r.stderr[-2000:], file=sys.stderr); return r.returncode
