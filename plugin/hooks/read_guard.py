@@ -442,6 +442,7 @@ def bash_problem(cmd, rec, root, critic, role, me):
         n = name.rsplit("/", 1)[-1]
         for k, a in enumerate(args[:-1]):
             if a.endswith("critic_ledger.py") and args[k + 1] in ("consent", "approve", "adopt", "boundary"): return f"critic_ledger.py {args[k + 1]}: only the owner gives consent, approves a file, adopts a set-aside ledger or sets the boundary, through the lead"
+            if a.endswith("critic_ledger.py"): return f"critic_ledger.py {args[k + 1]}: the run's ledger holds earlier findings and is the lead's; a reviewer or verifier never runs it (5.6.0 re-review C6)"
             if a.endswith("critic_run.py") and args[k + 1] in ("probe", "boundary-record"): return f"critic_run.py {args[k + 1]}: the lead checks the boundary, never a reviewer"
         if (n == "poetry" and args[:1] == ["run"]) or (n in ("pnpm", "yarn") and args[:1] == ["exec"]):  # poetry run pip install ...: judge what they launch
             return tripwire(args[1], args[2:]) if len(args) > 1 else None

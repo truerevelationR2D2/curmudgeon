@@ -145,7 +145,7 @@ def score_task(task, blocks, labels, prefix):
         unl = [i for i, b in enumerate(blocks) if i not in fa and lab(i) is None]
         return {"false_alarms": len(fa), "blocks": len(blocks), "unlabelled": len(unl), "precision": None if unl else (f"0 of {len(fa)}" if fa else "no findings")}
     plants = plants_of(json.loads((HERE / task["key"]).read_text(encoding="utf-8")))
-    hit = match_plants(plants, blocks); used = set(hit.values())
+    hit = match_plants(plants, blocks); used = set(hit.values()) | plant_blocks(plants, blocks)  # a second report of a credited plant is neither labelled (label.py leaves it out) nor counted (12 Nov 2026: it left 5.6.0's lite precision NOT MEASURED)
     unl = [i for i in range(len(blocks)) if i not in used and f"{prefix}/{i}" not in labels]
     real = sum(1 for i in range(len(blocks)) if i not in used and labels.get(f"{prefix}/{i}") == "real")
     false = sum(1 for i in range(len(blocks)) if i not in used and labels.get(f"{prefix}/{i}") == "false")
@@ -192,6 +192,19 @@ def installed_plugins():
     except (OSError, subprocess.TimeoutExpired): return []
     return sorted(set(re.findall(r"^\s*>\s*(\S+@\S+)", out, re.M)))
 
+def allowed_tools(a):
+    """The arm's allowed tools. Curmudgeon prints its commands with the full path of the Python running it (py_cmd,
+    5.3.1, so they run on Windows), and a headless lead copies them as printed; an arm allowed python3 is allowed that
+    same Python by its full path too, or every printed command waits for an approval nobody gives (12 Nov 2026: the
+    5.6.0 lite runs stalled at the probe and the tally, 60 refusals)."""
+    import shutil
+    tools = list(a.get("tools", ["Read", "Grep", "Glob"]))
+    if "Bash(python3:*)" in tools:
+        found = shutil.which("python3")
+        for exe in dict.fromkeys(x for x in (found, found and os.path.realpath(found)) if x):
+            if f"Bash({exe}:*)" not in tools: tools.append(f"Bash({exe}:*)")
+    return tools
+
 def one_run(a, w, td, model):
     """One arm on one task in the work folder w; returns its meta (an error is recorded, never raised past here except
     a timeout, which the caller records)."""
@@ -201,7 +214,7 @@ def one_run(a, w, td, model):
         if r.returncode not in (0, 1): meta["error"] = f"exit {r.returncode}: {(r.stderr or '')[-200:]}"
         return meta
     prompt = a["prompt"].replace("{plugin}", str(PLUGIN))  # an arm given part of Curmudgeon's material names it here (03 §5.56 item 20)
-    cmd = ["claude", "-p", prompt, "--output-format", "json", "--allowedTools", ",".join(a.get("tools", ["Read", "Grep", "Glob"]))]
+    cmd = ["claude", "-p", prompt, "--output-format", "json", "--allowedTools", ",".join(allowed_tools(a))]
     for ad in a.get("add_dirs") or []: cmd += ["--add-dir", str(pathlib.Path(ad.replace("{plugin}", str(PLUGIN))).resolve())]  # read-only material outside the task folder
     if model: cmd += ["--model", model]
     if a.get("plugin"): cmd += ["--plugin-dir", str(PLUGIN)]

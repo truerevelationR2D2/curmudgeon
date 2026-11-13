@@ -49,11 +49,14 @@ def shown(transcript_path, deadline):
     except OSError: return None
 
 def marks(root):
+    """{mark: what it marks}; {} when no run has written any; None when the file is there but can't be read (a link,
+    bad JSON, the wrong shape), so the check says unchecked rather than "saw nothing" (5.6.0 re-review C5)."""
     p = pathlib.Path(root) / ".critic" / "proctor" / "marks.json"
-    try: m = json.loads(p.read_text(encoding="utf-8")) if p.is_file() and not p.is_symlink() else {}
-    except (OSError, ValueError): return {}
+    if not p.exists() and not p.is_symlink(): return {}
+    try: m = json.loads(p.read_text(encoding="utf-8")) if p.is_file() and not p.is_symlink() else None
+    except (OSError, ValueError): return None
     m = m.get("marks") if isinstance(m, dict) else None
-    return {k: str(v.get("what", "")) for k, v in m.items() if isinstance(k, str) and isinstance(v, dict)} if isinstance(m, dict) else {}
+    return {k: str(v.get("what", "")) for k, v in m.items() if isinstance(k, str) and isinstance(v, dict)} if isinstance(m, dict) else None
 
 def check(root, transcript_path, review_name):
     """{"checked": True, "saw": [...]} or {"checked": False, "why": ...}."""
@@ -61,4 +64,6 @@ def check(root, transcript_path, review_name):
     if text is None: return {"checked": False, "why": "no readable transcript"}
     letter = re.fullmatch(r"review-([A-Za-z0-9]+)\.json", str(review_name or ""))
     own = {f"brief-{letter.group(1)}", f"review-{letter.group(1)}.json"} if letter else set()
-    return {"checked": True, "saw": sorted({f"the mark of {what}" for mark, what in marks(root).items() if what not in own and mark in text})}
+    known = marks(root)
+    if known is None: return {"checked": False, "why": "the run's marks can't be read"}
+    return {"checked": True, "saw": sorted({f"the mark of {what}" for mark, what in known.items() if what not in own and mark in text})}

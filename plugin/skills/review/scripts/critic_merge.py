@@ -74,6 +74,12 @@ def norm_path(p):
     while p.startswith("./"): p = p[2:]
     return p
 
+SCRIPT_KEYS = {"measured", "verifier", "verifier_reproduced", "confidence", "scan_confirmed", "voided_only", "outside_only", "needs_a_run"}  # what only the scripts write on a finding: a reviewer's own row never carries them in (5.6.0 re-review C8: "measured": true read as confirmed)
+
+def reviewer_rows(path):
+    """A review's findings without the keys only the scripts set (verdicts are read with load_review, as they are)."""
+    return [{k: x for k, x in r.items() if k not in SCRIPT_KEYS} for r in load_review(path)]
+
 def load_review(path):
     p = pathlib.Path(path)
     if not p.exists(): die(f"{path} does not exist")
@@ -281,7 +287,7 @@ def tally(paths):
     if groups is None: snap["hashes"] = now  # the tally that wrote dedup-candidates.json: the grouped tally must count the same reviews
     try: put(snap_f, json.dumps(snap, indent=1))
     except OSError: pass
-    reviews = [load_review(p) for p in paths]
+    reviews = [reviewer_rows(p) for p in paths]
     # One stop record speaks for each review (5.5.0 blind rounds 1 and 2): the newest from an agent whose own Write or
     # Edit made the file, else the newest at all. So a fresh reviewer who rewrote a voided review is judged on its own,
     # and one who never wrote it can neither clear a void nor lend its blindness to the file.
@@ -305,7 +311,7 @@ def tally(paths):
     # The proctor (03 §5.57 item 35): a review whose agent's transcript shows another reviewer's or the scan's work is
     # voided. Its votes don't count; each of its findings that no honest reviewer also found goes to blind verification
     # and is kept only if the verifier reproduces it by running it, labelled, never as a vote and never raising an impact.
-    voided, unchecked = {}, []
+    voided, unchecked, unchecked_why = {}, [], {}
     try: sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[3] / "hooks")); import proctor as proctor_
     except Exception: proctor_ = None
     for name_, j_ in latest.items():
@@ -315,15 +321,16 @@ def tally(paths):
         if proctor_ and j_.get("transcript"):  # checked again now, against every mark known by this tally (a review stamped after this reviewer stopped)
             again = proctor_.check(ROOT, j_["transcript"], name_)
             if again.get("checked"): saw = sorted(set(saw) | set(again.get("saw") or [])); pr = dict(pr, checked=True)
+            elif again.get("why") == "the run's marks can't be read": pr = dict(pr, checked=False, why=again["why"])  # unreadable marks now: never "saw nothing" (5.6.0 re-review C5)
         if saw: voided[name_] = [str(x)[:120] for x in saw][:6]
-        elif not pr.get("checked"): unchecked.append(str(name_))
+        elif not pr.get("checked"): unchecked.append(str(name_)); unchecked_why[str(name_)] = str(pr.get("why") or "no readable transcript")
     voided_paths = [p for p in paths if in_reviews(p) and pathlib.Path(p).name in voided]
     paths = [p for p in paths if p not in voided_paths]
-    reviews = [load_review(p) for p in paths]
+    reviews = [reviewer_rows(p) for p in paths]
     for p in voided_paths: degraded.append(f"review voided by the proctor: {pathlib.Path(p).name} (its agent's transcript shows {'; '.join(voided[pathlib.Path(p).name])}); its votes don't count, and its findings no honest reviewer raised are kept only if a verifier reproduces them")
     if voided_paths and not paths: degraded.append("every reviewer was voided by the proctor, so no finding has a vote")
     unchecked = sorted({x for x in unchecked if x in {pathlib.Path(p).name for p in paths}})
-    if unchecked: degraded.append(f"the proctor couldn't check {', '.join(unchecked)} (no readable transcript), so whether its agent saw another's work is unknown")
+    if unchecked: degraded.append("the proctor couldn't check " + ", ".join(f"{x} ({unchecked_why.get(x, 'no readable transcript')})" for x in unchecked) + ", so whether its agent saw another's work is unknown")
     coverage = {"read": set(), "not_reached": set()}  # files the reviewers say they read, and the ones they didn't reach (SC-46)
     sandbox = []  # sandbox scenario lines: numbered SB1, SB2 ... here, so the teardown's SANDBOX LEDGER has a source (SC: self-review D C6)
     set_aside = []  # candidates a reviewer dropped, with the guard it relied on: logged so the eval can measure self-filtering, never counted
@@ -347,8 +354,8 @@ def tally(paths):
                                 "how": "driven" if str(x.get("how") or "").lower() == "driven" else "traced"})
     n = len(reviews); need = 1 if n <= 1 else math.ceil(2 * n / 3)  # no honest reviewer left (all voided): a vote is still one vote, never zero
     # an outside run we can't see never counts as executed: verification decides
-    outside_rows = [dict(r, source="outside", verified=r.get("verified") if r.get("verified") == "inferred" else "traced") for r in load_review(outside)] if outside else []
-    voided_rows = [[dict(r, source="voided", voided_from=pathlib.Path(p).name, verified=r.get("verified") if r.get("verified") == "inferred" else "traced") for r in load_review(p)] for p in voided_paths]  # one channel each; a voided agent's own run claims nothing
+    outside_rows = [dict(r, source="outside", verified=r.get("verified") if r.get("verified") == "inferred" else "traced") for r in reviewer_rows(outside)] if outside else []
+    voided_rows = [[dict(r, source="voided", voided_from=pathlib.Path(p).name, verified=r.get("verified") if r.get("verified") == "inferred" else "traced") for r in reviewer_rows(p)] for p in voided_paths]  # one channel each; a voided agent's own run claims nothing
     L = ledger(); out = {"tier": L.get("tier") or "full", "degraded": degraded, "reviewers": n, "votes_needed": need, "outside": None, "kept": [], "contested": [], "dropped": [], "retracted": [], "rejected": [], "suppressed": [], "ruling_committed": [], "set_aside": set_aside, "sandbox": sandbox, "nits": [], "coverage": coverage_report(coverage)}
     scanned = scan_rows(scan) if scan else []
     accepted = []  # (raw_id, reviewer_index or None for scan, finding)
@@ -391,7 +398,7 @@ def tally(paths):
             if f["impact"] == NIT:  # SC-79: listed under Nits, never counted, never voted on, never verified
                 if not any(similar(f, x) for x in out["nits"]): out["nits"].append(f)
                 continue
-            note = memory_note(f, L)
+            note = memory_note(f, L) if not ledger_committed() else None  # a ledger the repository ships could be anyone's: its memories note nothing either (5.6.0 re-review C7)
             if note: f["memory_note"] = note
             accepted.append((f["raw"], None if is_scan else ri, f))
     out_raised = sum(1 for _, ri, _ in accepted if ri == OUTSIDE_RI)

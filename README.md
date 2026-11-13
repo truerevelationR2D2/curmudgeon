@@ -60,13 +60,13 @@ To try it on code with known bugs, the test apps in `eval/` (for example `eval/f
 
 ## How a review runs
 
-1. **Size it.** A script sets the tier from what changed and how sensitive it is:
-   - trivial: one reviewer, with verification of contested findings only;
-   - lite: one reviewer, plus verification of Critical and High findings;
-   - full: three blind reviewers and full verification.
-   The same script lists what calls the changed code.
+1. **Size it.** A script sets the tier from what changed:
+   - trivial (two files or fewer, under 20 changed lines, nothing sensitive): one reviewer, with verification of contested findings only;
+   - lite, the default for everything else: one reviewer, plus verification of Critical and High findings;
+   - full, only when you ask (`deep`, audit mode, or `--tier full`): three blind reviewers, verification of every finding and the variant hunt.
+   When a change touches sensitive code (auth, secrets, payments, CI and the like) or is large (more than 10 files or 400 lines), the plan suggests full in one line and says why; it doesn't switch by itself. On 12 November 2026, lite on 5.6.0 found 85 of 98 planted bugs over 12 runs with no false alarms (111 of 111 findings real), at a median $0.69 a run (`eval/lite-2026-11-12.md`). The same script lists what calls the changed code.
 
-   **A security scan** (`/curmudgeon:review security [what]`) is sized the same way, one reviewer for a small change and three for a large one, and it changes no file in your project. What differs:
+   **A security scan** (`/curmudgeon:review security [what]`) is sized the same way, one reviewer unless you ask for full, and it changes no file in your project. What differs:
    - the reviewers' briefs ask about security only: injection, access control, secrets, unsafe parsing, server-side requests, path traversal, the supply chain, and what a page loads, links to or posts to;
    - the report keeps only the security rows of the scripted checks: secrets, dependencies, CI and supply chain, agent and MCP configuration, browser integrity, and secrets in logs or DEBUG left on;
    - the **local security database is off by default.** The first security scan asks you once whether to build it, with Off as the default, and an unattended run never asks. With it off, dependencies are checked offline only (unpinned versions, install scripts, packages from URLs). If you say yes, you pick its folder, see a size estimate and sign off on it, and choose how often it refreshes. After that, each security scan refreshes it first when your schedule says it is due, and stops to ask again if it would grow more than 25% past the size you signed off on. The database is checked on your machine, so no package name leaves it. [Security scan](#security-scan) below has the details and the sources.
@@ -282,7 +282,7 @@ Scripted lenses, measured without a model (`python3 eval/lens.py eval/lensN.json
 
 The strict YAML reader was compared with PyYAML on 6,191 files and 75,000 generated documents: 0 read differently. The local security database was built for real on Windows from the full OSV and CISA feeds (about 245 MB downloaded, a 73.5 MB database in 30 seconds: 230,123 npm and 26,063 PyPI advisories, 1,760 CVEs CISA lists as exploited) and found a known-vulnerable lodash in a sample project.
 
-Budgets, measured with `claude plugin details` on 12 November 2026 (5.6.0, loaded from the repository with `--plugin-dir`): about 919 tokens added to every session (5.3.0: about 864, before the `/curmudgeon:check-updates` listing of about 50); the review skill about 9.3k tokens when it runs (5.4.2: about 8.7k, for the plan step, abort, decision corrections and run logging; 5.6.0 adds the proctor's and the boundary's steps; 5.3.0: about 8.5k) (5.2.6: about 8.8k, measured from its tag; 5.2.1: about 7.8k; 5.0.0: about 7.1k; 4.2.1: about 5.6k). Earlier always-on figures: 5.2.6 about 864, 5.2.1 about 862, 4.2.1 about 1,516.
+Budgets, measured with `claude plugin details` on 12 November 2026 (5.7.0, loaded from the repository with `--plugin-dir`): about 919 tokens added to every session (5.3.0: about 864, before the `/curmudgeon:check-updates` listing of about 50); the review skill about 9.4k tokens when it runs (5.4.2: about 8.7k, for the plan step, abort, decision corrections and run logging; 5.6.0 adds the proctor's and the boundary's steps, 5.7.0 the full suggestion; 5.3.0: about 8.5k) (5.2.6: about 8.8k, measured from its tag; 5.2.1: about 7.8k; 5.0.0: about 7.1k; 4.2.1: about 5.6k). Earlier always-on figures: 5.2.6 about 864, 5.2.1 about 862, 4.2.1 about 1,516.
 
 **Earlier measurements, for the record.** Measured on 24 October 2026: version 5.0.0 against 4.2.2, three review runs of each on every test, Sonnet 5.5, three blind reviewers per run, with the eval kit in `eval/`. Every finding that matched no planted bug was labelled by independent models that read and ran the code, saw no answer keys and were not told which version wrote it (none was labelled wrong; the rest were real bugs nobody planted, or true but trivial). A finding counts only when it points at the planted bug's lines. One 4.2.2 run of the invoices test fell back to a single context and is left out. All numbers are recorded in `eval/baseline.json` (5.0.0, now the baseline) and `eval/labels-2026-10-24.json`.
 

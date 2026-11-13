@@ -301,12 +301,21 @@ def teardown_problems(L):
             elif g2 != want: probs.append(f"the VERDICT section's Counts line {'/'.join(map(str, g2))} is not counts.md's {'/'.join(map(str, want))}")
     return probs
 
+def memory_index(n, L):
+    """The list index of memory number n as `memories` lists them (1 first); IndexError for 0, a negative number or one
+    past the end, never Python's count from the end (5.6.0 re-review C12: --retire 0 retired the newest)."""
+    if not 1 <= n <= len(L.get("memories") or []): raise IndexError(n)
+    return n - 1
+
 def main(a):
     if not a or any(x in ("-h", "--help") for x in a): print(__doc__); return 0  # help never changes the ledger
     cmd, rest = a[0], a[1:]; L = load(read_only=cmd in READ_ONLY and not (cmd == "memories" and rest)); msg = "ok"
     if LOADED_SHIPPED and cmd in ("examples", "memories"):  # a shipped ledger's rulings never reach reviewers, by this path either (batch 1 review round 2)
         print(f"none shown: .critic/ledger.json may have come with the code, so its rulings and memories are not used (run any other critic_ledger.py command to set it aside)"); return 0
-    if cmd not in ("show", "check", "stale", "tokens", "integrity", "fresh"):
+    if cmd in ("show", "check", "stale", "tokens", "integrity", "fresh"):
+        from critic_findings import in_scratch
+        if in_scratch(): print("critic: refusing to run from inside an agent's workspace (.critic/scratch): the ledger holds the run's earlier findings, which reviewers and verifiers never see (5.6.0 re-review C6)", file=sys.stderr); return 2
+    else:
         refuse_linked_state(ROOT)
         if cmd != "log": log_run(ROOT, "script", "critic_ledger.py " + " ".join(a))  # log writes its own line, once (Qodo on #37)
     if cmd in ("fixed", "claim", "restore") and L.get("mode") == "audit":
@@ -441,7 +450,7 @@ def main(a):
     elif cmd == "dismiss" and rest[:1] == ["--like"]:
         # the owner closes, on purpose, every finding of the last review that a memory noted; nothing was hidden before this
         need(rest, 3, "dismiss --like N \"why\"")
-        try: n = int(rest[1]); mem = L["memories"][n - 1]
+        try: n = int(rest[1]); mem = L["memories"][memory_index(n, L)]
         except (ValueError, IndexError): die(f"no memory {rest[1]}; see: memories")
         done, skipped = [], []
         for row in read_rows(D / "findings.jsonl"):
@@ -507,11 +516,11 @@ def main(a):
     elif cmd == "memories":
         if rest[:1] == ["--hit"]:
             need(rest, 2, "memories --hit N")
-            try: m = L["memories"][int(rest[1]) - 1]; m["hits"] = m.get("hits", 0) + 1; m["last_used"] = time.strftime("%Y-%m-%d"); msg = "ok"
+            try: m = L["memories"][memory_index(int(rest[1]), L)]; m["hits"] = m.get("hits", 0) + 1; m["last_used"] = time.strftime("%Y-%m-%d"); msg = "ok"
             except (ValueError, IndexError): die("no such memory")
         elif rest[:1] == ["--retire"]:
             need(rest, 2, "memories --retire N")
-            try: L["memories"][int(rest[1]) - 1]["retired"] = True; msg = f"memory {rest[1]} retired"
+            try: L["memories"][memory_index(int(rest[1]), L)]["retired"] = True; msg = f"memory {rest[1]} retired"
             except (ValueError, IndexError): die("no such memory")
         else:
             for i, m in enumerate(L["memories"], 1): print(f"{i}. [{m['reason']}] {m['pattern']} in {m['file_glob']} — hits {m.get('hits', 0)}{' (retired)' if m.get('retired') else ''}")
