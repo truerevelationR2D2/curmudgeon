@@ -411,3 +411,25 @@ def _(d):
     ask = lambda *a: run(S / "critic_proctor.py", "ask", *a, cwd=pathlib.Path(ws), env={"CRITIC_ROOT": ""})
     assert ask("read", str(other)).returncode == 2 and ask("list", str(d / "elsewhere")).returncode == 2
     r = ask("git", "log", "--oneline"); assert r.returncode == 0 and "first" in r.stdout, r.stderr
+
+
+@test("5.6.0 eval harness: an arm allowed python3 is allowed the same Python by the full path Curmudgeon prints (the 12 Nov lite runs stalled at 60 approvals)")
+def _(d):
+    import shutil, importlib
+    sys.path.insert(0, str(HERE.parent / "eval")); dm = importlib.import_module("deathmatch")
+    exe = shutil.which("python3")
+    if not exe: return
+    t = dm.allowed_tools({"tools": ["Read", "Bash(python3:*)"]})
+    assert f"Bash({exe}:*)" in t and f"Bash({os.path.realpath(exe)}:*)" in t and t[:2] == ["Read", "Bash(python3:*)"], t
+    assert dm.allowed_tools({"tools": ["Read"]}) == ["Read"], "an arm without python3 gets nothing added"
+
+
+@test("5.6.0 eval harness: a second report of a credited plant is neither waiting for a label nor counted, as label.py leaves it out (it kept the 12 Nov lite precision NOT MEASURED)")
+def _(d):
+    import importlib
+    sys.path.insert(0, str(HERE.parent / "eval")); dm = importlib.import_module("deathmatch")
+    key = d / "key.json"; key.write_text(json.dumps({"X": {"file": "app.js", "lines": [40, 44], "any": ["escap"]}}), encoding="utf-8")
+    blocks = [{"loc": "app.js:42", "claim": "app.js:42 titles not escaped (XSS)"}, {"loc": "app.js:43", "claim": "app.js:43 the same title is not escaped in the list"},
+              {"loc": "app.js:90", "claim": "app.js:90 search ignores case"}]
+    r = dm.score_task({"key": str(key)}, blocks, {"a/t/2": "real"}, "a/t")
+    assert r["found"] == 1 and r["unlabelled"] == 0 and r["precision"] == "2 of 2", r
