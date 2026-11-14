@@ -200,8 +200,8 @@ def allowed_tools(a):
     import shutil
     tools = list(a.get("tools", ["Read", "Grep", "Glob"]))
     if "Bash(python3:*)" in tools:
-        found = shutil.which("python3")
-        for exe in dict.fromkeys(x for x in (found, found and os.path.realpath(found)) if x):
+        found = shutil.which("python3")  # the Python a lead's `python3` runs, so the one Curmudgeon's scripts print
+        for exe in dict.fromkeys(x for x in (found, found and os.path.realpath(found), sys.executable, os.path.realpath(sys.executable)) if x):  # and this runner's own, when python3 is missing or is another one (Qodo on #48)
             if f"Bash({exe}:*)" not in tools: tools.append(f"Bash({exe}:*)")
     return tools
 

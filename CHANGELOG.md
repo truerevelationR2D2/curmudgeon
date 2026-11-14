@@ -27,6 +27,14 @@ Write-up: `eval/lite-2026-11-12.md`.
 - `memories --retire 0` (or `--hit`, or `dismiss --like`, with 0, a negative number or one past the end) is refused instead of picking the newest memory.
 - Three tests that could not fail now can: the CRITIC_ROOT test, the settings temp-file test (its link now sits where the old code wrote) and the eval harness test, which now skips when there is no `python3` instead of passing.
 
+**Fixes from Qodo's review of #48** (6 Medium findings, each checked against the code and git before fixing, each with a test that fails on the old code):
+- The request command refuses `git show` on an annotated tag, which prints the tagger's name and email whatever `--format` says (ask for `TAG^{commit}`). It refuses `--show-signature` and `--notes`, and adds `--no-notes --no-show-signature` to `log` and `show`.
+- Only options git reads their value from the next argument (`--grep`, `-S`, `--since` and the like) shield an `X:Y` after them. `git show --stat HEAD:path` is a REV:PATH beside another option again, and is refused.
+- A reviewer's row can't set `single_vote`, `memory_note`, `scan_evidence`, `outside_impact`, `raised_by` or the other keys the tally sets.
+- The eval allows the runner's own Python as well as the one `python3` finds.
+- `label.py` sends unmatched Nits to the labellers, since the strict gate counts them in precision.
+- When two findings share a label key but got different verdicts, both are left unlabelled, so the gate says NOT MEASURED instead of grading one by the other's label.
+
 **Eval harness.** Headless arms allow the Python Curmudgeon prints by its full path. The scorer leaves out a repeat report of a credited plant, as labelling does. `label.py score-labels` gives the strict gate (`score.py`) the same blind labels, and `score.py` reads the runner's cost in the baseline's unit. With these, the 12 lite runs pass the strict gate on suites 1, 3 and 4 and both clean twins. Suite 2 is NOT MEASURED because the leak check matched a 31-character phrase a review used for a real finding; the leak check is unchanged.
 
 Budgets (`claude plugin details`, 12 November 2026): about 919 tokens added to every session, unchanged; the review skill about 9.4k when it runs (5.6.0: about 9.3k); the reviewer agent about 1.9k, unchanged.
