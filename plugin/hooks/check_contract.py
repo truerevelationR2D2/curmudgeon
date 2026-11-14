@@ -202,7 +202,7 @@ def main():
                 try:  # the proctor (03 §5.57 item 35): its review gets its marks, then what its tools showed it is checked
                     from critic_findings import stamp_review
                     import proctor
-                    stamp_review(root, review)
+                    if not errs: stamp_review(root, review)  # a review sent back to be fixed is stamped only once it passes (or on the second stop), so the reviewer's fix never meets a file the hook changed since it last read it (5.6.0 re-review C4)
                     rec["transcript"] = str(data.get("agent_transcript_path") or "")
                     rec["proctor"] = proctor.check(root, rec["transcript"], review)
                 except Exception as e: rec["proctor"] = {"checked": False, "why": f"{type(e).__name__}"}

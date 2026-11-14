@@ -97,6 +97,8 @@ def plan(forced=None):
         est = h.get("reviewer", 0) * reviewers + h.get("verifier", 0) * (2 if tier == "full" else 1) + h.get("dedup", 0) * (1 if reviewers > 1 else 0)
         p["expected_tokens"] = est; p["expected_basis"] = "medians of this project's recorded runs, by role"
     else: p["expected_tokens"] = None; p["expected_basis"] = "no recorded runs yet: the first run's cost is measured, not guessed"
+    sg = cm.get("suggest") if isinstance(cm.get("suggest"), dict) else None
+    if sg and tier != "full" and not docs_only and not forced: p["suggest"] = {"tier": "full", "why": [str(w) for w in sg.get("why") or []][:4]}  # 03 §5.57 item 39: suggested in one line, never switched to by itself
     if docs_only: p["note"] = "a document doesn't need the full code sweep: one reviewer and the claims check"
     last = last_choice(files)
     if last and not forced and last["tier"] != tier: p["last_choice"] = last  # R4: shown beside the proposal, never applied by itself
@@ -118,6 +120,7 @@ def main(a):
     if p["lenses"]: print("  lenses: " + ", ".join(p["lenses"]))
     print("  checks: " + "; ".join(p["checks"]) + ("; variant hunt" if p["variant_hunt"] else ""))
     print("  expected cost: " + (f"about {p['expected_tokens']:,} tokens ({p['expected_basis']})" if p["expected_tokens"] else p["expected_basis"]))
+    if p.get("suggest"): print(f"  suggested: the full tier ({'; '.join(p['suggest']['why'])}): three blind reviewers, every finding verified, the variant hunt; say so to use it (begin --tier full)")
     if p.get("note"): print("  " + p["note"])
     if p.get("last_choice"): print(f"  last time: you chose the {p['last_choice']['tier']} tier for these same files (run {p['last_choice'].get('run')})")
     return 0

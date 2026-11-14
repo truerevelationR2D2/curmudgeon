@@ -132,7 +132,7 @@ def run_tokens(path):
     p = pathlib.Path(path).resolve()
     if "--meta-cost" in args:
         run_dir = p.parent.parent if p.parent.name == ".critic" else p.parent
-        try: c = json.loads((run_dir / "meta.json").read_text(encoding="utf-8")).get("cost_usd")
+        try: m = json.loads((run_dir / "meta.json").read_text(encoding="utf-8")); c = m.get("cost_usd", m.get("total_cost_usd"))  # deathmatch.py writes total_cost_usd (12 Nov 2026: the gate saw no cost at all)
         except (OSError, ValueError): return None
         return round(c * 1e6) if isinstance(c, (int, float)) else None
     cf = (p.parent if p.parent.name == ".critic" else p.parent / ".critic") / "cost.jsonl"
@@ -481,6 +481,8 @@ st = stamp(); print("Stamp: " + ", ".join(f"{k} {v}" for k, v in st.items()))
 _key = json.loads((HERE / ("answer_key.json" if suite_key == "suite1" else f"answer_key{suite_key[5:]}.json")).read_text(encoding="utf-8")) if suite_key.startswith("suite") and (HERE / ("answer_key.json" if suite_key == "suite1" else f"answer_key{suite_key[5:]}.json")).exists() else None
 leaks = {r: leak(r, _key) for r in reviews}; leaks = {r: v for r, v in leaks.items() if v}
 for r, v in leaks.items(): print(f"ANSWER-KEY LEAK in {r}: {', '.join(v)}")
+if "--meta-cost" not in args and "--set-baseline" not in args and (base.get(suite_key) or {}).get("cost_unit") == "usd_millionths" and all((pathlib.Path(r).resolve().parent.parent if pathlib.Path(r).resolve().parent.name == ".critic" else pathlib.Path(r).resolve().parent).joinpath("meta.json").is_file() for r in reviews):
+    args.append("--meta-cost"); print("Cost: the baseline is in dollars, so each run's cost comes from its meta.json (as --meta-cost)")  # one unit on both sides (03 §5.57 item 39)
 toks = [run_tokens(r) for r in reviews]
 if any(t is not None for t in toks):
     print(("Cost per run: " + ", ".join("unrecorded" if t is None else f"${t / 1e6:.2f}" for t in toks)) if "--meta-cost" in args else

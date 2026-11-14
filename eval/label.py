@@ -9,6 +9,8 @@ usage:
   label.py ties   RUN_DIR A.json B.json            agreement between the two labellers; packets for the tiebreaker
   label.py final  RUN_DIR A.json B.json [T.json]   write RUN_DIR/labels.json (and labels-detail.json) for the scorer
   label.py recheck RUN_DIR RECHECK_DIR             how a later blind relabel of a sample agrees with the final labels
+  label.py score-labels RUN_DIR                    write RUN_DIR/score-labels.json: the same labels keyed as score.py
+                                                   keys them, for score.py --labels (final writes it too)
 
 A packet holds an opaque id, the app's opaque name and the finding's own words with markdown removed: never the arm,
 the run, the task's answer key or another finding's label. The ids are shuffled across arms, so order says nothing.
@@ -215,7 +217,42 @@ def final(run_dir, fa, fb, ft=None):
     (run_dir / "labels.json").write_text(json.dumps(labels, indent=1, sort_keys=True), encoding="utf-8")
     (run_dir / "labels-detail.json").write_text(json.dumps({"agreement": stats, "tiebroken": len(tie_ids), "labels": detail}, indent=1, sort_keys=True), encoding="utf-8")
     print(json.dumps(stats), f"\n{len(detail)} label(s) written; {len(tie_ids)} decided by the tiebreaker")
+    score_labels(run_dir)
     return detail, stats
+
+SCORE_FIELDS = ("file", "line", "category", "title", "quote", "evidence", "failing_case", "remediation")  # score.py's block, field for field
+
+def score_key(row):
+    """score.py's lab_key for a findings.jsonl row (score.py: lab_key over the block it builds from the same fields)."""
+    return re.sub(r"\W+", " ", " ".join(str(row.get(k, "")) for k in SCORE_FIELDS).lower())[:160]
+
+def score_labels(run_dir):
+    """RUN_DIR/score-labels.json: the final blind labels in score.py's form (real, hallucinated, nitpick), keyed as
+    score.py keys a finding, so the strict gate reads the same labels the death match does (03 §5.57 item 39). A label
+    of none (not a finding) is left out; a finding whose run kept no findings.jsonl can't be keyed and is counted."""
+    run_dir = pathlib.Path(run_dir); labels = json.loads((run_dir / "labels.json").read_text(encoding="utf-8"))
+    out, missed = {"_labeller": "label.py final: two blind labellers, ties to a third"}, 0
+    rows_of = {}
+    for key, v in sorted(labels.items()):
+        arm, task, i = key.rsplit("/", 2)
+        if v == "none": continue
+        if (arm, task) not in rows_of:
+            fj = run_dir / arm / task / "findings.jsonl"
+            rows_of[(arm, task)] = [json.loads(x) for x in fj.read_text(encoding="utf-8").splitlines() if x.strip()] if fj.is_file() else None
+        rows = rows_of[(arm, task)]
+        if rows is None or not i.isdigit() or int(i) >= len(rows): missed += 1; continue
+        out[score_key(rows[int(i)])] = {"real": "real", "false": "hallucinated", "trivial": "nitpick"}[v]
+    cfg = deathmatch.load_cfg(); tasks = {t["id"]: t for t in cfg["tasks"]}; keyed = 0
+    for td in sorted(pathlib.Path(run_dir).glob("*/*/")):  # a report the answer key credits to a plant (its other site, or the same bug twice) is real by the key, never by a labeller; the strict scorer may match it more tightly and leave it unmatched
+        t = tasks.get(td.name.split("~")[0]); fj = td / "findings.jsonl"
+        if not t or t.get("clean") or not fj.is_file(): continue
+        rows = [json.loads(x) for x in fj.read_text(encoding="utf-8").splitlines() if x.strip()]; blocks = deathmatch.blocks_for(td) or []
+        for bi in deathmatch.plant_blocks(deathmatch.plants_of(json.loads((HERE / t["key"]).read_text(encoding="utf-8"))), blocks):
+            if bi < len(rows) and score_key(rows[bi]) not in out: out[score_key(rows[bi])] = "real"; keyed += 1
+    out["_labeller"] += f"; {keyed} by the answer key (reports of a planted bug)"
+    (run_dir / "score-labels.json").write_text(json.dumps(out, indent=1, sort_keys=True), encoding="utf-8")
+    print(f"{len(out) - 1} label(s) written to {run_dir / 'score-labels.json'}" + (f"; {missed} with no findings.jsonl row to key them by" if missed else ""))
+    return out, missed
 
 def recheck(run_dir, rdir):
     """Agreement between a later blind relabel of a sample (RECHECK_DIR: map.json, controls.json, labels.json, as
@@ -242,6 +279,7 @@ def main(a):
     if len(a) == 4 and a[0] == "ties": ties(*a[1:]); return 0
     if len(a) in (4, 5) and a[0] == "final": final(*a[1:]); return 0
     if len(a) == 3 and a[0] == "recheck": recheck(*a[1:]); return 0
+    if len(a) == 2 and a[0] == "score-labels": score_labels(a[1]); return 0
     print(__doc__); return 2
 
 if __name__ == "__main__": sys.exit(main(sys.argv[1:]))
