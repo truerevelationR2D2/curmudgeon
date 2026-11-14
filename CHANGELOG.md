@@ -2,7 +2,17 @@
 
 Every release of Curmudgeon, newest first. The repository's history starts at 4.2.1; earlier versions are summarised from the project's own build and review records. Numbers are the ones measured at the time; the README's Benchmarks section has the current ones and how they were measured.
 
-## 5.7.0 (unreleased): lite is the default, and the fixes from the 5.6.0 re-review (03 §5.57 items 37 to 39)
+## 5.7.1 (unreleased): fixes from Qodo's review of #48
+
+Six Medium findings, each checked against the code and git before fixing, each with a test that fails on the old code:
+- The request command refuses `git show` on an annotated tag, which prints the tagger's name and email whatever `--format` says (ask for `TAG^{commit}`). It refuses `--show-signature` and `--notes`, and adds `--no-notes --no-show-signature` to `log` and `show`.
+- Only options git reads their value from the next argument (`--grep`, `-S`, `--since` and the like) shield an `X:Y` after them. `git show --stat HEAD:path` is a REV:PATH beside another option again, and is refused.
+- A reviewer's row can't set `single_vote`, `memory_note`, `scan_evidence`, `outside_impact`, `raised_by` or the other keys the tally sets.
+- The eval allows the runner's own Python as well as the one `python3` finds.
+- `label.py` sends unmatched Nits to the labellers, since the strict gate counts them in precision.
+- When two findings share a label key but got different verdicts, both are left unlabelled, so the gate says NOT MEASURED instead of grading one by the other's label.
+
+## 5.7.0 (14 November 2026): lite is the default, and the fixes from the 5.6.0 re-review (03 §5.57 items 37 to 39)
 
 **Lite is every review's default** (ruling 39). A change that touches sensitive code or is large (more than 10 files or 400 changed lines) stays lite, and the plan suggests the full tier in one line with the reasons. `deep`, audit mode and `--tier full` still switch to full. It was measured first, on 5.6.0, over the same 12 eval runs per tier (suites 1 to 4 and two clean twins, twice each, Sonnet 5.5), with every finding that matched no planted bug judged by two blind labellers and a tiebreaker:
 
@@ -26,14 +36,6 @@ Write-up: `eval/lite-2026-11-12.md`.
 - A ledger that came with the code no longer notes findings with its memories.
 - `memories --retire 0` (or `--hit`, or `dismiss --like`, with 0, a negative number or one past the end) is refused instead of picking the newest memory.
 - Three tests that could not fail now can: the CRITIC_ROOT test, the settings temp-file test (its link now sits where the old code wrote) and the eval harness test, which now skips when there is no `python3` instead of passing.
-
-**Fixes from Qodo's review of #48** (6 Medium findings, each checked against the code and git before fixing, each with a test that fails on the old code):
-- The request command refuses `git show` on an annotated tag, which prints the tagger's name and email whatever `--format` says (ask for `TAG^{commit}`). It refuses `--show-signature` and `--notes`, and adds `--no-notes --no-show-signature` to `log` and `show`.
-- Only options git reads their value from the next argument (`--grep`, `-S`, `--since` and the like) shield an `X:Y` after them. `git show --stat HEAD:path` is a REV:PATH beside another option again, and is refused.
-- A reviewer's row can't set `single_vote`, `memory_note`, `scan_evidence`, `outside_impact`, `raised_by` or the other keys the tally sets.
-- The eval allows the runner's own Python as well as the one `python3` finds.
-- `label.py` sends unmatched Nits to the labellers, since the strict gate counts them in precision.
-- When two findings share a label key but got different verdicts, both are left unlabelled, so the gate says NOT MEASURED instead of grading one by the other's label.
 
 **Eval harness.** Headless arms allow the Python Curmudgeon prints by its full path. The scorer leaves out a repeat report of a credited plant, as labelling does. `label.py score-labels` gives the strict gate (`score.py`) the same blind labels, and `score.py` reads the runner's cost in the baseline's unit. With these, the 12 lite runs pass the strict gate on suites 1, 3 and 4 and both clean twins. Suite 2 is NOT MEASURED because the leak check matched a 31-character phrase a review used for a real finding; the leak check is unchanged.
 
