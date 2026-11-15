@@ -23,7 +23,8 @@ and it was measured again on 24 Oct 2026 after the fixes:
 The verify round then found one more case the fuzzer never builds: a comment inside a [ ] or { } that continues on the
 next line dropped the next item (`[main, # primary` / `release]`). Each line's comment is now cut (outside quotes)
 before the lines are joined, and the result matches PyYAML. Generated tests can miss a shape, so a "0 read
-differently" figure holds only for the shapes measured.
+differently" figure holds only for the shapes measured. The 15 Nov 2026 self-review found another: a blank line inside
+a value that spans lines in [ ] or { } is a line break in PyYAML and was joined with a space here; it is now refused.
 The script tests pin the behaviour with plugin/tests/yaml/*.yml and their expected output, so no PyYAML is needed to
 run them."""
 import re
@@ -263,13 +264,17 @@ def loads(text):
         if r[0] in "[{":
             st = [0, None, "["]; cut = _bracket_depth(r, st)
             text = r[:cut].rstrip() if st[0] > 0 else r  # a comment on an unclosed line is cut before the next line joins it
+            last = n
             while True:
                 if st[0] <= 0 or pos[0] >= len(lines) or lines[pos[0]][0] < ind or lines[pos[0]][0] == ind and lines[pos[0]][1][:1] not in "]}":
                     try: v, _ = _flow(text, n); return v
                     except Refused as e:
                         if "continues on the next line" not in e.why or pos[0] >= len(lines) or lines[pos[0]][0] < ind or lines[pos[0]][0] == ind and lines[pos[0]][1][:1] not in "]}": raise  # only the closing bracket may sit at the key's own column
                 if lines[pos[0]][2] in tabs: raise Refused(lines[pos[0]][2], "a tab in the indentation")
-                nxt = lines[pos[0]][1]; cut = _bracket_depth(nxt, st)
+                nxt, ln_ = lines[pos[0]][1], lines[pos[0]][2]
+                if any(not raw[k - 1].strip() for k in range(last + 1, ln_)) and (st[1] or text.rstrip()[-1:] not in ",[{:" and nxt[:1] not in "]},"):
+                    raise Refused(ln_, "a blank line inside a value that spans lines in [ ] or { } (YAML keeps it as a line break)")  # 5.8.1 L3: joined here, a line break in PyYAML
+                last = ln_; cut = _bracket_depth(nxt, st)
                 text += " " + (nxt[:cut].rstrip() if st[0] > 0 else nxt); pos[0] += 1
         if r[0] in "'\"":
             v, tail = _quoted(r, n)

@@ -628,6 +628,13 @@ def boundary_line():
     if not b or b.get("result") not in ("os-enforced", "tripwire-only"): return "Boundary: not checked this run (critic_run.py probe wasn't run); say so under Not checked."
     return f"Boundary: {b['result']} ({str(b.get('why') or '')[:160]})."
 
+def verdict_rank(v):
+    """Which of two verdicts on one finding applies: the one the verifier ran beats one it traced, which beats one it
+    could only infer (a verifier whose tools were denied returns unclear and no run); on equal evidence, the one that
+    keeps the finding (confirmed, then downgrade, then unclear, then refuted). The refutation rules still apply after."""
+    ev = {"executed": 0, "traced": 1}.get(str(v.get("reproduced") or "").lower(), 2)
+    return (ev, {"confirmed": 0, "downgrade": 1, "unclear": 2, "refuted": 3}.get(str(v.get("verdict") or "unclear").lower(), 2))
+
 def apply(paths):
     try: T = json.loads((D / "tally.json").read_text(encoding="utf-8"))
     except Exception as e: die(f"run tally first ({e})")
@@ -640,8 +647,11 @@ def apply(paths):
             stale.append(pathlib.Path(p).name); continue  # a verdict on an earlier tally's packet (an earlier round): never applied to this one (§5.56 round 2)
         rows = load_review(p)
         if rows and not saved: by_hand.append(pathlib.Path(p).name)  # not written by the verifier's stop hook: applied, but the run says so (ultimate audit V03)
-        for v in rows: verdicts[v.get("id")] = v
+        for v in rows: verdicts.setdefault(v.get("id"), []).append(v)
     final, refuted, notes, unverified, missing = [], [], [], [], []
+    for k_, vs_ in list(verdicts.items()):  # two verifiers on one id (one re-run after its tools were denied): a fixed rule picks, never the file order or a model (5.8.1)
+        verdicts[k_] = vs_[0] if len(vs_) == 1 else sorted(vs_, key=verdict_rank)[0]
+        if len(vs_) > 1: notes.append(f"{k_}: {len(vs_)} verdicts; applied the {verdicts[k_].get('verdict', 'unclear')} one ({verdicts[k_].get('reproduced') or 'not reproduced'}): the strongest evidence wins, and on equal evidence the one that keeps the finding")
     if stale: notes.append(f"not applied, older than this tally: {', '.join(stale[:8])}{' ...' if len(stale) > 8 else ''}")
     tier = T.get("tier") or ledger().get("tier") or "full"; contested = {f.get("id") for f in T["contested"]}
     for f in T["kept"] + T["contested"]:

@@ -37,10 +37,11 @@ def _strings(x, out, cap):
 
 WRITES = {"Write", "Edit", "MultiEdit", "NotebookEdit"}
 
-def shown(transcript_path, deadline, reads_only=False):
+def shown(transcript_path, deadline, reads_only=False, own=None):
     """The text of every tool result in the transcript, joined; None when it can't be read in time. With reads_only, the
     results of the agent's own Write and Edit calls are left out: they echo what it typed, which the copy check must
-    never count as text it was shown (5.8.0 blind round C1)."""
+    never count as text it was shown (5.8.0 blind round C1). So are the results of any call that names its own review
+    file (own), such as a Read of it: reading back what it wrote is not being shown it (5.8.1 C3)."""
     p = pathlib.Path(str(transcript_path or ""))
     try:
         if not str(transcript_path or "") or not p.is_file() or p.stat().st_size > MAX_TRANSCRIPT: return None
@@ -55,7 +56,7 @@ def shown(transcript_path, deadline, reads_only=False):
                 own_write = False
                 for item in c if isinstance(c, list) else []:
                     if not isinstance(item, dict): continue
-                    if item.get("type") == "tool_use" and item.get("name") in WRITES: writes.add(item.get("id"))
+                    if item.get("type") == "tool_use" and (item.get("name") in WRITES or (reads_only and own and own in json.dumps(item.get("input"), ensure_ascii=False))): writes.add(item.get("id"))
                     if item.get("type") == "tool_result":
                         if reads_only and item.get("tool_use_id") in writes: own_write = True; continue
                         n += _strings(item.get("content"), parts, MAX_TRANSCRIPT - n)
@@ -116,7 +117,7 @@ def _stop_order(root):
     for f in (pathlib.Path(root) / ".critic" / "stops").glob("*.json"):
         try: j = json.loads(f.read_text(encoding="utf-8"))
         except (OSError, ValueError): continue
-        r, at = (j.get("review"), j.get("at")) if isinstance(j, dict) else (None, None)
+        r, at = (j.get("review"), j.get("first_at", j.get("at"))) if isinstance(j, dict) else (None, None)  # first_at: kept by write_stop when a reviewer stops twice (5.8.1)
         if isinstance(r, str) and isinstance(at, (int, float)) and not isinstance(at, bool) and (r not in out or at < out[r]): out[r] = float(at)
     return out
 
@@ -164,7 +165,7 @@ def check(root, transcript_path, review_name):
     known = marks(root)
     if known is None: return {"checked": False, "why": "the run's marks can't be read"}
     saw = {f"the mark of {what}" for mark, what in known.items() if what not in own and mark in text}
-    reads = shown(transcript_path, deadline, reads_only=True)
+    reads = shown(transcript_path, deadline, reads_only=True, own=str(review_name or "") or None)
     cp = copied(root, review_name, deadline, reads) if reads is not None else None
     if cp is None and not saw: return {"checked": False, "why": "the copy check couldn't finish in time"}  # never "no copy" (5.8.0 blind round C2); a mark it saw still voids it below
     return {"checked": True, "saw": sorted(saw), "copied": sorted(cp or [])}  # copied is flagged, not voided: honest reviewers write the same 48 characters too (5.8.0 measurement)

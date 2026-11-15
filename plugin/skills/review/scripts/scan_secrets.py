@@ -125,16 +125,17 @@ def scan(rel, text, emit):
                 for m in rx.finditer(chunk):
                     key = (rid, off + m.start()); A, B = off + m.start(), off + m.end()
                     if key in seen or any(A < y and x < B for x, y in taken): continue
+                    level = sev  # per match: a local URL earlier on the line never lowers a later one (5.8.1 C1)
                     if rid == "db-url-password":
                         how = db_url_skip(m)
                         if how == "skip": continue
-                        if how == "warn": sev = "WARN"
+                        if how == "warn": level = "WARN"
                     seen.add(key); taken.append((A, B)); hit = True
                     if rid == "private-key": ev = m.group(0)  # the header only: the key body never goes into a report
                     else:
                         a, b = max(0, m.start() - 60), min(len(chunk), m.end() + 40)
                         ev = redact(chunk[a:b], [(max(0, x - a), min(b, y) - a) for x, y in spans if y > a and x < b])
-                    emit(sev, f"secret-{rid}", "safety", f"{rel}:{i}", f"{label} in a file (rotate it: anything committed or shipped is exposed)", ev)
+                    emit(level, f"secret-{rid}", "safety", f"{rel}:{i}", f"{label} in a file (rotate it: anything committed or shipped is exposed)", ev)
             prov = [(mm.start(), mm.end()) for _r, _s, rx, _l in COMPILED for mm in rx.finditer(chunk)]
             for name, val, (vs, ve) in generic(chunk, bare):
                 A = off + vs

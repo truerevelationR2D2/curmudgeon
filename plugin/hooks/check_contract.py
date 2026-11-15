@@ -40,7 +40,13 @@ def write_stop(root, me, rec):
     d = root / ".critic" / "stops"
     if d.is_symlink() or (root / ".critic").is_symlink(): return
     d.mkdir(parents=True, exist_ok=True)
-    fd = os.open(str(d / f"{me}.json"), os.O_WRONLY | os.O_CREAT | os.O_TRUNC | getattr(os, "O_NOFOLLOW", 0), 0o644)
+    f = d / f"{me}.json"
+    try:  # a reviewer that stops twice (blocked once, then done) keeps the time of its first stop: the copy check orders reviewers by it (5.8.1)
+        old = json.loads(f.read_text(encoding="utf-8")) if f.is_file() and not f.is_symlink() else None
+        first = old.get("first_at", old.get("at")) if isinstance(old, dict) and old.get("review") == rec.get("review") else None
+        if isinstance(first, (int, float)) and not isinstance(first, bool) and first < rec.get("at", first + 1): rec = dict(rec, first_at=float(first))
+    except (OSError, ValueError): pass
+    fd = os.open(str(f), os.O_WRONLY | os.O_CREAT | os.O_TRUNC | getattr(os, "O_NOFOLLOW", 0), 0o644)
     with os.fdopen(fd, "w") as fh: fh.write(json.dumps(rec))
 
 def problems_review(root, msg, agent_id=None, review=None):

@@ -5,8 +5,8 @@ Only active in projects that have a .critic/ folder. Fails open (allows) on any 
 import os as _os, sys as _sys; _sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__))); import utf8io  # UTF-8 output on Windows too (03 §5.57 item 20)
 import json, os, pathlib, re, sys
 
-PROTECTED = {"ledger.json", "tally-reviews.json", "ledger.md", "decisions.md", "gate", "gate-count", "gate-async", "findings.jsonl", "findings.sarif", "tally.json", "counts.md", "async-shown.json", "refutations.jsonl", "runlog.jsonl", "spotcheck.md"}
-PROTECTED_DIRS = {"baseline", "verify", "restore", "private", "verdicts", "verdicts-variants", "stops", "verify-opened"}  # verdicts: saved by check_contract.py as the verifier returned them, never retyped; stops and verify-opened: the hooks' own records of each agent (§5.56)
+PROTECTED = {"ledger.json", "tally-reviews.json", "ledger.md", "decisions.md", "gate", "gate-count", "gate-async", "findings.jsonl", "findings.sarif", "tally.json", "counts.md", "async-shown.json", "refutations.jsonl", "runlog.jsonl", "spotcheck.md", "boundary.json", "plan.json", "cost.jsonl"}
+PROTECTED_DIRS = {"baseline", "verify", "restore", "private", "verdicts", "verdicts-variants", "stops", "verify-opened", "proctor"}  # proctor, boundary.json, plan.json, cost.jsonl: written only by the scripts and hooks; a reviewer that wiped the proctor's marks would pass its own check (5.8.1 C2)  # verdicts: saved by check_contract.py as the verifier returned them, never retyped; stops and verify-opened: the hooks' own records of each agent (§5.56)
 AGENT_PROTECTED = {"scope.json", "rules.md", "rules", "last-review.md"}  # the owner's rules and the run's end marker: an untracked rules.md an agent wrote would count as the owner's  # private: the browser driver's signing key and live-request ledger
 
 def main():

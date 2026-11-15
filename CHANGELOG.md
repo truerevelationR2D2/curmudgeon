@@ -2,6 +2,33 @@
 
 Every release of Curmudgeon, newest first. The repository's history starts at 4.2.1; earlier versions are summarised from the project's own build and review records. Numbers are the ones measured at the time; the README's Benchmarks section has the current ones and how they were measured.
 
+## 5.8.1 (unreleased): fixes from the full self-review of 5.8.0 (03 §5.57 item 43)
+
+A full-tier Curmudgeon review of its own 5.8.0 plugin (three blind reviewers, blind verification) found 1 High, 7 Medium and 3 Low. Two more single-vote items were dropped by the vote rule but checked by hand and fixed too, plus a gap in the merge the run itself exposed. Each fix has a test (plugin/tests/cases_10.py) that fails on 5.8.0. C6, C7 and C8 pinned guards that already held; their tests fail when the guard is deleted.
+
+**Scanners.**
+- **C1 (High):** a local-dev database URL earlier on a line lowered every later database URL on that line from FAIL to WARN, because the rule's severity was overwritten inside the loop. The level is now worked out per match.
+- **C5:** `${API_KEY:-}` and `${TOKEN:?missing}` in an MCP config were reported as literal credentials. Shell-style references now count as references, and a default value is judged on its own, so `${X:-realsecret}` is still flagged.
+- **L1:** the ci-injection rule missed the bracket form (`github['event']['pull_request']['title']`).
+- **L2:** `curl | sh` inside a comment line of a `run:` script raised a supply-chain warning.
+- **L3:** a blank line inside a value that spans lines in `[ ]` or `{ }` was joined with a space, where PyYAML keeps a line break. It is now refused, and the README's "0 read differently" says "in those shapes".
+
+**Blindness and the copy check.**
+- **C2:** a reviewer's Write could overwrite `.critic/proctor/` (the run marks), `boundary.json`, `plan.json` and `cost.jsonl`. Wiping the marks made the proctor record a clean check. They are now protected like `stops/`.
+- **C3:** a reviewer that read its own review back had that text counted as "shown to it", so a copied passage went unflagged. A call that names its own review file no longer counts.
+- **The first stop:** the stop record was overwritten at each stop, so for a reviewer blocked once the copy check ordered it by its last stop. The record now keeps the first stop's time (`first_at`).
+- **Privacy:** `stops/`, `proctor/` and `verify-opened/` hold the paths of reviewers' transcripts on the user's machine. They are now git-ignored, and PRIVACY.md lists them.
+
+**The merge.**
+- **C4:** two findings with the same title at distant lines and different quotes were merged into one, so refuting one could drop the other. Nearly equal titles now merge only within 15 lines or with overlapping quotes; the dedup agent still sees both.
+- **Two verdicts on one finding** were applied in file order. A fixed rule now picks: a run beats a trace, which beats no run; on equal evidence, the one that keeps the finding. The counts say when it applied. In the self-review the lead had made that call by hand.
+
+**Tests that now fail when a guard is removed.**
+- **C6:** a `||` in a workflow_run job's `if:` removes the same-repository exemption.
+- **C7:** every git option the proctor request command refuses is tested by name (5 of about 20 were).
+- **C8:** the review-never-edits eval case also checks `app.js` itself, so an edit by any method (Python, node, patch, `git apply`) fails it, not only `sed -i` and redirects.
+- The test parts now run in number order, so `cases_10.py` follows `cases_9.py`.
+
 ## 5.8.0 (unreleased): the 48-character copy check, and the parked proposals tested (03 §5.57 item 40)
 
 **The copy check.**

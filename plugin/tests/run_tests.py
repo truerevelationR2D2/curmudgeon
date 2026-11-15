@@ -111,7 +111,7 @@ def finding(**k):
 # The tests themselves live in the cases_*.py parts (split so no file passes the plugin directory's 256 KiB limit).
 # Each part runs here, in this module's namespace, so the helpers above and the @test decorator are shared and every
 # result lands in RESULTS. A failure names the part's own file and line.
-for _part in sorted(pathlib.Path(__file__).resolve().parent.glob("cases_*.py")):
+for _part in sorted(pathlib.Path(__file__).resolve().parent.glob("cases_*.py"), key=lambda q: (len(q.stem), q.stem)):  # cases_10 after cases_9: later parts use earlier parts' helpers
     exec(compile(_part.read_text(encoding="utf-8"), str(_part), "exec"), globals())
 
 if __name__ == "__main__":
