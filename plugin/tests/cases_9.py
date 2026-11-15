@@ -536,3 +536,45 @@ def _(d):
     run(S / "critic_merge.py", "tally", ".critic/reviews/review-A.json", "--no-scan", cwd=d)
     t = json.loads((d / ".critic/tally.json").read_text(encoding="utf-8"))
     assert not any(f.get("memory_note") for f in t["kept"] + t["contested"]), ("a shipped ledger's memories note nothing (C7)", t["kept"] + t["contested"])
+
+
+@test("Qodo on #48 (4, 5): an annotated tag, signatures and notes don't name who wrote the code; --stat before a REV:PATH doesn't lift the rule that REV:PATH stands alone")
+def _(d):
+    p = d / "proj"; write(p, "src/app.js", APP)
+    who = ["-c", "user.email=writer@example.invalid", "-c", "user.name=Jane Writer"]
+    subprocess.run(["git", "init", "-q"], cwd=p); subprocess.run(["git", "add", "-A"], cwd=p); subprocess.run(["git", *who, "commit", "-qm", "first"], cwd=p)
+    subprocess.run(["git", *who, "tag", "-a", "v1", "-m", "release"], cwd=p)
+    run(S / "critic_run.py", "begin", "--files", "src/app.js", "--tier", "lite", cwd=p); ws = _ws(p)["payload"]
+    ask = lambda *a: run(S / "critic_proctor.py", "ask", *a, cwd=pathlib.Path(ws), env={"CRITIC_ROOT": ""})
+    r = ask("git", "show", "v1"); assert r.returncode == 2 and "Jane" not in r.stdout and "writer@" not in r.stdout, ("an annotated tag names its tagger", r.stdout[:300])
+    r = ask("git", "show", "v1^{commit}"); assert r.returncode == 0 and "Jane" not in r.stdout and "writer@" not in r.stdout, (r.stdout[:300], r.stderr)
+    for q in (["git", "log", "--show-signature"], ["git", "log", "--notes"], ["git", "show", "--stat", "HEAD:src/app.js"], ["git", "show", "--stat", "HEAD:"]):
+        assert ask(*q).returncode == 2, q
+
+@test("Qodo on #48 (6): a reviewer's row can't set single_vote, memory_note or the other keys the tally sets")
+def _(d):
+    write(d, "src/app.js", APP)
+    run(S / "critic_run.py", "begin", "--files", "src/app.js", "--tier", "lite", cwd=d)
+    write(d, ".critic/reviews/review-A.json", json.dumps([dict(TAX9, single_vote=True, memory_note={"memory": 1, "reason": "made up"}, scan_evidence="E-1", outside_impact="Low", raised_by=["X"])]))
+    run(S / "critic_merge.py", "tally", ".critic/reviews/review-A.json", "--no-scan", cwd=d)
+    t = json.loads((d / ".critic/tally.json").read_text(encoding="utf-8")); rows = t["kept"] + t["contested"]
+    assert rows and not any(f.get("memory_note") or f.get("scan_evidence") == "E-1" or f.get("outside_impact") or f.get("raised_by") == ["X"] for f in rows), rows
+
+@test("Qodo on #48 (1, 2, 3): the eval allows this runner's own Python too; the label export covers Nits; two findings sharing a key but not a verdict leave it unlabelled")
+def _(d):
+    import importlib, shutil as sh
+    sys.path.insert(0, str(HERE.parent / "eval")); dm = importlib.import_module("deathmatch"); lb = importlib.import_module("label")
+    real_which = sh.which
+    try:
+        sh.which = lambda name, *a, **k: None
+        assert f"Bash({sys.executable}:*)" in dm.allowed_tools({"tools": ["Bash(python3:*)"]}), "no python3 on PATH: the runner's own Python still counts (1)"
+    finally: sh.which = real_which
+    run_ = d / "run"; t = run_ / "curmudgeon-lite" / "suite1-clean~1"; t.mkdir(parents=True)
+    row = {"id": "f-1", "file": "store.js", "line": 75, "category": "data-loss", "impact": "High", "title": "two tabs overwrite each other", "quote": "q", "evidence": "e", "failing_case": "f", "remediation": "r"}
+    (t / "findings.jsonl").write_text(json.dumps(row) + "\n" + json.dumps(dict(row, id="f-2")) + "\n", encoding="utf-8")
+    (t / "nits.jsonl").write_text(json.dumps({"id": "N-1", "file": "app.js", "line": 9, "category": "style", "title": "a nit"}) + "\n", encoding="utf-8")
+    (run_ / "labels.json").write_text(json.dumps({"curmudgeon-lite/suite1-clean~1/0": "real", "curmudgeon-lite/suite1-clean~1/1": "false", "curmudgeon-lite/suite1-clean~1/n0": "trivial"}), encoding="utf-8")
+    out, _m = lb.score_labels(run_)
+    assert lb.score_key(row) not in out, ("the same key with two verdicts is left unlabelled (3)", out)
+    nk = lb.score_key({"file": "app.js", "line": 9, "category": "style", "title": "a nit"})
+    assert out.get(nk) == "nitpick", ("a Nit is labelled too (2)", out)

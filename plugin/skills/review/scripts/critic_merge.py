@@ -74,7 +74,8 @@ def norm_path(p):
     while p.startswith("./"): p = p[2:]
     return p
 
-SCRIPT_KEYS = {"measured", "verifier", "verifier_reproduced", "confidence", "scan_confirmed", "voided_only", "outside_only", "needs_a_run"}  # what only the scripts write on a finding: a reviewer's own row never carries them in (5.6.0 re-review C8: "measured": true read as confirmed)
+SCRIPT_KEYS = {"measured", "verifier", "verifier_reproduced", "confidence", "scan_confirmed", "voided_only", "outside_only", "needs_a_run",
+               "single_vote", "memory_note", "scan_evidence", "outside_impact", "impact_split", "votes", "votes_ours", "votes_matched", "of", "locations", "raised_by", "voided_from"}  # and every key the tally sets or clears only in some branches (Qodo on #48)  # what only the scripts write on a finding: a reviewer's own row never carries them in (5.6.0 re-review C8: "measured": true read as confirmed)
 
 def reviewer_rows(path):
     """A review's findings without the keys only the scripts set (verdicts are read with load_review, as they are)."""

@@ -68,7 +68,13 @@ def unmatched(run_dir):
                 used = deathmatch.plant_blocks(deathmatch.plants_of(json.loads((HERE / t["key"]).read_text(encoding="utf-8"))), blocks)
             for i, b in enumerate(blocks):
                 if i not in used: out.append((f"{arm_dir.name}/{td.name}/{i}", t, plain(b["claim"] if b["claim"].strip() else b["loc"])))
+            for i, r in enumerate(nit_rows(td)):  # the strict scorer counts an unmatched Nit in precision, so it needs a label too (Qodo on #48)
+                out.append((f"{arm_dir.name}/{td.name}/n{i}", t, plain(f"{r.get('file', '')}:{r.get('line', '')} {r.get('title', '')}. {r.get('evidence', '')}")))
     return out
+
+def nit_rows(td):
+    nf = pathlib.Path(td) / "nits.jsonl"
+    return [json.loads(x) for x in nf.read_text(encoding="utf-8").splitlines() if x.strip()] if nf.is_file() else []
 
 def plant_hits(run_dir):
     """{task id: [finding text]} for findings the answer key credited to a plant, from runs that finished."""
@@ -231,27 +237,35 @@ def score_labels(run_dir):
     score.py keys a finding, so the strict gate reads the same labels the death match does (03 §5.57 item 39). A label
     of none (not a finding) is left out; a finding whose run kept no findings.jsonl can't be keyed and is counted."""
     run_dir = pathlib.Path(run_dir); labels = json.loads((run_dir / "labels.json").read_text(encoding="utf-8"))
-    out, missed = {"_labeller": "label.py final: two blind labellers, ties to a third"}, 0
+    out, missed, clash = {"_labeller": "label.py final: two blind labellers, ties to a third"}, 0, set()
     rows_of = {}
+    def put(k, v):  # one key, two different verdicts (two findings whose first 160 characters match): label neither, so the gate says NOT MEASURED rather than grade one by the other's label (Qodo on #48)
+        if k in clash: return
+        if k in out and out[k] != v: clash.add(k); del out[k]; return
+        out[k] = v
     for key, v in sorted(labels.items()):
         arm, task, i = key.rsplit("/", 2)
         if v == "none": continue
         if (arm, task) not in rows_of:
             fj = run_dir / arm / task / "findings.jsonl"
-            rows_of[(arm, task)] = [json.loads(x) for x in fj.read_text(encoding="utf-8").splitlines() if x.strip()] if fj.is_file() else None
-        rows = rows_of[(arm, task)]
-        if rows is None or not i.isdigit() or int(i) >= len(rows): missed += 1; continue
-        out[score_key(rows[int(i)])] = {"real": "real", "false": "hallucinated", "trivial": "nitpick"}[v]
+            rows_of[(arm, task)] = ([json.loads(x) for x in fj.read_text(encoding="utf-8").splitlines() if x.strip()] if fj.is_file() else None, nit_rows(run_dir / arm / task))
+        rows, nits = rows_of[(arm, task)]
+        nit = i.startswith("n") and i[1:].isdigit()
+        pool, j = (nits, int(i[1:])) if nit else (rows, int(i) if i.isdigit() else -1)
+        if pool is None or not 0 <= j < len(pool): missed += 1; continue
+        put(score_key(pool[j]), {"real": "real", "false": "hallucinated", "trivial": "nitpick"}[v])
     cfg = deathmatch.load_cfg(); tasks = {t["id"]: t for t in cfg["tasks"]}; keyed = 0
     for td in sorted(pathlib.Path(run_dir).glob("*/*/")):  # a report the answer key credits to a plant (its other site, or the same bug twice) is real by the key, never by a labeller; the strict scorer may match it more tightly and leave it unmatched
         t = tasks.get(td.name.split("~")[0]); fj = td / "findings.jsonl"
         if not t or t.get("clean") or not fj.is_file(): continue
         rows = [json.loads(x) for x in fj.read_text(encoding="utf-8").splitlines() if x.strip()]; blocks = deathmatch.blocks_for(td) or []
         for bi in deathmatch.plant_blocks(deathmatch.plants_of(json.loads((HERE / t["key"]).read_text(encoding="utf-8"))), blocks):
-            if bi < len(rows) and score_key(rows[bi]) not in out: out[score_key(rows[bi])] = "real"; keyed += 1
-    out["_labeller"] += f"; {keyed} by the answer key (reports of a planted bug)"
+            if bi < len(rows) and score_key(rows[bi]) not in clash:
+                if out.get(score_key(rows[bi])) not in (None, "real"): clash.add(score_key(rows[bi])); del out[score_key(rows[bi])]  # the answer key says real, a labeller said otherwise for the same key: neither stands
+                elif score_key(rows[bi]) not in out: out[score_key(rows[bi])] = "real"; keyed += 1
+    out["_labeller"] += f"; {keyed} by the answer key (reports of a planted bug)" + (f"; {len(clash)} left unlabelled: two findings shared a key but not a verdict" if clash else "")
     (run_dir / "score-labels.json").write_text(json.dumps(out, indent=1, sort_keys=True), encoding="utf-8")
-    print(f"{len(out) - 1} label(s) written to {run_dir / 'score-labels.json'}" + (f"; {missed} with no findings.jsonl row to key them by" if missed else ""))
+    print(f"{len(out) - 1} label(s) written to {run_dir / 'score-labels.json'}" + (f"; {missed} with no findings.jsonl row to key them by" if missed else "") + (f"; {len(clash)} key(s) left unlabelled: two findings shared a key but not a verdict" if clash else ""))
     return out, missed
 
 def recheck(run_dir, rdir):

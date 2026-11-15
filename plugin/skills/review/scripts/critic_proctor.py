@@ -24,9 +24,9 @@ import safegit
 ROOT = pathlib.Path(__import__("projroot").project_of(os.getcwd())).resolve(); D = ROOT / ".critic"  # never CRITIC_ROOT: the reviewer it polices could set that (5.5.0 blind round)
 MAX = 200 * 1024
 GIT_OK = {"log", "show", "blame", "diff", "ls-files"}
-GIT_BAD = re.compile(r"^(?:--output|-o$|--ext-diff|--textconv|--exec|--upload-pack|--receive-pack|-c$|-C$|--git-dir|--work-tree|--config|--open-files-in-pager|-O|--no-index|--author|--committer|--mailmap|--use-mailmap)", re.I)  # --author and --committer would let a search find who wrote the code (5.6.0 re-review C1)
+GIT_BAD = re.compile(r"^(?:--output|-o$|--ext-diff|--textconv|--exec|--upload-pack|--receive-pack|-c$|-C$|--git-dir|--work-tree|--config|--open-files-in-pager|-O|--no-index|--author|--committer|--mailmap|--use-mailmap|--show-signature|--notes|--show-notes|--standard-notes)", re.I)  # --author and --committer would let a search find who wrote the code (5.6.0 re-review C1)
 NO_WHO = "--format=%h %s"  # history without authors or dates, which the private copy and the brief keep from reviewers (5.6.0 re-review C1); git uses the last --format given, so this one wins
-VALUE_OPTS = {"--grep", "-S", "-G", "--since", "--until", "--after", "--before", "-n", "--max-count", "--skip", "-L", "--format", "--pretty", "--diff-filter", "--stat", "-U", "--unified", "--find-renames", "-M", "--relative"}  # options whose value is the next argument (5.6.0 re-review C9)
+VALUE_OPTS = {"--grep", "-S", "-G", "--since", "--until", "--after", "--before", "-n", "--max-count", "--skip", "-L"}  # options git reads their value from the next argument (5.6.0 re-review C9); --stat, -M, --format and the like take it only attached, so an X:Y after them is a REV:PATH (Qodo on #48)
 
 def log(kind, what, answer):
     try:
@@ -115,7 +115,11 @@ def main(a):
         if odd: return refuse(f"{odd[0]} (git blame takes only -L, -w, -s, -n, -l, -f, -M and -C here: --contents would print any file, and the porcelain, email and time forms name who wrote it)")  # 5.5.0 blind round 2; 5.6.0 re-review C1
         cmd = ["blame", "-s", *opts, "--", paths[0]]  # -s: no author and no date
     elif blobs: cmd = ["show", blobs[0]]
-    elif sub in ("log", "show"): cmd = [sub, *opts, NO_WHO, "--", *(paths or ["."]), ":(exclude,icase).critic", ":(exclude,icase).critic/**"]
+    elif sub in ("log", "show"):
+        for rev in [x for x in opts if not x.startswith("-")]:  # an annotated tag prints its tagger and date whatever --format says (Qodo on #48)
+            t = safegit.run(["cat-file", "-t", rev], cwd=ROOT, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=20)
+            if t.returncode == 0 and t.stdout.strip() == "tag": return refuse(f"{rev} is an annotated tag, which names who tagged it; ask for {rev}^{{commit}} instead")
+        cmd = [sub, *opts, NO_WHO, "--no-notes", "--no-show-signature", "--", *(paths or ["."]), ":(exclude,icase).critic", ":(exclude,icase).critic/**"]  # notes and signatures can name people too
     else: cmd = [sub, *opts, "--", *(paths or ["."]), ":(exclude,icase).critic", ":(exclude,icase).critic/**"]
     r = safegit.run(cmd, cwd=ROOT, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=60)
     if r.returncode != 0: log("git", " ".join(rest), f"git failed ({r.returncode})"); print(r.stderr[-2000:], file=sys.stderr); return r.returncode
