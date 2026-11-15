@@ -13,8 +13,14 @@ the guard and the private copy stay the first layers there.
 
 The check runs at the reviewer's stop (its record in .critic/stops/) and again at each tally, against every mark known
 by then, so a reviewer that read a review stamped after it stopped is caught too. Only tool results are read: what the
-agent was shown, never what it typed (a 96-bit mark can't be guessed). A script; no model judges. It reads only."""
-import json, pathlib, re, time
+agent was shown, never what it typed (a 96-bit mark can't be guessed). A script; no model judges. It reads only.
+
+It also checks the review itself (03 §5.57 item 40): a passage of 48 characters or more in the reviewer's own prose
+that stands in a review another reviewer wrote earlier, and that it never saw (in the project's files, its own brief or
+any tool output in its transcript), is flagged as a possible copy: the counts and the teardown name it. It doesn't void
+the review, because two honest reviewers wrote the same 48 characters in a real run (5.8.0 measurement). Reviewers
+are told this is checked."""
+import json, os, pathlib, re, time
 
 MAX_TRANSCRIPT = 64 * 1024 * 1024
 BUDGET_S = 25         # the stop hook has 60 seconds in all
@@ -58,12 +64,82 @@ def marks(root):
     m = m.get("marks") if isinstance(m, dict) else None
     return {k: str(v.get("what", "")) for k, v in m.items() if isinstance(k, str) and isinstance(v, dict)} if isinstance(m, dict) else None
 
+COPY_MIN = 48          # characters of a passage, after lower-casing and squeezing spaces (03 §5.57 item 40)
+SKIP_DIRS = {".critic", ".git", "node_modules", ".venv", "venv", "__pycache__", "dist", "build"}
+MAX_ALLOWED = 32 * 1024 * 1024
+
+def _norm(t): return re.sub(r"\s+", " ", str(t).lower())
+
+PROSE = ("title", "evidence", "failing_case", "remediation", "why", "claim")  # a reviewer's own words; file, line, category and the code quote are shared by design
+
+def _review_text(path):
+    """A review's own words, field by field: [squeezed prose strings]; None when it can't be read. Fields are kept apart,
+    so two lists of the same file paths, or a quote beside a category, never join into a passage (5.8.0 measurement)."""
+    try: rows = json.loads(pathlib.Path(path).read_text(encoding="utf-8"))
+    except (OSError, ValueError): return None
+    rows = rows.get("findings", []) if isinstance(rows, dict) else rows
+    return [_norm(r[k]) for r in rows if isinstance(r, dict) for k in PROSE if isinstance(r.get(k), str) and len(r[k]) >= COPY_MIN] if isinstance(rows, list) else None
+
+def _allowed(root, letter, deadline):
+    """What the reviewer was allowed to see, squeezed: the project's own files (its private copy is a copy of them)
+    and its own brief. A passage found here is a quote of the code or the brief, never a copy."""
+    root = pathlib.Path(root); parts, n = [], 0
+    if letter:
+        b = root / ".critic" / "briefs" / f"brief-{letter}.md"
+        try: parts.append(b.read_text(encoding="utf-8", errors="replace"))
+        except OSError: pass
+    for dp, dirs, files in os.walk(root):
+        dirs[:] = [x for x in dirs if x not in SKIP_DIRS and not x.startswith(".critic")]
+        for f in files:
+            if time.time() > deadline or n > MAX_ALLOWED: return None
+            fp = pathlib.Path(dp) / f
+            try:
+                if fp.is_symlink() or fp.stat().st_size > 2 * 1024 * 1024: continue
+                t = fp.read_bytes()
+            except OSError: continue
+            if b"\0" in t[:4096]: continue
+            parts.append(t.decode("utf-8", errors="replace")); n += len(t)
+    return _norm("\n".join(parts))
+
+def copied(root, review_name, deadline, seen=""):
+    """[what it copied] for 48-character passages in this review's own prose that also stand in the prose of a review
+    another reviewer wrote before it (by the files' times), and that the reviewer never saw: not in the project's files,
+    its own brief or any tool output in its own transcript (seen). Text it saw itself is either honest (a program's
+    output, a vendor file) or carries a run mark, which the mark check catches; what is left came from nowhere, such
+    as another review's words pasted into its start message. Only earlier reviews count, so the reviewer who wrote a
+    passage first is never the one judged; tally, counts and packets come after the reviews and never count.
+    None when it can't be checked in time (03 §5.57 item 40)."""
+    rd = pathlib.Path(root) / ".critic" / "reviews"; own = rd / str(review_name or "")
+    letter = re.fullmatch(r"review-([A-Za-z0-9]+)\.json", str(review_name or ""))
+    if not letter or not own.is_file(): return []
+    mine = _review_text(own)
+    if not mine: return []
+    try: t_own = own.stat().st_mtime
+    except OSError: return []
+    hits, allowed, seen = [], ..., _norm(seen)
+    for other in sorted(rd.glob("review-*.json")):
+        if other.name == own.name or other.is_symlink(): continue
+        try:
+            if other.stat().st_mtime >= t_own: continue
+        except OSError: continue
+        grams = {t[i:i + COPY_MIN] for t in (_review_text(other) or []) for i in range(len(t) - COPY_MIN + 1)}
+        shared = {m[i:i + COPY_MIN] for m in mine for i in range(len(m) - COPY_MIN + 1) if m[i:i + COPY_MIN] in grams}
+        shared = {g for g in shared if g not in seen}
+        if not shared: continue
+        if allowed is ...: allowed = _allowed(root, letter.group(1), deadline)
+        if allowed is None: return None
+        if any(g not in allowed for g in shared): hits.append(f"a {COPY_MIN}-character passage of {other.name} it never saw")
+    return hits
+
 def check(root, transcript_path, review_name):
     """{"checked": True, "saw": [...]} or {"checked": False, "why": ...}."""
-    text = shown(transcript_path, time.time() + BUDGET_S)
+    deadline = time.time() + BUDGET_S
+    text = shown(transcript_path, deadline)
     if text is None: return {"checked": False, "why": "no readable transcript"}
     letter = re.fullmatch(r"review-([A-Za-z0-9]+)\.json", str(review_name or ""))
     own = {f"brief-{letter.group(1)}", f"review-{letter.group(1)}.json"} if letter else set()
     known = marks(root)
     if known is None: return {"checked": False, "why": "the run's marks can't be read"}
-    return {"checked": True, "saw": sorted({f"the mark of {what}" for mark, what in known.items() if what not in own and mark in text})}
+    saw = {f"the mark of {what}" for mark, what in known.items() if what not in own and mark in text}
+    cp = copied(root, review_name, deadline, text)
+    return {"checked": True, "saw": sorted(saw), "copied": sorted(cp) if cp is not None else None}  # copied is flagged, not voided: honest reviewers write the same 48 characters too (5.8.0 measurement); None: not checked in time

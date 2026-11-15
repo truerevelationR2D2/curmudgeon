@@ -171,7 +171,7 @@ def _(d):
     scan_md = (d / ".critic/scan/report.md").read_text(encoding="utf-8"); assert "run mark cm-" in scan_md
     write(d, ".critic/reviews/review-B.json", json.dumps([TAX9]))
     code = (d / "src/app.js").read_text(encoding="utf-8")
-    assert _stop9(d, "a1", "A", [b["A"], code, "1\timport statistics"]) == {"checked": True, "saw": []}, "its own brief and the code"
+    assert {k: v for k, v in _stop9(d, "a1", "A", [b["A"], code, "1\timport statistics"]).items() if k != "copied"} == {"checked": True, "saw": []}, "its own brief and the code"
     assert _stop9(d, "a2", "A", [code, b["B"]])["saw"] == ["the mark of brief-B"]
     assert _stop9(d, "a3", "A", ["1\t" + scan_md.replace("\n", "\n2\t")])["saw"] == ["the mark of the scan report"]
     _stop9(d, "b1", "B", [b["B"]])  # B's stop stamps its review: a mark on every line
@@ -322,7 +322,7 @@ def _(d):
     _stop9(d, "a1", "A", [b["B"]]); _stop9(d, "rb", "B", [b["B"]])
     rv = [f".critic/reviews/review-{x}.json" for x in "ABC"]
     pr = d / ".critic/proctor/marks.json"; kept = pr.read_text(encoding="utf-8"); pr.write_text('{"marks": {}}', encoding="utf-8")
-    assert _stop9(d, "rc", "C", [b["A"]]) == {"checked": True, "saw": []}, "no marks known at its stop"
+    assert {k: v for k, v in _stop9(d, "rc", "C", [b["A"]]).items() if k != "copied"} == {"checked": True, "saw": []}, "no marks known at its stop"
     pr.write_text(kept, encoding="utf-8")
     time.sleep(0.05); _stop9(d, "a2", "A", [b["A"]], wrote=False)  # never wrote review-A: can't clear A's void
     run(S / "critic_merge.py", "tally", *rv, "--no-scan", cwd=d)
@@ -578,3 +578,37 @@ def _(d):
     assert lb.score_key(row) not in out, ("the same key with two verdicts is left unlabelled (3)", out)
     nk = lb.score_key({"file": "app.js", "line": 9, "category": "style", "title": "a nit"})
     assert out.get(nk) == "nitpick", ("a Nit is labelled too (2)", out)
+
+
+@test("5.8.0 copy check (03 §5.57 item 40): 48 characters of another reviewer's earlier prose that a reviewer never saw are flagged in the counts, not voided; the code, its own tool output and the first writer never count")
+def _(d):
+    write(d, "src/app.js", APP + "\n// prices are rounded half up to the cent before the tax rate is applied anywhere\n")
+    run(S / "critic_run.py", "begin", "--files", "src/app.js", "--tier", "full", cwd=d)
+    b = {x: (d / f".critic/briefs/brief-{x}.md").read_text(encoding="utf-8") for x in "ABC"}
+    odd = "the discount stack silently compounds when two coupons share a single redemption code"
+    inproj = "prices are rounded half up to the cent before the tax rate is applied anywhere"
+    write(d, ".critic/reviews/review-A.json", json.dumps([dict(TAX9, evidence=TAX9["evidence"] + "; " + odd + "; " + inproj)]))
+    pa = _stop9(d, "ca", "A", [b["A"]]); time.sleep(1.1)
+    write(d, ".critic/reviews/review-B.json", json.dumps([dict(TAX9, title="Coupons compound", evidence="I found that " + odd + ", which overcharges nobody but undercharges")]))
+    pb = _stop9(d, "cb", "B", [b["B"]]); time.sleep(1.1)
+    assert pb["saw"] == [] and pb["copied"] == ["a 48-character passage of review-A.json it never saw"], pb
+    write(d, ".critic/reviews/review-C.json", json.dumps([dict(TAX9, title="Rounding", evidence="src/app.js says " + inproj + ", and " + odd + " (the test printed it)", failing_case="two coupons on one order", remediation="cap it")]))
+    pc = _stop9(d, "cc", "C", [b["C"], "test output: " + odd])
+    assert pc["copied"] == [], ("the code and its own tool output never count", pc)
+    assert pa["copied"] == [], ("the first writer is never the one judged", pa)
+    r = run(S / "critic_merge.py", "tally", *[f".critic/reviews/review-{x}.json" for x in "ABC"], "--no-scan", cwd=d); assert r.returncode == 0, r.stdout[-800:] + r.stderr[-800:]
+    t = json.loads((d / ".critic/tally.json").read_text(encoding="utf-8"))
+    assert t["reviewers"] == 3 and any(x.startswith("possible copy: review-B.json") for x in t["degraded"]), ("flagged, its votes still count", t["reviewers"], t["degraded"])
+    assert not any("review-C.json" in x and "possible copy" in x for x in t["degraded"])
+    assert "possible copy" in (HERE.parent / "plugin/agents/curmudgeon-reviewer.md").read_text(encoding="utf-8"), "reviewers are told it is checked"
+
+@test("5.8.0 eval leak check (03 §5.57 item 40): an answer-key entry's wording is a leak only from 48 characters, so a 31-character phrase a review wrote for a real finding isn't one")
+def _(d):
+    E = HERE.parent / "eval"; r = d / "run"; r.mkdir()
+    def leak_of(text):
+        (r / "last-review.md").write_text("# Teardown\n\n## FINDINGS\n- Medium src/a.js:1 " + text + "\n", encoding="utf-8")
+        return subprocess.run([sys.executable, str(E / "score.py"), str(r / "last-review.md"), "--suite", "2"], cwd=E, capture_output=True, text=True, encoding="utf-8", env=dict(os.environ, CURMUDGEON_STATE_DIR=str(d / "st"))).stdout
+    assert "ANSWER-KEY LEAK" not in leak_of("the status is shown by colour dot only, so colour-blind users miss it"), "31 characters: no leak"
+    key = json.loads((E / "answer_key2.json").read_text(encoding="utf-8"))
+    long_ = next(re.sub(r"\s+", " ", n.split(" ", 1)[-1].lower())[:48] for n in key if len(re.sub(r"\s+", " ", n.split(" ", 1)[-1].lower())[:48]) >= 48)
+    assert "ANSWER-KEY LEAK" in leak_of("copied: " + long_), "48 characters copied: a leak"

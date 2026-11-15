@@ -122,7 +122,7 @@ def leak(path, key=None):
     low = re.sub(r"\s+", " ", text.lower())
     for name in (key or {}):
         words = re.sub(r"\s+", " ", name.split(" ", 1)[-1].lower())[:48]
-        if len(words) >= 30 and words in low: found.append(f"the review copies an answer-key entry ({name.split()[0]})"); break
+        if len(words) >= 48 and words in low: found.append(f"the review copies an answer-key entry ({name.split()[0]})"); break  # 48 characters, not 30: a 31-character phrase a review wrote for a real finding was called a leak (12 Nov 2026; 03 §5.57 item 40)
     return found
 
 def run_tokens(path):

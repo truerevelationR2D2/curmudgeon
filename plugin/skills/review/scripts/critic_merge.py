@@ -312,17 +312,19 @@ def tally(paths):
     # The proctor (03 §5.57 item 35): a review whose agent's transcript shows another reviewer's or the scan's work is
     # voided. Its votes don't count; each of its findings that no honest reviewer also found goes to blind verification
     # and is kept only if the verifier reproduces it by running it, labelled, never as a vote and never raising an impact.
-    voided, unchecked, unchecked_why = {}, [], {}
+    voided, unchecked, unchecked_why, copies = {}, [], {}, {}
     try: sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[3] / "hooks")); import proctor as proctor_
     except Exception: proctor_ = None
     for name_, j_ in latest.items():
         pr = j_.get("proctor") if isinstance(j_.get("proctor"), dict) else None
         if pr is None: continue
-        saw = list(pr.get("saw") or [])
+        saw, again = list(pr.get("saw") or []), {}
         if proctor_ and j_.get("transcript"):  # checked again now, against every mark known by this tally (a review stamped after this reviewer stopped)
             again = proctor_.check(ROOT, j_["transcript"], name_)
             if again.get("checked"): saw = sorted(set(saw) | set(again.get("saw") or [])); pr = dict(pr, checked=True)
             elif again.get("why") == "the run's marks can't be read": pr = dict(pr, checked=False, why=again["why"])  # unreadable marks now: never "saw nothing" (5.6.0 re-review C5)
+        cp = sorted(set(pr.get("copied") or []) | set(again.get("copied") or []))
+        if cp: copies[str(name_)] = cp[:4]  # flagged, never voided (03 §5.57 item 40; 5.8.0 measurement)
         if saw: voided[name_] = [str(x)[:120] for x in saw][:6]
         elif not pr.get("checked"): unchecked.append(str(name_)); unchecked_why[str(name_)] = str(pr.get("why") or "no readable transcript")
     voided_paths = [p for p in paths if in_reviews(p) and pathlib.Path(p).name in voided]
@@ -331,6 +333,7 @@ def tally(paths):
     for p in voided_paths: degraded.append(f"review voided by the proctor: {pathlib.Path(p).name} (its agent's transcript shows {'; '.join(voided[pathlib.Path(p).name])}); its votes don't count, and its findings no honest reviewer raised are kept only if a verifier reproduces them")
     if voided_paths and not paths: degraded.append("every reviewer was voided by the proctor, so no finding has a vote")
     unchecked = sorted({x for x in unchecked if x in {pathlib.Path(p).name for p in paths}})
+    for name_, cp in sorted(copies.items()): degraded.append(f"possible copy: {name_}'s own words hold {', '.join(cp)} (flagged for the owner to judge; its votes still count)")
     if unchecked: degraded.append("the proctor couldn't check " + ", ".join(f"{x} ({unchecked_why.get(x, 'no readable transcript')})" for x in unchecked) + ", so whether its agent saw another's work is unknown")
     coverage = {"read": set(), "not_reached": set()}  # files the reviewers say they read, and the ones they didn't reach (SC-46)
     sandbox = []  # sandbox scenario lines: numbered SB1, SB2 ... here, so the teardown's SANDBOX LEDGER has a source (SC: self-review D C6)
