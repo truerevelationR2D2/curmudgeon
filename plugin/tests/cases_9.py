@@ -612,3 +612,41 @@ def _(d):
     key = json.loads((E / "answer_key2.json").read_text(encoding="utf-8"))
     long_ = next(re.sub(r"\s+", " ", n.split(" ", 1)[-1].lower())[:48] for n in key if len(re.sub(r"\s+", " ", n.split(" ", 1)[-1].lower())[:48]) >= 48)
     assert "ANSWER-KEY LEAK" in leak_of("copied: " + long_), "48 characters copied: a leak"
+
+
+@test("5.8.0 blind round C1 to C6: the agent's own Write echo is never 'seen'; a copy check that can't finish is unchecked, not 'no copy'; it has a deadline; a voided review gets no copy line; any 48 characters of an answer-key entry count; 'earlier' is the first stop, not the file's time")
+def _(d):
+    import importlib
+    sys.path.insert(0, str(HERE.parent / "plugin/hooks")); P = importlib.import_module("proctor")
+    write(d, "src/app.js", APP)
+    run(S / "critic_run.py", "begin", "--files", "src/app.js", "--tier", "full", cwd=d)
+    b = {x: (d / f".critic/briefs/brief-{x}.md").read_text(encoding="utf-8") for x in "ABC"}
+    odd = "the discount stack silently compounds when two coupons share a single redemption code"
+    write(d, ".critic/reviews/review-A.json", json.dumps([dict(TAX9, evidence=TAX9["evidence"] + "; " + odd)]))
+    _stop9(d, "c1a", "A", [b["A"]]); time.sleep(1.1)
+    os.utime(d / ".critic/reviews/review-A.json")  # C6: A's file is now the newest, but A stopped first
+    write(d, ".critic/reviews/review-B.json", json.dumps([dict(TAX9, title="Coupons", evidence="so " + odd + " here", failing_case="two coupons", remediation="cap")]))
+    tr = d / ".critic" / "t-write.jsonl"  # outside the project's own files, as ~/.claude transcripts are
+    tr.write_text("\n".join(json.dumps(x) for x in (
+        {"message": {"role": "assistant", "content": [{"type": "tool_use", "id": "w1", "name": "Write", "input": {"file_path": ".critic/reviews/review-B.json", "content": odd}}]}},
+        {"message": {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "w1", "content": "File created: " + odd}]}, "toolUseResult": {"content": odd, "type": "create"}},
+        {"message": {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "r1", "content": b["B"]}]}})) + "\n", encoding="utf-8")
+    r = P.check(str(d), str(tr), "review-B.json")
+    assert r["checked"] and r["copied"] == ["a 48-character passage of review-A.json it never saw"], ("its own Write echo isn't text it was shown (C1)", r)
+    real = P.copied
+    try:
+        P.copied = lambda *a, **k: None
+        r = P.check(str(d), str(tr), "review-B.json"); assert r["checked"] is False and "copy check" in r["why"], ("unchecked, never 'no copy' (C2)", r)
+    finally: P.copied = real
+    assert P.copied(str(d), "review-B.json", time.time() - 1, "") is None, "a passed deadline stops it (C3)"
+    assert P.copied(str(d), "review-A.json", time.time() + 20, "") == [], "the first to stop is never judged, whatever its file's time (C6)"
+    _stop9(d, "c1b", "B", [b["B"], b["C"]])  # B also saw brief C's mark: voided
+    r2 = run(S / "critic_merge.py", "tally", *[f".critic/reviews/review-{x}.json" for x in "AB"], "--no-scan", cwd=d); assert r2.returncode == 0, r2.stderr[-400:]
+    deg = json.loads((d / ".critic/tally.json").read_text(encoding="utf-8"))["degraded"]
+    assert any("voided by the proctor: review-B.json" in x for x in deg) and not any(x.startswith("possible copy: review-B.json") for x in deg), ("one line for a voided review (C4)", deg)
+    E = HERE.parent / "eval"; rr = d / "run"; rr.mkdir()
+    key = json.loads((E / "answer_key2.json").read_text(encoding="utf-8"))
+    long_ = next(re.sub(r"\s+", " ", n.split(" ", 1)[-1].lower()) for n in key if len(re.sub(r"\s+", " ", n.split(" ", 1)[-1].lower())) >= 60)
+    (rr / "last-review.md").write_text("# Teardown\n\n## FINDINGS\n- Medium src/a.js:1 x " + long_[8:58] + " y\n", encoding="utf-8")
+    o = subprocess.run([sys.executable, str(E / "score.py"), str(rr / "last-review.md"), "--suite", "2"], cwd=E, capture_output=True, text=True, encoding="utf-8", env=dict(os.environ, CURMUDGEON_STATE_DIR=str(d / "st"))).stdout
+    assert "ANSWER-KEY LEAK" in o, "48 characters from the middle of an entry count (C5)"

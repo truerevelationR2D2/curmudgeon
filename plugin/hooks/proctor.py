@@ -35,12 +35,16 @@ def _strings(x, out, cap):
         for y in x.values(): n += _strings(y, out, cap - n) if n < cap else 0
     return n
 
-def shown(transcript_path, deadline):
-    """The text of every tool result in the transcript, joined; None when it can't be read in time."""
+WRITES = {"Write", "Edit", "MultiEdit", "NotebookEdit"}
+
+def shown(transcript_path, deadline, reads_only=False):
+    """The text of every tool result in the transcript, joined; None when it can't be read in time. With reads_only, the
+    results of the agent's own Write and Edit calls are left out: they echo what it typed, which the copy check must
+    never count as text it was shown (5.8.0 blind round C1)."""
     p = pathlib.Path(str(transcript_path or ""))
     try:
         if not str(transcript_path or "") or not p.is_file() or p.stat().st_size > MAX_TRANSCRIPT: return None
-        parts, n = [], 0
+        parts, n, writes = [], 0, set()
         with open(p, encoding="utf-8", errors="replace") as fh:
             for line in fh:
                 if time.time() > deadline: return None
@@ -48,9 +52,14 @@ def shown(transcript_path, deadline):
                 except ValueError: continue
                 if not isinstance(j, dict): continue
                 c = (j.get("message") or {}).get("content") if isinstance(j.get("message"), dict) else None
+                own_write = False
                 for item in c if isinstance(c, list) else []:
-                    if isinstance(item, dict) and item.get("type") == "tool_result": n += _strings(item.get("content"), parts, MAX_TRANSCRIPT - n)
-                if "toolUseResult" in j: n += _strings(j["toolUseResult"], parts, MAX_TRANSCRIPT - n)
+                    if not isinstance(item, dict): continue
+                    if item.get("type") == "tool_use" and item.get("name") in WRITES: writes.add(item.get("id"))
+                    if item.get("type") == "tool_result":
+                        if reads_only and item.get("tool_use_id") in writes: own_write = True; continue
+                        n += _strings(item.get("content"), parts, MAX_TRANSCRIPT - n)
+                if "toolUseResult" in j and not own_write: n += _strings(j["toolUseResult"], parts, MAX_TRANSCRIPT - n)
         return "\n".join(parts)
     except OSError: return None
 
@@ -101,6 +110,16 @@ def _allowed(root, letter, deadline):
             parts.append(t.decode("utf-8", errors="replace")); n += len(t)
     return _norm("\n".join(parts))
 
+def _stop_order(root):
+    """{review file: the time of its first stop record}, from .critic/stops (the reviewer's own records, by agent)."""
+    out = {}
+    for f in (pathlib.Path(root) / ".critic" / "stops").glob("*.json"):
+        try: j = json.loads(f.read_text(encoding="utf-8"))
+        except (OSError, ValueError): continue
+        r, at = (j.get("review"), j.get("at")) if isinstance(j, dict) else (None, None)
+        if isinstance(r, str) and isinstance(at, (int, float)) and not isinstance(at, bool) and (r not in out or at < out[r]): out[r] = float(at)
+    return out
+
 def copied(root, review_name, deadline, seen=""):
     """[what it copied] for 48-character passages in this review's own prose that also stand in the prose of a review
     another reviewer wrote before it (by the files' times), and that the reviewer never saw: not in the project's files,
@@ -114,17 +133,21 @@ def copied(root, review_name, deadline, seen=""):
     if not letter or not own.is_file(): return []
     mine = _review_text(own)
     if not mine: return []
-    try: t_own = own.stat().st_mtime
-    except OSError: return []
+    order = _stop_order(root)
+    t_own = order.get(own.name, time.time())  # at its own stop its record isn't written yet: it stops now
     hits, allowed, seen = [], ..., _norm(seen)
     for other in sorted(rd.glob("review-*.json")):
         if other.name == own.name or other.is_symlink(): continue
-        try:
-            if other.stat().st_mtime >= t_own: continue
-        except OSError: continue
-        grams = {t[i:i + COPY_MIN] for t in (_review_text(other) or []) for i in range(len(t) - COPY_MIN + 1)}
-        shared = {m[i:i + COPY_MIN] for m in mine for i in range(len(m) - COPY_MIN + 1) if m[i:i + COPY_MIN] in grams}
-        shared = {g for g in shared if g not in seen}
+        t_other = order.get(other.name)
+        if t_own is None or t_other is None or t_other >= t_own: continue  # earlier by the first stop record, not the file's time, which the stop hook resets when it stamps marks (5.8.0 blind round C6); a tie judges neither
+        grams = set()
+        for t in _review_text(other) or []:
+            if time.time() > deadline: return None  # 5.8.0 blind round C3
+            grams.update(t[i:i + COPY_MIN] for i in range(len(t) - COPY_MIN + 1))
+        shared = set()
+        for m in mine:
+            if time.time() > deadline: return None
+            shared.update(g for g in (m[i:i + COPY_MIN] for i in range(len(m) - COPY_MIN + 1)) if g in grams and g not in seen)
         if not shared: continue
         if allowed is ...: allowed = _allowed(root, letter.group(1), deadline)
         if allowed is None: return None
@@ -141,5 +164,7 @@ def check(root, transcript_path, review_name):
     known = marks(root)
     if known is None: return {"checked": False, "why": "the run's marks can't be read"}
     saw = {f"the mark of {what}" for mark, what in known.items() if what not in own and mark in text}
-    cp = copied(root, review_name, deadline, text)
-    return {"checked": True, "saw": sorted(saw), "copied": sorted(cp) if cp is not None else None}  # copied is flagged, not voided: honest reviewers write the same 48 characters too (5.8.0 measurement); None: not checked in time
+    reads = shown(transcript_path, deadline, reads_only=True)
+    cp = copied(root, review_name, deadline, reads) if reads is not None else None
+    if cp is None and not saw: return {"checked": False, "why": "the copy check couldn't finish in time"}  # never "no copy" (5.8.0 blind round C2); a mark it saw still voids it below
+    return {"checked": True, "saw": sorted(saw), "copied": sorted(cp or [])}  # copied is flagged, not voided: honest reviewers write the same 48 characters too (5.8.0 measurement)

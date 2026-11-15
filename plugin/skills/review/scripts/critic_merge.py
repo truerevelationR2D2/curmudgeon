@@ -322,7 +322,7 @@ def tally(paths):
         if proctor_ and j_.get("transcript"):  # checked again now, against every mark known by this tally (a review stamped after this reviewer stopped)
             again = proctor_.check(ROOT, j_["transcript"], name_)
             if again.get("checked"): saw = sorted(set(saw) | set(again.get("saw") or [])); pr = dict(pr, checked=True)
-            elif again.get("why") == "the run's marks can't be read": pr = dict(pr, checked=False, why=again["why"])  # unreadable marks now: never "saw nothing" (5.6.0 re-review C5)
+            elif again.get("why") in ("the run's marks can't be read", "the copy check couldn't finish in time"): pr = dict(pr, checked=False, why=again["why"])  # unreadable marks now: never "saw nothing" (5.6.0 re-review C5)
         cp = sorted(set(pr.get("copied") or []) | set(again.get("copied") or []))
         if cp: copies[str(name_)] = cp[:4]  # flagged, never voided (03 §5.57 item 40; 5.8.0 measurement)
         if saw: voided[name_] = [str(x)[:120] for x in saw][:6]
@@ -333,7 +333,8 @@ def tally(paths):
     for p in voided_paths: degraded.append(f"review voided by the proctor: {pathlib.Path(p).name} (its agent's transcript shows {'; '.join(voided[pathlib.Path(p).name])}); its votes don't count, and its findings no honest reviewer raised are kept only if a verifier reproduces them")
     if voided_paths and not paths: degraded.append("every reviewer was voided by the proctor, so no finding has a vote")
     unchecked = sorted({x for x in unchecked if x in {pathlib.Path(p).name for p in paths}})
-    for name_, cp in sorted(copies.items()): degraded.append(f"possible copy: {name_}'s own words hold {', '.join(cp)} (flagged for the owner to judge; its votes still count)")
+    for name_, cp in sorted((k, v) for k, v in copies.items() if k not in voided): degraded.append(  # a voided review's line already says its votes don't count (5.8.0 blind round C4)
+f"possible copy: {name_}'s own words hold {', '.join(cp)} (flagged for the owner to judge; its votes still count)")
     if unchecked: degraded.append("the proctor couldn't check " + ", ".join(f"{x} ({unchecked_why.get(x, 'no readable transcript')})" for x in unchecked) + ", so whether its agent saw another's work is unknown")
     coverage = {"read": set(), "not_reached": set()}  # files the reviewers say they read, and the ones they didn't reach (SC-46)
     sandbox = []  # sandbox scenario lines: numbered SB1, SB2 ... here, so the teardown's SANDBOX LEDGER has a source (SC: self-review D C6)
