@@ -62,8 +62,8 @@ def _is_reference(v):
     word (Bearer ${input:pat}, as VS Code's and GitHub's own MCP examples write it)."""
     s = str(v).strip()
     core = re.sub(r"(?i)^(bearer|token|basic)\s+", "", s)
-    m = re.fullmatch(r"\$\{([A-Za-z_][A-Za-z0-9_]*)(:?[-=?+])(.*)\}", core, re.S)  # shell forms: ${X:-default}, ${X:?message} (5.8.1 C5)
-    if m: return m.group(2).endswith("?") or _is_reference(m.group(3))  # a message is no value; a default is judged on its own, so ${X:-realsecret} still counts
+    m = re.fullmatch(r"\$\{([A-Za-z_][A-Za-z0-9_]*)(:?[-=?+])((?:[^{}$]|\$(?!\{)|\$\{[^{}]*\})*)\}", core, re.S)  # shell forms: ${X:-default}, ${X:?message} (5.8.1 C5); the inside holds no } of its own, so ${A:?}secret${B:?} is not one reference (blind round L2)
+    if m: return m.group(2).endswith("?") or len(m.group(3).strip()) < 8 or _is_reference(m.group(3))  # a message is no value; a default is judged on its own (under 8 characters, like any value, is no credential), so ${X:-realsecret} still counts (blind round L1)
     return not s or bool(re.fullmatch(REF, s)) or bool(re.fullmatch(r"(?i)(bearer|token|basic)\s+(?:" + REF + ")", s))
 
 def _not_a_secret_value(v):

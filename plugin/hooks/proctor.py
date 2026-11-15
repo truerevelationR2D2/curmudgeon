@@ -37,11 +37,18 @@ def _strings(x, out, cap):
 
 WRITES = {"Write", "Edit", "MultiEdit", "NotebookEdit"}
 
+def _reads_own(item, own):
+    """A Read tool call of .critic/reviews/<own>."""
+    fp = str((item.get("input") or {}).get("file_path") or "") if isinstance(item.get("input"), dict) else ""
+    return item.get("name") == "Read" and fp.replace("\\", "/").endswith(".critic/reviews/" + own)
+
 def shown(transcript_path, deadline, reads_only=False, own=None):
     """The text of every tool result in the transcript, joined; None when it can't be read in time. With reads_only, the
     results of the agent's own Write and Edit calls are left out: they echo what it typed, which the copy check must
     never count as text it was shown (5.8.0 blind round C1). So are the results of any call that names its own review
-    file (own), such as a Read of it: reading back what it wrote is not being shown it (5.8.1 C3)."""
+    file (own) with the Read tool: reading back what it wrote is not being shown it (5.8.1 C3). Only a Read of that
+    file counts: a command that merely mentions the name (a test the reviewer runs) still shows its output (5.8.1
+    blind round: that wider rule flagged two honest reviewers)."""
     p = pathlib.Path(str(transcript_path or ""))
     try:
         if not str(transcript_path or "") or not p.is_file() or p.stat().st_size > MAX_TRANSCRIPT: return None
@@ -56,7 +63,7 @@ def shown(transcript_path, deadline, reads_only=False, own=None):
                 own_write = False
                 for item in c if isinstance(c, list) else []:
                     if not isinstance(item, dict): continue
-                    if item.get("type") == "tool_use" and (item.get("name") in WRITES or (reads_only and own and own in json.dumps(item.get("input"), ensure_ascii=False))): writes.add(item.get("id"))
+                    if item.get("type") == "tool_use" and (item.get("name") in WRITES or (reads_only and own and _reads_own(item, own))): writes.add(item.get("id"))
                     if item.get("type") == "tool_result":
                         if reads_only and item.get("tool_use_id") in writes: own_write = True; continue
                         n += _strings(item.get("content"), parts, MAX_TRANSCRIPT - n)
@@ -114,9 +121,12 @@ def _allowed(root, letter, deadline):
 def _stop_order(root):
     """{review file: the time of its first stop record}, from .critic/stops (the reviewer's own records, by agent)."""
     out = {}
+    try: started = float(json.loads((pathlib.Path(root) / ".critic" / "ledger.json").read_text(encoding="utf-8")).get("started_at") or 0)
+    except (OSError, ValueError, TypeError, AttributeError): started = 0
     for f in (pathlib.Path(root) / ".critic" / "stops").glob("*.json"):
         try: j = json.loads(f.read_text(encoding="utf-8"))
         except (OSError, ValueError): continue
+        if isinstance(j, dict) and started and float(j.get("at") or 0) < started - 2: continue  # an earlier run's or round's stop never orders this one's reviewers, as the merge already skips them (5.8.1 blind round L7)
         r, at = (j.get("review"), j.get("first_at", j.get("at"))) if isinstance(j, dict) else (None, None)  # first_at: kept by write_stop when a reviewer stops twice (5.8.1)
         if isinstance(r, str) and isinstance(at, (int, float)) and not isinstance(at, bool) and (r not in out or at < out[r]): out[r] = float(at)
     return out

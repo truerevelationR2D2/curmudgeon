@@ -7,7 +7,7 @@ import json, os, pathlib, re, sys
 
 PROTECTED = {"ledger.json", "tally-reviews.json", "ledger.md", "decisions.md", "gate", "gate-count", "gate-async", "findings.jsonl", "findings.sarif", "tally.json", "counts.md", "async-shown.json", "refutations.jsonl", "runlog.jsonl", "spotcheck.md", "boundary.json", "plan.json", "cost.jsonl"}
 PROTECTED_DIRS = {"baseline", "verify", "restore", "private", "verdicts", "verdicts-variants", "stops", "verify-opened", "proctor"}  # proctor, boundary.json, plan.json, cost.jsonl: written only by the scripts and hooks; a reviewer that wiped the proctor's marks would pass its own check (5.8.1 C2)  # verdicts: saved by check_contract.py as the verifier returned them, never retyped; stops and verify-opened: the hooks' own records of each agent (§5.56)
-AGENT_PROTECTED = {"scope.json", "rules.md", "rules", "last-review.md"}  # the owner's rules and the run's end marker: an untracked rules.md an agent wrote would count as the owner's  # private: the browser driver's signing key and live-request ledger
+AGENT_PROTECTED = {"scope.json", "rules.md", "rules", "last-review.md", "briefs", "scan"}  # briefs: what the copy check counts as shown to a reviewer; scan: the report the tally trusts (5.8.1 blind round C1)  # the owner's rules and the run's end marker: an untracked rules.md an agent wrote would count as the owner's  # private: the browser driver's signing key and live-request ledger
 
 def main():
     try: data = json.load(sys.stdin)
@@ -29,6 +29,7 @@ def check(data):
     if not path: return 0
     p = pathlib.Path(os.path.normpath(os.path.join(data.get("cwd") or os.getcwd(), path)))  # resolve "..", so .critic/x/../ledger.json is caught
     parts = p.parts
+    low = tuple(x.lower() for x in parts)  # .critic/Proctor is .critic/proctor on a case-insensitive disk (macOS, Windows), as read_guard.py already assumes (5.8.1 blind round C2)
     agent = bool(re.fullmatch(r"(?:curmudgeon:)?curmudgeon-[a-z]+", str(data.get("agent_type") or "")))
     if agent:  # 03 §5.56 batch 2 round 2: an agent's Write tool, like its shell, stays out of the owner's record and the real project
         real = os.path.realpath(p)
@@ -42,36 +43,37 @@ def check(data):
                 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__))); import workspace
                 root = workspace.project_root(data)
             except Exception: root = None
-            if root and ".critic" not in parts and under(root):  # a path inside .critic by its words (a copy's linked node_modules) gets the link check below
+            if root and ".critic" not in low and under(root):  # a path inside .critic by its words (a copy's linked node_modules) gets the link check below
                 why = f"{path} is in the real project, outside your copy: write probes in your copy or your notes folder"
         if why:
             print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason": f"Curmudgeon: {why}."}}))
             return 0
-    if ".critic" not in parts: return 0
-    after = parts[parts.index(".critic") + 1:]
+    if ".critic" not in low: return 0
+    after = parts[low.index(".critic") + 1:]
     if not after: return 0
+    first = after[0].lower()
     mine = re.sub(r"[^A-Za-z0-9_-]", "", str(data.get("agent_id") or ""))[:64]  # workspace.clean_id
-    if agent and after[0] == "scratch" and len(after) >= 2 and after[1] != mine:  # another agent's copy or notes: a blind reviewer never changes what another one reads (ultimate audit Q02)
+    if agent and first == "scratch" and len(after) >= 2 and after[1].lower() != mine.lower():  # another agent's copy or notes: a blind reviewer never changes what another one reads (ultimate audit Q02)
         print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny",
             "permissionDecisionReason": f"Curmudgeon: {path} is in another agent's private folder; write only in your own copy and notes."}}))
         return 0
-    if agent and after[0] == "scratch" and len(after) == 3 and after[2] in ("workspace.json", "stop.json"):  # the hooks' record of the copy, which the stop record trusts
+    if agent and first == "scratch" and len(after) == 3 and after[2].lower() in ("workspace.json", "stop.json"):  # the hooks' record of the copy, which the stop record trusts
         print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny",
             "permissionDecisionReason": f"Curmudgeon: {'/'.join(after)} is the hooks' record of your copy; agents can't write it."}}))
         return 0
-    if agent and after[0] == "scratch" and "payload" in after[:3]:  # 03 §5.56 item 11: a write inside the copy that a link carries into the real project
-        pl = pathlib.Path(*parts[:parts.index(".critic") + 1 + after.index("payload") + 1])
+    if agent and first == "scratch" and "payload" in [x.lower() for x in after[:3]]:  # 03 §5.56 item 11: a write inside the copy that a link carries into the real project
+        pl = pathlib.Path(*parts[:low.index(".critic") + 1 + [x.lower() for x in after].index("payload") + 1])
         try: out = not os.path.realpath(p).startswith(os.path.realpath(pl) + os.sep)
         except OSError: out = False
         if out:
             print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny",
                 "permissionDecisionReason": f"Curmudgeon: {path} is inside your copy, but a link (node_modules, .venv) carries a write there into the real project. Write probes in your notes folder instead."}}))
             return 0
-    if agent and after[0] in AGENT_PROTECTED:  # the owner's consent files: the lead may write them for the owner, Curmudgeon's own agents never
+    if agent and first in AGENT_PROTECTED:  # the owner's consent files: the lead may write them for the owner, Curmudgeon's own agents never
         print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny",
             "permissionDecisionReason": f"Curmudgeon's agents can't write {'/'.join(after)}: it is the owner's (their rules, which live sites may be loaded) or the run's own marker. Ask the lead, who asks the owner."}}))
         return 0
-    if after[0] in PROTECTED or (after[0] in PROTECTED_DIRS):
+    if first in PROTECTED or first in PROTECTED_DIRS:
         print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny",
             "permissionDecisionReason": f"Curmudgeon records can't be edited directly ({'/'.join(after)}). Use critic_ledger.py or critic_merge.py, which validate every change."}}))
     return 0

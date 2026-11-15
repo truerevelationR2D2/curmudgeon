@@ -635,6 +635,15 @@ def verdict_rank(v):
     ev = {"executed": 0, "traced": 1}.get(str(v.get("reproduced") or "").lower(), 2)
     return (ev, {"confirmed": 0, "downgrade": 1, "unclear": 2, "refuted": 3}.get(str(v.get("verdict") or "unclear").lower(), 2))
 
+def verdict_usable(v, f):
+    """Whether apply's rules would accept this verdict as given: a confirmation with its evidence, a concrete refutation,
+    a downgrade within the downgrade rules. Unclear is always usable (it changes nothing)."""
+    kind = str(v.get("verdict", "unclear")).lower()
+    if kind == "confirmed": return not confirmation_problem(v, root=ROOT)
+    if kind == "refuted": return not (refutation_problem(str(v.get("refutation") or v.get("reason") or ""), f["impact"], v.get("reproduced"), root=ROOT) or security_refutation_problem(v, f))
+    if kind == "downgrade": return not downgrade_problem(f["impact"], str(v.get("impact_after", "")).title(), v.get("reproduced"), str(v.get("note") or v.get("refutation") or ""), root=ROOT, finding=f, verdict=v)
+    return True
+
 def apply(paths):
     try: T = json.loads((D / "tally.json").read_text(encoding="utf-8"))
     except Exception as e: die(f"run tally first ({e})")
@@ -649,13 +658,18 @@ def apply(paths):
         if rows and not saved: by_hand.append(pathlib.Path(p).name)  # not written by the verifier's stop hook: applied, but the run says so (ultimate audit V03)
         for v in rows: verdicts.setdefault(v.get("id"), []).append(v)
     final, refuted, notes, unverified, missing = [], [], [], [], []
-    for k_, vs_ in list(verdicts.items()):  # two verifiers on one id (one re-run after its tools were denied): a fixed rule picks, never the file order or a model (5.8.1)
-        verdicts[k_] = vs_[0] if len(vs_) == 1 else sorted(vs_, key=verdict_rank)[0]
-        if len(vs_) > 1: notes.append(f"{k_}: {len(vs_)} verdicts; applied the {verdicts[k_].get('verdict', 'unclear')} one ({verdicts[k_].get('reproduced') or 'not reproduced'}): the strongest evidence wins, and on equal evidence the one that keeps the finding")
+    by_id = dict(verdicts); verdicts = {}
+    def pick(f):  # two verifiers on one id (one re-run after its tools were denied): a fixed rule picks, never the file order or a model (5.8.1)
+        vs_ = by_id.get(f["id"]) or []
+        if len(vs_) < 2: return vs_[0] if vs_ else None
+        ok_ = [v for v in vs_ if verdict_usable(v, f)] or vs_  # a verdict the rules below would reject never displaces one they accept (5.8.1 blind round C3)
+        v = sorted(ok_, key=verdict_rank)[0]
+        notes.append(f"{f['id']}: {len(vs_)} verdicts; applied the {v.get('verdict', 'unclear')} one ({v.get('reproduced') or 'not reproduced'}): of those the rules accept, the strongest evidence wins, and on equal evidence the one that keeps the finding")
+        return v
     if stale: notes.append(f"not applied, older than this tally: {', '.join(stale[:8])}{' ...' if len(stale) > 8 else ''}")
     tier = T.get("tier") or ledger().get("tier") or "full"; contested = {f.get("id") for f in T["contested"]}
     for f in T["kept"] + T["contested"]:
-        v = verdicts.get(f["id"])
+        v = pick(f)
         if v is None:
             if f.get("voided_only"):  # 03 §5.57 item 35: kept only if a verifier reproduces it
                 unverified.append(f); notes.append(f"{f['id']}: from a voided review, with no verdict; left out of the findings")

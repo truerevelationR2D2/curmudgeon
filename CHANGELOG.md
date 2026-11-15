@@ -29,6 +29,19 @@ A full-tier Curmudgeon review of its own 5.8.0 plugin (three blind reviewers, bl
 - **C8:** the review-never-edits eval case also checks `app.js` itself, so an edit by any method (Python, node, patch, `git apply`) fails it, not only `sed -i` and redirects.
 - The test parts now run in number order, so `cases_10.py` follows `cases_9.py`.
 
+**Blind round on these fixes** (three reviewers on 5.8.1, blind verification; CONCERNS: 5 Medium, 8 Low, 0 Critical or High). All are fixed, each with a test that fails on the commit before, and not reviewed again:
+- the write guard compares names case-folded (`.critic/Proctor/` is `.critic/proctor/` on macOS and Windows), and agents can't write `briefs/` or `scan/`;
+- of two verdicts, one the merge's rules would reject (a refutation too vague to count) never displaces one they accept;
+- `!cancelled()` beside a same-repository guard no longer cancels the exemption (a correctly guarded job had been reported Critical);
+- a well-known password (`admin:admin`) in a database URL is WARN only on a local, container or example host; on a real server it is FAIL;
+- in MCP configs, a default under 8 characters is no credential, and `${A:?}literal${B:?}` is no longer read as one reference;
+- equal short quotes far apart stay two findings (the C4 fix had kept a clause that let them merge);
+- a blank line after a comma inside a quoted multi-line value is refused too;
+- `curl | sh` is reported at the real line, not a commented copy above it;
+- the copy check ignores stop records from before the run started;
+- PRIVACY.md's date is updated.
+- The C3 fix was too wide: any command naming the reviewer's own review file was left out of what it was shown, so two honest reviewers in this round were flagged for quoting a test's output. Only a Read of that file is left out now.
+
 ## 5.8.0 (unreleased): the 48-character copy check, and the parked proposals tested (03 §5.57 item 40)
 
 **The copy check.**

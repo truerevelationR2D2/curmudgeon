@@ -1,6 +1,6 @@
 # Curmudgeon privacy policy
 
-Last updated: 9 November 2026. Applies to Curmudgeon 5.4.0 and later, the free, open-source (MIT) review plugin for Claude Code at https://github.com/truerevelationR2D2/curmudgeon.
+Last updated: 15 November 2026. Applies to Curmudgeon 5.4.0 and later, the free, open-source (MIT) review plugin for Claude Code at https://github.com/truerevelationR2D2/curmudgeon.
 
 ## What Curmudgeon collects
 

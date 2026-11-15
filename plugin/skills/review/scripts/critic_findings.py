@@ -117,8 +117,7 @@ def similar(a, b):
             seen_, q_ = norm_code(s_.get("failing_case")), norm_code(o_.get("quote"))
             if len(seen_) >= 6 and q_ and (seen_ in q_ or q_ in seen_): return True
     near = abs(safe_int(a.get("line")) - safe_int(b.get("line"))) <= 15
-    overlap = bool(qa and qb and min(len(qa), len(qb)) >= 12 and (qa in qb or qb in qa))
-    return jac >= 0.5 and close or jac >= 0.7 and (near or overlap)  # titles alone never join two distant code sites (5.8.1 C4); the dedup agent still sees both
+    return jac >= 0.5 and close or jac >= 0.7 and near  # titles alone never join two distant code sites (5.8.1 C4); an equal long quote already merged above, and the dedup agent still sees both
 
 def quote_text(s):
     """A quote as the quote check compares it: runs of spaces and tabs made one space, ends trimmed. Case and quote marks

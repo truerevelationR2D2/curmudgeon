@@ -103,11 +103,18 @@ def secret_spans(chunk, bare=False):
 
 def db_url_skip(m):
     """A database URL whose password is a reference or a placeholder is the safe way to write it: no row. A well-known
-    local password (postgres:postgres) is a WARN, not a committed secret."""
+    local password (postgres:postgres) on a local, container or example host is a WARN, not a committed secret."""
     body = m.group(0).split("://", 1)[-1]
     pw = body[body.index(":") + 1:body.rindex("@")] if ":" in body and "@" in body else ""
     if PLACEHOLDER.match(pw) or re.fullmatch(r"\$\{[^}]+\}|\$\w+|<[^>]+>|%\(\w+\)s|\{\{.*\}\}|\{\w+(?:\.\w+)*(?:![rsa])?(?::[^{}]*)?\}", pw): return "skip"
-    return "warn" if pw.lower() in LOCAL_DB_PASSWORDS else None
+    if pw.lower() not in LOCAL_DB_PASSWORDS: return None
+    host = re.split(r"[:/?#]", body[body.rindex("@") + 1:].lstrip("["), 1)[0].rstrip("]").lower()
+    return "warn" if local_host(host) else None  # a well-known password on a real server is still a committed secret (5.8.1 blind round C5)
+
+def local_host(h):
+    """A host that is this machine, a container's service name (no dot), or a name reserved for examples and tests."""
+    return (not h or "." not in h or h in ("localhost", "::1", "0.0.0.0") or h.startswith("127.") or h == "host.docker.internal"
+            or h.endswith((".local", ".localhost", ".test", ".example", ".invalid", "example.com", "example.org", "example.net")) or "$" in h or "{" in h)
 
 def windows(line, size=20000, overlap=400):
     """Very long lines (minified bundles) are scanned in overlapping windows, never skipped."""
