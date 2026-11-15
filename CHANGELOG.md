@@ -2,7 +2,40 @@
 
 Every release of Curmudgeon, newest first. The repository's history starts at 4.2.1; earlier versions are summarised from the project's own build and review records. Numbers are the ones measured at the time; the README's Benchmarks section has the current ones and how they were measured.
 
-## 5.7.1 (unreleased): fixes from Qodo's review of #48
+## 5.8.0 (unreleased): the 48-character copy check, and the parked proposals tested (03 §5.57 item 40)
+
+**The copy check.**
+- **The eval.** The answer-key leak check counts any 48 characters of an entry, not the first 30. An entry shorter than 48 never counts: a 31-character phrase a review wrote for a real finding had been called a leak.
+- **What the proctor reads.** It now reads each review's own prose: title, evidence, failing case and remediation, field by field.
+- **When it flags.** A passage of 48 characters or more is flagged as a possible copy in the counts when it does both of these:
+  - it matches a review by a reviewer whose first stop came earlier;
+  - the reviewer never saw it: not in the project's files, not in its own brief, and not in any of its tool output except its own Write and Edit echoes.
+- **Reviewers are told** in their instructions that this is checked.
+- **Flagged, not voided.** On the real three-reviewer runs kept here, the first version would have flagged 6 of 9 honest reviews. Their shared passages came from program output both reviewers ran, vendor files both read, and joined lists of file paths. The reworked check still flagged 1 of the 3 reviews that kept transcripts: two honest reviewers had abbreviated old code the same way (`tmp.write_text(...)`). Precision comes first, so a hit is a named flag for the owner, never a void.
+- **A check that can't finish** (time or size) leaves the review unchecked and the run DEGRADED. It never says "no copy".
+
+**Blind round on the copy check** (three reviewers on 5.8.0, blind verification): 6 findings, 3 Medium and 3 Low. All are fixed, each with a test that fails on the old code, and not reviewed again:
+- the agent's own Write and Edit echoes no longer count as text it was shown;
+- a check that couldn't finish reports unchecked;
+- the comparison has a deadline;
+- a voided review gets no "votes still count" line;
+- any 48 characters of a long answer-key entry count;
+- "earlier" is the first stop record, not the file's time, which the stop hook resets.
+
+**Smoke eval** of the changed reviewer instructions: lite found 16 of 16 on suite 1. The 5 clean-twin findings are not yet labelled (the 12 Nov runs' clean-twin findings were all labelled real).
+
+**Parked proposals, tested** (ruling 40; the write-up is in the Project):
+- D2, the three-lens verifier panel: replayed on 24 matched pairs (48 packets of known truth, 192 blind calls).
+  - One verifier and the panel both refuted every wrong finding and kept every real one.
+  - The panel's impact lens downgraded 17 of 24 real Critical and High bugs, 4 of them below their planted severity; the single verifier downgraded 2, 1 of them below.
+  - Cost: $15.07 for the panel against $5.11.
+  - Closed by its kill criterion.
+- D3, a plugin workflow: Claude Code's docs say workflow agents get the same permission checks and sandbox as any tool call, with no way to keep one agent from another's files, and workflows can be switched off by the user or an admin. A workflow can't enforce blindness better than the hooks, and the skill would stay as the fallback. Closed at its availability check.
+- D1 (Codex), D5 (srt on Windows) and D6 (`require` by default) need Codex, a Windows machine with sandbox-runtime, or probe records from Ryan's machines. None is present here, so they wait.
+
+Budgets (`claude plugin details`, 15 November 2026): about 919 tokens added to every session, unchanged; the review skill about 9.4k when it runs, unchanged; the reviewer agent about 2k (5.7.1: about 1.9k), for the copy-check notice.
+
+## 5.7.1 (14 November 2026): fixes from Qodo's review of #48
 
 Six Medium findings, each checked against the code and git before fixing, each with a test that fails on the old code:
 - The request command refuses `git show` on an annotated tag, which prints the tagger's name and email whatever `--format` says (ask for `TAG^{commit}`). It refuses `--show-signature` and `--notes`, and adds `--no-notes --no-show-signature` to `log` and `show`.

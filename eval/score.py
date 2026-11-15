@@ -121,8 +121,8 @@ def leak(path, key=None):
     if re.search(r"answer[_ ]key|\b[DEGR]\d{1,2}\b.*planted|planted (defect|flaw)s? list", text, re.I): found.append("the review names the answer key")
     low = re.sub(r"\s+", " ", text.lower())
     for name in (key or {}):
-        words = re.sub(r"\s+", " ", name.split(" ", 1)[-1].lower())[:48]
-        if len(words) >= 30 and words in low: found.append(f"the review copies an answer-key entry ({name.split()[0]})"); break
+        words = re.sub(r"\s+", " ", name.split(" ", 1)[-1].lower())  # any 48 characters of an entry, not only its first 48 (5.8.0 blind round C5); an entry under 48 never counts: a 31-character phrase a review wrote for a real finding was called a leak (12 Nov 2026; 03 §5.57 item 40)
+        if any(words[i:i + 48] in low for i in range(len(words) - 47)): found.append(f"the review copies an answer-key entry ({name.split()[0]})"); break
     return found
 
 def run_tokens(path):
