@@ -66,7 +66,8 @@ def _same_repo_only(*conds):
     joined with && only, so no || can open it again, and not negated (!)."""
     for c in conds:
         c = str(c or "")
-        if SAME_REPO_GUARD.search(c) and "||" not in c and not re.search(r"!(?!=)", c): return True  # no || and no negation
+        bare = re.sub(r"!\s*(?:cancelled|failure|success|always)\(\s*\)", "", c)  # !cancelled() negates a status check, not the guard (5.8.1 blind round C4)
+        if SAME_REPO_GUARD.search(c) and "||" not in c and not re.search(r"!(?!=)", bare): return True  # no || and no negation
     return False
 
 def _upload_takes_hidden(uses, w):
@@ -172,22 +173,24 @@ def scan_workflow(rel, text, emit, lock_text=""):
             if isinstance(run, str):
                 for expr in _exprs(run):
                     boolean = bool(BOOLEAN_EXPR.fullmatch(expr))  # startsWith(...), a == b: only true or false reaches the script
+                    dotted = re.sub(r"\[\s*(['\"])([A-Za-z_][\w-]*)\1\s*\]", r".\2", expr)  # github['event']['issue']['title'] is github.event.issue.title (5.8.1 L1)
                     for pat, can in TAINT:
                         if boolean: break
-                        m = re.search(pat, expr)
+                        m = re.search(pat, dotted)
                         if not m: continue
                         hit = trig & can
                         if not hit: continue
                         sev = "FAIL" if hit & PRIVILEGED else "WARN"
-                        ln = _line_of(raw, run.line, m.group(0))
+                        ln = _line_of(raw, run.line, m.group(0) if m.group(0) in expr else expr.strip())
                         emit(sev, "ci-injection", "supply-chain", f"{rel}:{ln}", f"{m.group(0)} is chosen by whoever opens the pull request, issue or comment, and it is pasted into {kind}: pass it through env: and quote \"$VAR\" (in a script, read process.env)", raw[ln - 1] if ln <= len(raw) else "")
                         break
                     if re.search(r"\bsecrets\.", expr) and not boolean and kind == "a shell script":  # secrets.K != '' reaches the script as true or false
                         ln = _line_of(raw, run.line, expr.strip())
                         emit("WARN", "ci-secret-in-run", "supply-chain", f"{rel}:{ln}", "a secret pasted into a run: script can leak through command echo or error output: pass it through env:", raw[ln - 1] if ln <= len(raw) else "")
+                code = "\n".join(x for x in run.split("\n") if not x.lstrip().startswith("#"))  # a comment line never runs, as scan_text already skips it (5.8.1 L2)
                 for rid, sev, rx, msg in (LINE_RULES if kind == "a shell script" else ()):
-                    m = rx.search(run)
-                    if m: ln = _line_of(raw, run.line, m.group(0)[:20]); emit(sev, rid, "supply-chain", f"{rel}:{ln}", msg, raw[ln - 1] if ln <= len(raw) else "")
+                    m = rx.search(code)
+                    if m: ln = next((i + 1 for i in range(max(run.line, 1) - 1, len(raw)) if m.group(0)[:20] in raw[i] and not raw[i].lstrip().startswith("#")), run.line); emit(sev, rid, "supply-chain", f"{rel}:{ln}", msg, raw[ln - 1] if ln <= len(raw) else "")
 
 def scan_text(rel, text, emit):
     """Shell scripts, Dockerfiles and requirement files: the line rules, and docker-latest."""

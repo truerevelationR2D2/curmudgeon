@@ -103,11 +103,18 @@ def secret_spans(chunk, bare=False):
 
 def db_url_skip(m):
     """A database URL whose password is a reference or a placeholder is the safe way to write it: no row. A well-known
-    local password (postgres:postgres) is a WARN, not a committed secret."""
+    local password (postgres:postgres) on a local, container or example host is a WARN, not a committed secret."""
     body = m.group(0).split("://", 1)[-1]
     pw = body[body.index(":") + 1:body.rindex("@")] if ":" in body and "@" in body else ""
     if PLACEHOLDER.match(pw) or re.fullmatch(r"\$\{[^}]+\}|\$\w+|<[^>]+>|%\(\w+\)s|\{\{.*\}\}|\{\w+(?:\.\w+)*(?:![rsa])?(?::[^{}]*)?\}", pw): return "skip"
-    return "warn" if pw.lower() in LOCAL_DB_PASSWORDS else None
+    if pw.lower() not in LOCAL_DB_PASSWORDS: return None
+    host = re.split(r"[:/?#]", body[body.rindex("@") + 1:].lstrip("["), 1)[0].rstrip("]").lower()
+    return "warn" if local_host(host) else None  # a well-known password on a real server is still a committed secret (5.8.1 blind round C5)
+
+def local_host(h):
+    """A host that is this machine, a container's service name (no dot), or a name reserved for examples and tests."""
+    return (not h or "." not in h or h in ("localhost", "::1", "0.0.0.0") or h.startswith("127.") or h == "host.docker.internal"
+            or h.endswith((".local", ".localhost", ".test", ".example", ".invalid", "example.com", "example.org", "example.net")) or "$" in h or "{" in h)
 
 def windows(line, size=20000, overlap=400):
     """Very long lines (minified bundles) are scanned in overlapping windows, never skipped."""
@@ -125,16 +132,17 @@ def scan(rel, text, emit):
                 for m in rx.finditer(chunk):
                     key = (rid, off + m.start()); A, B = off + m.start(), off + m.end()
                     if key in seen or any(A < y and x < B for x, y in taken): continue
+                    level = sev  # per match: a local URL earlier on the line never lowers a later one (5.8.1 C1)
                     if rid == "db-url-password":
                         how = db_url_skip(m)
                         if how == "skip": continue
-                        if how == "warn": sev = "WARN"
+                        if how == "warn": level = "WARN"
                     seen.add(key); taken.append((A, B)); hit = True
                     if rid == "private-key": ev = m.group(0)  # the header only: the key body never goes into a report
                     else:
                         a, b = max(0, m.start() - 60), min(len(chunk), m.end() + 40)
                         ev = redact(chunk[a:b], [(max(0, x - a), min(b, y) - a) for x, y in spans if y > a and x < b])
-                    emit(sev, f"secret-{rid}", "safety", f"{rel}:{i}", f"{label} in a file (rotate it: anything committed or shipped is exposed)", ev)
+                    emit(level, f"secret-{rid}", "safety", f"{rel}:{i}", f"{label} in a file (rotate it: anything committed or shipped is exposed)", ev)
             prov = [(mm.start(), mm.end()) for _r, _s, rx, _l in COMPILED for mm in rx.finditer(chunk)]
             for name, val, (vs, ve) in generic(chunk, bare):
                 A = off + vs

@@ -101,7 +101,8 @@ def fingerprint2(f):
     return "Q-" + hashlib.sha1(f"{str(f.get('file') or '').lower()}|{q}".encode()).hexdigest()[:8]
 
 def similar(a, b):
-    """Same issue? Same file, and either the quotes overlap or the titles share most words, and lines are close."""
+    """Same issue? Same file, and either the quotes overlap or the titles share most words and the lines are close (within
+    5; within 15 when the titles nearly match). Equal titles far apart are two findings (5.8.1 C4)."""
     if str(a.get("file") or "").lower() != str(b.get("file") or "").lower(): return False
     ta, tb = tokens(a.get("title")) | tokens(a.get("category")), tokens(b.get("title")) | tokens(b.get("category"))
     jac = len(ta & tb) / max(1, len(ta | tb))
@@ -115,7 +116,8 @@ def similar(a, b):
         if s_.get("source") == "scan" and o_.get("source") != "scan" and close:
             seen_, q_ = norm_code(s_.get("failing_case")), norm_code(o_.get("quote"))
             if len(seen_) >= 6 and q_ and (seen_ in q_ or q_ in seen_): return True
-    return jac >= 0.5 and close or jac >= 0.7
+    near = abs(safe_int(a.get("line")) - safe_int(b.get("line"))) <= 15
+    return jac >= 0.5 and close or jac >= 0.7 and near  # titles alone never join two distant code sites (5.8.1 C4); an equal long quote already merged above, and the dedup agent still sees both
 
 def quote_text(s):
     """A quote as the quote check compares it: runs of spaces and tabs made one space, ends trimmed. Case and quote marks
@@ -626,7 +628,7 @@ RUNLOG_MAX = 1_000_000
 # quote can contain a secret from the code under review; the outputs Curmudgeon writes itself are masked by scrub()).
 IGNORED = ("runlog.jsonl", "tally-reviews.json", "refutations.jsonl", "cost.jsonl", "scratch/", "manifest.json", "spotcheck.md", "restore/", "reviews/", "history/", "outside/", "verify/",
            "tally.json", "dedup-candidates.json", "findings-import.jsonl", "briefs/", "scan-only.txt", "verdicts/", "verdicts-variants/", "verify-variants/", "variants.jsonl", "variants-found.json", "scan-skipped",
-           "integrity-baseline.json")  # the owner's recorded copy: a tracked one is never trusted (audit Q04), so it stays out of commits
+           "integrity-baseline.json", "stops/", "proctor/", "verify-opened/")  # stops/ and proctor/ hold the paths of reviewers' transcripts on this machine and their requests (5.8.1); the owner's recorded copy: a tracked one is never trusted (audit Q04), so it stays out of commits
 _TRACKED = {}
 def git_tracked(root, rel):
     """True when the repository tracks this file: ignore rules don't apply to a tracked file, so anything written to
