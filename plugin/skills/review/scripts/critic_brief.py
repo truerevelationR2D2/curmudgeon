@@ -148,8 +148,15 @@ def main(a):
     out = D / "briefs"
     if out.is_symlink() or D.is_symlink(): sys.exit("critic_brief: .critic/briefs is a link; refusing to write through it")
     out.mkdir(parents=True, exist_ok=True)
+    sys.path.insert(0, str(HERE.parents[2] / "hooks")); import conduct, secrets
+    old_t, toks = conduct.tokens(ROOT), {}
+    for x in letters:  # 03 §5.57 item 44: one claim token per letter, only in that letter's own part; the same brief written again keeps its token
+        try: keep = old_t.get(x) and f"claim {x} {old_t[x]}" in (out / f"brief-{x}.md").read_text(encoding="utf-8")
+        except OSError: keep = False
+        toks[x] = old_t[x] if keep else secrets.token_hex(6)
+    conduct._write(conduct._dir(ROOT) / "claim-tokens.json", __import__("json").dumps(toks))
     for x in letters:
-        mine = ["", "---", "", f"Reviewer letter: {x}", "", "Read the files in this order:"] + [f"{i}. {f}" for i, f in enumerate(order_for(x, files, L.get("run", 0)), 1)]
+        mine = ["", "---", "", f"Reviewer letter: {x}", "", f"First, before anything else, claim your review (run it from your workspace): {py_cmd(HERE / 'critic_proctor.py')} claim {x} {toks[x]}", "", "Read the files in this order:"] + [f"{i}. {f}" for i, f in enumerate(order_for(x, files, L.get("run", 0)), 1)]
         mine += ["", f"Write your result to {D / 'reviews' / f'review-{x}.json'}"]
         from critic_findings import proctor_mark, proctor_known
         p = out / f"brief-{x}.md"

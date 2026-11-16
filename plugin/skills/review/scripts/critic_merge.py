@@ -327,10 +327,27 @@ def tally(paths):
         if cp: copies[str(name_)] = cp[:4]  # flagged, never voided (03 §5.57 item 40; 5.8.0 measurement)
         if saw: voided[name_] = [str(x)[:120] for x in saw][:6]
         elif not pr.get("checked"): unchecked.append(str(name_)); unchecked_why[str(name_)] = str(pr.get("why") or "no readable transcript")
+    # The reviewers' standard (03 §5.57 item 44): a review whose claiming agent broke it is cut, voided as above.
+    cut_by, blocked_by = {}, {}
+    try: import conduct as conduct_
+    except Exception: conduct_ = None
+    if conduct_:
+        owners = conduct_.claims(ROOT)
+        for agent_, why_ in sorted(conduct_.all_listed(ROOT, "cut").items()):
+            if not why_: continue
+            if owners.get(agent_): cut_by[owners[agent_]] = why_
+            else: degraded.append(f"an agent that claimed no review broke the reviewers' standard ({why_[0][:160]}); no review of its is counted")
+        for agent_, why_ in sorted(conduct_.all_listed(ROOT, "blocked").items()):
+            if why_: blocked_by[owners.get(agent_) or f"agent {agent_[:8]} (no claim)"] = [len(why_)] + [w[:140] for w in why_[:2]]
+    for name_, why_ in cut_by.items(): voided.setdefault(name_, [])
     voided_paths = [p for p in paths if in_reviews(p) and pathlib.Path(p).name in voided]
     paths = [p for p in paths if p not in voided_paths]
     reviews = [reviewer_rows(p) for p in paths]
-    for p in voided_paths: degraded.append(f"review voided by the proctor: {pathlib.Path(p).name} (its agent's transcript shows {'; '.join(voided[pathlib.Path(p).name])}); its votes don't count, and its findings no honest reviewer raised are kept only if a verifier reproduces them")
+    for p in voided_paths:
+        nm_ = pathlib.Path(p).name; parts_ = []
+        if voided.get(nm_): parts_.append(f"its agent's transcript shows {'; '.join(voided[nm_])}")
+        if cut_by.get(nm_): parts_.append(f"its agent broke the reviewers' standard: {'; '.join(w[:160] for w in cut_by[nm_][:3])}")
+        degraded.append(f"review {'cut' if cut_by.get(nm_) and not voided.get(nm_) else 'voided by the proctor'}: {nm_} ({'; and '.join(parts_)}); its votes don't count, and its findings no honest reviewer raised are kept only if a verifier reproduces them")
     if voided_paths and not paths: degraded.append("every reviewer was voided by the proctor, so no finding has a vote")
     unchecked = sorted({x for x in unchecked if x in {pathlib.Path(p).name for p in paths}})
     for name_, cp in sorted((k, v) for k, v in copies.items() if k not in voided): degraded.append(  # a voided review's line already says its votes don't count (5.8.0 blind round C4)
@@ -361,7 +378,7 @@ f"possible copy: {name_}'s own words hold {', '.join(cp)} (flagged for the owner
     # an outside run we can't see never counts as executed: verification decides
     outside_rows = [dict(r, source="outside", verified=r.get("verified") if r.get("verified") == "inferred" else "traced") for r in reviewer_rows(outside)] if outside else []
     voided_rows = [[dict(r, source="voided", voided_from=pathlib.Path(p).name, verified=r.get("verified") if r.get("verified") == "inferred" else "traced") for r in reviewer_rows(p)] for p in voided_paths]  # one channel each; a voided agent's own run claims nothing
-    L = ledger(); out = {"tier": L.get("tier") or "full", "degraded": degraded, "reviewers": n, "votes_needed": need, "outside": None, "kept": [], "contested": [], "dropped": [], "retracted": [], "rejected": [], "suppressed": [], "ruling_committed": [], "set_aside": set_aside, "sandbox": sandbox, "nits": [], "coverage": coverage_report(coverage)}
+    L = ledger(); out = {"tier": L.get("tier") or "full", "degraded": degraded, "reviewers": n, "votes_needed": need, "outside": None, "kept": [], "contested": [], "dropped": [], "retracted": [], "rejected": [], "suppressed": [], "ruling_committed": [], "set_aside": set_aside, "sandbox": sandbox, "nits": [], "coverage": coverage_report(coverage), "blocked": blocked_by}
     scanned = scan_rows(scan) if scan else []
     accepted = []  # (raw_id, reviewer_index or None for scan, finding)
     OUTSIDE_RI = len(reviews) + 1; VOIDED = set(range(len(reviews) + 2, len(reviews) + 2 + len(voided_rows))); ASIDE = {OUTSIDE_RI} | VOIDED  # channels that never vote as one of ours
@@ -733,7 +750,7 @@ def apply(paths):
         + ([f"verdicts not saved by the verifier's stop hook (written or edited outside .critic/verdicts/, so no record shows a verifier returned them): {', '.join(by_hand[:8])}"] if by_hand else [])
     md = ["# Curmudgeon merged findings", ""] + ([f"DEGRADED: {'; '.join(why_degraded)}", "(Copy that line as the teardown's first line, before the verdict.)", ""] if why_degraded else []) + [
           f"Reviewers: {T['reviewers']} (votes needed: {T['votes_needed']}; {tier} tier).",
-          boundary_line(),
+          boundary_line()] + ([("Blocked, not cut (accidental reads the guard stopped; listed for you, 03 §5.57 item 44): " + "; ".join(f"{k} {v[0]} (first: {v[1]})" for k, v in sorted((T.get("blocked") or {}).items())))] if T.get("blocked") else []) + [
           "Counts for the VERDICT (copy exactly): " + " · ".join(f"{k} {v}" for k, v in cnt.items()) + f" · total {len(final)}",
           f"Verdict word (copy exactly): **{verdict_word(cnt)}** (BLOCK: a Critical or High is counted; CONCERNS: only Medium or Low; CLEAN: nothing counted)", "",
           "| ID | Impact | Confidence | Votes | Verifier | Where | Title |", "| --- | --- | --- | --- | --- | --- | --- |"]

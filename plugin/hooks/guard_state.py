@@ -23,11 +23,46 @@ def main():
         except Exception: pass
     return 0
 
+def strict(data, p, path):
+    """The reviewers' standard (03 §5.57 item 44) for a reviewer's Write or Edit: allowed in its own copy and notes
+    (never a settings or instructions file Claude Code reads) and in the review it claimed. Returns None to go on to
+    the checks below, ("blocked", why) for a write refused without a cut (no claim yet), or ("cut", why)."""
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__))); import workspace, conduct
+    root = workspace.project_root(data)
+    if not root: return None
+    me = workspace.clean_id(data.get("agent_id"))
+    real = os.path.realpath(str(p))
+    def under(base):
+        b = os.path.realpath(str(base)); return workspace.fold(real) == workspace.fold(b) or workspace.fold(real).startswith(workspace.fold(b) + os.sep)
+    mine = pathlib.Path(root) / ".critic" / "scratch" / me
+    lex = workspace.fold(str(p)); lm = workspace.fold(str(mine))
+    if me and (lex == lm or lex.startswith(lm + os.sep)) and not under(mine): return ("cut", f"wrote {path}, which a link in its copy (node_modules, .venv) carries into the real project")
+    if me and under(mine):  # realpath: a link in the copy that carries the write elsewhere lands below, outside
+        rel = os.path.relpath(real, os.path.realpath(str(mine)))
+        if workspace.fold(rel) in ("workspace.json", "stop.json"): return ("cut", f"wrote {rel}, the hooks' record of its copy")
+        if conduct.SETTINGS_RX.search(rel.replace(os.sep, "/")): return ("cut", f"wrote {path}, a settings or instructions file Claude Code reads")
+        return None
+    reviews = pathlib.Path(root) / ".critic" / "reviews"
+    if workspace.fold(os.path.dirname(real)) == workspace.fold(os.path.realpath(str(reviews))) and re.fullmatch(r"(?i)review-[A-Za-z0-9]+\.json", os.path.basename(real)):
+        have = conduct.claimed_by(root, me)
+        if not have: return ("blocked", f"{os.path.basename(real)} before claiming your review: run the claim command your brief gives first")
+        if have.lower() == os.path.basename(real).lower(): return None
+        return ("cut", f"wrote {os.path.basename(real)}, which is not the review it claimed ({have})")
+    return ("cut", f"wrote {path}, outside its copy, its notes and the review it claimed")
+
 def check(data):
     ti = data.get("tool_input") or {}
     path = ti.get("file_path") or ti.get("notebook_path") or ""
     if not path: return 0
     p = pathlib.Path(os.path.normpath(os.path.join(data.get("cwd") or os.getcwd(), path)))  # resolve "..", so .critic/x/../ledger.json is caught
+    if re.fullmatch(r"(?:curmudgeon:)?curmudgeon-reviewer", str(data.get("agent_type") or "")):
+        r = strict(data, p, path)
+        if r:
+            import workspace, conduct
+            conduct.note(workspace.project_root(data), data.get("agent_id"), r[1], r[0])
+            tail = (" That breaks the reviewers' standard (your instructions list it), so this review is cut: its votes won't count, and the report names it." if r[0] == "cut" else "")
+            print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason": f"Curmudgeon: refused, the agent {r[1]}.{tail}" if r[0] == "cut" else f"Curmudgeon: you can't write {r[1]}."}}))
+            return 0
     parts = p.parts
     low = tuple(x.lower() for x in parts)  # .critic/Proctor is .critic/proctor on a case-insensitive disk (macOS, Windows), as read_guard.py already assumes (5.8.1 blind round C2)
     agent = bool(re.fullmatch(r"(?:curmudgeon:)?curmudgeon-[a-z]+", str(data.get("agent_type") or "")))

@@ -752,9 +752,24 @@ def main(data=None):
         if isinstance(cmd, str) and cmd:
             if not rec: why = "anything with Bash: no private workspace was made for you, so review by reading (Read, Grep, Glob)"
             else:
+                if role == "reviewer":  # the reviewers' standard (03 §5.57 item 44): a plain write outside its space, or stopping processes, cuts the review
+                    import conduct
+                    try: cut = conduct.bash_cut(cmd, root, me, rec["payload"])
+                    except Exception: cut = None
+                    if cut:
+                        conduct.note(root, me, cut, "cut")
+                        return deny(f"Curmudgeon: refused, the agent {cut}. That breaks the reviewers' standard (your instructions list it), so this review is cut: its votes won't count, and the report names it.")
                 try: why = bash_problem(cmd, rec, root, critic, role, me)
                 except Exception as e: why = f"a command the guard couldn't read ({type(e).__name__}); write it more plainly"  # fail closed for a review agent, never allow on a crash (round 3 review)
-    if why: return deny(f"Curmudgeon blindness: a {role} may not read {why}.{where} Review only what your brief gives you.")
+                m_ = role == "reviewer" and not why and __import__("conduct").CLAIM_RX.search(cmd)
+                if m_:  # the claim: recorded here, where the agent's id is known; the script itself only confirms it
+                    import conduct
+                    err = conduct.claim(root, me, m_.group(1), m_.group(2))
+                    if err: conduct.note(root, me, f"claim refused: {err}", "blocked"); return deny(f"Curmudgeon: claim refused: {err}.")
+    if why:
+        if role == "reviewer":
+            import conduct; conduct.note(root, me, f"{tool}: {why}", "blocked")  # listed for the owner, never a cut (03 §5.57 item 44)
+        return deny(f"Curmudgeon blindness: a {role} may not read {why}.{where} Review only what your brief gives you.")
     return 0
 
 if __name__ == "__main__":

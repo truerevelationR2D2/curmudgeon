@@ -168,6 +168,7 @@ def _(d):
     deny = lambda rel, role="reviewer": "deny" in run(H / "guard_state.py", cwd=p, stdin=json.dumps({"tool_name": "Write", "tool_input": {"file_path": str(p / rel), "content": "{}"}, "cwd": str(p), "agent_type": f"curmudgeon:curmudgeon-{role}", "agent_id": "r1", "hook_event_name": "PreToolUse"})).stdout
     for rel in (".critic/briefs/brief-B.md", ".critic/scan/report.json", ".critic/Proctor/marks.json", ".critic/PLAN.json", ".critic/Stops/x.json", ".Critic/proctor/marks.json", ".critic/Scratch/other/notes/a.txt"):
         assert deny(rel), rel
+    claim_for(p, "r1", "B")
     assert not deny(".critic/reviews/review-B.json") and not deny(".critic/scratch/r1/notes/a.txt"), "its own review and notes stay writable"
 
 @test("5.8.1 blind round C3: a verdict the merge's rules would reject never displaces a second verdict they accept")
