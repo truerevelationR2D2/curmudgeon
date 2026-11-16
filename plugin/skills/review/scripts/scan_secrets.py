@@ -12,7 +12,7 @@ PROVIDERS = [
     ("github-token", "FAIL", r"\b(?:ghp|gho|ghu|ghs|ghr)_[0-9A-Za-z]{36,}\b|\bgithub_pat_[0-9A-Za-z_]{60,}", "GitHub token"),
     ("gitlab-token", "FAIL", r"\bglpat-[0-9A-Za-z_\-]{20,}", "GitLab personal access token"),
     ("slack-token", "FAIL", r"\bxox[abposr]-[0-9A-Za-z-]{10,}", "Slack token"),
-    ("slack-webhook", "FAIL", r"https://hooks\.slack\.com/services/T[0-9A-Z]{8,}/B[0-9A-Z]{8,}/[0-9A-Za-z]{20,}", "Slack webhook URL"),
+    ("slack-webhook", "FAIL", r"https://hooks[.]slack[.]com/services/T[0-9A-Z]{8,}/B[0-9A-Z]{8,}/[0-9A-Za-z]{20,}", "Slack webhook URL"),
     ("google-api-key", "FAIL", r"\bAIza[0-9A-Za-z_\-]{35}\b", "Google API key"),
     ("gcp-service-account", "FAIL", r"\"type\"\s*:\s*\"service_account\"", "Google service account JSON"),
     ("anthropic-key", "FAIL", r"\bsk-ant-(?:api|admin)\d{2}-[A-Za-z0-9_\-]{80,}", "Anthropic API key"),
@@ -22,7 +22,7 @@ PROVIDERS = [
     ("mailgun-key", "FAIL", r"\bkey-[0-9a-f]{32}\b", "Mailgun API key"),
     ("npm-token", "FAIL", r"\bnpm_[0-9A-Za-z]{36}\b", "npm access token"),
     ("pypi-token", "FAIL", r"\bpypi-AgEIcHlwaS5vcmc[0-9A-Za-z_\-]{50,}", "PyPI upload token"),
-    ("discord-webhook", "FAIL", r"https://(?:ptb\.|canary\.)?discord(?:app)?\.com/api/webhooks/\d+/[\w-]{60,}", "Discord webhook URL"),
+    ("discord-webhook", "FAIL", r"https://(?:ptb[.]|canary[.])?discord(?:app)?[.]com/api/webhooks/\d+/[\w-]{60,}", "Discord webhook URL"),
     ("private-key", "FAIL", r"-----BEGIN (?:RSA |EC |DSA |OPENSSH |PGP )?PRIVATE KEY(?: BLOCK)?-----", "private key"),
     ("jwt", "WARN", r"\beyJ[0-9A-Za-z_\-]{10,}\.eyJ[0-9A-Za-z_\-]{10,}\.[0-9A-Za-z_\-]{10,}", "JSON Web Token"),
     ("db-url-password", "FAIL", r"\b(?:postgres(?:ql)?|mysql|mongodb(?:\+srv)?|redis|amqp)://[^:\s/@]+:[^\s/]{4,}?@(?:[\w.-]+|\[[0-9A-Fa-f:.]+\])?(?![\w.@-])", "database URL with a password"),  # a password may hold an unencoded @ (self-review F-0c3380dc); the host may be ${host}, [::1] or end in } < > (batch 5 review)

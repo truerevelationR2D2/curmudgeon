@@ -153,3 +153,15 @@ def _(d):
     C = _c11(); root = str(d / "proj"); ws = f"{root}/.critic/scratch/r1/payload"
     for c in (f"cd {ws} && echo x > /dev/null", f"cd {ws} && node -e 1 2>/dev/null >/dev/stdout", f"cd {ws} && echo x > NUL", f"cd {ws} && echo x > {os.devnull}"):
         assert C.write_targets(c, ws) == [], (c, C.write_targets(c, ws))
+
+@test("directory report: no URL in the shipped scripts has a backslash in its host, so no tool can disagree on which host it names (the slack, discord and npm patterns write a dot as [.])")
+def _(d):
+    bad = []
+    for f in sorted((HERE / "skills").rglob("*.py")) + sorted((HERE / "hooks").glob("*.py")):
+        for i, line in enumerate(f.read_text(encoding="utf-8").splitlines(), 1):
+            for m in re.finditer(r"https?://([^/\s\"']*)", line):
+                if "\\" in m.group(1): bad.append(f"{f.name}:{i}")
+    assert not bad, bad
+    ss = _cfg10()("scan_secrets")
+    rows = []; ss.scan("x.env", "W=https://hooks.slack.com/services/T00000000/B00000000/" + "X" * 24 + "\n", lambda *a: rows.append(a))
+    assert any(r[1] == "secret-slack-webhook" for r in rows), "the pattern still matches"

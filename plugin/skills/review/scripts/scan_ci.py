@@ -218,7 +218,7 @@ def scan_npm_lock(rel, text, emit):
         r = str(meta["resolved"])
         if r.startswith("file:") or r.startswith("git+"): continue
         ln = _line_of(raw, _line_of(raw, 1, json.dumps(name) + ":"), json.dumps(r)[1:-1][:60])  # from the package's own entry, so two packages never share a line
-        if r.startswith("http://") or not re.match(r"https://registry\.npmjs\.org/", r):
+        if r.startswith("http://") or not re.match(r"https://registry[.]npmjs[.]org/", r):
             emit("WARN", "npm-resolved-host", "supply-chain", f"{rel}:{ln}", f"{name or '(root)'} is resolved from {r[:80]}: not the public npm registry over https (check it is meant to be)", raw[ln - 1] if ln <= len(raw) else "")
         if not meta.get("integrity"):
             emit("NOTE", "npm-no-integrity", "supply-chain", f"{rel}:{ln}", f"{name or '(root)'} has no integrity hash in the lockfile: a changed download wouldn't be noticed", raw[ln - 1] if ln <= len(raw) else "")
