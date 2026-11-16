@@ -106,6 +106,7 @@ def _tokens(cmd):
     outside quotes ends a command like ';' (5.9.0 blind round C2, C8)."""
     import shlex
     flat = HEREDOC_RX.sub(lambda m: "<< " + m.group(2) + "\n", cmd)
+    if os.name == "nt": flat = re.sub(r"\\(?=[^\s\"'$`\\])", "/", flat)  # Windows paths (C:\Users\...) keep their separators; a backslash before a quote or a space still escapes it
     held, buf, i, q = [], [], 0, None
     while i < len(flat):
         ch = flat[i]
@@ -170,7 +171,7 @@ def bash_cut(cmd, root, me, payload):
     The same line as the Write tool's (5.9.0 blind round C5): a write to a temporary folder outside is cut too."""
     toks = _tokens(cmd) or []
     if any(c in ("kill", "pkill", "killall", "skill") for c in _commands(toks)): return "ran a command that stops or signals processes, which interferes with the run"
-    fold = lambda x: os.path.normcase(os.path.normpath(str(x))).casefold()
+    fold = lambda x: os.path.normcase(os.path.realpath(str(x))).casefold()  # realpath: macOS's /var is /private/var, and a temp folder is often reached through it
     mine_p = pathlib.Path(root) / ".critic" / "scratch" / me
     mine = fold(mine_p)
     homes = [fold(pathlib.Path.home() / ".claude"), fold(os.environ.get("CURMUDGEON_STATE_DIR") or pathlib.Path.home() / ".curmudgeon")]
@@ -179,7 +180,7 @@ def bash_cut(cmd, root, me, payload):
     for t in write_targets(cmd, payload):
         f = fold(t)
         if f == mine or f.startswith(mine + os.sep):
-            if OWN_SETTINGS_RX.search(os.path.relpath(t, str(mine_p))): return f"wrote {t}, an instructions file Claude Code reads"  # relative: a project inside a .claude folder is not settings (blind round C3)
+            if OWN_SETTINGS_RX.search(os.path.relpath(os.path.realpath(t), os.path.realpath(str(mine_p)))): return f"wrote {t}, an instructions file Claude Code reads"  # relative: a project inside a .claude folder is not settings (blind round C3)
             continue
         if own_review and f == own_review: continue  # its own claimed review, by the shell too (blind round C4)
         if any(f == h or f.startswith(h + os.sep) for h in homes): return f"wrote {t}, in Claude Code's or Curmudgeon's own folder"

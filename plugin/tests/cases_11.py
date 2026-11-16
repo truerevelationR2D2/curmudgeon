@@ -132,3 +132,18 @@ def _(d):
     write(p, ".critic/proctor/claims/old.json", json.dumps({"review": "review-C.json", "at": start - 100}))
     write(p, ".critic/proctor/cut/old.jsonl", json.dumps({"at": start - 100, "why": "an earlier round"}) + "\n")
     assert "old" not in C.claims(p) and C.listed(p, "old", "cut") == [], "earlier rounds never count"
+
+@test("5.9.0 CI: the shell rule follows links (macOS reaches its temp folder as /private/var) and, on Windows, keeps C:\\ path separators")
+def _(d):
+    C = _c11(); real = d / "real"; (real / "proj/.critic/scratch/r1/notes").mkdir(parents=True); (real / "proj/.critic/scratch/r1/payload").mkdir()
+    link = d / "link"
+    try: link.symlink_to(real, target_is_directory=True)
+    except (OSError, NotImplementedError): link = None
+    if link:
+        root = str(link / "proj"); ws = str(link / "proj/.critic/scratch/r1/payload"); notes = real / "proj/.critic/scratch/r1/notes"
+        assert C.bash_cut(f"cd {ws} && cp src/a.py {notes}/a.py", root, "r1", ws) is None, "its own notes, reached by the resolved path"
+        assert C.bash_cut(f"cd {ws} && cp src/a.py {real}/proj/src/b.py", root, "r1", ws), "the real project, reached by the resolved path"
+    if os.name == "nt":
+        root = str(real / "proj"); ws = str(real / "proj/.critic/scratch/r1/payload")
+        assert C.bash_cut(f"cd {ws} && cp src/a.py {real}\\proj\\.critic\\scratch\\r1\\notes\\a.py", root, "r1", ws) is None, "a Windows path in its notes"
+        assert C.bash_cut(f"cd {ws} && cp src/a.py {real}\\proj\\src\\b.py", root, "r1", ws), "a Windows path in the real project"
