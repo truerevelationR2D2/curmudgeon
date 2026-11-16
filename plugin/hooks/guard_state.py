@@ -40,7 +40,7 @@ def strict(data, p, path):
     if me and under(mine):  # realpath: a link in the copy that carries the write elsewhere lands below, outside
         rel = os.path.relpath(real, os.path.realpath(str(mine)))
         if workspace.fold(rel) in ("workspace.json", "stop.json"): return ("cut", f"wrote {rel}, the hooks' record of its copy")
-        if conduct.SETTINGS_RX.search(rel.replace(os.sep, "/")): return ("cut", f"wrote {path}, a settings or instructions file Claude Code reads")
+        if conduct.OWN_SETTINGS_RX.search(rel.replace(os.sep, "/")): return ("cut", f"wrote {path}, an instructions file Claude Code reads")
         return None
     reviews = pathlib.Path(root) / ".critic" / "reviews"
     if workspace.fold(os.path.dirname(real)) == workspace.fold(os.path.realpath(str(reviews))) and re.fullmatch(r"(?i)review-[A-Za-z0-9]+\.json", os.path.basename(real)):

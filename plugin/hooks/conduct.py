@@ -14,6 +14,7 @@ import json, os, pathlib, re, secrets, time
 LIST_MAX = 200  # lines kept per agent in blocked/; cut/ lines are few by nature, and kept all
 CLAIM_RX = re.compile(r"critic_proctor\.py['\"]?\s+claim\s+([A-Za-z])\s+([0-9a-f]{12})\b")
 SETTINGS_RX = re.compile(r"(?i)(?:^|[\\/])(?:\.claude(?:[\\/]|$)|CLAUDE(?:\.local)?\.md$)")  # read by Claude Code itself: settings, hooks, agents, instructions
+OWN_SETTINGS_RX = re.compile(r"(?i)(?:^|[\\/])CLAUDE(?:\.local)?\.md$")  # in its own folder only an instructions file counts: Claude Code loads CLAUDE.md from any folder it reads, but no .claude/ there; a fake home with .claude/ in the notes is a probe (5.9.0 measurement)
 
 def _dir(root): return pathlib.Path(root) / ".critic" / "proctor"
 
@@ -95,14 +96,33 @@ def is_reviewer(agent_type): return bool(re.fullmatch(r"(?:curmudgeon:)?curmudge
 WRITERS_ALL = {"tee", "rm", "touch", "truncate", "mkdir", "rmdir", "shred", "unlink"}
 WRITERS_LAST = {"cp", "mv", "install", "ln", "rsync"}
 
+HEREDOC_RX = re.compile(r"<<-?[ \t]*(['\"]?)([A-Za-z_][A-Za-z0-9_]*)\1[^\n]*\n.*?(?:\n[ \t]*\2[ \t]*(?=\n|$)|\Z)", re.S)
+
+def _tokens(cmd):
+    """The command's words, quoted text kept as one word, with every here-document's body left out: a probe script
+    written with cat <<EOF is data, so a 'kill' or a '>' inside it is never a command (5.9.0 blind round: three honest
+    reviewers were cut for writing probes that named kill)."""
+    import shlex
+    flat = HEREDOC_RX.sub(lambda m: "<< " + m.group(2) + "\n", cmd)
+    try:
+        lx = shlex.shlex(flat, posix=True, punctuation_chars=True); lx.whitespace_split = True; lx.commenters = ""; return list(lx)
+    except ValueError: return None
+
+def _commands(toks):
+    """The first word of each simple command."""
+    out, start = [], True
+    for t in toks:
+        if t in (";", "&&", "||", "|", "&", "(", ")", "|&", "\n", "{", "}", "!", "then", "do", "else", "time", "sudo", "exec", "nohup", "env", "xargs"): start = True; continue
+        if start and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*=.*", t): continue
+        if start: out.append(os.path.basename(t)); start = False
+    return out
+
 def write_targets(cmd, start):
     """The files a shell command would write, as plain paths resolved from where it runs: redirect targets, and the
     file arguments of commands that write (tee, cp, mv, rm, touch, sed -i, dd of=...). A lead, not a parser: the
     write guard proper is the OS boundary; this only finds the plain cases, to cut on them (03 §5.57 item 44)."""
-    import shlex
-    try:
-        lx = shlex.shlex(cmd, posix=True, punctuation_chars=True); lx.whitespace_split = True; lx.commenters = ""; toks = list(lx)
-    except ValueError: return []
+    toks = _tokens(cmd)
+    if toks is None: return []
     out, cwd, seg = [], str(start), []
     def resolve(x):
         x = os.path.expanduser(x)
@@ -133,7 +153,8 @@ def write_targets(cmd, start):
 def bash_cut(cmd, root, me, payload):
     """Why a reviewer's shell command breaks the standard, or None: it stops or signals processes, or writes into
     Curmudgeon's records, the real project, Claude Code's or Curmudgeon's own folders, or a settings file."""
-    if re.search(r"(?:^|[\s;&|(`])(?:kill|pkill|killall|skill)(?=\s|$)", cmd): return "ran a command that stops or signals processes, which interferes with the run"
+    toks = _tokens(cmd) or []
+    if any(c in ("kill", "pkill", "killall", "skill") for c in _commands(toks)): return "ran a command that stops or signals processes, which interferes with the run"
     fold = lambda x: os.path.normcase(os.path.normpath(str(x))).casefold()
     mine = fold(pathlib.Path(root) / ".critic" / "scratch" / me)
     homes = [fold(pathlib.Path.home() / ".claude"), fold(os.environ.get("CURMUDGEON_STATE_DIR") or pathlib.Path.home() / ".curmudgeon")]
@@ -141,7 +162,7 @@ def bash_cut(cmd, root, me, payload):
     for t in write_targets(cmd, payload):
         f = fold(t)
         if f == mine or f.startswith(mine + os.sep):
-            if SETTINGS_RX.search(t): return f"wrote {t}, a settings or instructions file Claude Code reads"
+            if OWN_SETTINGS_RX.search(t): return f"wrote {t}, a settings or instructions file Claude Code reads"
             continue
         if any(f == h or f.startswith(h + os.sep) for h in homes): return f"wrote {t}, in Claude Code's or Curmudgeon's own folder"
         if f == proj or f.startswith(proj + os.sep): return f"wrote {t}, outside its copy, its notes and the review it claimed"

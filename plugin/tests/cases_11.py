@@ -50,7 +50,7 @@ def _(d):
         assert "deny" not in _gs11(p, ok), ok
     assert C.listed(p, "r1", "cut") == []
     bad = [p / ".critic/reviews/review-B.json", p / ".critic/briefs/brief-B.md", p / ".critic/proctor/claims/r1.json", p / "src/app.js",
-           d / "elsewhere.txt", pathlib.Path(rec["notes"]) / ".claude/settings.json", pathlib.Path(rec["payload"]) / "CLAUDE.md"]
+           d / "elsewhere.txt", pathlib.Path(rec["notes"]) / "CLAUDE.md", pathlib.Path(rec["payload"]) / "CLAUDE.md", p / ".claude/settings.json"]
     for b in bad:
         out = _gs11(p, b); assert "deny" in out and "cut" in out, (b, out)
     assert len(C.listed(p, "r1", "cut")) == len(bad), C.listed(p, "r1", "cut")
@@ -59,7 +59,7 @@ def _(d):
 def _(d):
     p = _proj11(d); C = _c11(); rec = _ws(p, "r1"); ws = rec["payload"]
     for cmd in (f"cd {ws} && echo x > {p}/.critic/reviews/review-B.json", f"cd {ws} && cp src/app.js ../../../reviews/review-B.json",
-                f"cd {ws} && pkill -f claude", f"cd {ws} && touch {p}/src/new.js", f"cd {ws} && cd ../notes && mkdir -p .claude && echo {{}} > .claude/settings.json"):
+                f"cd {ws} && pkill -f claude", f"cd {ws} && touch {p}/src/new.js", f"cd {ws} && cd ../notes && echo hi > CLAUDE.md"):
         out = _rg(p, "Bash", command=cmd); assert "deny" in out and "cut" in out, (cmd, out)
     n = len(C.listed(p, "r1", "cut")); assert n == 5, C.listed(p, "r1", "cut")
     for cmd in (f"cd {ws} && node -e 1 > ../notes/out.txt 2>/dev/null", f"cd {ws} && cd ../notes && mkdir -p t && cp ../payload/src/app.js t/ && echo done >&2",
@@ -87,5 +87,15 @@ def _(d):
 def _(d):
     t = (HERE / "agents/curmudgeon-reviewer.md").read_text(encoding="utf-8")
     sec = t.split("**The reviewers' standard.**", 1)[1].split("\n\n", 1)[0]
-    for must in ("claim your review", "only the one you claimed", "your copy", "notes folder", "**cut**", "write anywhere else", "settings or instructions file", "stop or signal processes", "interfere", "doesn't cut your review"):
+    for must in ("claim your review", "only the one you claimed", "your copy", "notes folder", "**cut**", "write anywhere else", "settings or instructions", "stop or signal processes", "interfere", "doesn't cut your review"):
         assert must in sec, must
+
+@test("5.9.0 blind round: only a command named kill, pkill or killall cuts; the word in a probe's here-document, a quoted string or a grep pattern doesn't, nor a fake home's .claude/ in the notes")
+def _(d):
+    C = _c11(); root = str(d / "proj"); me = "r1"; ws = f"{root}/.critic/scratch/{me}/payload"
+    honest = [f"cd {ws} && mkdir -p ../notes && cat > ../notes/p1.py <<'EOF'\nimport os\nos.system('kill -0 1')  # kill; pkill x\nEOF\npython3 ../notes/p1.py",
+              f"cd {ws} && grep -rn kill src", f"cd {ws} && grep -n \"will kill the run\" plugin/hooks/conduct.py",
+              f"cd {ws} && python3 -c \"print('pkill -f x')\"", f"cd {ws} && mkdir -p ../notes/fakehome/.claude/projects/p && echo {{}} > ../notes/fakehome/.claude/settings.json"]
+    for c in honest: assert C.bash_cut(c, root, me, ws) is None, c
+    for c in (f"cd {ws} && kill 123", f"cd {ws} && sleep 1; pkill -f claude", f"cd {ws} && true && killall node", f"cd {ws} && env X=1 kill -9 1"):
+        assert C.bash_cut(c, root, me, ws), c
