@@ -147,3 +147,9 @@ def _(d):
         root = str(real / "proj"); ws = str(real / "proj/.critic/scratch/r1/payload")
         assert C.bash_cut(f"cd {ws} && cp src/a.py {real}\\proj\\.critic\\scratch\\r1\\notes\\a.py", root, "r1", ws) is None, "a Windows path in its notes"
         assert C.bash_cut(f"cd {ws} && cp src/a.py {real}\\proj\\src\\b.py", root, "r1", ws), "a Windows path in the real project"
+
+@test("5.9.0 CI: writing to the null device is never a write to a file, however the platform spells it")
+def _(d):
+    C = _c11(); root = str(d / "proj"); ws = f"{root}/.critic/scratch/r1/payload"
+    for c in (f"cd {ws} && echo x > /dev/null", f"cd {ws} && node -e 1 2>/dev/null >/dev/stdout", f"cd {ws} && echo x > NUL", f"cd {ws} && echo x > {os.devnull}"):
+        assert C.write_targets(c, ws) == [], (c, C.write_targets(c, ws))

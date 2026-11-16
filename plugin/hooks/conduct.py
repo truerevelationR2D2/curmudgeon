@@ -139,8 +139,10 @@ def write_targets(cmd, start):
     toks = _tokens(cmd)
     if toks is None: return []
     out, cwd, seg = [], str(start), []
+    NULLS = {"/dev/null", "/dev/stdout", "/dev/stderr", "/dev/tty", "nul", "con", os.devnull.lower()}  # checked before resolving: on Windows /dev/null resolves to C:\dev\null (CI on #52)
     def resolve(x):
         x = os.path.expanduser(x.lstrip("\x01"))
+        if x.lower() in NULLS: return None
         return os.path.normpath(x if os.path.isabs(x) else os.path.join(cwd, x))
     def flush(seg):
         nonlocal cwd
@@ -163,7 +165,7 @@ def write_targets(cmd, start):
         if not (seg == [] and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*=.*", t)): seg.append(t)  # VAR=x before a command is no argument
         i += 1
     flush(seg)
-    return [x for x in out if x not in (os.devnull, "/dev/stdout", "/dev/stderr", "/dev/null")]
+    return [x for x in out if x]
 
 def bash_cut(cmd, root, me, payload):
     """Why a reviewer's shell command breaks the standard, or None: it stops or signals processes, or writes anywhere
