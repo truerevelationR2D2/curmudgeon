@@ -62,7 +62,8 @@ def claim(root, agent, letter, token):
     have = claims(root)
     name = f"review-{letter}.json"
     if have.get(me) and have[me] != name: return f"you already claimed {have[me]}; a reviewer claims one review"
-    other = next((a for a, r in have.items() if r == name and a != me), None)
+    stopped = lambda a: (pathlib.Path(root) / ".critic" / "stops" / f"{a}.json").is_file()  # a reviewer that has stopped holds its letter no longer, so a replacement started with the same brief can claim it (5.9.0 blind round C6)
+    other = next((a for a, r in have.items() if r == name and a != me and not stopped(a)), None)
     if other: return f"{name} is already claimed by another reviewer"
     _write(_dir(root) / "claims" / f"{me}.json", json.dumps({"review": name, "at": time.time()}))
     return None
@@ -99,14 +100,27 @@ WRITERS_LAST = {"cp", "mv", "install", "ln", "rsync"}
 HEREDOC_RX = re.compile(r"<<-?[ \t]*(['\"]?)([A-Za-z_][A-Za-z0-9_]*)\1[^\n]*\n.*?(?:\n[ \t]*\2[ \t]*(?=\n|$)|\Z)", re.S)
 
 def _tokens(cmd):
-    """The command's words, quoted text kept as one word, with every here-document's body left out: a probe script
-    written with cat <<EOF is data, so a 'kill' or a '>' inside it is never a command (5.9.0 blind round: three honest
-    reviewers were cut for writing probes that named kill)."""
+    """The command's words, with every here-document's body left out (a probe script written with cat <<EOF is data,
+    so a 'kill' or a '>' inside it is never a command: 5.9.0 blind round, where three honest reviewers were cut for
+    probes that named kill). Quoted text stays one word, so a quoted '>' is an argument, not a redirect; a newline
+    outside quotes ends a command like ';' (5.9.0 blind round C2, C8)."""
     import shlex
     flat = HEREDOC_RX.sub(lambda m: "<< " + m.group(2) + "\n", cmd)
+    held, buf, i, q = [], [], 0, None
+    while i < len(flat):
+        ch = flat[i]
+        if q is None and ch in "'\"":
+            j = i + 1
+            while j < len(flat) and flat[j] != ch:
+                j += 2 if ch == '"' and flat[j] == "\\" else 1
+            held.append(flat[i + 1:j].replace('\\"', '"') if ch == '"' else flat[i + 1:j]); buf.append(f"\x00{len(held) - 1}\x00"); i = j + 1; continue
+        if ch == "\\" and i + 1 < len(flat): buf.append(flat[i:i + 2]); i += 2; continue
+        buf.append(" ; " if ch == "\n" else ch); i += 1
     try:
-        lx = shlex.shlex(flat, posix=True, punctuation_chars=True); lx.whitespace_split = True; lx.commenters = ""; return list(lx)
+        lx = shlex.shlex("".join(buf), posix=True, punctuation_chars=True); lx.whitespace_split = True; lx.commenters = ""; words = list(lx)
     except ValueError: return None
+    put = lambda w: re.sub(r"\x00(\d+)\x00", lambda m: held[int(m.group(1))], w)
+    return [w if "\x00" not in w else ("\x01" + put(w) if w.strip("\x00").isdigit() else put(w)) for w in words]  # \x01: a word that was wholly quoted, never an operator
 
 def _commands(toks):
     """The first word of each simple command."""
@@ -114,7 +128,7 @@ def _commands(toks):
     for t in toks:
         if t in (";", "&&", "||", "|", "&", "(", ")", "|&", "\n", "{", "}", "!", "then", "do", "else", "time", "sudo", "exec", "nohup", "env", "xargs"): start = True; continue
         if start and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*=.*", t): continue
-        if start: out.append(os.path.basename(t)); start = False
+        if start: out.append(os.path.basename(t.lstrip("\x01"))); start = False
     return out
 
 def write_targets(cmd, start):
@@ -125,12 +139,12 @@ def write_targets(cmd, start):
     if toks is None: return []
     out, cwd, seg = [], str(start), []
     def resolve(x):
-        x = os.path.expanduser(x)
+        x = os.path.expanduser(x.lstrip("\x01"))
         return os.path.normpath(x if os.path.isabs(x) else os.path.join(cwd, x))
     def flush(seg):
         nonlocal cwd
         if not seg: return
-        name, args = os.path.basename(seg[0]), seg[1:]
+        name, args = os.path.basename(seg[0].lstrip("\x01")), [a.lstrip("\x01") for a in seg[1:]]
         if name == "cd" and args: cwd = resolve(args[0]); return
         files = [a for a in args if not a.startswith("-")]
         if name in WRITERS_ALL: out.extend(resolve(a) for a in files)
@@ -151,20 +165,23 @@ def write_targets(cmd, start):
     return [x for x in out if x not in (os.devnull, "/dev/stdout", "/dev/stderr", "/dev/null")]
 
 def bash_cut(cmd, root, me, payload):
-    """Why a reviewer's shell command breaks the standard, or None: it stops or signals processes, or writes into
-    Curmudgeon's records, the real project, Claude Code's or Curmudgeon's own folders, or a settings file."""
+    """Why a reviewer's shell command breaks the standard, or None: it stops or signals processes, or writes anywhere
+    but its own folder (copy and notes) and the review it claimed, or writes an instructions file in its own folder.
+    The same line as the Write tool's (5.9.0 blind round C5): a write to a temporary folder outside is cut too."""
     toks = _tokens(cmd) or []
     if any(c in ("kill", "pkill", "killall", "skill") for c in _commands(toks)): return "ran a command that stops or signals processes, which interferes with the run"
     fold = lambda x: os.path.normcase(os.path.normpath(str(x))).casefold()
-    mine = fold(pathlib.Path(root) / ".critic" / "scratch" / me)
+    mine_p = pathlib.Path(root) / ".critic" / "scratch" / me
+    mine = fold(mine_p)
     homes = [fold(pathlib.Path.home() / ".claude"), fold(os.environ.get("CURMUDGEON_STATE_DIR") or pathlib.Path.home() / ".curmudgeon")]
-    proj = fold(root)
+    have = claimed_by(root, me)
+    own_review = fold(pathlib.Path(root) / ".critic" / "reviews" / have) if have else None
     for t in write_targets(cmd, payload):
         f = fold(t)
         if f == mine or f.startswith(mine + os.sep):
-            if OWN_SETTINGS_RX.search(t): return f"wrote {t}, a settings or instructions file Claude Code reads"
+            if OWN_SETTINGS_RX.search(os.path.relpath(t, str(mine_p))): return f"wrote {t}, an instructions file Claude Code reads"  # relative: a project inside a .claude folder is not settings (blind round C3)
             continue
+        if own_review and f == own_review: continue  # its own claimed review, by the shell too (blind round C4)
         if any(f == h or f.startswith(h + os.sep) for h in homes): return f"wrote {t}, in Claude Code's or Curmudgeon's own folder"
-        if f == proj or f.startswith(proj + os.sep): return f"wrote {t}, outside its copy, its notes and the review it claimed"
-        if SETTINGS_RX.search(t): return f"wrote {t}, a settings or instructions file Claude Code reads"
+        return f"wrote {t}, outside its copy, its notes and the review it claimed"
     return None

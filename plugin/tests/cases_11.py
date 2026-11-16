@@ -80,7 +80,7 @@ def _(d):
     assert "review cut: review-B.json" in deg and "broke the reviewers' standard" in deg, T["degraded"]
     assert T["reviewers"] == 2, T["reviewers"]
     assert any(f.get("voided_only") and f["title"] == other["title"] for f in T["contested"]), ("its own finding goes to blind verification", [(k, [x.get("title") for x in T[k]]) for k in ("kept", "contested", "dropped")])
-    assert "blocked" not in deg.lower() or "Blocked, not cut" not in deg
+    assert "blocked" not in deg.lower(), T["degraded"]  # 5.9.0 blind round D2: the old assert could never fail
     assert T["blocked"] == {"review-C.json": [1, "Bash: a command that doesn't start in your workspace"]}, T["blocked"]
 
 @test("5.9.0: the reviewer's instructions spell out the standard before it starts: claim first, where it may write, and what gets a review cut")
@@ -99,3 +99,36 @@ def _(d):
     for c in honest: assert C.bash_cut(c, root, me, ws) is None, c
     for c in (f"cd {ws} && kill 123", f"cd {ws} && sleep 1; pkill -f claude", f"cd {ws} && true && killall node", f"cd {ws} && env X=1 kill -9 1"):
         assert C.bash_cut(c, root, me, ws), c
+
+@test("5.9.0 blind round C2, C3, C4, C5, C8: a newline ends a command; a quoted '>' is no redirect; a project inside a .claude folder isn't settings; a shell write to its own claimed review is allowed; a temp folder outside is cut by the shell as by the Write tool")
+def _(d):
+    C = _c11(); root = d / "repo/.claude/worktrees/feat"; me = "r1"; ws = str(root / ".critic/scratch/r1/payload")
+    write(root, "src/app.js", APP); (root / ".critic").mkdir(exist_ok=True)
+    assert C.bash_cut(f"cd {ws} && mkdir -p ../notes/t\npython3 {pathlib.Path.home()}/.claude/plugins/x/ast_view.py src/app.js", str(root), me, ws) is None, "C2"
+    assert C.bash_cut(f"cd {ws} && grep '>' CLAUDE.md", str(root), me, ws) is None, "C8"
+    assert C.bash_cut(f"cd {ws} && touch probe.js && echo x | tee ../notes/hits.txt", str(root), me, ws) is None, "C3"
+    claim_for(root, me, "B")
+    assert C.bash_cut(f"cd {ws} && echo '{{}}' > {root}/.critic/reviews/review-B.json", str(root), me, ws) is None, "C4"
+    assert C.bash_cut(f"cd {ws} && echo '{{}}' > {root}/.critic/reviews/review-A.json", str(root), me, ws), "another review"
+    assert C.bash_cut(f"cd {ws} && echo x > /tmp/scratch-probe.txt", str(root), me, ws), "C5: a temp folder outside"
+    assert C.bash_cut(f"cd {ws} && echo hi > ../notes/CLAUDE.md", str(root), me, ws), "an instructions file in its own folder"
+
+@test("5.9.0 blind round D1: each writer the shell rule knows is caught on its own (mv, cp, tee, rm, touch, truncate, mkdir, sed -i, dd of=, chmod, chown, ln, a redirect, >> and Claude Code's folder)")
+def _(d):
+    C = _c11(); root = str(d / "proj"); me = "r1"; ws = f"{root}/.critic/scratch/r1/payload"; out = f"{root}/src/out.js"
+    for c in (f"mv a.js {out}", f"cp a.js {out}", f"echo x | tee {out}", f"rm {out}", f"touch {out}", f"truncate -s 0 {out}", f"mkdir {root}/src/newdir",
+              f"sed -i s/a/b/ {out}", f"dd if=a.js of={out}", f"chmod 777 {out}", f"chown me {out}", f"ln -s a.js {out}", f"echo x > {out}", f"echo x >> {out}",
+              f"echo x > {pathlib.Path.home()}/.claude/settings.json"):
+        assert C.bash_cut(f"cd {ws} && {c}", root, me, ws), c
+    assert "Claude Code's or Curmudgeon's own folder" in C.bash_cut(f"cd {ws} && echo x > {pathlib.Path.home()}/.claude/x", root, me, ws)
+
+@test("5.9.0 blind round C6, D3: a claim lapses when its reviewer stops, so a replacement can claim the letter; claims and cuts from before this round started are ignored")
+def _(d):
+    p = _proj11(d); C = _c11(); tok = _tok11(p, "A")
+    assert C.claim(p, "a1", "A", tok) is None and C.claim(p, "a2", "A", tok)
+    write(p, ".critic/stops/a1.json", json.dumps({"review": "review-A.json", "at": time.time()}))
+    assert C.claim(p, "a2", "A", tok) is None, "the stopped reviewer's letter is free"
+    L = json.loads((p / ".critic/ledger.json").read_text(encoding="utf-8")); start = float(L["started_at"])
+    write(p, ".critic/proctor/claims/old.json", json.dumps({"review": "review-C.json", "at": start - 100}))
+    write(p, ".critic/proctor/cut/old.jsonl", json.dumps({"at": start - 100, "why": "an earlier round"}) + "\n")
+    assert "old" not in C.claims(p) and C.listed(p, "old", "cut") == [], "earlier rounds never count"

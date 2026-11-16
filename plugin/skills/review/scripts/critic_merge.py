@@ -336,7 +336,7 @@ def tally(paths):
         for agent_, why_ in sorted(conduct_.all_listed(ROOT, "cut").items()):
             if not why_: continue
             if owners.get(agent_): cut_by[owners[agent_]] = why_
-            else: degraded.append(f"an agent that claimed no review broke the reviewers' standard ({why_[0][:160]}); no review of its is counted")
+            else: degraded.append(f"an agent that had claimed no review broke the reviewers' standard ({why_[0][:160]}), so no review is cut for it")  # 5.9.0 blind round C7: it can't be tied to a review file
         for agent_, why_ in sorted(conduct_.all_listed(ROOT, "blocked").items()):
             if why_: blocked_by[owners.get(agent_) or f"agent {agent_[:8]} (no claim)"] = [len(why_)] + [w[:140] for w in why_[:2]]
     for name_, why_ in cut_by.items(): voided.setdefault(name_, [])
