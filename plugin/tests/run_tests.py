@@ -97,6 +97,11 @@ def own_ledger(d, data):
     p = pathlib.Path(d) / ".critic" / "ledger.json"; p.parent.mkdir(parents=True, exist_ok=True); p.write_text(json.dumps(data), encoding="utf-8")
     import critic_findings; critic_findings.record_ledger(pathlib.Path(d))
 
+def claim_for(root, agent, letter):
+    """What the Bash guard records when a reviewer runs its claim command (03 §5.57 item 44)."""
+    f = pathlib.Path(root) / ".critic" / "proctor" / "claims" / f"{agent}.json"; f.parent.mkdir(parents=True, exist_ok=True)
+    f.write_text(json.dumps({"review": f"review-{letter}.json", "at": time.time()}), encoding="utf-8")
+
 def hook_verdicts(d, rows, name="test"):
     """Verdicts saved where the verifier's stop hook saves them (.critic/verdicts/, newer than the tally), so apply
     treats them as a verifier's and doesn't mark the run DEGRADED (ultimate audit V03). Returns the path to apply."""

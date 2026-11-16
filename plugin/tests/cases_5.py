@@ -243,7 +243,9 @@ def _(d):
     sys.path.insert(0, str(S)); import importlib, critic_findings as cf; importlib.reload(cf)
     for path in (p / "src/app.js", cf.owner_state(p, "approvals"), p / ".critic/scratch/r1/workspace.json"):
         assert "deny" in gs(path), path
-    assert "deny" not in gs(p / ".critic/reviews/review-A.json") and "deny" not in gs(pathlib.Path(rec["notes"]) / "probe.js"), "reviews and notes are still written"
+    assert "deny" in gs(p / ".critic/reviews/review-A.json"), "no review before the claim (03 §5.57 item 44)"
+    claim_for(p, "r1", "A")
+    assert "deny" not in gs(p / ".critic/reviews/review-A.json") and "deny" not in gs(pathlib.Path(rec["notes"]) / "probe.js"), "its claimed review and notes are still written"
 
 @test("§5.56 batch 2 round 2: approve shows the whole file, the layer rules use the same parser, honest commands run (pnpm exec, poetry run, an installed npx tool), pip3.11 install is refused, and the lead's scripts run while a copy links node_modules")
 def _(d):

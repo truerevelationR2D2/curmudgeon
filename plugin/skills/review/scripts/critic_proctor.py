@@ -3,6 +3,8 @@
 here, from its copy, instead of reaching for it. The proctor hands it over without exposing anyone's work.
 
 usage (from the reviewer's copy: cd <workspace> && python3 <this file> ask ...):
+  critic_proctor.py claim LETTER TOKEN     claim your review at the start, with the letter and token your brief
+                                           gives (03 §5.57 item 44); the hooks record which agent owns it
   critic_proctor.py ask read PATH          print a file (at most 200 KB)
   critic_proctor.py ask list FOLDER        list a folder
   critic_proctor.py ask git log|diff|ls-files [OPTIONS] [REV...] [-- PATH...]
@@ -86,6 +88,9 @@ def answer(kind, what, text):
     sys.stdout.write(text if len(text) <= MAX else text[:MAX] + f"\n[proctor: cut at {MAX // 1024} KB]\n"); return 0
 
 def main(a):
+    if len(a) == 3 and a[0] == "claim":  # 03 §5.57 item 44: the Bash guard records the claim (it knows which agent ran this); this only confirms it
+        if not re.fullmatch(r"[A-Za-z]", a[1]) or not re.fullmatch(r"[0-9a-f]{12}", a[2]): print("proctor: claim takes your letter and the 12-character token your brief gives", file=sys.stderr); return 2
+        print(f"proctor: claimed review-{a[1].upper()}.json. Write your review only there; the reviewers' standard in your instructions says what else gets a review cut."); return 0
     if len(a) < 3 or a[0] != "ask" or a[1] not in ("read", "list", "git"): print(__doc__); return 2
     kind, rest = a[1], a[2:]
     if kind in ("read", "list"):
