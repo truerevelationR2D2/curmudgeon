@@ -2,6 +2,13 @@
 
 Every release of Curmudgeon, newest first. The repository's history starts at 4.2.1; earlier versions are summarised from the project's own build and review records. Numbers are the ones measured at the time; the README's Benchmarks section has the current ones and how they were measured.
 
+## 5.9.1 (unreleased): Curmudgeon runs only its own scripts
+
+Found by the 16 Nov 2026 Qodo replay (`claude/evidence/Qodo replay partial 16 Nov 2026.md` in the Project): when the project under review holds a copy of Curmudgeon (its own repository, a fork, a vendored copy), the lead ran that copy's scripts (`plugin/skills/review/scripts/...`) against this plugin's hooks. The old brief script wrote no claim tokens, so under 5.9.0 no reviewer could claim its review, and two of the 21 replay runs stalled.
+
+- A hook (`hooks/own_scripts.py`, called by `pre_tool.py` for every Bash command, the lead's too) refuses a command that runs a script named like one of this plugin's scripts from anywhere else, and names the plugin's own path. It follows simple variables (`S=...; python3 $S/critic_run.py`) and leaves alone any path it can't work out.
+- Test in `plugin/tests/cases_12.py`; it fails on 5.9.0.
+
 ## 5.9.0 (unreleased): the reviewers' standard (03 §5.57 item 44)
 
 Ryan, 15 Nov 2026: reviewers identify their work at the start; the script monitors what they do outside their own space; anything not allowed cuts the work. The standard is written down and given to every reviewer before it starts. This closes the gap the 5.8.1 blind round left open: a reviewer's Write could overwrite another reviewer's review.

@@ -11,9 +11,17 @@ def main():
     try: data = json.load(sys.stdin)
     except Exception: return 0
     ours = re.fullmatch(r"(?:curmudgeon:)?curmudgeon-[a-z]+", str(data.get("agent_type") or "")) is not None
-    if not ours and data.get("tool_name") not in ("Agent", "Task"): return 0
     import os
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    if data.get("tool_name") == "Bash":  # anyone, the lead included: only this plugin's own scripts run (5.9.1)
+        try:
+            import own_scripts
+            why = own_scripts.problem(str((data.get("tool_input") or {}).get("command") or ""), data.get("cwd"))
+            if why:
+                print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason": f"Curmudgeon: {why}."}}))
+                return 0
+        except Exception: pass
+    if not ours and data.get("tool_name") not in ("Agent", "Task"): return 0
     try:
         import read_guard
         read_guard.main(data)
