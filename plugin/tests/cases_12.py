@@ -7,7 +7,7 @@ def _(d):
     pre = lambda cmd, agent=None: run(H / "pre_tool.py", cwd=p, stdin=json.dumps(dict({"tool_name": "Bash", "tool_input": {"command": cmd}, "cwd": str(p), "hook_event_name": "PreToolUse"}, **({"agent_type": agent, "agent_id": "a1"} if agent else {})))).stdout
     for cmd in ("S=plugin/skills/review/scripts; python3 $S/critic_run.py begin --tier lite", "python3 plugin/skills/review/scripts/critic_run.py begin",
                 f"cd {p} && python3 ./plugin/skills/review/scripts/critic_run.py status", f"python3 {p}/plugin/skills/review/scripts/critic_run.py begin"):
-        out = pre(cmd); assert "deny" in out and str(S / "critic_run.py") in out, (cmd, out)
+        out = pre(cmd); assert "deny" in out and os.path.normcase(str(S / "critic_run.py")) in os.path.normcase(json.loads(out)["hookSpecificOutput"]["permissionDecisionReason"]), (cmd, out)  # parsed: JSON doubles Windows backslashes (CI on #54)
     for cmd in (f"python3 {S}/critic_run.py status", f"S={S}; python3 $S/critic_run.py status", "python3 app.py", "python3 -c 'print(1)'", "python3 ${CLAUDE_PLUGIN_ROOT}/skills/review/scripts/critic_run.py status"):
         assert "deny" not in pre(cmd), cmd
 
