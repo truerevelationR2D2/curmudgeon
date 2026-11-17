@@ -2,6 +2,14 @@
 
 Every release of Curmudgeon, newest first. The repository's history starts at 4.2.1; earlier versions are summarised from the project's own build and review records. Numbers are the ones measured at the time; the README's Benchmarks section has the current ones and how they were measured.
 
+## 5.9.1 (unreleased): Curmudgeon runs only its own scripts
+
+Found by the 16 Nov 2026 Qodo replay (`claude/evidence/Qodo replay partial 16 Nov 2026.md` in the Project): when the project under review holds a copy of Curmudgeon (its own repository, a fork, a vendored copy), the lead ran that copy's scripts (`plugin/skills/review/scripts/...`) against this plugin's hooks. The old brief script wrote no claim tokens, so under 5.9.0 no reviewer could claim its review, and two of the 21 replay runs stalled.
+
+- A hook (`hooks/own_scripts.py`, called by `pre_tool.py` for every Bash and PowerShell command, the lead's too) refuses a command that runs another copy of one of this plugin's scripts: a file of the same name in a folder laid out like the plugin's (`.../skills/review/scripts/`), run by `python` or `py`, with `-m`, or as the command itself. It follows `cd` and `pushd`, `$PWD`, simple variables and the command inside `bash -c`, and leaves alone any path it can't work out. A project's own `scope.py` elsewhere, and commands that only read a copy, are never touched.
+- **Its review** (Curmudgeon on itself, three reviewers): the first version matched on the file name alone, so a user's own `src/scope.py` couldn't even be added to git (High); it didn't follow `cd` (Medium); it skipped `bash -c`, `$PWD` and PowerShell, and its test never called it as an agent (Low). All fixed with tests; not reviewed again.
+- Test in `plugin/tests/cases_12.py`; it fails on 5.9.0.
+
 ## 5.9.0 (unreleased): the reviewers' standard (03 §5.57 item 44)
 
 Ryan, 15 Nov 2026: reviewers identify their work at the start; the script monitors what they do outside their own space; anything not allowed cuts the work. The standard is written down and given to every reviewer before it starts. This closes the gap the 5.8.1 blind round left open: a reviewer's Write could overwrite another reviewer's review.
