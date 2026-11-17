@@ -2,8 +2,10 @@
 """PreToolUse for Read, Grep, Glob, Bash, PowerShell, Monitor, LSP, Agent and Task: the blindness guard (read_guard.py) and the stuck
 refusal (stuck.py) in one process, so a session pays for one Python start per tool call, not two (03 §5.56 item 22).
 Calls that neither can act on, which are almost all of them (the user's own session, any agent that isn't Curmudgeon's,
-except an Agent or Task call, which the fork check sees), return before anything else is imported. Each part fails
-open, as it did as its own hook."""
+except an Agent or Task call, which the fork check sees), return before the guard is imported. One check runs first for
+every Bash and PowerShell call, the user's own included (5.9.1, own_scripts.py): a command that runs another copy of
+Curmudgeon's scripts, one inside the project laid out like the plugin's, is refused; any command without ".py" or
+" -m " returns at once. Each part fails open, as it did as its own hook."""
 import os as _os, sys as _sys; _sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__))); import utf8io  # UTF-8 output on Windows too (03 §5.57 item 20)
 import json, re, sys
 
@@ -13,7 +15,7 @@ def main():
     ours = re.fullmatch(r"(?:curmudgeon:)?curmudgeon-[a-z]+", str(data.get("agent_type") or "")) is not None
     import os
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-    if data.get("tool_name") == "Bash":  # anyone, the lead included: only this plugin's own scripts run (5.9.1)
+    if data.get("tool_name") in ("Bash", "PowerShell"):  # anyone, the lead included: only this plugin's own scripts run (5.9.1; PowerShell too, review L2)
         try:
             import own_scripts
             why = own_scripts.problem(str((data.get("tool_input") or {}).get("command") or ""), data.get("cwd"))
