@@ -21,9 +21,11 @@ import hashlib
 import json
 import os
 import pathlib
+import stat
 import time
 
 LIMIT = 20000          # watched files before the check falls back to folders only
+LONGEST = 600          # seconds: a call whose end was never logged is taken to have ended this long after it started (Bash's own longest timeout)
 SLACK = 0.05           # seconds either side of a call: file times come from the same clock as the hook's, a few ms coarser
 SKIP_DIRS = {".critic", ".git"}  # at the project's top: .critic is judged file by file below, .git by its config and hooks
 CACHES = {"__pycache__", ".cache", ".pytest_cache", ".mypy_cache", ".ruff_cache", ".next", ".turbo"}  # written by honest test runs and tools, anywhere
@@ -38,7 +40,15 @@ def _state(root):
 
 
 def _when(st):
-    return max(st.st_mtime, st.st_ctime) if os.name != "nt" else st.st_mtime  # ctime can't be set back by a program on POSIX
+    """When the file last changed. On macOS and Linux its ctime, which a program can neither set back nor forward
+    (setting the mtime changes the ctime to now); on Windows only the mtime is there (round 1, F-d1b2776c)."""
+    return st.st_ctime if os.name != "nt" else st.st_mtime
+
+
+def _same(a, b):
+    """Two snapshot entries match: size, mtime and (on POSIX) ctime, so a same-size rewrite with its mtime put back
+    still shows (round 1, F-d00d0b9b)."""
+    return a[0] == b[0] and a[1] == b[1] and (os.name == "nt" or a[2] == b[2])
 
 
 def watched(root):
@@ -48,6 +58,7 @@ def watched(root):
     def add(p):
         try: st = os.stat(p, follow_symlinks=False)
         except OSError: return
+        if stat.S_ISDIR(st.st_mode) and not partial: return  # folders only in folder mode: their time changes whenever an honest writer adds to them
         out[str(p)] = (st.st_size, st.st_mtime_ns, _when(st))
     for d, ds, fs in os.walk(root):
         ds[:] = [x for x in ds if x not in CACHES and not (pathlib.Path(d) == root and x in SKIP_DIRS)]
@@ -58,10 +69,31 @@ def watched(root):
     git = root / ".git"
     for p in [git / "config", git / "HEAD"] + (sorted((git / "hooks").glob("*")) if (git / "hooks").is_dir() else []): add(p)
     c = root / ".critic"
-    for p in (sorted((c / "reviews").glob("*")) if (c / "reviews").is_dir() else []) + [c / "proctor" / "claim-tokens.json", c / "reviews"]: add(p)
+    for p in (sorted((c / "reviews").glob("*")) if (c / "reviews").is_dir() else []) + [c / "proctor" / "claim-tokens.json", c / "ledger.json"]: add(p)  # files only: a folder's time changes whenever an honest writer adds to it (round 1, F-a0168e24)
     home = pathlib.Path.home() / ".claude"
     for p in (home / "settings.json", home / "settings.local.json", home / "CLAUDE.md"): add(p)
     return out, partial
+
+
+def known(root, path):
+    """A legitimate writer's own change (a reviewer saving its claimed review with Write, the stop hook's stamp): its
+    content is recorded, and a change that leaves exactly that content is no one's to answer for (round 1, F-b4ea77d7,
+    F-1011538f)."""
+    try:
+        h = hashlib.sha256(pathlib.Path(path).read_bytes()).hexdigest()
+        f = _state(root) / "known.jsonl"
+        with f.open("a", encoding="utf-8") as fh: fh.write(json.dumps({"path": str(path), "sha": h}) + "\n")
+    except OSError: pass
+
+
+def _known(root):
+    out = {}
+    try:
+        for line in (_state(root) / "known.jsonl").open(encoding="utf-8"):
+            try: j = json.loads(line); out.setdefault(j["path"], set()).add(j["sha"])
+            except (ValueError, KeyError): pass
+    except OSError: pass
+    return out
 
 
 def _calls(root):
@@ -85,7 +117,7 @@ def _baseline(root):
     try:
         j = json.loads((_state(root) / "baseline.json").read_text(encoding="utf-8"))
         import conduct
-        if float(j.get("at") or 0) < conduct.started(root) - 1: return None, False
+        if float(j.get("at") or 0) < conduct.started(root): return None, False  # taken before this run began
         return {k: tuple(v) for k, v in j["files"].items()}, j.get("partial", False)
     except (OSError, ValueError, KeyError, TypeError): return None, False
 
@@ -108,19 +140,35 @@ def call_end(root, agent, call_id, own=()):
     """After the call: log its end, compare the protected set with the last snapshot, and charge what changed.
     Returns [(agent or None, path, what)] for the caller to record: an agent's name means cut, None means unattributed."""
     now = time.time()
+    mine = any(r.get("agent") == agent and r.get("id") == call_id and "start" in r for r in _calls(root))
+    gone = not (_state(root) / "baseline.json").is_file()
     _log_call(root, {"agent": agent, "id": call_id, "end": now})
+    if not mine or gone:  # its start was logged and a snapshot taken before it ran: if either is gone, something removed them during this call (round 1, F-2de49bd3)
+        rest = [] if gone else sweep(root, own_of={agent: own})
+        if gone: snap, partial = watched(root); _save(root, snap, partial)
+        return [(agent, str(_state(root)), "removed the outcome check's own record of")] + rest
     return sweep(root, own_of={agent: own})
 
 
 def _windows(root):
-    """Each call's (agent, start, end); a call with no end yet is still running."""
-    by = {}
+    """Each call's (agent, start, end); a call with no end yet is still running, until the same agent starts another
+    call or LONGEST seconds pass (round 1, F-4a7db951: a call whose end was never logged took the blame for the rest of
+    the run)."""
+    by, order = {}, []
     for r in _calls(root):
         k = (r.get("agent"), r.get("id"))
-        w = by.setdefault(k, [None, None])
-        if "start" in r: w[0] = r["start"]
-        if "end" in r: w[1] = r["end"]
-    return [(a, s, e) for (a, _), (s, e) in by.items() if s is not None]
+        if k not in by: by[k] = [None, None]; order.append(k)
+        if "start" in r: by[k][0] = r["start"]
+        if "end" in r: by[k][1] = r["end"]
+    out = []
+    for k in order:
+        s, e = by[k]
+        if s is None: continue
+        if e is None:
+            later = [by[j][0] for j in order if j[0] == k[0] and j != k and by[j][0] and by[j][0] > s]
+            e = min(later) if later else (s + LONGEST if time.time() > s + LONGEST else None)
+        out.append((k[0], s, e))
+    return out
 
 
 def sweep(root, own_of=None):
@@ -129,11 +177,18 @@ def sweep(root, own_of=None):
     snap, partial = watched(root)
     _save(root, snap, partial)
     if old is None: return []
-    now = time.time(); wins = _windows(root); out = []
+    now = time.time(); wins = _windows(root); out = []; okay = _known(root)
     own_of = {a: {os.path.normcase(os.path.realpath(str(p))) for p in ps} for a, ps in (own_of or {}).items()}
+    if partial and not (_state(root) / "partial.flag").exists():
+        (_state(root) / "partial.flag").write_text("1", encoding="utf-8")
+        out.append((None, None, f"the outcome check watched only the project's folders (it has more than {LIMIT} files), so an edit to an existing file was not seen"))  # round 1, F-91c5a0d8
     for path in sorted(set(old) | set(snap)):
         a, b = old.get(path), snap.get(path)
-        if a is not None and b is not None and a[:2] == b[:2]: continue
+        if a is not None and b is not None and _same(a, b): continue
+        if b is not None and path in okay:
+            try:
+                if hashlib.sha256(pathlib.Path(path).read_bytes()).hexdigest() in okay[path]: continue
+            except OSError: pass
         what = "made" if a is None else "removed" if b is None else "changed"
         t = b[2] if b is not None else now  # a removed file has no time of its own: only the call running now can be charged
         who = {ag for ag, s, e in wins if s - SLACK <= t <= (e if e is not None else now) + SLACK}
@@ -150,6 +205,7 @@ def record(root, found):
     and an unattributed change for the owner."""
     import conduct
     for ag, path, what in found:
+        if path is None: conduct.note(root, "unattributed", what, "unattributed"); continue
         rel = os.path.relpath(path, str(root)) if os.path.realpath(path).startswith(os.path.realpath(str(root))) else path
         if ag: conduct.note(root, ag, f"{what} {rel} while its command ran (seen on disk, whatever the command's spelling)", "cut")
         else: conduct.note(root, "unattributed", f"{what} {rel} while reviewers or verifiers ran, not tied to one agent", "unattributed")
@@ -158,6 +214,6 @@ def record(root, found):
 def forget(root):
     """End of a run: drop the snapshot and the call log."""
     d = _state(root)
-    for f in ("baseline.json", "calls.jsonl"):
+    for f in ("baseline.json", "calls.jsonl", "known.jsonl", "partial.flag"):
         try: (d / f).unlink()
         except OSError: pass

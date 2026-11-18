@@ -75,22 +75,33 @@ def note(root, agent, why, kind):
     f = _dir(root) / kind / f"{me}.jsonl"
     try:
         if kind == "blocked" and f.is_file() and sum(1 for _ in f.open(encoding="utf-8")) >= LIST_MAX: return
-        _write(f, json.dumps({"at": time.time(), "why": str(why)[:300]}) + "\n", append=True)
+        line = json.dumps({"at": time.time(), "why": str(why)[:300]}) + "\n"
+        _write(f, line, append=True)
+        if kind in ("cut", "unattributed"): _write(_mirror(root, kind) / f"{me}.jsonl", line, append=True)  # a copy outside the project: code an agent runs can't erase its own cut (5.10.0 round 1, F-50ec43fc)
     except OSError: pass
 
+def _mirror(root, kind):
+    """Where cut and unattributed lines are kept again, in Curmudgeon's own folder outside the project."""
+    import hashlib
+    base = pathlib.Path(os.environ.get("CURMUDGEON_STATE_DIR") or pathlib.Path.home() / ".curmudgeon")
+    return base / "outcome" / hashlib.sha256(os.path.normcase(os.path.realpath(str(root))).encode("utf-8")).hexdigest()[:16] / kind
+
 def listed(root, agent, kind):
-    """This run's lines for one agent: a list of reasons."""
-    since, out = started(root), []
-    try:
-        for line in (_dir(root) / kind / f"{_clean(agent)}.jsonl").open(encoding="utf-8"):
-            try: j = json.loads(line)
-            except ValueError: continue
-            if isinstance(j, dict) and float(j.get("at") or 0) >= since - 2: out.append(str(j.get("why") or ""))
-    except OSError: pass
+    """This run's lines for one agent: a list of reasons (cut and unattributed lines from both copies, once each)."""
+    since, out, seen = started(root), [], set()
+    for f in [_dir(root) / kind / f"{_clean(agent)}.jsonl"] + ([_mirror(root, kind) / f"{_clean(agent)}.jsonl"] if kind in ("cut", "unattributed") else []):
+        try:
+            for line in f.open(encoding="utf-8"):
+                try: j = json.loads(line)
+                except ValueError: continue
+                if not isinstance(j, dict) or float(j.get("at") or 0) < since - 2 or (j.get("at"), j.get("why")) in seen: continue  # the same line in both copies counts once
+                seen.add((j.get("at"), j.get("why"))); out.append(str(j.get("why") or ""))
+        except OSError: pass
     return out
 
 def all_listed(root, kind):
-    return {f.stem: listed(root, f.stem, kind) for f in (_dir(root) / kind).glob("*.jsonl")}
+    names = {f.stem for f in (_dir(root) / kind).glob("*.jsonl")} | ({f.stem for f in _mirror(root, kind).glob("*.jsonl")} if kind in ("cut", "unattributed") else set())
+    return {n: listed(root, n, kind) for n in names}
 
 def is_reviewer(agent_type): return bool(re.fullmatch(r"(?:curmudgeon:)?curmudgeon-reviewer", str(agent_type or "")))
 

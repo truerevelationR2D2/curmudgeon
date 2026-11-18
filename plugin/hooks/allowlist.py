@@ -20,7 +20,12 @@ RUN = {"python3", "python", "node", "ruby", "php", "perl", "deno", "bun", "tsc",
        "go", "cargo", "make", "java", "javac", "dotnet", "bash", "sh", "timeout", "time", "nice"}
 WRITE = {"mkdir", "touch", "cp", "mv", "rm", "rmdir", "tee", "ln"}
 GIT_READ = {"log", "show", "diff", "status", "blame", "ls-files", "grep", "rev-parse", "cat-file", "ls-tree",
-            "shortlog", "describe", "branch", "tag", "remote", "config", "--version", "help"}
+            "shortlog", "describe", "--version", "help", "show-ref", "for-each-ref", "reflog", "whatchanged", "name-rev"}
+GIT_LIST = {"branch": {"-a", "-r", "-v", "-vv", "--list", "-l", "--all", "--remotes", "--show-current", "--contains", "--merged", "--no-merged"},
+            "tag": {"-l", "--list", "-n", "--contains", "--points-at"}, "remote": {"-v", "--verbose", "show", "get-url"},
+            "config": {"--get", "--get-all", "--list", "-l", "--get-regexp", "--show-origin"}}  # listing forms only: with no option, branch, tag and remote also only list (5.10.0 round 1, F-3fcce4f1)
+GIT_GLOBAL = {"-C": 1, "-c": 1, "--git-dir": 1, "--work-tree": 1, "--no-pager": 0, "-P": 0, "--no-optional-locks": 0, "--bare": 0}
+WRITE_OPTS = {"sort": ("-o", "--output"), "tree": ("-o",), "rg": ("--pre",), "uniq": (), "jq": ()}  # options that make a reading tool write a file or run a program (round 1 nit)
 KEYWORDS = {"if", "then", "else", "elif", "fi", "for", "in", "do", "done", "while", "until", "case", "esac", "!", "{", "}"}
 NO_FORM = [  # (pattern on the command with quoted text and here-document bodies taken out, what it is, what to use instead)
     (r"<\(|>\(", "process substitution", "write to a file in your notes folder and read it back"),
@@ -66,16 +71,33 @@ def problem(cmd, payload, notes, own_review=None):
         if n in ("cd", "pushd", "popd") or n in READ or n in SAY: why = _read_rules(n, words)
         elif n in RUN: why = _run_rules(n, words)
         elif n in WRITE: why = None  # where it writes is judged above, through write_targets
-        elif n == "git": why = None if len(words) > 1 and words[1].lstrip("\x01") in GIT_READ or len(words) > 2 and words[1] == "-C" else f"git {words[1] if len(words) > 1 else ''} changes the repository; reviewers use read-only git (log, show, diff, status, blame, grep)"
+        elif n == "git": why = _git_rules([w.lstrip("\x01") for w in words[1:]], roots)
         elif n in ("command",) and len(words) > 1 and words[1] in ("-v", "-V"): why = None
-        elif re.fullmatch(r"\.{0,2}/?[\w./-]+\.(?:py|js|mjs|cjs|ts|sh|rb|php|pl)", n) or n.startswith("./"): why = None  # a script it wrote in its copy or notes
+        elif re.fullmatch(r"[\w.-]+\.(?:py|js|mjs|cjs|ts|sh|rb|php|pl)", n) or words[0].lstrip("\x01").startswith(("./", "../")): why = None  # a script in its copy or notes, run by path (round 1, F-805a751d: the check read the bare name)
         else: why = f"{n} is outside the reviewers' command list; use the reading tools (cat, grep, ls, find), run code with python3 or node, or say why in your review"
         if why: return why
     return None
 
 
+def _git_rules(args, roots):
+    """git with read-only subcommands only, after its global options (-C DIR, -c k=v, --no-pager...); -C must name
+    a folder inside its copy or notes (5.10.0 round 1, F-a88cbddf)."""
+    k = 0
+    while k < len(args) and args[k] in GIT_GLOBAL or k < len(args) and re.fullmatch(r"-c\S+|--git-dir=\S+|--work-tree=\S+", args[k]):
+        if args[k] in ("-C", "--git-dir", "--work-tree") and k + 1 < len(args) and roots and not _inside(os.path.join(roots[0], os.path.expanduser(args[k + 1])), roots):
+            return f"git {args[k]} {args[k + 1]} points outside your copy and notes; run git from your copy"
+        k += 1 + (GIT_GLOBAL.get(args[k], 0) if args[k] in GIT_GLOBAL else 0)
+    sub = args[k] if k < len(args) else ""
+    rest = args[k + 1:]
+    if not sub or sub in GIT_READ: return None
+    if sub in GIT_LIST and (rest[0] in GIT_LIST[sub] if rest else sub != "config"): return None  # its listing form decides; git branch foo makes a branch
+    return f"git {sub} can change the repository; reviewers use read-only git (log, show, diff, status, blame, grep, branch --list) instead"
+
+
 def _read_rules(n, words):
     args = [w.lstrip("\x01") for w in words[1:]]
+    for o in WRITE_OPTS.get(n, ()):
+        if any(a == o or a.startswith(o + "=") or len(o) == 2 and a.startswith(o) and len(a) > 2 for a in args): return f"{n} {o} writes a file or runs a program; print the result and redirect it into ../notes/ instead"
     if n == "find" and any(a in ("-exec", "-execdir", "-ok", "-okdir", "-delete", "-fprint", "-fprint0", "-fprintf", "-fls") for a in args): return "find with -exec, -delete or -fprint is outside the reviewers' command list; list the files with find instead and run the next command on its own"
     return None
 
@@ -83,8 +105,10 @@ def _read_rules(n, words):
 def _run_rules(n, words):
     args = [w.lstrip("\x01") for w in words[1:]]
     if n in ("bash", "sh") and any(SHELL_C.fullmatch(a) for a in args): return "bash -c and sh -c are outside the reviewers' command list; run the commands themselves"
-    if n in ("npm", "yarn", "pnpm") and args and args[0] in ("install", "i", "ci", "add", "remove", "uninstall", "update", "publish", "link", "exec"): return f"{n} {args[0]} changes packages; reviewers run the project's tests (npm test) and read node_modules as it is"
+    if n in ("npm", "yarn", "pnpm") and args and args[0] in ("install", "i", "ci", "add", "remove", "uninstall", "update", "up", "publish", "link", "exec", "x", "dlx", "create", "init"): return f"{n} {args[0]} installs or runs packages; reviewers run the project's own tests (npm test) instead"
+    if n == "npx" and not (args and re.fullmatch(r"jest|vitest|mocha|tsc|eslint|prettier|playwright|ava|tap|c8|nyc", args[0].lstrip("-")) and "-p" not in args and "--package" not in args): return "npx runs a package, fetching it if it isn't there; reviewers run the project's own test tools (npx jest, npx vitest, npx tsc) instead"
     if n == "go" and args and args[0] not in ("test", "vet", "run", "build", "version", "list", "doc", "env"): return f"go {args[0]} is outside the reviewers' command list"
     if n == "cargo" and args and args[0] not in ("test", "check", "build", "run", "clippy", "tree", "--version"): return f"cargo {args[0]} is outside the reviewers' command list"
-    if n in ("python3", "python") and len(args) >= 2 and args[0] == "-m" and args[1] in ("pip", "venv", "ensurepip"): return f"python -m {args[1]} installs or changes packages; reviewers use what the project already has"
+    mod = args[1] if len(args) >= 2 and args[0] == "-m" else args[0][2:] if args and args[0].startswith("-m") and len(args[0]) > 2 else None
+    if n in ("python3", "python") and mod in ("pip", "venv", "ensurepip", "pip3"): return f"python -m {mod} installs or changes packages; reviewers use what the project already has instead"
     return None
