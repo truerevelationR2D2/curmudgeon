@@ -152,7 +152,7 @@ def write_targets(cmd, start, kinds=False):
         if not seg: return
         name, args = os.path.basename(seg[0].lstrip("\x01")), [a.lstrip("\x01") for a in seg[1:]]
         if name == "cd" and args: cwd = resolve(args[0]); return
-        files = [a for a in args if not a.startswith("-")]
+        files = [a for k, a in enumerate(args) if not a.startswith("-") and not (k and args[k - 1] in ("-m", "--mode") and name in ("mkdir", "install"))]  # a mode is no file
         if name == "mkdir": out.extend((resolve(a), name) for a in files if not os.path.isdir(resolve(a) or ""))
         elif name in WRITERS_ALL: out.extend((resolve(a), name) for a in files)
         elif name in WRITERS_LAST and len(files) >= 2: out.append((resolve(files[-1]), name))
@@ -162,6 +162,10 @@ def write_targets(cmd, start, kinds=False):
     i = 0
     while i < len(toks):
         t = toks[i]
+        if t in (">", ">>", ">|", "&>", "&>>", ">&", "<", "<&", "<<", "<<<") and seg and re.fullmatch(r"\d+", seg[-1]): seg.pop()  # 2>/dev/null: the 2 is a stream number, not an argument (5.9.2 blind round)
+        if t in (">&", "<&") and i + 1 < len(toks):
+            if not re.fullmatch(r"\d+|-", toks[i + 1]): out.append((resolve(toks[i + 1]), t))  # >&file writes the file; >&1 only joins two streams
+            i += 2; continue
         if t in (">", ">>", ">|", "&>", "&>>") and i + 1 < len(toks):
             if not re.fullmatch(r"&?\d*", toks[i + 1]): out.append((resolve(toks[i + 1]), t))  # >&2 duplicates a stream; it writes no file
             i += 2; continue

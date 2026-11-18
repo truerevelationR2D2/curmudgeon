@@ -54,7 +54,7 @@ def _(d):
     assert any(x["rule"] == "click-simulated" and "DELETE" in x["what"] for x in rep["findings"]), rep["findings"]
     assert not list(pathlib.Path(tempfile.gettempdir()).glob("curmudgeon-sim-*")), "the recording is deleted after the run"
 
-@test("5.0 card-E round 3: lens and scorer regressions (async downgrade, helper-created tables, mid-line Fix:, 'no issues' replies)")
+@test("5.0 card-E round 3: lens and scorer regressions (async downgrade, helper-created tables, mid-line Fix:, 'no issues' replies)", repo=True)
 def _(d):
     M = _mod("scan_migrations")
     al = "def upgrade():\n    op.execute('CREATE INDEX ix ON orders (customer_id)')\n\nasync def downgrade():\n    op.create_table('orders')\n"
@@ -130,7 +130,7 @@ def _(d):
     assert "deny" in rg.stdout, "a reviewer can't read the key: " + rg.stdout
     app.shutdown()
 
-@test("5.0 decision 28: every planted defect has its places, and score.py credits a finding only when it points at one (an old loose baseline is compared loosely)")
+@test("5.0 decision 28: every planted defect has its places, and score.py credits a finding only when it points at one (an old loose baseline is compared loosely)", repo=True)
 def _(d):
     for f in ("answer_key.json", "answer_key2.json", "answer_key3.json", "answer_key4.json"):
         key = json.loads((HERE.parent / "eval" / f).read_text(encoding="utf-8")); fx = HERE.parent / "eval" / ("fixture" if f == "answer_key.json" else "fixture" + f[10])
@@ -222,7 +222,7 @@ def _(d):
     r = run(B, "step", "snapshot", "--session", "s/a.json", cwd=d); assert r.returncode == 2 and "recording" in r.stdout and "changed" in r.stdout, r.stdout
     app.shutdown()
 
-@test("5.0 smoke-run finding: findings are assigned to plants by maximum matching, so a loose pattern on one plant can't steal the only finding another plant has")
+@test("5.0 smoke-run finding: findings are assigned to plants by maximum matching, so a loose pattern on one plant can't steal the only finding another plant has", repo=True)
 def _(d):
     SC = HERE.parent / "eval" / "score.py"; (d / "r").mkdir()
     (d / "r/last-review.md").write_text("# review\n## VERDICT\n**CONCERNS**\n", encoding="utf-8")
@@ -241,7 +241,7 @@ def _(d):
     plants = {"A": {"file": "", "any": ["x"]}, "B": {"file": "", "any": ["only-b"]}}
     assert len(dm.match_plants(plants, [{"loc": "", "claim": "x only-b"}, {"loc": "", "claim": "x"}])) == 2
 
-@test("5.0 self-review (eval): free-text citations count, evidence doesn't move a finding, impact preference is graded, the funnel matches one-to-one, planter keys have places, and missing tools fail cleanly")
+@test("5.0 self-review (eval): free-text citations count, evidence doesn't move a finding, impact preference is graded, the funnel matches one-to-one, planter keys have places, and missing tools fail cleanly", repo=True)
 def _(d):
     sys.path.insert(0, str(HERE.parent / "eval")); import importlib; km = importlib.import_module("keymatch")
     k = {"file": "store.js", "at": [["store.js", 2, 2]], "any": ["x"]}
@@ -539,7 +539,7 @@ def _(d):
     run(S / "critic_merge.py", "tally", "a.json", "b.json", cwd=sb); write(sb, "v.json", "[]"); r = run(S / "critic_merge.py", "apply", "v.json", cwd=sb); assert r.returncode == 0, r.stderr
     cm = (sb / ".critic/counts.md").read_text(encoding="utf-8"); assert "| SB1 | a | first run, empty |" in cm, cm[-800:]
 
-@test("5.0 A/B scoring: the stamp names the build that ran (--plugin), a clean-twin baseline from several runs takes the median, and --meta-cost reads each run's whole-session cost")
+@test("5.0 A/B scoring: the stamp names the build that ran (--plugin), a clean-twin baseline from several runs takes the median, and --meta-cost reads each run's whole-session cost", repo=True)
 def _(d):
     EV = HERE.parent / "eval"; fake = d / "arm" / "plugin"; write(fake, ".claude-plugin/plugin.json", json.dumps({"name": "curmudgeon", "version": "9.9.9-test"}))
     revs = []
@@ -585,7 +585,7 @@ def _(d):
     out = subprocess.run([sys.executable, str(HERE.parent / "eval" / "score.py"), str(r / ".critic/teardown.md"), "--suite", "2", "--baseline", str(d / "none.json"), "--labels", str(d / "none.json")], capture_output=True, text=True, encoding="utf-8").stdout
     assert "missed: E21" not in out, out[:600]
 
-@test("decision 36: a decoy hit points at the decoy's place and makes its claim; a real bug that only mentions the decoy's words is not one")
+@test("decision 36: a decoy hit points at the decoy's place and makes its claim; a real bug that only mentions the decoy's words is not one", repo=True)
 def _(d):
     def score(rows):
         r = d / f"r{len(list(d.iterdir()))}"; write(r, ".critic/teardown.md", "**CONCERNS** · Counts: 0 Critical, 0 High, 1 Medium, 0 Low\n")
@@ -598,7 +598,7 @@ def _(d):
     elsewhere = dict(decoy, id="F-3", file="store.js", line=15, quote="localStorage.setItem(KEY, JSON.stringify(list));")
     assert "Decoys reported as defects: 0" in score([elsewhere]), "a finding that points away from the decoy's place is not a decoy hit"
 
-@test("death match kit: every arm runs with only its own plugin, the built-in /code-review's JSON and Semgrep's output are read like any other arm's, and `file` L8-14 is a citation")
+@test("death match kit: every arm runs with only its own plugin, the built-in /code-review's JSON and Semgrep's output are read like any other arm's, and `file` L8-14 is a citation", repo=True)
 def _(d):
     EV = HERE.parent / "eval"; sys.path.insert(0, str(EV))
     import importlib, keymatch, deathmatch; importlib.reload(keymatch); importlib.reload(deathmatch)
@@ -621,7 +621,7 @@ def _(d):
     s0 = json.loads(seen[0][seen[0].index("--settings") + 1])["enabledPlugins"]; s1 = json.loads(seen[1][seen[1].index("--settings") + 1])["enabledPlugins"]
     assert s0 == {"curmudgeon@synced": False, "code-review-anthropics@anthropic-plugin-directory": True} and not any(s1.values()), (s0, s1)
 
-@test("death match scorer: an indented sub-bullet stays part of its finding, and a structured finding's claim includes its evidence, as a free-form one does")
+@test("death match scorer: an indented sub-bullet stays part of its finding, and a structured finding's claim includes its evidence, as a free-form one does", repo=True)
 def _(d):
     EV = HERE.parent / "eval"; sys.path.insert(0, str(EV))
     import importlib, deathmatch; importlib.reload(deathmatch)
@@ -641,7 +641,7 @@ def _(d):
     assert "early results" not in run(S / "critic_run.py", "next", cwd=d).stdout, "shown once per scan report"
     assert "early results" in run(S / "critic_run.py", "early", cwd=d).stdout, "asked for, it shows again"
 
-@test("5.1 SC-79: Nits are listed but never counted or verified, a verifier may lower a Low to a Nit, and the scorer credits a planted bug found as a Nit only as an impact miss")
+@test("5.1 SC-79: Nits are listed but never counted or verified, a verifier may lower a Low to a Nit, and the scorer credits a planted bug found as a Nit only as an impact miss", repo=True)
 def _(d):
     write(d, "src/app.js", APP); run(S / "critic_ledger.py", "start", "full", cwd=d)
     nit = finding(impact="Nit", line=4, quote="const price = total * 1.0825;", title="Name the tax constant", category="style")
@@ -678,7 +678,7 @@ def _(d):
     sys.path.insert(0, str(S)); import importlib, critic_run; importlib.reload(critic_run); assert critic_run.VERIFY_BATCH == 5
     assert not (S / "critic_skeleton.py").exists()
 
-@test("5.2 SC-74: the integrity lens finds every planted look-alike link, punycode host, http form, off-site form, unpinned script and weak CSP, with no row on decoys or the clean twin")
+@test("5.2 SC-74: the integrity lens finds every planted look-alike link, punycode host, http form, off-site form, unpinned script and weak CSP, with no row on decoys or the clean twin", repo=True)
 def _(d):
     r = run(HERE.parent / "eval" / "lens.py", str(HERE.parent / "eval" / "lens12.json"), "--json", cwd=d); out = json.loads(r.stdout)
     assert r.returncode == 0 and out["recall"] == "13 of 13" and out["precision"] == "13 of 13" and not out["decoy_rows"] and not out["clean_twin_rows"], out
@@ -963,7 +963,7 @@ def _(d):
     assert row and "pip install playwright && playwright install chromium" in row[0]["what"] and "Curmudgeon never runs that command" in row[0]["what"], row
     assert "Curmudgeon installs nothing, so never run that command for them" in (S.parent / "SKILL.md").read_text(encoding="utf-8")
 
-@test("5.2 database round 2: a feed that is on is never a silent pass (never built, folder unreadable, damaged); a plain update repairs a missing or damaged database; npm pre-releases follow semver; network shares get a URI SQLite accepts; death-match plugin folders are absolute")
+@test("5.2 database round 2: a feed that is on is never a silent pass (never built, folder unreadable, damaged); a plain update repairs a missing or damaged database; npm pre-releases follow semver; network shares get a URI SQLite accepts; death-match plugin folders are absolute", repo=True)
 def _(d):
     rec = {"id": "GHSA-lp", "affected": [{"package": {"ecosystem": "npm", "name": "left-pad"}, "versions": ["1.1.0"]}]}
     env = _feed_mirror(d, [rec], []); F = S / "security_feed.py"
@@ -1015,7 +1015,7 @@ def _(d):
     sys.path.insert(0, str(S)); import importlib, critic_plan; importlib.reload(critic_plan)
     for x in critic_plan.SECURITY_LENSES + ["browser integrity", "tests of the tests"]: assert x[0].upper() + x[1:] in sections, x
 
-@test("5.2.1 (03 §5.45-§5.47): no tier asks for a short review (it found fewer planted bugs in the lite eval too), and the version is the same in all three places")
+@test("5.2.1 (03 §5.45-§5.47): no tier asks for a short review (it found fewer planted bugs in the lite eval too), and the version is the same in all three places", repo=True)
 def _(d):
     write(d, "src/app.js", APP)
     for tier in ("lite", "full"):
@@ -1098,7 +1098,7 @@ def _(d):
     r = run(F, "update", "--force", cwd=d, env=dict(env, CURMUDGEON_PROGRESS="1")); assert r.returncode == 0, r.stderr
     for want in ("downloaded osv-npm:", "downloaded osv-pypi:", "downloaded cisa-kev:", "building osv-npm"): assert want in r.stderr, (want, r.stderr)
 
-@test("decision 39: a clean-twin BLOCK fails the gate only when no Critical or High in that run is labelled a real bug")
+@test("decision 39: a clean-twin BLOCK fails the gate only when no Critical or High in that run is labelled a real bug", repo=True)
 def _(d):
     EV = HERE.parent / "eval"
     def run_(name, impact, label):
@@ -1113,7 +1113,7 @@ def _(d):
     assert "verdict BLOCK: False" in o(a), o(a)
     assert "verdict BLOCK: True" in o(b), o(b)
 
-@test("5.2.4 benchmark (03 §5.53): the death match counts the subagents a run launched from the transcript of its own work folder, not from a session id other runs share, and says unknown when there is none")
+@test("5.2.4 benchmark (03 §5.53): the death match counts the subagents a run launched from the transcript of its own work folder, not from a session id other runs share, and says unknown when there is none", repo=True)
 def _(d):
     sys.path.insert(0, str(HERE.parent / "eval")); import importlib, deathmatch; importlib.reload(deathmatch)
     rows = [{"message": {"content": [{"type": "tool_use", "name": "Agent"}, {"type": "text", "text": "x"}]}},
@@ -1128,7 +1128,7 @@ def _(d):
     assert deathmatch.agents_launched("/tmp/dm_b/work", d) == 5
     assert deathmatch.agents_launched("/tmp/dm-none/work", d) is None and deathmatch.agents_launched(None, d) is None
 
-@test("5.2.4 benchmark (03 §5.53): blind labelling hides the arm, keeps the apps away from the answer keys, takes the lower severity on agreement, sends disagreements to a tiebreaker, and never counts a heading as a false alarm")
+@test("5.2.4 benchmark (03 §5.53): blind labelling hides the arm, keeps the apps away from the answer keys, takes the lower severity on agreement, sends disagreements to a tiebreaker, and never counts a heading as a false alarm", repo=True)
 def _(d):
     sys.path.insert(0, str(HERE.parent / "eval")); import importlib, deathmatch, label; importlib.reload(deathmatch); importlib.reload(label)
     rd = d / "run"
@@ -1164,7 +1164,7 @@ def _(d):
     except ValueError: pass
     assert label.kappa([("real", "real"), ("wrong", "wrong")]) == 1.0 and label.kappa([("real", "real")]) is None
 
-@test("5.2.4 benchmark (03 §5.53): a run voided by a usage limit is told from a real failure, and the statistics give the rule-of-three bound, exact bounds, bootstrap intervals and paired differences")
+@test("5.2.4 benchmark (03 §5.53): a run voided by a usage limit is told from a real failure, and the statistics give the rule-of-three bound, exact bounds, bootstrap intervals and paired differences", repo=True)
 def _(d):
     sys.path.insert(0, str(HERE.parent / "eval")); import importlib, deathmatch, bench_stats as bs; importlib.reload(deathmatch); importlib.reload(bs)
     assert deathmatch.voided({"is_error": True, "error_text": "Claude AI usage limit reached|1761700000"})
@@ -1194,7 +1194,7 @@ def _(d):
     lo, hi = c["recall_ci"]; assert 0.75 <= lo <= hi <= 1.0
     assert "| curmudgeon | 3 of 3 |" in md and "kappa 0.5" in md, md
 
-@test("5.2.4 benchmark (03 §5.53): known-truth controls go to the labellers blind, a planted finding shown against its app and against the clean twin where it is fixed, and a labeller who calls everything real is caught")
+@test("5.2.4 benchmark (03 §5.53): known-truth controls go to the labellers blind, a planted finding shown against its app and against the clean twin where it is fixed, and a labeller who calls everything real is caught", repo=True)
 def _(d):
     sys.path.insert(0, str(HERE.parent / "eval")); import importlib, deathmatch, label; importlib.reload(deathmatch); importlib.reload(label)
     rd = d / "run"
@@ -1219,7 +1219,7 @@ def _(d):
     detail, _ = label.final(rd, d / "a.json", d / "b.json")
     assert set(detail) == set(idmap.values())   # controls never reach the labels
 
-@test("5.2.4 benchmark (03 §5.53): a usage limit that Claude Code reports as a success (0 tokens, the limit message as the reply) is a failed, voided run, never a clean result, and is run again")
+@test("5.2.4 benchmark (03 §5.53): a usage limit that Claude Code reports as a success (0 tokens, the limit message as the reply) is a failed, voided run, never a clean result, and is run again", repo=True)
 def _(d):
     sys.path.insert(0, str(HERE.parent / "eval")); import importlib, deathmatch; importlib.reload(deathmatch)
     meta = {"total_cost_usd": 0.003, "tokens": 0, "is_error": False, "num_turns": 0}
@@ -1236,7 +1236,7 @@ def _(d):
     deathmatch.rerun(rd)
     assert calls == [("cc-code-review", "suite1-clean", 0)] and "5-hour limit" in (rd / "voided.jsonl").read_text(encoding="utf-8")
 
-@test("5.2.4 benchmark (03 §5.53): on a clean twin only a finding labelled wrong, or one that cites a line and is not labelled, is a false alarm; one labelled trivial (true but minor) or none (not a finding) is not")
+@test("5.2.4 benchmark (03 §5.53): on a clean twin only a finding labelled wrong, or one that cites a line and is not labelled, is a false alarm; one labelled trivial (true but minor) or none (not a finding) is not", repo=True)
 def _(d):
     sys.path.insert(0, str(HERE.parent / "eval")); import importlib, deathmatch; importlib.reload(deathmatch)
     blocks = [{"loc": f"app.js:{n}", "claim": f"app.js:{n} x"} for n in (1, 2, 3, 4, 5)]
@@ -1244,7 +1244,7 @@ def _(d):
     r = deathmatch.score_task({"clean": True}, blocks, labels, "a/t")
     assert r["false_alarms"] == 2 and r["unlabelled"] == 0, r   # block 0 (wrong) and block 4 (cites a line, unlabelled)
 
-@test("5.2.4 benchmark review: a review that discusses a quota or rate-limit bug, or a run whose wall time is 429 s, is never taken for a usage-limit void")
+@test("5.2.4 benchmark review: a review that discusses a quota or rate-limit bug, or a run whose wall time is 429 s, is never taken for a usage-limit void", repo=True)
 def _(d):
     sys.path.insert(0, str(HERE.parent / "eval")); import importlib, deathmatch; importlib.reload(deathmatch)
     review = '[{"file": "store.js", "line": 78, "summary": "QuotaExceededError is caught but the note is silently dropped"}]'
@@ -1254,7 +1254,7 @@ def _(d):
     assert not deathmatch.voided({"is_error": True, "total_cost_usd": 1.429, "tokens": 5000, "error_text": "error_max_turns"})
     assert deathmatch.voided({"tokens": 0}, "You've hit your 5-hour limit · resets 5:10am (America/Chicago)")
 
-@test("5.2.4 benchmark review: a second report of a planted bug is neither labelled nor counted as another confirmed bug")
+@test("5.2.4 benchmark review: a second report of a planted bug is neither labelled nor counted as another confirmed bug", repo=True)
 def _(d):
     sys.path.insert(0, str(HERE.parent / "eval")); import importlib, deathmatch, label, bench_stats as bs; importlib.reload(deathmatch); importlib.reload(label); importlib.reload(bs)
     rd = d / "run"
@@ -1269,21 +1269,21 @@ def _(d):
     _, js = bs.report([rd], base="arm")
     assert js["arms"]["arm"]["confirmed_bugs"] == 2, js["arms"]["arm"]   # the plant once, plus the search bug; not the XSS twice
 
-@test("5.2.4 benchmark review: the cost-per-bug interval has no upper bound when resamples can confirm nothing, instead of a NaN-ordered number")
+@test("5.2.4 benchmark review: the cost-per-bug interval has no upper bound when resamples can confirm nothing, instead of a NaN-ordered number", repo=True)
 def _(d):
     sys.path.insert(0, str(HERE.parent / "eval")); import importlib, bench_stats as bs; importlib.reload(bs)
     lo, hi = bs.ratio_boot([(1.0, 0)] * 8 + [(1.0, 1)] * 2)
     assert hi is None and lo is not None and lo == lo, (lo, hi)
     assert "unbounded" in bs.fmt_ci((lo, hi)) and bs.ratio_boot([(1.0, 1)] * 5) == (1.0, 1.0)
 
-@test("5.2.4 benchmark review: the labellers' copy of an app hides the words that give the answer away, line for line")
+@test("5.2.4 benchmark review: the labellers' copy of an app hides the words that give the answer away, line for line", repo=True)
 def _(d):
     sys.path.insert(0, str(HERE.parent / "eval")); import importlib, label; importlib.reload(label)
     src = d / "src"; write(src, "api.js", 'const KEY = "__PLANTED_STRIPE_KEY__";\n// Decoys: none of these is a finding\nlet a = 1; // planted here\n')
     label.neutral_copy(src, d / "dst"); out = (d / "dst" / "api.js").read_text(encoding="utf-8")
     assert "PLANTED" not in out and "planted" not in out.lower() and "decoy" not in out.lower() and out.count("\n") == 3, out
 
-@test("5.2.4 benchmark review: a run that failed for a real reason and was run again by hand still counts as a failure, not as a usage-limit void")
+@test("5.2.4 benchmark review: a run that failed for a real reason and was run again by hand still counts as a failure, not as a usage-limit void", repo=True)
 def _(d):
     sys.path.insert(0, str(HERE.parent / "eval")); import importlib, bench_stats as bs; importlib.reload(bs)
     rd = d / "run"
@@ -1294,7 +1294,7 @@ def _(d):
     a = js["arms"]["arm"]
     assert a["runs"] == 2 and a["completed"] == 1 and js["voided"] == 1, (a, js["voided"])
 
-@test("5.2.4 benchmark review: the statistics score a run again when its labels are newer than its scores, so a finding later labelled trivial is no false alarm")
+@test("5.2.4 benchmark review: the statistics score a run again when its labels are newer than its scores, so a finding later labelled trivial is no false alarm", repo=True)
 def _(d):
     sys.path.insert(0, str(HERE.parent / "eval")); import importlib, contextlib, io, time as _t, deathmatch, bench_stats as bs; importlib.reload(deathmatch); importlib.reload(bs)
     rd = d / "run"
@@ -1304,7 +1304,7 @@ def _(d):
     _, js = bs.report([rd], base="arm")
     assert js["arms"]["arm"]["clean_runs_with_false_alarm"] == 0, js["arms"]["arm"]
 
-@test("5.2.4 benchmark review: a blind relabel of a sample is compared with the final labels and with the first labeller, and its controls are scored")
+@test("5.2.4 benchmark review: a blind relabel of a sample is compared with the final labels and with the first labeller, and its controls are scored", repo=True)
 def _(d):
     sys.path.insert(0, str(HERE.parent / "eval")); import importlib, label; importlib.reload(label)
     rd, rc = d / "run", d / "re"
@@ -1315,13 +1315,13 @@ def _(d):
     write(rc, "labels.json", json.dumps([dict(lab("real"), id="G1"), dict(lab("wrong"), id="G2"), dict(lab("real"), id="C1")]))
     assert label.recheck(rd, rc) == {"sample": 2, "relabel_agrees": 2, "first_labeller_agrees": 1, "controls": "0 of 1"}
 
-@test("5.2.4 benchmark review: rerun on a run folder with no recorded settings stops with a reason instead of a traceback")
+@test("5.2.4 benchmark review: rerun on a run folder with no recorded settings stops with a reason instead of a traceback", repo=True)
 def _(d):
     sys.path.insert(0, str(HERE.parent / "eval")); import importlib, deathmatch; importlib.reload(deathmatch)
     try: deathmatch.rerun(d); assert False, "rerun must stop"
     except SystemExit as e: assert "run.json" in str(e), e
 
-@test("5.2.4 benchmark (03 §5.56 item 21): intervals resample apps and then runs within each, so four apps can't pass for twenty independent runs; recall is given per app")
+@test("5.2.4 benchmark (03 §5.56 item 21): intervals resample apps and then runs within each, so four apps can't pass for twenty independent runs; recall is given per app", repo=True)
 def _(d):
     E = HERE.parent / "eval"; sys.path.insert(0, str(E)); import importlib, bench_stats as bs; importlib.reload(bs)
     groups = {"a": [(4, 4)] * 5, "b": [(4, 4)] * 5, "c": [(0, 4)] * 5, "d": [(4, 4)] * 5}
@@ -1330,7 +1330,7 @@ def _(d):
     assert bs.cluster_boot({}, bs.ratio) is None
     assert bs.by_app([({"task": "s1"}, 1), ({"task": "s1"}, 2), ({"task": "s2"}, 3)]) == {"s1": [1, 2], "s2": [3]}
 
-@test("5.2.4 benchmark (03 §5.56 batch 3): after a key change credits a labelled finding to a plant, its label no longer counts too")
+@test("5.2.4 benchmark (03 §5.56 batch 3): after a key change credits a labelled finding to a plant, its label no longer counts too", repo=True)
 def _(d):
     E = HERE.parent / "eval"; sys.path.insert(0, str(E)); import importlib, bench_stats as bs; importlib.reload(bs)
     (d / "arm/suite2~1").mkdir(parents=True); write(d, "key.json", "{}")
@@ -1342,7 +1342,7 @@ def _(d):
     assert dup == {"arm/suite2~1/2"} and cred == {"arm/suite2~1/1"}, (dup, cred)
 
 
-@test("§5.56 item 20: the new benchmark arms: plain Claude given the rubric names the plugin's references folder, and the quote-check arm scores only findings whose quote is at their line")
+@test("§5.56 item 20: the new benchmark arms: plain Claude given the rubric names the plugin's references folder, and the quote-check arm scores only findings whose quote is at their line", repo=True)
 def _(d):
     sys.path.insert(0, str(HERE.parent / "eval")); import importlib, deathmatch; importlib.reload(deathmatch)
     cfg = {a["id"]: a for a in json.loads((HERE.parent / "eval/deathmatch.json").read_text(encoding="utf-8"))["arms"]}

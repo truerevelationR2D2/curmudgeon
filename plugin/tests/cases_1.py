@@ -936,7 +936,7 @@ def _(d):
     for ok in ("http://[::1]:8000/", "http://LOCALHOST:8000/", "http://127.0.0.1:8000/"):
         assert "live URL refused" not in page_note(ok), ok
 
-@test("4.2.2 small fixes: no stale critic names, all four hooks listed, honest benchmark, grammar, override list")
+@test("4.2.2 small fixes: no stale critic names, all four hooks listed, honest benchmark, grammar, override list", repo=True)
 def _(d):
     import re as re_
     for p in list((HERE / "agents").glob("*.md")) + [HERE / "skills/review/references/output-contract.md"]:

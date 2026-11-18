@@ -24,12 +24,12 @@ def _(d):
     missing = sorted(c for c in cited if not re.search(rf"^\| §{re.escape(c)}\b", idx, re.M))
     assert cited and not missing, missing
 
-@test("§5.56 item 24: the eval's list of unmatched findings is scratch state kept outside the source tree")
+@test("§5.56 item 24: the eval's list of unmatched findings is scratch state kept outside the source tree", repo=True)
 def _(d):
     src = (HERE.parent / "eval" / "score.py").read_text(encoding="utf-8")
     assert ".last-unmatched.json" not in src and "CURMUDGEON_STATE_DIR" in src, "score.py writes its scratch list beside itself"
 
-@test("§5.56 items 23 and 28: CI pins the v7 actions by commit and tests Python 3.9 to 3.14, with Windows and macOS runs")
+@test("§5.56 items 23 and 28: CI pins the v7 actions by commit and tests Python 3.9 to 3.14, with Windows and macOS runs", repo=True)
 def _(d):
     ci = (HERE.parent / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
     for sha in ("3d3c42e5aac5ba805825da76410c181273ba90b1", "6d4fd22b20465ccc0f7354476588e8df7c9ca0e0", "949feb2413d6458794dcd2491c4babbbce0c15c1"):
@@ -37,7 +37,7 @@ def _(d):
     assert re.search(r'"3\.14"|3\.14\b', ci) and "macos" in ci and "Windows" in ci, "3.14, macOS and Windows"
     assert not re.search(r"uses:\s*actions/[\w-]+@v\d", ci), "every action is pinned by commit, not by tag"
 
-@test("§5.56 item 19: the planted key is filled in on each harness's copy, so no arm sees the word PLANTED, and the repository never holds the key")
+@test("§5.56 item 19: the planted key is filled in on each harness's copy, so no arm sees the word PLANTED, and the repository never holds the key", repo=True)
 def _(d):
     E = HERE.parent / "eval"; sys.path.insert(0, str(E)); import importlib, plant_keys; importlib.reload(plant_keys)
     shutil.copytree(E / "fixture2", d / "f")
@@ -49,7 +49,7 @@ def _(d):
     assert run(E / "plant_keys.py", str(HERE.parent), cwd=d).returncode != 0, "nor anywhere else in the repository, its own source included"
     write(d, "g/plant_keys.py", f"P = {plant_keys.PLACEHOLDER!r}\n"); plant_keys.fill(d / "g"); assert plant_keys.PLACEHOLDER in (d / "g/plant_keys.py").read_text(encoding="utf-8")
 
-@test("§5.56 batch 3: the answer key credits E02 when a review says the query goes into the URL 'without encoding' (the lite smoke dip), and still not for an unrelated finding on that line")
+@test("§5.56 batch 3: the answer key credits E02 when a review says the query goes into the URL 'without encoding' (the lite smoke dip), and still not for an unrelated finding on that line", repo=True)
 def _(d):
     k = json.loads((HERE.parent / "eval" / "answer_key2.json").read_text(encoding="utf-8"))
     e02 = next(v for n, v in k.items() if n.startswith("E02"))

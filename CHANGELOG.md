@@ -8,7 +8,12 @@ Every release of Curmudgeon, newest first. The repository's history starts at 4.
 - **The guards finish in time on a slow machine.** On a Windows machine where each Python start was measured at about 2 seconds, `pre_tool.py`, `post_tool.py` and `guard_state.py` were often stopped by Claude Code's 10-second limit, most of all when many agents ran at once; a stopped `PreToolUse` guard lets the call go ahead. Two changes:
   - `run.sh` starts Python once per hook, not twice. It trusts the kept choice of Python and starts the hook through a one-line start that leaves with code 99, before the hook runs, if that Python is older than 3.9; a name that no longer starts Python fails to start at all (126, 127, or 49 for the Windows Store placeholder). Only then is Python found again, and the hook, which never ran, starts with the new one. The start line puts the hook's own folder first on Python's import path, so a file in the user's project can't stand in for a hook's module.
   - The time limit for those three hooks is 60 seconds, not 10.
-- Tests in `plugin/tests/cases_13.py`; each fails on 5.9.1. The 5.3.1 P1 test's fake "older Python" now answers the new start line the way a real Python 3.8 would.
+- **Tests that need the repository skip outside it** (03 §5.57 item 49). The 72 script tests that read the repository around the plugin (README, CHANGELOG, `eval/`) are marked as such: in a packaged copy, where only the plugin folder exists, they are reported as skipped, not failed. In the repository and in CI they run as before; a test fails if CI ever can't find the repository.
+- **Its review** (Curmudgeon on itself, full tier, three reviewers, blind verification; 4 findings, all confirmed, all fixed with tests):
+  - a stream number (`2>/dev/null`, `2>&1`) or a `mkdir -m` mode was read as a folder, so the #26 fix still cut a reviewer working from outside its copy (Medium); the read guard still refused, and listed, a `mkdir` of an existing folder (Low);
+  - a kept Python that stopped starting with an exit code other than 99, 126, 127 or 49 (the `py` launcher with no runtime left exits 1) was taken as the hook's own failure and never replaced, so every guard would fail open for good (Medium): any other failure now re-runs the version test once, and only a name that no longer starts Python 3.9 is replaced;
+  - no test ran the start line's version check; the 5.3.1 P1 test's fake answered 99 itself (Medium). A test now runs a real Python that reports 3.8 and checks the hook never ran under it.
+- Tests in `plugin/tests/cases_13.py`; each fails on the code before its fix.
 
 ## 5.9.1: Curmudgeon runs only its own scripts
 

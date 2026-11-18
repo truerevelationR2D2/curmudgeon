@@ -583,6 +583,9 @@ def bash_problem(cmd, rec, root, critic, role, me):
                 text_words = data_words(bare.rsplit("/", 1)[-1], rest_args, i)
             if (i in targets or (i >= 1 and words[i - 1] in (">", ">>", "&>", "1>", "2>", ">|"))) and i != skip:
                 pieces = [w[3:]] if w.startswith("of=") else [p_ for p_ in re.split(r"[=:,]", w) if p_ and not p_.startswith("-")]
+                made = lambda p_, c: os.path.isdir(os.path.join(str(c), os.path.expanduser(p_)))
+                if i in targets and (cmd or "").rsplit("/", 1)[-1] == "mkdir" and all(made(p_, c) for p_ in pieces for c in cands):
+                    pieces = []  # a mkdir of a folder that already exists writes nothing (03 §5.57 item 48)
                 if any(through_link(p_, c) for p_ in pieces for c in cands):
                     return f"{w}: a write through a link (node_modules, .venv) changes the real project; write in your notes folder instead", cands
                 if any(into_project(p_, c) for p_ in pieces for c in cands):

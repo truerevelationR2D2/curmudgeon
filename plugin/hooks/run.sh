@@ -10,8 +10,9 @@
 # took about 2 seconds had its guards stopped by Claude Code's 10-second limit; 5.9.2). It is still checked, at
 # no extra cost: the hook is started through a few lines that leave with code 99 before the hook runs if this Python
 # is older than 3.9, and a name that no longer starts Python fails to start at all (126, 127, or 49 for the Windows
-# Store placeholder's 9009). Only then is the choice found again and the hook started with the new one: the hook
-# itself never ran. A hook that ran and then crashed is never run again: it must not repeat what it already did.
+# Store placeholder's 9009). Any other failure is checked once more, with the version test alone: a name that no
+# longer starts Python 3.9 can't have run the hook. Only then is the choice found again and the hook started with the
+# new one: the hook itself never ran. A hook that ran and then crashed is never run again: it must not repeat what it already did.
 # hooks.json starts this with sh, through Git Bash on Windows; where there is no Git Bash, sh can't start, and the
 # PreToolUse hooks are marked onFailure "continue", so a guard that can't run never blocks the user's own work.
 # This never exits 2 (Claude Code's "block") on its own account: only a hook that ran may block.
@@ -48,8 +49,10 @@ fi
 if [ -n "$py" ]; then
   $py -c "$pre" "$hook" "$@"; rc=$?
   case "$rc" in
+    0|2) exit $rc ;;  # the hook's own answer (2 blocks)
     99|126|127|49) py="" ;;  # the hook never started: too old, or not a working Python any more
-    *) [ "$rc" -le 2 ] 2>/dev/null && exit $rc; exit 1 ;;  # the hook's own answer (2 blocks); a crash or a kill is an error, never a block, and never run again
+    *) ok "$py" || py=""  # any other failure: if the kept name no longer starts Python 3.9+ (py -3 with no runtime left exits 1), the hook can't have run, so find Python again (5.9.2 blind round)
+       [ -n "$py" ] && exit 1 ;;  # Python works, so the failure was the hook's own (an error or a crash): an error, never a block, never run again
   esac
 fi
 find || exit 1
