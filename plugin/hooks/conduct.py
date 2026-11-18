@@ -97,7 +97,7 @@ def is_reviewer(agent_type): return bool(re.fullmatch(r"(?:curmudgeon:)?curmudge
 WRITERS_ALL = {"tee", "rm", "touch", "truncate", "mkdir", "rmdir", "shred", "unlink"}
 WRITERS_LAST = {"cp", "mv", "install", "ln", "rsync"}
 
-HEREDOC_RX = re.compile(r"<<-?[ \t]*(['\"]?)([A-Za-z_][A-Za-z0-9_]*)\1[^\n]*\n.*?(?:\n[ \t]*\2[ \t]*(?=\n|$)|\Z)", re.S)
+HEREDOC_RX = re.compile(r"<<-?[ \t]*(['\"]?)([A-Za-z_][A-Za-z0-9_]*)\1([^\n]*)\n.*?(?:\n[ \t]*\2[ \t]*(?=\n|$)|\Z)", re.S)
 
 def _tokens(cmd):
     """The command's words, with every here-document's body left out (a probe script written with cat <<EOF is data,
@@ -105,7 +105,7 @@ def _tokens(cmd):
     probes that named kill). Quoted text stays one word, so a quoted '>' is an argument, not a redirect; a newline
     outside quotes ends a command like ';' (5.9.0 blind round C2, C8)."""
     import shlex
-    flat = HEREDOC_RX.sub(lambda m: "<< " + m.group(2) + "\n", cmd)
+    flat = HEREDOC_RX.sub(lambda m: "<< " + m.group(2) + m.group(3) + "\n", cmd)  # the rest of the opening line stays: `cat <<EOF > file` writes file (5.9.2 blind round 2)
     if os.name == "nt": flat = re.sub(r"\\(?=[^\s\"'$`\\])", "/", flat)  # Windows paths (C:\Users\...) keep their separators; a backslash before a quote or a space still escapes it
     held, buf, i, q = [], [], 0, None
     while i < len(flat):
@@ -117,19 +117,33 @@ def _tokens(cmd):
             held.append(flat[i + 1:j].replace('\\"', '"') if ch == '"' else flat[i + 1:j]); buf.append(f"\x00{len(held) - 1}\x00"); i = j + 1; continue
         if ch == "\\" and i + 1 < len(flat): buf.append(flat[i:i + 2]); i += 2; continue
         buf.append(" ; " if ch == "\n" else ch); i += 1
+    text = re.sub(r"(^|[\s;&|()])\d+(?=[<>])", r"\1", "".join(buf))  # 2>/dev/null, 2>&1: a stream number written against its redirect is no word ("touch 2 > f" keeps its 2; 5.9.2 blind round 2)
     try:
-        lx = shlex.shlex("".join(buf), posix=True, punctuation_chars=True); lx.whitespace_split = True; lx.commenters = ""; words = list(lx)
-    except ValueError: return None
+        lx = shlex.shlex(text, posix=True, punctuation_chars=True); lx.whitespace_split = True; lx.commenters = ""; words = list(lx)
+    except ValueError:  # a command the shell itself may refuse (a trailing backslash, say) is still judged, by its plain words (5.9.2 blind round 2)
+        words = re.findall(r"[;&|()<>]+|[^\s;&|()<>]+", text.replace("\\", " "))
     put = lambda w: re.sub(r"\x00(\d+)\x00", lambda m: held[int(m.group(1))], w)
     return [w if "\x00" not in w else ("\x01" + put(w) if w.strip("\x00").isdigit() else put(w)) for w in words]  # \x01: a word that was wholly quoted, never an operator
 
+WRAPPERS = {"time", "sudo", "doas", "exec", "nohup", "env", "xargs", "timeout", "command", "builtin", "nice", "ionice", "stdbuf", "setsid", "chrt", "taskset", "unbuffer", "watch", "flock"}
+TAKES_VALUE = {"sudo": {"-u", "-g", "-h", "-p", "-C", "-U", "-D", "-r", "-t"}, "doas": {"-u", "-C"}, "env": {"-u", "-C", "-S"}, "xargs": {"-n", "-I", "-P", "-L", "-s", "-d", "-a", "-E"},
+               "timeout": {"-s", "-k"}, "nice": {"-n"}, "ionice": {"-c", "-n", "-p"}, "stdbuf": {"-i", "-o", "-e"}, "watch": {"-n", "-d"}, "flock": {"-w", "-E"}}  # a wrapper's options that take their own value (sudo -u x, xargs -n 1, timeout -s KILL)
+
 def _commands(toks):
-    """The first word of each simple command."""
-    out, start = [], True
+    """The first word of each simple command, looking through wrappers and their options (sudo -n kill, env -i kill,
+    timeout 5 kill, xargs -n1 kill: 5.9.2 blind round 2)."""
+    out, start, wrapped, skip = [], True, None, False
     for t in toks:
-        if t in (";", "&&", "||", "|", "&", "(", ")", "|&", "\n", "{", "}", "!", "then", "do", "else", "time", "sudo", "exec", "nohup", "env", "xargs"): start = True; continue
-        if start and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*=.*", t): continue
-        if start: out.append(os.path.basename(t.lstrip("\x01"))); start = False
+        if t in (";", "&&", "||", "|", "&", "(", ")", "|&", "\n", "{", "}", "!", "then", "do", "else"): start, wrapped, skip = True, None, False; continue
+        if not start: continue
+        w = os.path.basename(t.lstrip("\x01"))
+        if skip: skip = False; continue
+        if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*=.*", t): continue
+        if wrapped and t.startswith("-") and t != "-":
+            skip = t in TAKES_VALUE.get(wrapped, ()); continue
+        if wrapped and re.fullmatch(r"\d+(?:\.\d+)?[smhd]?|0x[0-9a-fA-F]+", t): continue  # timeout 5, chrt 10, taskset 0x3
+        if w in WRAPPERS: wrapped = w; continue
+        out.append(w); start = False; wrapped = None
     return out
 
 def write_targets(cmd, start, kinds=False):
@@ -141,10 +155,12 @@ def write_targets(cmd, start, kinds=False):
     (path, command name), so the caller can tell a folder being made from a file being written."""
     toks = _tokens(cmd)
     if toks is None: return []
-    out, cwd, seg = [], str(start), []
+    out, cwd, seg, assigned = [], str(start), [], {}
     NULLS = {"/dev/null", "/dev/stdout", "/dev/stderr", "/dev/tty", "nul", "con", os.devnull.lower()}  # checked before resolving: on Windows /dev/null resolves to C:\dev\null (CI on #52)
     def resolve(x):
-        x = os.path.expanduser(x.lstrip("\x01"))
+        x = x.lstrip("\x01")
+        x = re.sub(r"\$\{?([A-Za-z_][A-Za-z0-9_]*)\}?", lambda m: cwd if m.group(1) == "PWD" else assigned.get(m.group(1), os.environ.get(m.group(1), m.group(0))), x)  # $HOME/.claude is Claude Code's folder, not one in the copy (5.9.2 blind round 2)
+        x = os.path.expanduser(x)
         if x.lower() in NULLS: return None
         return os.path.normpath(x if os.path.isabs(x) else os.path.join(cwd, x))
     def flush(seg):
@@ -152,25 +168,33 @@ def write_targets(cmd, start, kinds=False):
         if not seg: return
         name, args = os.path.basename(seg[0].lstrip("\x01")), [a.lstrip("\x01") for a in seg[1:]]
         if name == "cd" and args: cwd = resolve(args[0]); return
+        if name in ("export", "declare", "local", "readonly"):
+            for a in args:
+                m = re.fullmatch(r"([A-Za-z_][A-Za-z0-9_]*)=(.*)", a)
+                if m: assigned[m.group(1)] = m.group(2)
+            return
+        tdir = next((args[k + 1] for k, a in enumerate(args) if a in ("-t", "--target-directory") and k + 1 < len(args)), None) or next((a.split("=", 1)[1] for a in args if a.startswith("--target-directory=")), None)
+        if name in WRITERS_LAST and tdir: out.append((resolve(tdir), name)); return  # cp -t DIR src: DIR is where it writes (5.9.2 blind round 2)
         files = [a for k, a in enumerate(args) if not a.startswith("-") and not (k and args[k - 1] in ("-m", "--mode") and name in ("mkdir", "install"))]  # a mode is no file
         if name == "mkdir": out.extend((resolve(a), name) for a in files if not os.path.isdir(resolve(a) or ""))
         elif name in WRITERS_ALL: out.extend((resolve(a), name) for a in files)
         elif name in WRITERS_LAST and len(files) >= 2: out.append((resolve(files[-1]), name))
         elif name in ("chmod", "chown") and len(files) >= 2: out.extend((resolve(a), name) for a in files[1:])
-        elif name == "sed" and any(a == "-i" or a.startswith("-i") or a == "--in-place" for a in args) and len(files) >= 2: out.extend((resolve(a), name) for a in files[1:])
+        elif name == "sed" and any(re.fullmatch(r"-[A-Za-z]*i.*|--in-place(?:=.*)?", a) for a in args) and len(files) >= 2: out.extend((resolve(a), name) for a in files[1:])
         elif name == "dd": out.extend((resolve(a[3:]), name) for a in args if a.startswith("of="))
     i = 0
     while i < len(toks):
         t = toks[i]
-        if t in (">", ">>", ">|", "&>", "&>>", ">&", "<", "<&", "<<", "<<<") and seg and re.fullmatch(r"\d+", seg[-1]): seg.pop()  # 2>/dev/null: the 2 is a stream number, not an argument (5.9.2 blind round)
         if t in (">&", "<&") and i + 1 < len(toks):
             if not re.fullmatch(r"\d+|-", toks[i + 1]): out.append((resolve(toks[i + 1]), t))  # >&file writes the file; >&1 only joins two streams
             i += 2; continue
         if t in (">", ">>", ">|", "&>", "&>>") and i + 1 < len(toks):
-            if not re.fullmatch(r"&?\d*", toks[i + 1]): out.append((resolve(toks[i + 1]), t))  # >&2 duplicates a stream; it writes no file
+            if not re.fullmatch(r"&\d*|&-", toks[i + 1]): out.append((resolve(toks[i + 1]), t))  # > &2 duplicates a stream and writes no file; > 2 writes a file named 2
             i += 2; continue
         if t in (";", "&&", "||", "|", "&", "(", ")", "|&", "\n"): flush(seg); seg = []; i += 1; continue
-        if not (seg == [] and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*=.*", t)): seg.append(t)  # VAR=x before a command is no argument
+        if seg == [] and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*=.*", t):  # VAR=x before a command is no argument; on its own it sets a variable later paths may use
+            k_, v_ = t.split("=", 1); assigned[k_] = v_.lstrip("\x01")
+        else: seg.append(t)
         i += 1
     flush(seg)
     out = [(p, k) for p, k in out if p]

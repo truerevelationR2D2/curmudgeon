@@ -89,3 +89,16 @@ def _(d):
     (data / "python").write_text("python3\n", encoding="utf-8"); count.unlink()
     r = go()
     assert r.returncode == 0 and r.stdout.strip() == "ran 5" and count.read_text(encoding="utf-8") == "x" and (data / "python").read_text(encoding="utf-8").strip() == "python", ("the old Python never ran the hook; python did, once", r.returncode, r.stdout, r.stderr, count.read_text(encoding="utf-8"))
+
+@test("5.9.2 blind round 2: the shell rule sees a heredoc's own redirect, kill behind a wrapper with options, $HOME and set variables, cp -t, sed -Ei, a trailing backslash, and a file named 2; honest commands stay uncut")
+def _(d):
+    C = _c11(); root = d / "proj"; me = "r1"; ws = str(root / ".critic/scratch/r1/payload"); (root / ".critic/scratch/r1/payload").mkdir(parents=True); write(root, "src/app.js", APP)
+    claude = pathlib.Path.home() / ".claude"
+    cut = [f"cd {ws} && cat <<EOF > /tmp/probe.txt\nhi\nEOF", f"cd {ws} && cat <<'EOF' >> {claude}/settings.json\n{{}}\nEOF",
+           f"cd {ws} && timeout 5 kill 1234", f"cd {ws} && env -i pkill -f claude", f"cd {ws} && sudo -n kill 1", f"cd {ws} && xargs -n 1 kill < pids",
+           f"cd {ws} && echo '{{}}' > $HOME/.claude/settings.json", f"cd {ws} && D=/tmp; touch $D/q", f"cd {ws} && cp -t {claude}/ settings.json",
+           f"cd {ws} && sed -Ei 's/x/y/' /tmp/shared.cfg", f"cd {ws} && touch /tmp/x \\", f"cd {root}/src && rm 2 > /dev/null", f"cd {ws} && echo hi > {root}/src/2"]
+    for c in cut: assert C.bash_cut(c, str(root), me, ws), c
+    honest = [f"cd {ws} && cat <<EOF > ../notes/probe.py\nimport os; os.kill(1, 9)\nEOF", f"cd {ws} && grep -rn kill src", f"cd {ws} && timeout 60 python3 -m pytest 2>&1",
+              f"cd {ws} && echo x > $PWD/probe.txt", f"cd {ws} && cp -t ../notes src/app.js", f"cd {ws} && sed -E 's/a/b/' src/app.js", f"cd {ws} && ls 2>/dev/null"]
+    for c in honest: assert C.bash_cut(c, str(root), me, ws) is None, (c, C.bash_cut(c, str(root), me, ws))
