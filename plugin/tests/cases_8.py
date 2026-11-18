@@ -1948,7 +1948,7 @@ def _(d):
     r = go("hello again")
     assert r.returncode == 0 and r.stdout.strip() == "ran 11" and (data / "python").read_text(encoding="utf-8").strip() == "python", ("a kept interpreter that stopped working is replaced, and the hook still runs on the same input", r.returncode, r.stdout, r.stderr)
     rp = pathlib.Path(real).as_posix()
-    tool("python3", f'case "$1" in -c) exit 99 ;; esac; echo "SyntaxError: invalid syntax (Python 3.8)" >&2; exit 1')  # kept, but now an older Python: run.sh's start line leaves with 99 there before the hook runs (5.9.2), and its version check fails
+    tool("python3", f'case "$1" in -c) exit 1 ;; esac; echo "SyntaxError: invalid syntax (Python 3.8)" >&2; exit 1')  # kept, but now an older Python
     r = go("hello")
     assert r.returncode == 0 and r.stdout.strip() == "ran 5" and (data / "python").read_text(encoding="utf-8").strip() == "python", ("Qodo on #34, 3: a kept name that now starts Python 3.8 is checked again and replaced, not taken as the hook's answer (which let the guards fail open)", r.returncode, r.stdout, r.stderr)
     tool("python3", "echo 'Python was not found; run without arguments to install from the Microsoft Store' >&2; exit 9009")

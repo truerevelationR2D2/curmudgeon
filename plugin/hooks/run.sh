@@ -7,12 +7,12 @@
 # then python, then py -3, and runs the hook with the first one that really starts Python 3.9+. The choice is kept in
 # Claude Code's data folder for this plugin (made here if it isn't there yet: Claude Code makes it only when a hook
 # names it). A kept choice is trusted, so a hook starts Python once, not twice (a Windows machine where each start
-# took about 2 seconds had its guards stopped by Claude Code's 10-second limit; 5.9.2). It is still checked, at
-# no extra cost: the hook is started through a few lines that leave with code 99 before the hook runs if this Python
-# is older than 3.9, and a name that no longer starts Python fails to start at all (126, 127, or 49 for the Windows
-# Store placeholder's 9009). Any other failure is checked once more, with the version test alone: a name that no
-# longer starts Python 3.9 can't have run the hook. Only then is the choice found again and the hook started with the
-# new one: the hook itself never ran. A hook that ran and then crashed is never run again: it must not repeat what it already did.
+# took about 2 seconds had its guards stopped by Claude Code's 10-second limit; 5.9.2). The hook is started through
+# start.py, which leaves with 99 before the hook runs on a Python older than 3.9 and otherwise hands back the hook's
+# own exit as 40, 41 or 42. Only those three are answers. A name that no longer starts Python (126, 127, 49 for the
+# Windows Store placeholder's 9009, 99) is replaced at once; any other result is checked with the version test
+# alone, and the name is replaced only if it fails: then the hook can't have run. A hook that ran, crashed or was
+# killed is never run again: it must not repeat what it already did.
 # hooks.json starts this with sh, through Git Bash on Windows; where there is no Git Bash, sh can't start, and the
 # PreToolUse hooks are marked onFailure "continue", so a guard that can't run never blocks the user's own work.
 # This never exits 2 (Claude Code's "block") on its own account: only a hook that ran may block.
@@ -25,9 +25,8 @@ if [ -n "$CLAUDE_PLUGIN_DATA" ] && [ ! -L "$CLAUDE_PLUGIN_DATA" ]; then
   [ -e "$CLAUDE_PLUGIN_DATA" ] || mkdir -p "$CLAUDE_PLUGIN_DATA" 2>/dev/null
   [ -d "$CLAUDE_PLUGIN_DATA" ] && cache="$CLAUDE_PLUGIN_DATA/python"
 fi
-# Started with -c, Python puts the current folder first on its import path; the hook's own folder replaces it, as
-# `python hook.py` would, so a file in the user's project can never stand in for one of the hook's modules.
-pre='import sys; sys.exit(99) if sys.version_info < (3, 9) else None; import os, runpy; sys.argv = sys.argv[1:]; sys.path[0] = os.path.dirname(os.path.abspath(sys.argv[0])); runpy.run_path(sys.argv[0], run_name=__name__)'  # one line, no quotes: Git Bash passes it to a Windows python.exe intact; __name__ is "__main__" under -c
+case "$0" in */*) here="${0%/*}" ;; *\\*) here="${0%\\*}" ;; *) here=. ;; esac  # no dirname: only sh's own words are sure to be there
+start="$here/start.py"  # next to this file, always the plugin's own
 find() {
   for c in python3 python "py -3"; do
     if ok "$c"; then
@@ -39,6 +38,8 @@ find() {
   echo "Curmudgeon: no Python 3.9 or later found (tried python3, python and py -3), so the hook $(basename "$hook") didn't run" >&2
   return 1
 }
+go() { out="$($py "$start" "$hook" "$@")"; rc=$?; }  # the hook's printout is held until start.py says the hook ran: a wrong program's text never reaches Claude Code in front of the hook's answer (5.9.2 code review)
+answer() { [ -n "$out" ] && printf '%s\n' "$out"; exit $((rc - 40)); }
 py=""
 if [ -n "$cache" ] && [ -f "$cache" ] && [ ! -L "$cache" ]; then
   read -r kept < "$cache"
@@ -48,15 +49,16 @@ if [ -n "$cache" ] && [ -f "$cache" ] && [ ! -L "$cache" ]; then
   esac
 fi
 if [ -n "$py" ]; then
-  $py -c "$pre" "$hook" "$@"; rc=$?
+  go "$@"
   case "$rc" in
-    0|2) exit $rc ;;  # the hook's own answer (2 blocks)
-    99|126|127|49) py="" ;;  # the hook never started: too old, or not a working Python any more
-    *) ok "$py" || py=""  # any other failure: if the kept name no longer starts Python 3.9+ (py -3 with no runtime left exits 1), the hook can't have run, so find Python again (5.9.2 blind round)
-       [ -n "$py" ] && exit 1 ;;  # Python works, so the failure was the hook's own (an error or a crash): an error, never a block, never run again
+    40|41|42) answer ;;  # the hook ran: its own answer (42 is a block)
+    99|126|127|49) py="" ;;  # it never started: too old, or no longer a working Python
+    *) if [ "$rc" -ge 128 ] 2>/dev/null; then exit 1; fi  # killed: the hook may have run, so it never runs again; an error, never a block
+       ok "$py" || py=""  # anything else: if the kept name no longer starts Python 3.9+, the hook can't have run, so find Python again
+       [ -n "$py" ] && exit 1 ;;  # Python works but the hook didn't finish normally: an error, never run again
   esac
 fi
 find || exit 1
-$py -c "$pre" "$hook" "$@"; rc=$?
-[ "$rc" -le 2 ] 2>/dev/null && exit $rc  # the hook's own answer, a block (2) included
-exit 1  # a crash or a kill (130, 137, a Windows crash code), or a Python that still won't start: an error, never a block
+go "$@"
+case "$rc" in 40|41|42) answer ;; esac
+exit 1  # a kill, or a Python that still won't run the hook: an error, never a block

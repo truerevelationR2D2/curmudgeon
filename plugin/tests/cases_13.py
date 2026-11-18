@@ -64,7 +64,7 @@ def _(d):
     assert C.bash_cut(f"cd {ws} && mkdir -m 755 {root}/src/new", str(root), me, ws), "a new folder after a mode is still cut"
     p = d / "proj2"; write(p, "src/app.js", APP); (p / ".critic/reviews").mkdir(parents=True); rec = _ws(p); w2 = rec["payload"]
     out = run(H / "read_guard.py", cwd=p, stdin=json.dumps({"tool_name": "Bash", "tool_input": {"command": f"cd {w2} && mkdir -p ../../../reviews 2>/dev/null"}, "cwd": str(p), "agent_type": "curmudgeon:curmudgeon-reviewer", "agent_id": "r1"})).stdout
-    assert "a write into the real project" not in out, out
+    assert "deny" not in out, out  # neither refused as a write nor as a read
     out = run(H / "read_guard.py", cwd=p, stdin=json.dumps({"tool_name": "Bash", "tool_input": {"command": f"cd {w2} && mkdir -p {p}/src/newdir"}, "cwd": str(p), "agent_type": "curmudgeon:curmudgeon-reviewer", "agent_id": "r1"})).stdout
     assert "deny" in out, ("a new folder in the real project is still refused", out)
 
@@ -102,3 +102,44 @@ def _(d):
     honest = [f"cd {ws} && cat <<EOF > ../notes/probe.py\nimport os; os.kill(1, 9)\nEOF", f"cd {ws} && grep -rn kill src", f"cd {ws} && timeout 60 python3 -m pytest 2>&1",
               f"cd {ws} && echo x > $PWD/probe.txt", f"cd {ws} && cp -t ../notes src/app.js", f"cd {ws} && sed -E 's/a/b/' src/app.js", f"cd {ws} && ls 2>/dev/null"]
     for c in honest: assert C.bash_cut(c, str(root), me, ws) is None, (c, C.bash_cut(c, str(root), me, ws))
+
+@test("5.9.2 code review: a program that answers to a kept Python's name and exits 2 never blocks, and its printout never reaches Claude Code; a types.py or runpy.py in the project can't stand in for a module when a hook starts")
+def _(d):
+    import shutil
+    sh = shutil.which("sh")
+    if not sh: raise Skip("needs sh (Git Bash on Windows)")
+    real = pathlib.Path(sys.executable).as_posix(); fake = d / "bin"; fake.mkdir(); data = d / "data"; data.mkdir()
+    def tool(name, body): p = fake / name; p.write_text("#!/bin/sh\n" + body + "\n", encoding="utf-8"); p.chmod(0o755)
+    tool("python", f'exec "{real}" "$@"'); tool("python3", f'exec "{real}" "$@"')
+    tool("py", 'echo "usage: py [options] expression"; exit 2')  # another tool called py, with its own usage error
+    (data / "python").write_text("py -3\n", encoding="utf-8")
+    hook = d / "hook.py"; hook.write_text('import json, sys\nprint(json.dumps({"ok": len(sys.stdin.read())}))\n', encoding="utf-8")
+    proj = d / "proj"; proj.mkdir()
+    for planted in ("types.py", "runpy.py", "traceback.py"): (proj / planted).write_text('raise SystemExit("planted")\n', encoding="utf-8")
+    env = dict(os.environ, PATH=f"{fake}{os.pathsep}{os.environ.get('PATH', '')}", CLAUDE_PLUGIN_DATA=str(data))
+    r = subprocess.run([sh, str(H / "run.sh"), str(hook)], input="hello", capture_output=True, text=True, encoding="utf-8", env=env, timeout=60, cwd=proj)
+    assert r.returncode == 0 and r.stdout.strip() == '{"ok": 5}', ("the hook ran, alone on stdout, and nothing blocked", r.returncode, r.stdout, r.stderr)
+    assert (data / "python").read_text(encoding="utf-8").strip() != "py -3", "the wrong py was replaced"
+    for code in (0, 1, 2):
+        hook.write_text(f"import sys\nprint('x')\nsys.exit({code})\n", encoding="utf-8")
+        r = subprocess.run([sh, str(H / "run.sh"), str(hook)], input="", capture_output=True, text=True, encoding="utf-8", env=env, timeout=60, cwd=proj)
+        assert r.returncode == code, (code, r.returncode, r.stderr)
+    hook.write_text("raise ValueError('boom')\n", encoding="utf-8")
+    r = subprocess.run([sh, str(H / "run.sh"), str(hook)], input="", capture_output=True, text=True, encoding="utf-8", env=env, timeout=60, cwd=proj)
+    assert r.returncode == 1 and "boom" in r.stderr, ("a crash is an error, never a block", r.returncode, r.stderr)
+
+@test("5.9.2 code review: one reading of a command's writes for every agent; (echo x)>f, true;>f, rm.exe, >&f and &>>f are writes for a verifier too; mkdir is judged by its whole word as the OS sees it; a .CRITIC folder on Linux is not the way to a .critic review")
+def _(d):
+    C = _c11()
+    for c, want in (("(echo x)>/p/x.js", "/p/x.js"), ("true;>/p/y", "/p/y"), ("rm.exe -rf /p/src", "/p/src"), ("echo hi >&/p/o", "/p/o")):
+        assert os.path.normpath(want) in [os.path.normpath(t) for t in C.write_targets(c, "/w")], (c, C.write_targets(c, "/w"))
+    p = d / "proj"; write(p, "src/app.js", APP); (p / ".critic/reviews").mkdir(parents=True)
+    rec = _ws(p, "v1", "verifier"); w = rec["payload"]
+    for c in (f"cd {w} && echo x >&{p}/src/out.txt", f"cd {w} && echo x &>>{p}/src/out.txt", f"cd {w} && (echo x)>{p}/src/x.js",
+              f"cd {w} && mkdir -p {p}/src,.", f"cd {w} && mkdir -p {p}/src/newdir/..", f"cd {w} && cat <<EOF > {p}/src/h.js\nx\nEOF"):
+        assert "deny" in _rg(p, "Bash", role="verifier", aid="v1", command=c), c
+    assert "deny" not in _rg(p, "Bash", role="verifier", aid="v1", command=f"cd {w} && echo x > ../notes/ok.txt"), "its own notes"
+    if not (p / ".CRITIC").exists():  # a case-sensitive file system
+        root = d / "proj3"; me = "r1"; ws = str(root / ".critic/scratch/r1/payload"); (root / ".critic/scratch/r1/payload").mkdir(parents=True); write(root, "src/app.js", APP)
+        claim_for(root, me, "C")
+        assert C.bash_cut(f"cd {ws} && mkdir -p {root}/.CRITIC/REVIEWS", str(root), me, ws), "a new .CRITIC folder is not on the way to .critic/reviews"

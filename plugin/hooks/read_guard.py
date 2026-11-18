@@ -31,6 +31,7 @@ import json, os, pathlib, re, sys, time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import utf8io  # UTF-8 output on Windows too (03 §5.57 item 20)
 import workspace
+import conduct  # one shell reading of a command's writes, shared with the reviewers' standard (5.9.2 code review)
 
 ALLOW = {"reviewer": {"rules", "rules.md", "change-map.md", "change-map.json", "risk-map.md", ".gitignore"},  # no briefs: a reviewer gets its own brief as its prompt (brief_problem holds the lead to that), and the proctor voids one that read another's (03 §5.57 item 35; 5.5.0 blind round 2)
          "verifier": {"rules", "rules.md", "change-map.md", "change-map.json", "risk-map.md", ".gitignore", "verify", "verify-variants", "decisions.md"},  # never ledger.md: it holds dismissal notes and memories; never the scan (03 §5.56 item 13)
@@ -562,7 +563,7 @@ def bash_problem(cmd, rec, root, critic, role, me):
         subshell, a cd that fails, a cd spelled some way not listed here), so every path is judged from every folder
         the shell might be in: the copy, and every cd destination named so far. A cd may move within the copy, never
         out of it; a path that leads above the copy (to the agent's own scratch folder or higher) is refused."""
-        cmd_pos = True; cmd = None; targets = set(); text_words = set()  # shell_vars is shared: bash -c '...' sees the outer command's variables (round 3 review)
+        cmd_pos = True; cmd = None; targets = set(); text_words = set(); noop = set()  # shell_vars is shared: bash -c '...' sees the outer command's variables (round 3 review)
         sure = not any(x in ("(", ")", "|", "|&", "||", "&") or "$(" in x or "`" in x for x in words)  # no subshell or pipe: a cd joined by && really happened if the command goes on
         skip = None
         for i, w in enumerate(words):
@@ -581,11 +582,10 @@ def bash_problem(cmd, rec, root, critic, role, me):
                 if why: return why, cands
                 targets = write_targets(bare.rsplit("/", 1)[-1], rest_args, i)
                 text_words = data_words(bare.rsplit("/", 1)[-1], rest_args, i)
-            if (i in targets or (i >= 1 and words[i - 1] in (">", ">>", "&>", "1>", "2>", ">|"))) and i != skip:
+            if (i in targets or (i >= 1 and words[i - 1] in (">", ">>", "&>", "&>>", ">&", "1>", "2>", ">|"))) and i != skip:  # >& and &>> write too (5.9.2 code review: a verifier has no conduct check)
                 pieces = [w[3:]] if w.startswith("of=") else [p_ for p_ in re.split(r"[=:,]", w) if p_ and not p_.startswith("-")]
-                made = lambda p_, c: os.path.isdir(os.path.join(str(c), os.path.expanduser(p_)))
-                if i in targets and (cmd or "").rsplit("/", 1)[-1] == "mkdir" and all(made(p_, c) for p_ in pieces for c in cands):
-                    pieces = []  # a mkdir of a folder that already exists writes nothing (03 §5.57 item 48)
+                if i in targets and conduct.makes_nothing(cmd, w, cands):
+                    pieces = []; noop.add(i)  # a mkdir of a folder that already exists writes and reads nothing (03 §5.57 item 48); the whole word, as mkdir sees it, not its pieces (5.9.2 code review)
                 if any(through_link(p_, c) for p_ in pieces for c in cands):
                     return f"{w}: a write through a link (node_modules, .venv) changes the real project; write in your notes folder instead", cands
                 if any(into_project(p_, c) for p_ in pieces for c in cands):
@@ -655,7 +655,7 @@ def bash_problem(cmd, rec, root, critic, role, me):
                 return f"{w}: a path spelled through parameter expansion ({OPAQUE.search(w).group(0)}); write the path out", cands
             if i != skip and i not in text_words and PROC_ANY.search(w): return f"{w}: other agents' processes and command lines are not yours to read (audit P3)", cands
             pieces = []
-            for w_ in ([] if i == skip or i in text_words else variants):
+            for w_ in ([] if i == skip or i in text_words or i in noop else variants):
                 unurl = re.sub(r"(?i)file://", "", re.sub(r"(?i)\b(?!file:)[a-z][\w+.-]*://(?![^\s,;]*(?:\.\.|\.critic))[^\s,;]*", "", w_))  # a URL is no path (audit V22: http:// was read as /), unless it holds .. or .critic (a folder named "x:" makes x://../.. a path); file:// leaves its path
                 pieces += [p_ for p_ in re.split(r"[=:,]", unurl) if p_.strip()]
                 if unurl == w_ and re.search(r"[=:,]", w_): pieces.append(w_)  # the whole word too: a folder named "x:" makes x://../.. a real path
@@ -680,6 +680,9 @@ def bash_problem(cmd, rec, root, critic, role, me):
         return None, cands
     why, _ = walk(split(flat), [pay])
     if why: return why
+    for t_ in conduct.write_targets(cmd, payload):  # the same writes the reviewers' standard finds ((echo x)>f, cmd.exe names, >&f, a heredoc's redirect), refused for every agent here, a verifier included (5.9.2 code review)
+        if through_link(t_, pay): return f"{t_}: a write through a link (node_modules, .venv) changes the real project; write in your notes folder instead"
+        if into_project(t_, pay): return f"{t_}: a write into the real project, outside your copy; write in your copy or your notes folder"
     return None
 
 def main(data=None):

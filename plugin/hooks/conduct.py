@@ -123,11 +123,37 @@ def _tokens(cmd):
     except ValueError:  # a command the shell itself may refuse (a trailing backslash, say) is still judged, by its plain words (5.9.2 blind round 2)
         words = re.findall(r"[;&|()<>]+|[^\s;&|()<>]+", text.replace("\\", " "))
     put = lambda w: re.sub(r"\x00(\d+)\x00", lambda m: held[int(m.group(1))], w)
+    words = [o for w in words for o in _ops(w)]
     return [w if "\x00" not in w else ("\x01" + put(w) if w.strip("\x00").isdigit() else put(w)) for w in words]  # \x01: a word that was wholly quoted, never an operator
 
 WRAPPERS = {"time", "sudo", "doas", "exec", "nohup", "env", "xargs", "timeout", "command", "builtin", "nice", "ionice", "stdbuf", "setsid", "chrt", "taskset", "unbuffer", "watch", "flock"}
 TAKES_VALUE = {"sudo": {"-u", "-g", "-h", "-p", "-C", "-U", "-D", "-r", "-t"}, "doas": {"-u", "-C"}, "env": {"-u", "-C", "-S"}, "xargs": {"-n", "-I", "-P", "-L", "-s", "-d", "-a", "-E"},
                "timeout": {"-s", "-k"}, "nice": {"-n"}, "ionice": {"-c", "-n", "-p"}, "stdbuf": {"-i", "-o", "-e"}, "watch": {"-n", "-d"}, "flock": {"-w", "-E"}}  # a wrapper's options that take their own value (sudo -u x, xargs -n 1, timeout -s KILL)
+
+OPS = sorted([";;", "&&", "||", "|&", "&>>", "&>", ">&", "<&", ">>", ">|", "<<<", "<<", ";", "&", "|", "(", ")", "<", ">"], key=len, reverse=True)
+
+def _ops(w):
+    """shlex keeps runs of punctuation together: `)>`, `;>` and `&&>` come out as one word. Split such a run into the
+    shell's own operators, longest first, so `(echo x)>f` and `true;>f` show their redirect (5.9.2 code review)."""
+    if not w or w[0] == "\x01" or any(ch not in ";&|()<>" for ch in w) or w in OPS: return [w]
+    out, i = [], 0
+    while i < len(w):
+        op = next((o for o in OPS if w.startswith(o, i)), w[i]); out.append(op); i += len(op)
+    return out
+
+def name_of(word):
+    """A command's name as the shell runs it: its file name, without a Windows .exe (rm.exe is rm; 5.9.2 code review)."""
+    n = os.path.basename(word.lstrip("\x01").replace("\\", "/"))
+    return n[:-4] if n.lower().endswith(".exe") else n
+
+def makes_nothing(cmd, word, cands):
+    """True when `word` is the argument of a mkdir and already names a folder from every place the shell may be:
+    mkdir then changes nothing and reads nothing (03 §5.57 item 48). The word is judged whole and as the OS resolves
+    it, never split or tidied first: `mkdir -p src/new/..` makes src/new, and `mkdir src,.` makes a folder called
+    'src,.' (5.9.2 code review)."""
+    if name_of(cmd or "") != "mkdir" or not word or word.startswith("-"): return False
+    w = os.path.expanduser(word.lstrip("\x01"))
+    return all(os.path.isdir(w if os.path.isabs(w) else os.path.join(str(c), w)) for c in cands)
 
 def _commands(toks):
     """The first word of each simple command, looking through wrappers and their options (sudo -n kill, env -i kill,
@@ -136,7 +162,7 @@ def _commands(toks):
     for t in toks:
         if t in (";", "&&", "||", "|", "&", "(", ")", "|&", "\n", "{", "}", "!", "then", "do", "else"): start, wrapped, skip = True, None, False; continue
         if not start: continue
-        w = os.path.basename(t.lstrip("\x01"))
+        w = name_of(t)
         if skip: skip = False; continue
         if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*=.*", t): continue
         if wrapped and t.startswith("-") and t != "-":
@@ -166,7 +192,7 @@ def write_targets(cmd, start, kinds=False):
     def flush(seg):
         nonlocal cwd
         if not seg: return
-        name, args = os.path.basename(seg[0].lstrip("\x01")), [a.lstrip("\x01") for a in seg[1:]]
+        name, args = name_of(seg[0]), [a.lstrip("\x01") for a in seg[1:]]
         if name == "cd" and args: cwd = resolve(args[0]); return
         if name in ("export", "declare", "local", "readonly"):
             for a in args:
@@ -176,7 +202,7 @@ def write_targets(cmd, start, kinds=False):
         tdir = next((args[k + 1] for k, a in enumerate(args) if a in ("-t", "--target-directory") and k + 1 < len(args)), None) or next((a.split("=", 1)[1] for a in args if a.startswith("--target-directory=")), None)
         if name in WRITERS_LAST and tdir: out.append((resolve(tdir), name)); return  # cp -t DIR src: DIR is where it writes (5.9.2 blind round 2)
         files = [a for k, a in enumerate(args) if not a.startswith("-") and not (k and args[k - 1] in ("-m", "--mode") and name in ("mkdir", "install"))]  # a mode is no file
-        if name == "mkdir": out.extend((resolve(a), name) for a in files if not os.path.isdir(resolve(a) or ""))
+        if name == "mkdir": out.extend((resolve(a), name) for a in files if not makes_nothing(name, a, [cwd]))
         elif name in WRITERS_ALL: out.extend((resolve(a), name) for a in files)
         elif name in WRITERS_LAST and len(files) >= 2: out.append((resolve(files[-1]), name))
         elif name in ("chmod", "chown") and len(files) >= 2: out.extend((resolve(a), name) for a in files[1:])
@@ -207,6 +233,7 @@ def bash_cut(cmd, root, me, payload):
     toks = _tokens(cmd) or []
     if any(c in ("kill", "pkill", "killall", "skill") for c in _commands(toks)): return "ran a command that stops or signals processes, which interferes with the run"
     fold = lambda x: os.path.normcase(os.path.realpath(str(x))).casefold()  # realpath: macOS's /var is /private/var, and a temp folder is often reached through it
+    exact = lambda x: os.path.normcase(os.path.realpath(str(x)))  # case kept: on Linux .CRITIC is another folder
     mine_p = pathlib.Path(root) / ".critic" / "scratch" / me
     mine = fold(mine_p)
     homes = [fold(pathlib.Path.home() / ".claude"), fold(os.environ.get("CURMUDGEON_STATE_DIR") or pathlib.Path.home() / ".curmudgeon")]
@@ -218,7 +245,7 @@ def bash_cut(cmd, root, me, payload):
             if OWN_SETTINGS_RX.search(os.path.relpath(os.path.realpath(t), os.path.realpath(str(mine_p)))): return f"wrote {t}, an instructions file Claude Code reads"  # relative: a project inside a .claude folder is not settings (blind round C3)
             continue
         if own_review and f == own_review: continue  # its own claimed review, by the shell too (blind round C4)
-        if own_review and how == "mkdir" and own_review.startswith(f + os.sep): continue  # a folder on the way to its own review (03 §5.57 item 48)
+        if have and how == "mkdir" and exact(pathlib.Path(root) / ".critic" / "reviews" / have).startswith(exact(t) + os.sep): continue  # a folder on the way to its own review (03 §5.57 item 48)
         if any(f == h or f.startswith(h + os.sep) for h in homes): return f"wrote {t}, in Claude Code's or Curmudgeon's own folder"
         return f"wrote {t}, outside its copy, its notes and the review it claimed"
     return None
