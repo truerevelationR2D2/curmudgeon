@@ -47,7 +47,7 @@
           {
             "type": "command",
             "command": "sh \"${CLAUDE_PLUGIN_ROOT}/hooks/run.sh\" \"${CLAUDE_PLUGIN_ROOT}/hooks/guard_state.py\"",
-            "timeout": 10,
+            "timeout": 60,
             "onFailure": "continue"
           }
         ]
@@ -58,7 +58,7 @@
           {
             "type": "command",
             "command": "sh \"${CLAUDE_PLUGIN_ROOT}/hooks/run.sh\" \"${CLAUDE_PLUGIN_ROOT}/hooks/pre_tool.py\"",
-            "timeout": 10,
+            "timeout": 60,
             "onFailure": "continue"
           }
         ]
@@ -93,7 +93,7 @@
           {
             "type": "command",
             "command": "sh \"${CLAUDE_PLUGIN_ROOT}/hooks/run.sh\" \"${CLAUDE_PLUGIN_ROOT}/hooks/post_tool.py\"",
-            "timeout": 10
+            "timeout": 60
           }
         ]
       }

@@ -132,10 +132,13 @@ def _commands(toks):
         if start: out.append(os.path.basename(t.lstrip("\x01"))); start = False
     return out
 
-def write_targets(cmd, start):
+def write_targets(cmd, start, kinds=False):
     """The files a shell command would write, as plain paths resolved from where it runs: redirect targets, and the
     file arguments of commands that write (tee, cp, mv, rm, touch, sed -i, dd of=...). A lead, not a parser: the
-    write guard proper is the OS boundary; this only finds the plain cases, to cut on them (03 §5.57 item 44)."""
+    write guard proper is the OS boundary; this only finds the plain cases, to cut on them (03 §5.57 item 44).
+    A mkdir of a folder that already exists changes nothing, so it is no write (03 §5.57 item 48: the Qodo replay's
+    #26, an honest reviewer cut for `mkdir -p` of the reviews folder). With kinds=True, each target comes back as
+    (path, command name), so the caller can tell a folder being made from a file being written."""
     toks = _tokens(cmd)
     if toks is None: return []
     out, cwd, seg = [], str(start), []
@@ -150,22 +153,24 @@ def write_targets(cmd, start):
         name, args = os.path.basename(seg[0].lstrip("\x01")), [a.lstrip("\x01") for a in seg[1:]]
         if name == "cd" and args: cwd = resolve(args[0]); return
         files = [a for a in args if not a.startswith("-")]
-        if name in WRITERS_ALL: out.extend(resolve(a) for a in files)
-        elif name in WRITERS_LAST and len(files) >= 2: out.append(resolve(files[-1]))
-        elif name in ("chmod", "chown") and len(files) >= 2: out.extend(resolve(a) for a in files[1:])
-        elif name == "sed" and any(a == "-i" or a.startswith("-i") or a == "--in-place" for a in args) and len(files) >= 2: out.extend(resolve(a) for a in files[1:])
-        elif name == "dd": out.extend(resolve(a[3:]) for a in args if a.startswith("of="))
+        if name == "mkdir": out.extend((resolve(a), name) for a in files if not os.path.isdir(resolve(a) or ""))
+        elif name in WRITERS_ALL: out.extend((resolve(a), name) for a in files)
+        elif name in WRITERS_LAST and len(files) >= 2: out.append((resolve(files[-1]), name))
+        elif name in ("chmod", "chown") and len(files) >= 2: out.extend((resolve(a), name) for a in files[1:])
+        elif name == "sed" and any(a == "-i" or a.startswith("-i") or a == "--in-place" for a in args) and len(files) >= 2: out.extend((resolve(a), name) for a in files[1:])
+        elif name == "dd": out.extend((resolve(a[3:]), name) for a in args if a.startswith("of="))
     i = 0
     while i < len(toks):
         t = toks[i]
         if t in (">", ">>", ">|", "&>", "&>>") and i + 1 < len(toks):
-            if not re.fullmatch(r"&?\d*", toks[i + 1]): out.append(resolve(toks[i + 1]))  # >&2 duplicates a stream; it writes no file
+            if not re.fullmatch(r"&?\d*", toks[i + 1]): out.append((resolve(toks[i + 1]), t))  # >&2 duplicates a stream; it writes no file
             i += 2; continue
         if t in (";", "&&", "||", "|", "&", "(", ")", "|&", "\n"): flush(seg); seg = []; i += 1; continue
         if not (seg == [] and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*=.*", t)): seg.append(t)  # VAR=x before a command is no argument
         i += 1
     flush(seg)
-    return [x for x in out if x]
+    out = [(p, k) for p, k in out if p]
+    return out if kinds else [p for p, _ in out]
 
 def bash_cut(cmd, root, me, payload):
     """Why a reviewer's shell command breaks the standard, or None: it stops or signals processes, or writes anywhere
@@ -179,12 +184,13 @@ def bash_cut(cmd, root, me, payload):
     homes = [fold(pathlib.Path.home() / ".claude"), fold(os.environ.get("CURMUDGEON_STATE_DIR") or pathlib.Path.home() / ".curmudgeon")]
     have = claimed_by(root, me)
     own_review = fold(pathlib.Path(root) / ".critic" / "reviews" / have) if have else None
-    for t in write_targets(cmd, payload):
+    for t, how in write_targets(cmd, payload, kinds=True):
         f = fold(t)
         if f == mine or f.startswith(mine + os.sep):
             if OWN_SETTINGS_RX.search(os.path.relpath(os.path.realpath(t), os.path.realpath(str(mine_p)))): return f"wrote {t}, an instructions file Claude Code reads"  # relative: a project inside a .claude folder is not settings (blind round C3)
             continue
         if own_review and f == own_review: continue  # its own claimed review, by the shell too (blind round C4)
+        if own_review and how == "mkdir" and own_review.startswith(f + os.sep): continue  # a folder on the way to its own review (03 §5.57 item 48)
         if any(f == h or f.startswith(h + os.sep) for h in homes): return f"wrote {t}, in Claude Code's or Curmudgeon's own folder"
         return f"wrote {t}, outside its copy, its notes and the review it claimed"
     return None

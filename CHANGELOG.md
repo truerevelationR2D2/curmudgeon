@@ -2,7 +2,15 @@
 
 Every release of Curmudgeon, newest first. The repository's history starts at 4.2.1; earlier versions are summarised from the project's own build and review records. Numbers are the ones measured at the time; the README's Benchmarks section has the current ones and how they were measured.
 
-## 5.9.1 (unreleased): Curmudgeon runs only its own scripts
+## 5.9.2 (unreleased): no honest reviewer cut for a mkdir, and guards that finish in time
+
+- **A `mkdir` that changes nothing is no write** (03 §5.57 item 48). Found by the 17 Nov 2026 Qodo replay (`claude/evidence/Qodo replay 17 Nov 2026.md` in the Project, item 1): on PR #26 an honest reviewer ran `mkdir -p ../../../reviews`, the folder that already held its own claimed review, and the shell rule cut its review. Now a `mkdir` of a folder that already exists, or of a folder on the way to the reviewer's own claimed review, is not counted as a write. A new folder anywhere else is still cut, including one named for another reviewer's review (which would block that reviewer's save).
+- **The guards finish in time on a slow machine.** On a Windows machine where each Python start was measured at about 2 seconds, `pre_tool.py`, `post_tool.py` and `guard_state.py` were often stopped by Claude Code's 10-second limit, most of all when many agents ran at once; a stopped `PreToolUse` guard lets the call go ahead. Two changes:
+  - `run.sh` starts Python once per hook, not twice. It trusts the kept choice of Python and starts the hook through a one-line start that leaves with code 99, before the hook runs, if that Python is older than 3.9; a name that no longer starts Python fails to start at all (126, 127, or 49 for the Windows Store placeholder). Only then is Python found again, and the hook, which never ran, starts with the new one. The start line puts the hook's own folder first on Python's import path, so a file in the user's project can't stand in for a hook's module.
+  - The time limit for those three hooks is 60 seconds, not 10.
+- Tests in `plugin/tests/cases_13.py`; each fails on 5.9.1. The 5.3.1 P1 test's fake "older Python" now answers the new start line the way a real Python 3.8 would.
+
+## 5.9.1: Curmudgeon runs only its own scripts
 
 Found by the 16 Nov 2026 Qodo replay (`claude/evidence/Qodo replay partial 16 Nov 2026.md` in the Project): when the project under review holds a copy of Curmudgeon (its own repository, a fork, a vendored copy), the lead ran that copy's scripts (`plugin/skills/review/scripts/...`) against this plugin's hooks. The old brief script wrote no claim tokens, so under 5.9.0 no reviewer could claim its review, and two of the 21 replay runs stalled.
 
