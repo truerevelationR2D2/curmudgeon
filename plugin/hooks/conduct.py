@@ -97,7 +97,41 @@ def is_reviewer(agent_type): return bool(re.fullmatch(r"(?:curmudgeon:)?curmudge
 WRITERS_ALL = {"tee", "rm", "touch", "truncate", "mkdir", "rmdir", "shred", "unlink"}
 WRITERS_LAST = {"cp", "mv", "install", "ln", "rsync"}
 
-HEREDOC_RX = re.compile(r"<<-?[ \t]*(['\"]?)([A-Za-z_][A-Za-z0-9_]*)\1([^\n]*)\n.*?(?:\n[ \t]*\2[ \t]*(?=\n|$)|\Z)", re.S)
+HEREDOC_RX = re.compile(r"(?<!<)<<-?[ \t]*(['\"]?)([A-Za-z_][A-Za-z0-9_]*)\1([^\n]*)\n.*?(?:\n[ \t]*\2[ \t]*(?=\n|$)|\Z)", re.S)
+
+def _quoted_at(s, k):
+    """True when position k of shell text s is inside quotes, a # comment, or $(( arithmetic ))."""
+    q, i, depth = None, 0, 0
+    while i < k:
+        ch = s[i]
+        if q:
+            if ch == q: q = None
+            elif ch == "\\" and q == '"': i += 1
+        elif ch in "'\"": q = ch
+        elif ch == "\\": i += 1
+        elif ch == "#" and (i == 0 or s[i - 1] in " \t\n;&|("):
+            j = s.find("\n", i); i = len(s) if j < 0 else j; continue
+        elif s.startswith("$((", i): depth += 1; i += 3; continue
+        elif s.startswith("))", i) and depth: depth -= 1; i += 2; continue
+        i += 1
+    return q is not None or depth > 0 or _comment_open(s, k)
+
+def _comment_open(s, k):
+    """True when a # comment that the shell sees runs on to position k."""
+    q, i = None, 0
+    while i < k:
+        ch = s[i]
+        if q:
+            if ch == q: q = None
+            elif ch == "\\" and q == '"': i += 1
+        elif ch in "'\"": q = ch
+        elif ch == "\\": i += 1
+        elif ch == "#" and (i == 0 or s[i - 1] in " \t\n;&|("):
+            j = s.find("\n", i)
+            if j < 0 or j >= k: return True
+            i = j; continue
+        i += 1
+    return False
 
 def _tokens(cmd):
     """The command's words, with every here-document's body left out (a probe script written with cat <<EOF is data,
@@ -105,7 +139,11 @@ def _tokens(cmd):
     probes that named kill). Quoted text stays one word, so a quoted '>' is an argument, not a redirect; a newline
     outside quotes ends a command like ';' (5.9.0 blind round C2, C8)."""
     import shlex
-    flat = HEREDOC_RX.sub(lambda m: "<< " + m.group(2) + m.group(3) + "\n", cmd)  # the rest of the opening line stays: `cat <<EOF > file` writes file (5.9.2 blind round 2)
+    flat, at = "", 0
+    for m in HEREDOC_RX.finditer(cmd):  # the rest of the opening line stays: `cat <<EOF > file` writes file (5.9.2 blind round 2)
+        if m.start() < at or _quoted_at(cmd, m.start()): continue  # grep '<<EOF' f, $((1<<n)): no here-document (5.9.2 blind round 3)
+        flat += cmd[at:m.start()] + "<< " + m.group(2) + m.group(3) + "\n"; at = m.end()
+    flat += cmd[at:]
     if os.name == "nt": flat = re.sub(r"\\(?=[^\s\"'$`\\])", "/", flat)  # Windows paths (C:\Users\...) keep their separators; a backslash before a quote or a space still escapes it
     held, buf, i, q = [], [], 0, None
     while i < len(flat):
@@ -115,8 +153,11 @@ def _tokens(cmd):
             while j < len(flat) and flat[j] != ch:
                 j += 2 if ch == '"' and flat[j] == "\\" else 1
             held.append(flat[i + 1:j].replace('\\"', '"') if ch == '"' else flat[i + 1:j]); buf.append(f"\x00{len(held) - 1}\x00"); i = j + 1; continue
+        if ch == "\\" and flat[i + 1:i + 2] == "\n": i += 2; continue  # a line continuation joins the two lines, as the shell does (5.9.2 blind round 3)
         if ch == "\\" and i + 1 < len(flat): buf.append(flat[i:i + 2]); i += 2; continue
-        buf.append(" ; " if ch == "\n" else ch); i += 1
+        if ch == "#" and (i == 0 or flat[i - 1] in " \t\n;&|("):  # a comment runs to the line's end; an apostrophe in it opens no quote (5.9.2 blind round 3)
+            j = flat.find("\n", i); i = len(flat) if j < 0 else j; continue
+        buf.append(" ; " if ch in "\n`" else ch); i += 1  # `cmd`: a command of its own, like $( )
     text = re.sub(r"(^|[\s;&|()])\d+(?=[<>])", r"\1", "".join(buf))  # 2>/dev/null, 2>&1: a stream number written against its redirect is no word ("touch 2 > f" keeps its 2; 5.9.2 blind round 2)
     try:
         lx = shlex.shlex(text, posix=True, punctuation_chars=True); lx.whitespace_split = True; lx.commenters = ""; words = list(lx)
@@ -157,24 +198,72 @@ def makes_nothing(cmd, word, cands):
     if any(p_ == ".." and any(q not in ("..", ".", "") for q in parts[:k]) for k, p_ in enumerate(parts)): return False  # src/new/.. makes src/new first; Windows would call the path an existing folder by its words alone (CI on #55). A leading .. (../../reviews) is a plain way up
     return all(os.path.isdir(w if os.path.isabs(w) else os.path.join(str(c), w)) for c in cands)
 
-def _commands(toks):
-    """The first word of each simple command, looking through wrappers and their options (sudo -n kill, env -i kill,
-    timeout 5 kill, xargs -n1 kill: 5.9.2 blind round 2)."""
-    out, start, wrapped, skip = [], True, None, False
-    for t in toks:
-        if t in (";", "&&", "||", "|", "&", "(", ")", "|&", "\n", "{", "}", "!", "then", "do", "else"): start, wrapped, skip = True, None, False; continue
-        if not start: continue
-        w = name_of(t)
-        if skip: skip = False; continue
-        if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*=.*", t): continue
+KEYWORDS = {"if", "then", "else", "elif", "fi", "while", "until", "do", "done", "!", "{", "}", "time"}
+SEPS = (";", "&&", "||", "|", "&", "(", ")", "|&", "\n")
+
+def run_words(seg):
+    """The words a simple command really runs, after shell keywords (if, while, then, do...) and wrappers with their
+    options (sudo -n, env -i, timeout 5, xargs -n 1) are taken off the front; [] when it runs nothing, as with
+    `command -v kill`, which only looks the name up (5.9.2 blind rounds 2 and 3)."""
+    k, wrapped = 0, None
+    while k < len(seg):
+        t, w = seg[k], name_of(seg[k])
+        if wrapped is None and w in KEYWORDS: k += 1; continue
+        if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*=.*", t): k += 1; continue
         if wrapped and t.startswith("-") and t != "-":
-            skip = t in TAKES_VALUE.get(wrapped, ()); continue
-        if wrapped and re.fullmatch(r"\d+(?:\.\d+)?[smhd]?|0x[0-9a-fA-F]+", t): continue  # timeout 5, chrt 10, taskset 0x3
-        if w in WRAPPERS: wrapped = w; continue
-        out.append(w); start = False; wrapped = None
+            if wrapped in ("command", "type", "hash") and re.fullmatch(r"-[a-zA-Z]*[vV][a-zA-Z]*", t): return []  # command -v kill: a lookup
+            k += 2 if t in TAKES_VALUE.get(wrapped, ()) else 1; continue
+        if wrapped and re.fullmatch(r"\d+(?:\.\d+)?[smhd]?|0x[0-9a-fA-F]+", t): k += 1; continue  # timeout 5, chrt 10, taskset 0x3
+        if w in WRAPPERS: wrapped = w; k += 1; continue
+        break
+    return seg[k:]
+
+def segments(toks):
+    """Each simple command's words, split at the shell's separators."""
+    out, cur, i = [], [], 0
+    while i < len(toks):
+        if toks[i] in SEPS: out.append(cur); cur = []
+        else: cur.append(toks[i])
+        i += 1
+    out.append(cur)
+    return [s for s in out if s]
+
+def inner(words):
+    """The command text of `bash -c '...'`, `sh -c`, or `eval ...`, if that is what these words run."""
+    if not words: return None
+    n = name_of(words[0])
+    if n == "eval": return " ".join(w.lstrip("\x01") for w in words[1:])
+    if n in ("bash", "sh", "zsh", "dash", "ksh"):
+        for k, w in enumerate(words[1:-1], 1):
+            if re.fullmatch(r"-[A-Za-z]*c[A-Za-z]*", w): return words[k + 1].lstrip("\x01")
+    return None
+
+def on_way_to_review(cmd, word, cands, root, me):
+    """True when `word` is a mkdir argument naming a folder on the way to this reviewer's own claimed review, from every
+    place the shell may be (03 §5.57 item 48). Case is kept: on Linux a new .CRITIC is another folder."""
+    have = claimed_by(root, me)
+    if not have or name_of(cmd or "") != "mkdir" or not word or word.startswith("-"): return False
+    w = os.path.expanduser(word.lstrip("\x01")); parts = re.split(r"[\\/]", w)
+    if any(p_ == ".." and any(q not in ("..", ".", "") for q in parts[:k]) for k, p_ in enumerate(parts)): return False
+    exact = lambda x: os.path.normcase(os.path.realpath(str(x)))
+    review = exact(pathlib.Path(root) / ".critic" / "reviews" / have)
+    return all(review.startswith(exact(w if os.path.isabs(w) else os.path.join(str(c), w)) + os.sep) for c in cands)
+
+def _commands(toks, depth=0):
+    """The first word each simple command runs, looking through keywords, wrappers and their options, bash -c and eval
+    (5.9.2 blind rounds 2 and 3). `kill -l` only lists signal names, so it is not counted."""
+    out = []
+    for seg in segments(toks):
+        words = run_words(seg)
+        if not words: continue
+        sub = inner(words)
+        if sub is not None and depth < 4: out += _commands(_tokens(sub) or [], depth + 1); continue
+        n = name_of(words[0])
+        if n == "kill" and len(words) > 1 and words[1].lstrip("\x01") in ("-l", "-L"): continue
+        out.append(n)
     return out
 
-def write_targets(cmd, start, kinds=False):
+def write_targets(cmd, start, kinds=False, _depth=0):
     """The files a shell command would write, as plain paths resolved from where it runs: redirect targets, and the
     file arguments of commands that write (tee, cp, mv, rm, touch, sed -i, dd of=...). A lead, not a parser: the
     write guard proper is the OS boundary; this only finds the plain cases, to cut on them (03 §5.57 item 44).
@@ -185,15 +274,19 @@ def write_targets(cmd, start, kinds=False):
     if toks is None: return []
     out, cwd, seg, assigned = [], str(start), [], {}
     NULLS = {"/dev/null", "/dev/stdout", "/dev/stderr", "/dev/tty", "nul", "con", os.devnull.lower()}  # checked before resolving: on Windows /dev/null resolves to C:\dev\null (CI on #52)
-    def resolve(x):
+    def expand(x):
         x = x.lstrip("\x01")
-        x = re.sub(r"\$\{?([A-Za-z_][A-Za-z0-9_]*)\}?", lambda m: cwd if m.group(1) == "PWD" else assigned.get(m.group(1), os.environ.get(m.group(1), m.group(0))), x)  # $HOME/.claude is Claude Code's folder, not one in the copy (5.9.2 blind round 2)
-        x = os.path.expanduser(x)
-        if x.lower() in NULLS: return None
+        return re.sub(r"\$\{?([A-Za-z_][A-Za-z0-9_]*)\}?", lambda m: cwd if m.group(1) == "PWD" else assigned.get(m.group(1), os.environ.get(m.group(1), m.group(0))), x)  # $HOME/.claude is Claude Code's folder, not one in the copy (5.9.2 blind round 2)
+    def resolve(x):
+        x = os.path.expanduser(expand(x))
+        if x.lower() in NULLS or re.fullmatch(r"/dev/fd/\d+|/proc/self/fd/\d+", x): return None  # 2> /dev/fd/1 joins two streams; no file (5.9.2 blind round 3)
         return os.path.normpath(x if os.path.isabs(x) else os.path.join(cwd, x))
     def flush(seg):
         nonlocal cwd
+        seg = run_words(seg)
         if not seg: return
+        sub = inner(seg)
+        if sub is not None and _depth < 4: out.extend(write_targets(sub, cwd, kinds=True, _depth=_depth + 1)); return  # bash -c '...', eval: the same rules inside (5.9.2 blind round 3)
         name, args = name_of(seg[0]), [a.lstrip("\x01") for a in seg[1:]]
         if name == "cd" and args: cwd = resolve(args[0]); return
         if name in ("export", "declare", "local", "readonly"):
@@ -204,7 +297,7 @@ def write_targets(cmd, start, kinds=False):
         tdir = next((args[k + 1] for k, a in enumerate(args) if a in ("-t", "--target-directory") and k + 1 < len(args)), None) or next((a.split("=", 1)[1] for a in args if a.startswith("--target-directory=")), None)
         if name in WRITERS_LAST and tdir: out.append((resolve(tdir), name)); return  # cp -t DIR src: DIR is where it writes (5.9.2 blind round 2)
         files = [a for k, a in enumerate(args) if not a.startswith("-") and not (k and args[k - 1] in ("-m", "--mode") and name in ("mkdir", "install"))]  # a mode is no file
-        if name == "mkdir": out.extend((resolve(a), name) for a in files if not makes_nothing(name, a, [cwd]))
+        if name == "mkdir": out.extend((resolve(a), name) for a in files if not makes_nothing(name, expand(a), [cwd]))  # $HOME/.cache, a set variable: judged as the shell will see it (5.9.2 blind round 3)
         elif name in WRITERS_ALL: out.extend((resolve(a), name) for a in files)
         elif name in WRITERS_LAST and len(files) >= 2: out.append((resolve(files[-1]), name))
         elif name in ("chmod", "chown") and len(files) >= 2: out.extend((resolve(a), name) for a in files[1:])
@@ -235,7 +328,6 @@ def bash_cut(cmd, root, me, payload):
     toks = _tokens(cmd) or []
     if any(c in ("kill", "pkill", "killall", "skill") for c in _commands(toks)): return "ran a command that stops or signals processes, which interferes with the run"
     fold = lambda x: os.path.normcase(os.path.realpath(str(x))).casefold()  # realpath: macOS's /var is /private/var, and a temp folder is often reached through it
-    exact = lambda x: os.path.normcase(os.path.realpath(str(x)))  # case kept: on Linux .CRITIC is another folder
     mine_p = pathlib.Path(root) / ".critic" / "scratch" / me
     mine = fold(mine_p)
     homes = [fold(pathlib.Path.home() / ".claude"), fold(os.environ.get("CURMUDGEON_STATE_DIR") or pathlib.Path.home() / ".curmudgeon")]
@@ -247,7 +339,7 @@ def bash_cut(cmd, root, me, payload):
             if OWN_SETTINGS_RX.search(os.path.relpath(os.path.realpath(t), os.path.realpath(str(mine_p)))): return f"wrote {t}, an instructions file Claude Code reads"  # relative: a project inside a .claude folder is not settings (blind round C3)
             continue
         if own_review and f == own_review: continue  # its own claimed review, by the shell too (blind round C4)
-        if have and how == "mkdir" and exact(pathlib.Path(root) / ".critic" / "reviews" / have).startswith(exact(t) + os.sep): continue  # a folder on the way to its own review (03 §5.57 item 48)
+        if how == "mkdir" and on_way_to_review("mkdir", t, [payload], root, me): continue  # a folder on the way to its own review (03 §5.57 item 48)
         if any(f == h or f.startswith(h + os.sep) for h in homes): return f"wrote {t}, in Claude Code's or Curmudgeon's own folder"
         return f"wrote {t}, outside its copy, its notes and the review it claimed"
     return None

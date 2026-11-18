@@ -143,3 +143,47 @@ def _(d):
         root = d / "proj3"; me = "r1"; ws = str(root / ".critic/scratch/r1/payload"); (root / ".critic/scratch/r1/payload").mkdir(parents=True); write(root, "src/app.js", APP)
         claim_for(root, me, "C")
         assert C.bash_cut(f"cd {ws} && mkdir -p {root}/.CRITIC/REVIEWS", str(root), me, ws), "a new .CRITIC folder is not on the way to .critic/reviews"
+
+@test("5.9.2 blind round 3: the shell rule reads comments, line continuations, quoted or arithmetic <<, if/while/do, wrappers before a write, bash -c, eval and backticks the way the shell does; command -v, kill -l, /dev/fd and a $VAR mkdir of an existing folder cut no one; a reviewer may make the folder on the way to its own review")
+def _(d):
+    C = _c11(); root = d / "proj"; me = "r1"; ws = str(root / ".critic/scratch/r1/payload"); (root / ".critic/scratch/r1/payload").mkdir(parents=True); write(root, "src/app.js", APP)
+    claude = pathlib.Path.home() / ".claude"
+    cut = [f"cd {ws} && grep -n '<<EOF' deploy.sh\nrm /tmp/shared.json", f"cd {ws} && echo $((1<<3)); rm /tmp/z", f"cd {ws} && # check it's there\nrm /tmp/a",
+           f"cd {ws} && rm -f \\\n  /tmp/shared.json", f"cd {ws} && if kill -9 $PID; then echo done; fi", f"cd {ws} && while true; do pkill x; done",
+           f"cd {ws} && for f in a b; do touch /tmp/$f; done", f"cd {ws} && timeout 5 tee {claude}/settings.json", f"cd {ws} && nohup touch /tmp/n",
+           f"cd {ws} && bash -c 'cd src && kill 1234'", f"cd {ws} && bash -c 'echo x > /tmp/probe'", f"cd {ws} && eval 'touch /tmp/e'", f"cd {ws} && echo `kill 3`",
+           f"cd {ws} && sudo -u root kill 1", f"cd {ws} && export D=/tmp && touch $D/q", f"cd {ws} && rsync -a src /tmp/x", f"cd {ws} && shred /tmp/x"]
+    for c in cut: assert C.bash_cut(c, str(root), me, ws), c
+    honest = [f"cd {ws} && command -v kill >/dev/null && echo have kill", f"cd {ws} && kill -l", f"cd {ws} && python3 -c 1 2> /dev/fd/1",
+              f"cd {ws} && mkdir -p $HOME", f"cd {ws} && R={root}; mkdir -p $R/src", f"cd {ws} && cat <<EOF > ../notes/p.sh\nkill 1; rm /tmp/x\nEOF"]
+    for c in honest: assert C.bash_cut(c, str(root), me, ws) is None, (c, C.bash_cut(c, str(root), me, ws))
+    p = d / "proj2"; write(p, "src/app.js", APP); rec = _ws(p); w2 = rec["payload"]; claim_for(p, "r1", "B")
+    assert not (p / ".critic/reviews").exists()
+    out = run(H / "read_guard.py", cwd=p, stdin=json.dumps({"tool_name": "Bash", "tool_input": {"command": f"cd {w2} && mkdir -p {p}/.critic/reviews"}, "cwd": str(p), "agent_type": "curmudgeon:curmudgeon-reviewer", "agent_id": "r1"})).stdout
+    assert "deny" not in out, ("the folder on the way to its own claimed review, before it exists", out)
+    out = run(H / "read_guard.py", cwd=p, stdin=json.dumps({"tool_name": "Bash", "tool_input": {"command": f"cd {w2} && mkdir -p {p}/.critic/reviews/review-A.json"}, "cwd": str(p), "agent_type": "curmudgeon:curmudgeon-reviewer", "agent_id": "r1"})).stdout
+    assert "deny" in out, "never a folder named for another review"
+
+@test("5.9.2 blind round 3: run.sh runs only one of the three Python names from its kept file, never a command written there, and a hook that ran and was killed is not run a second time")
+def _(d):
+    import shutil
+    sh = shutil.which("sh")
+    if not sh: raise Skip("needs sh (Git Bash on Windows)")
+    data = d / "data"; data.mkdir(); mark = d / "MARK"
+    (data / "python").write_text(f"python3 -c open({mark.as_posix()!r},'w')\n", encoding="utf-8")
+    hook = d / "hook.py"; hook.write_text("print('ran')\n", encoding="utf-8")
+    r = subprocess.run([sh, str(H / "run.sh"), str(hook)], input="", capture_output=True, text=True, encoding="utf-8", env=dict(os.environ, CLAUDE_PLUGIN_DATA=str(data)), timeout=60)
+    assert r.stdout.strip() == "ran" and not mark.exists(), ("a command in the kept file is never run", r.stdout, r.stderr)
+    count = d / "count.txt"
+    hook.write_text(f"import os\nopen({str(count)!r}, 'a').write('x')\nos._exit(137)\n", encoding="utf-8")
+    for kept in ("python3", "python"):
+        if not shutil.which(kept): continue
+        count.unlink(missing_ok=True); (data / "python").write_text(kept + "\n", encoding="utf-8")
+        r = subprocess.run([sh, str(H / "run.sh"), str(hook)], input="", capture_output=True, text=True, encoding="utf-8", env=dict(os.environ, CLAUDE_PLUGIN_DATA=str(data)), timeout=60)
+        assert r.returncode == 1 and count.read_text(encoding="utf-8") == "x", ("killed after its work: an error, run once", kept, r.returncode, count.read_text(encoding="utf-8"))
+    fake = d / "bin"; fake.mkdir(); real = pathlib.Path(sys.executable).as_posix()
+    (fake / "python3").write_text(f'#!/bin/sh\ncase "$1" in -c) exit 1 ;; esac\nexec "{real}" "$@"\n', encoding="utf-8"); (fake / "python3").chmod(0o755)  # runs the hook, but fails the version test afterwards
+    (fake / "python").write_text(f'#!/bin/sh\nexec "{real}" "$@"\n', encoding="utf-8"); (fake / "python").chmod(0o755)
+    count.unlink(missing_ok=True); (data / "python").write_text("python3\n", encoding="utf-8")
+    r = subprocess.run([sh, str(H / "run.sh"), str(hook)], input="", capture_output=True, text=True, encoding="utf-8", env=dict(os.environ, CLAUDE_PLUGIN_DATA=str(data), PATH=f"{fake}{os.pathsep}{os.environ.get('PATH', '')}"), timeout=60)
+    assert r.returncode == 1 and count.read_text(encoding="utf-8") == "x", ("killed, even when the version test then fails: never run a second time", r.returncode, count.read_text(encoding="utf-8"))

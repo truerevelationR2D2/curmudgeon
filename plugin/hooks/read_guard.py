@@ -584,7 +584,7 @@ def bash_problem(cmd, rec, root, critic, role, me):
                 text_words = data_words(bare.rsplit("/", 1)[-1], rest_args, i)
             if (i in targets or (i >= 1 and words[i - 1] in (">", ">>", "&>", "&>>", ">&", "1>", "2>", ">|"))) and i != skip:  # >& and &>> write too (5.9.2 code review: a verifier has no conduct check)
                 pieces = [w[3:]] if w.startswith("of=") else [p_ for p_ in re.split(r"[=:,]", w) if p_ and not p_.startswith("-")]
-                if i in targets and conduct.makes_nothing(cmd, w, cands):
+                if i in targets and (conduct.makes_nothing(cmd, w, cands) or role == "reviewer" and conduct.on_way_to_review(cmd, w, cands, root, me)):
                     pieces = []; noop.add(i)  # a mkdir of a folder that already exists writes and reads nothing (03 §5.57 item 48); the whole word, as mkdir sees it, not its pieces (5.9.2 code review)
                 if any(through_link(p_, c) for p_ in pieces for c in cands):
                     return f"{w}: a write through a link (node_modules, .venv) changes the real project; write in your notes folder instead", cands
@@ -680,7 +680,8 @@ def bash_problem(cmd, rec, root, critic, role, me):
         return None, cands
     why, _ = walk(split(flat), [pay])
     if why: return why
-    for t_ in conduct.write_targets(cmd, payload):  # the same writes the reviewers' standard finds ((echo x)>f, cmd.exe names, >&f, a heredoc's redirect), refused for every agent here, a verifier included (5.9.2 code review)
+    for t_, how_ in conduct.write_targets(cmd, payload, kinds=True):  # the same writes the reviewers' standard finds ((echo x)>f, cmd.exe names, >&f, a heredoc's redirect), refused for every agent here, a verifier included (5.9.2 code review)
+        if how_ == "mkdir" and role == "reviewer" and conduct.on_way_to_review("mkdir", t_, [pay], root, me): continue  # the folder on the way to its own claimed review (03 §5.57 item 48)
         if through_link(t_, pay): return f"{t_}: a write through a link (node_modules, .venv) changes the real project; write in your notes folder instead"
         if into_project(t_, pay): return f"{t_}: a write into the real project, outside your copy; write in your copy or your notes folder"
     return None
