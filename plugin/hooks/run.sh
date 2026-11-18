@@ -42,6 +42,7 @@ find() {
 py=""
 if [ -n "$cache" ] && [ -f "$cache" ] && [ ! -L "$cache" ]; then
   read -r kept < "$cache"
+  kept="${kept%"$(printf '\r')"}"  # a file saved with Windows line ends still names the same Python (CI on #55)
   case "$kept" in
     python3|python|"py -3") py="$kept" ;;  # only one of the three names, never a command from the file
   esac

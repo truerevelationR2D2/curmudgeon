@@ -13,6 +13,7 @@ Every release of Curmudgeon, newest first. The repository's history starts at 4.
   - a stream number (`2>/dev/null`, `2>&1`) or a `mkdir -m` mode was read as a folder, so the #26 fix still cut a reviewer working from outside its copy (Medium); the read guard still refused, and listed, a `mkdir` of an existing folder (Low);
   - a kept Python that stopped starting with an exit code other than 99, 126, 127 or 49 (the `py` launcher with no runtime left exits 1) was taken as the hook's own failure and never replaced, so every guard would fail open for good (Medium): any other failure now re-runs the version test once, and only a name that no longer starts Python 3.9 is replaced;
   - no test ran the start line's version check; the 5.3.1 P1 test's fake answered 99 itself (Medium). A test now runs a real Python that reports 3.8 and checks the hook never ran under it.
+- **CI on Windows** (#55): a kept choice saved with Windows line ends now still names the same Python (it was looked up again, costing the second start this release removes), and the bare-package test reads its child's output as UTF-8.
 - Tests in `plugin/tests/cases_13.py`; each fails on the code before its fix.
 
 ## 5.9.1: Curmudgeon runs only its own scripts

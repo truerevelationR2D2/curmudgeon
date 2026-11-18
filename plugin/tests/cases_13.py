@@ -39,6 +39,9 @@ def _(d):
     r = subprocess.run([sh, str(H / "run.sh"), str(hook), "x"], input="in", capture_output=True, text=True, encoding="utf-8", env=env, timeout=60, cwd=proj)
     assert r.returncode == 0 and r.stdout.strip() == "hook folder ['x'] in", (r.returncode, r.stdout, r.stderr)
     assert log.read_text(encoding="utf-8").count("x") == 1, ("one Python start per hook", log.read_text(encoding="utf-8"))
+    log.unlink(); (data / "python").write_bytes(b"python3\r\n")  # saved with Windows line ends (CI on #55)
+    r = subprocess.run([sh, str(H / "run.sh"), str(hook), "x"], input="in", capture_output=True, text=True, encoding="utf-8", env=env, timeout=60, cwd=proj)
+    assert r.returncode == 0 and log.read_text(encoding="utf-8").count("x") == 1, ("a kept name with a Windows line end is still trusted", log.read_text(encoding="utf-8"), r.stderr)
 
 @test("5.9.2 (03 §5.57 item 49): a test that reads the repository around the plugin is skipped, not failed, where only the plugin folder is present, and in CI the repository is always found, so none of them is ever skipped there")
 def _(d):
@@ -46,8 +49,8 @@ def _(d):
     if IN_REPO:
         assert (REPO / "eval" / "score.py").is_file() and (REPO / "CHANGELOG.md").is_file(), "the repository is what IN_REPO says it is"
     bare = d / "plugin"; shutil.copytree(HERE, bare, ignore=shutil.ignore_patterns("__pycache__"))
-    r = subprocess.run([sys.executable, str(bare / "tests" / "run_tests.py")], capture_output=True, text=True, encoding="utf-8", timeout=1500,
-                       env=dict(os.environ, CRITIC_TEST_ONLY="the four typed fix skills are one /curmudgeon:fix"))
+    r = subprocess.run([sys.executable, str(bare / "tests" / "run_tests.py")], capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=1500,
+                       env=dict(os.environ, CRITIC_TEST_ONLY="the four typed fix skills are one /curmudgeon:fix", PYTHONIOENCODING="utf-8"))  # utf-8 both ways: Windows CI's console code page can't decode the em dash (CI on #55)
     assert "SKIP" in r.stdout and "needs the repository" in r.stdout and "FAIL" not in r.stdout and r.returncode == 0, (r.returncode, r.stdout[-600:], r.stderr[-600:])
 
 @test("5.9.2 blind round F-ed8caba6, F-1fd5e8e6: a stream number (2>/dev/null, 2>&1) or a mkdir mode is no folder or file, from any folder; and the read guard neither refuses nor lists a mkdir of a folder that already exists")
