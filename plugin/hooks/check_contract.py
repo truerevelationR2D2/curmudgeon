@@ -192,6 +192,11 @@ def main():
     kind = str(data.get("agent_type") or "")
     root = workspace.project_root(data)
     if not (kind.endswith("curmudgeon-reviewer") or kind.endswith("curmudgeon-verifier")): return 0
+    try:  # the outcome check's last look (03 §5.57 item 52): a write after a call ended, by a job left running
+        import outcome, conduct
+        me_ = workspace.clean_id(data.get("agent_id")); have_ = conduct.claimed_by(root, me_)
+        outcome.record(root, outcome.sweep(root, own_of={me_: [root / ".critic" / "reviews" / have_] if have_ else []}))
+    except Exception: pass
     msg = last_reply(data)
     # The reply is checked every time; only the block is skipped on a second stop (never block twice in a row). So a
     # verdict that still breaks the contract on the retry is never saved either (Qodo on #39).

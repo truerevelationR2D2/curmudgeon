@@ -9,6 +9,28 @@ Curmudgeon's scripts, one inside the project laid out like the plugin's, is refu
 import os as _os, sys as _sys; _sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__))); import utf8io  # UTF-8 output on Windows too (03 §5.57 item 20)
 import json, re, sys
 
+DENIED = False
+
+def boundary(data):
+    """For a reviewer's or verifier's Bash call, after the backstop above let it through: block it when it is outside
+    the reviewers' command list (allowlist.py; listed for the owner, never cut), else log its start for the outcome
+    check (outcome.py), which judges after the call what it changed on disk."""
+    global DENIED
+    import pathlib, workspace, conduct, allowlist, outcome
+    root = workspace.project_root(data); me = workspace.clean_id(data.get("agent_id"))
+    rec = workspace.info(root, me) if root and me else None
+    if not rec: return
+    cmd = str((data.get("tool_input") or {}).get("command") or "")
+    have = conduct.claimed_by(root, me)
+    own = pathlib.Path(root) / ".critic" / "reviews" / have if have else None
+    why = allowlist.problem(cmd, rec["payload"], pathlib.Path(rec["payload"]).parent / "notes", own)
+    if why:
+        DENIED = True
+        conduct.note(root, me, why, "blocked")
+        print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason": f"Curmudgeon: {why}."}}))
+        return
+    outcome.call_start(root, me, str(data.get("tool_use_id") or ""))
+
 def main():
     try: data = json.load(sys.stdin)
     except Exception: return 0
@@ -29,6 +51,10 @@ def main():
         read_guard.main(data)
         if read_guard.DENIED: return 0
     except Exception: pass
+    if ours and data.get("tool_name") == "Bash" and re.search(r"curmudgeon-(?:reviewer|verifier)$", str(data.get("agent_type"))):
+        try: boundary(data)  # the reviewers' command list and the outcome check's start (03 §5.57 item 52)
+        except Exception: pass
+        if DENIED: return 0
     if ours:
         try:
             import stuck

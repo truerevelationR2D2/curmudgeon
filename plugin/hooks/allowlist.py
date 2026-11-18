@@ -76,7 +76,7 @@ def problem(cmd, payload, notes, own_review=None):
 
 def _read_rules(n, words):
     args = [w.lstrip("\x01") for w in words[1:]]
-    if n == "find" and any(a in ("-exec", "-execdir", "-ok", "-okdir", "-delete", "-fprint", "-fprint0", "-fprintf", "-fls") for a in args): return "find with -exec, -delete or -fprint; list the files with find and run the next command on its own"
+    if n == "find" and any(a in ("-exec", "-execdir", "-ok", "-okdir", "-delete", "-fprint", "-fprint0", "-fprintf", "-fls") for a in args): return "find with -exec, -delete or -fprint is outside the reviewers' command list; list the files with find instead and run the next command on its own"
     return None
 
 
