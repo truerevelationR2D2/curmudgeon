@@ -153,6 +153,8 @@ def makes_nothing(cmd, word, cands):
     'src,.' (5.9.2 code review)."""
     if name_of(cmd or "") != "mkdir" or not word or word.startswith("-"): return False
     w = os.path.expanduser(word.lstrip("\x01"))
+    parts = re.split(r"[\\/]", w)
+    if any(p_ == ".." and any(q not in ("..", ".", "") for q in parts[:k]) for k, p_ in enumerate(parts)): return False  # src/new/.. makes src/new first; Windows would call the path an existing folder by its words alone (CI on #55). A leading .. (../../reviews) is a plain way up
     return all(os.path.isdir(w if os.path.isabs(w) else os.path.join(str(c), w)) for c in cands)
 
 def _commands(toks):
