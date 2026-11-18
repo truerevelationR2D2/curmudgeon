@@ -360,7 +360,7 @@ def bash_problem(cmd, rec, root, critic, role, me):
     unquoted = re.sub(r"'[^']*'|\"(?:\\.|[^\"\\])*\"", " ", rest)  # what the shell itself would expand
     if re.search(r"(?i)\$\{?(?:OLDPWD|CLAUDE_PROJECT_DIR)\b|(?:^|[\s;&|(])(?:cd|pushd)\s+-(?:\s|$|[;&|)])", unquoted): return "a way back to the project folder ($OLDPWD, cd -, $CLAUDE_PROJECT_DIR)"
     if re.search(r"\$\{?IFS\b|(?:^|[\s=:])~-|\{[^}\s]*\b(?:cd|pushd|chdir)\b[^}\s]*,", unquoted): return "a command spelled through $IFS, ~- or brace expansion"
-    rest = re.sub(r"\$\{?PWD\}?", lambda m_: payload, rest)  # $PWD is the copy the command starts in
+    rest = re.sub(r"\$\{?PWD\}?|\$\(\s*pwd\s*\)|`\s*pwd\s*`", lambda m_: payload, rest)  # $PWD and $(pwd) are the copy the command starts in
     flat_orig = re.sub(r"\\(.)", r"\1", rest).replace("${HOME}", home).replace("$HOME", home).replace("\n", " ; ")
     rest = heredoc_operators(rest)
     rest = re.sub(r"\$([A-Za-z_][A-Za-z0-9_]*)(?=[\"'])", r"${\1}", rest)  # "$X"tic: the shell ends the name at the quote; shlex would glue it to tic (round 3 review)
@@ -580,8 +580,15 @@ def bash_problem(cmd, rec, root, critic, role, me):
                     rest_args.append(x)
                 why = tripwire(bare, rest_args)
                 if why: return why, cands
-                targets = write_targets(bare.rsplit("/", 1)[-1], rest_args, i)
-                text_words = data_words(bare.rsplit("/", 1)[-1], rest_args, i)
+                at = i
+                if conduct.name_of(bare) in conduct.WRAPPERS:  # timeout 5 mkdir ..., nice -n 5 tee ...: the command the wrapper runs (5.9.2 code review 2)
+                    rw = conduct.run_words([bare] + rest_args)
+                    if rw and len(rw) <= len(rest_args):
+                        at = i + 1 + len(rest_args) - len(rw); cmd = rw[0]; rest_args = rw[1:]
+                        why = tripwire(cmd, rest_args)
+                        if why: return why, cands
+                targets = write_targets(cmd.rsplit("/", 1)[-1], rest_args, at)
+                text_words = data_words(cmd.rsplit("/", 1)[-1], rest_args, at)
             if (i in targets or (i >= 1 and words[i - 1] in (">", ">>", "&>", "&>>", ">&", "1>", "2>", ">|"))) and i != skip:  # >& and &>> write too (5.9.2 code review: a verifier has no conduct check)
                 pieces = [w[3:]] if w.startswith("of=") else [p_ for p_ in re.split(r"[=:,]", w) if p_ and not p_.startswith("-")]
                 if i in targets and (conduct.makes_nothing(cmd, w, cands) or role == "reviewer" and conduct.on_way_to_review(cmd, w, cands, root, me)):
@@ -676,6 +683,7 @@ def bash_problem(cmd, rec, root, critic, role, me):
                         why = judge(real, critic, role, me, "bash")
                         if why: return why, cands
                         if above(real, critic): return f"{piece}: a folder that holds the project's .critic/ (search your workspace instead)", cands
+            if w in SEP and i and words[i - 1] not in SEP: shell_vars["_"] = [words[i - 1]]  # $_ in the next command is this one's last word, as the shell sets it (5.9.2 code review 2: mkdir -p ../../../reviews && cat $_/review-B.json)
             cmd_pos = w in SEP or bare in LEAD or (cmd_pos and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*=.*", w) is not None)
         return None, cands
     why, _ = walk(split(flat), [pay])

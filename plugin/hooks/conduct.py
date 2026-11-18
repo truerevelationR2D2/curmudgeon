@@ -99,39 +99,47 @@ WRITERS_LAST = {"cp", "mv", "install", "ln", "rsync"}
 
 HEREDOC_RX = re.compile(r"(?<!<)<<-?[ \t]*(['\"]?)([A-Za-z_][A-Za-z0-9_]*)\1([^\n]*)\n.*?(?:\n[ \t]*\2[ \t]*(?=\n|$)|\Z)", re.S)
 
-def _quoted_at(s, k):
-    """True when position k of shell text s is inside quotes, a # comment, or $(( arithmetic ))."""
-    q, i, depth = None, 0, 0
-    while i < k:
-        ch = s[i]
-        if q:
-            if ch == q: q = None
-            elif ch == "\\" and q == '"': i += 1
-        elif ch in "'\"": q = ch
-        elif ch == "\\": i += 1
-        elif ch == "#" and (i == 0 or s[i - 1] in " \t\n;&|("):
-            j = s.find("\n", i); i = len(s) if j < 0 else j; continue
-        elif s.startswith("$((", i): depth += 1; i += 3; continue
-        elif s.startswith("))", i) and depth: depth -= 1; i += 2; continue
-        i += 1
-    return q is not None or depth > 0 or _comment_open(s, k)
+DELIM = " \t\n;&|()"  # after one of these (unescaped), a # starts a comment and (( or [[ starts a test
 
-def _comment_open(s, k):
-    """True when a # comment that the shell sees runs on to position k."""
-    q, i = None, 0
-    while i < k:
-        ch = s[i]
+def _span_end(s, i):
+    """Where the (( )), $(( )) or [[ ]] that starts at s[i] ends (just past it), or None if it isn't one."""
+    if s.startswith("[[", i):
+        j = s.find("]]", i + 2); return None if j < 0 else j + 2
+    k = i + (1 if s[i] == "$" else 0)
+    if not s.startswith("((", k): return None
+    depth, j = 0, k
+    while j < len(s):
+        if s[j] == "(": depth += 1
+        elif s[j] == ")":
+            depth -= 1
+            if depth == 0: return j + 1
+        j += 1
+    return None
+
+def _strip_heredocs(cmd):
+    """The command with every here-document's body left out, in one pass that knows quotes, escapes, comments and
+    arithmetic, so a quoted '<<EOF', an apostrophe in an earlier body, or $((1<<n)) never starts or hides one, and
+    each here-document is found where the shell finds it (5.9.2 code reviews: a match skipped by finditer swallowed the
+    real one after it, and the quote scan restarted from the top for each match, slow and fooled by earlier bodies)."""
+    out, i, q, edge = [], 0, None, True
+    while i < len(cmd):
+        ch = cmd[i]
         if q:
             if ch == q: q = None
-            elif ch == "\\" and q == '"': i += 1
-        elif ch in "'\"": q = ch
-        elif ch == "\\": i += 1
-        elif ch == "#" and (i == 0 or s[i - 1] in " \t\n;&|("):
-            j = s.find("\n", i)
-            if j < 0 or j >= k: return True
-            i = j; continue
-        i += 1
-    return False
+            elif ch == "\\" and q == '"': out.append(cmd[i:i + 2]); i += 2; continue
+            out.append(ch); i += 1; continue
+        if ch in "'\"": q = ch; out.append(ch); i += 1; edge = False; continue
+        if ch == "\\": out.append(cmd[i:i + 2]); i += 2; edge = False; continue
+        if ch == "#" and edge:
+            j = cmd.find("\n", i); j = len(cmd) if j < 0 else j; out.append(cmd[i:j]); i = j; continue
+        if ch == "$" and cmd.startswith("$((", i) or edge and cmd.startswith("((", i):
+            j = _span_end(cmd, i)
+            if j: out.append(cmd[i:j]); i = j; edge = False; continue
+        if cmd.startswith("<<", i) and not cmd.startswith("<<<", i) and (i == 0 or cmd[i - 1] != "<"):
+            m = HEREDOC_RX.match(cmd, i)
+            if m: out.append("<< " + m.group(2) + m.group(3) + "\n"); i = m.end(); edge = True; continue
+        out.append(ch); edge = ch in DELIM; i += 1
+    return "".join(out)
 
 def _tokens(cmd):
     """The command's words, with every here-document's body left out (a probe script written with cat <<EOF is data,
@@ -139,25 +147,28 @@ def _tokens(cmd):
     probes that named kill). Quoted text stays one word, so a quoted '>' is an argument, not a redirect; a newline
     outside quotes ends a command like ';' (5.9.0 blind round C2, C8)."""
     import shlex
-    flat, at = "", 0
-    for m in HEREDOC_RX.finditer(cmd):  # the rest of the opening line stays: `cat <<EOF > file` writes file (5.9.2 blind round 2)
-        if m.start() < at or _quoted_at(cmd, m.start()): continue  # grep '<<EOF' f, $((1<<n)): no here-document (5.9.2 blind round 3)
-        flat += cmd[at:m.start()] + "<< " + m.group(2) + m.group(3) + "\n"; at = m.end()
-    flat += cmd[at:]
+    flat = re.sub(r"\$\(\s*pwd\s*\)|`\s*pwd\s*`", "$PWD", _strip_heredocs(cmd))  # $(pwd) is the folder the command is in, like $PWD (5.9.2 code review 2)
     if os.name == "nt": flat = re.sub(r"\\(?=[^\s\"'$`\\])", "/", flat)  # Windows paths (C:\Users\...) keep their separators; a backslash before a quote or a space still escapes it
-    held, buf, i, q = [], [], 0, None
+    held, buf, i, q, edge = [], [], 0, None, True
     while i < len(flat):
         ch = flat[i]
+        if ch == "$" and flat.startswith("$((", i) or edge and (flat.startswith("((", i) or flat.startswith("[[", i)):  # a < or > in (( n > 0 )), $((3>2)) or [[ $a > 1 ]] compares; it writes no file (5.9.2 code review 2)
+            j = _span_end(flat, i)
+            if j:
+                for part in re.split(r"([<>]+)", flat[i:j]):
+                    if part and part[0] in "<>": held.append(part); buf.append(f" \x00{len(held) - 1}\x00 ")
+                    else: buf.append(part)
+                i = j; edge = False; continue
         if q is None and ch in "'\"":
             j = i + 1
             while j < len(flat) and flat[j] != ch:
                 j += 2 if ch == '"' and flat[j] == "\\" else 1
-            held.append(flat[i + 1:j].replace('\\"', '"') if ch == '"' else flat[i + 1:j]); buf.append(f"\x00{len(held) - 1}\x00"); i = j + 1; continue
+            held.append(flat[i + 1:j].replace('\\"', '"') if ch == '"' else flat[i + 1:j]); buf.append(f"\x00{len(held) - 1}\x00"); i = j + 1; edge = False; continue
         if ch == "\\" and flat[i + 1:i + 2] == "\n": i += 2; continue  # a line continuation joins the two lines, as the shell does (5.9.2 blind round 3)
-        if ch == "\\" and i + 1 < len(flat): buf.append(flat[i:i + 2]); i += 2; continue
-        if ch == "#" and (i == 0 or flat[i - 1] in " \t\n;&|("):  # a comment runs to the line's end; an apostrophe in it opens no quote (5.9.2 blind round 3)
+        if ch == "\\" and i + 1 < len(flat): buf.append(flat[i:i + 2]); i += 2; edge = False; continue  # an escaped space ends no word, so a # after it is text (5.9.2 code review 2)
+        if ch == "#" and edge:  # a comment runs to the line's end; an apostrophe in it opens no quote (5.9.2 blind round 3)
             j = flat.find("\n", i); i = len(flat) if j < 0 else j; continue
-        buf.append(" ; " if ch in "\n`" else ch); i += 1  # `cmd`: a command of its own, like $( )
+        buf.append(" ; " if ch in "\n`" else ch); edge = ch in DELIM or ch == "`"; i += 1  # `cmd`: a command of its own, like $( )
     text = re.sub(r"(^|[\s;&|()])\d+(?=[<>])", r"\1", "".join(buf))  # 2>/dev/null, 2>&1: a stream number written against its redirect is no word ("touch 2 > f" keeps its 2; 5.9.2 blind round 2)
     try:
         lx = shlex.shlex(text, posix=True, punctuation_chars=True); lx.whitespace_split = True; lx.commenters = ""; words = list(lx)
@@ -187,19 +198,33 @@ def name_of(word):
     n = os.path.basename(word.lstrip("\x01").replace("\\", "/"))
     return n[:-4] if n.lower().endswith(".exe") else n
 
+def _mkdir_word(cmd, word):
+    """The path a mkdir argument names, as the shell will see it, or None when this is no mkdir argument."""
+    if name_of(cmd or "") != "mkdir" or not word or word.startswith("-"): return None
+    return os.path.expanduser(word.lstrip("\x01"))
+
+def climbs_past_new(w, cands):
+    """True when the path w goes up (..) out of a folder that doesn't exist yet: mkdir -p src/new/.. makes src/new
+    first, and Windows would call the whole path an existing folder by its words alone (CI on #55). A climb out of a
+    folder that exists (<copy>/../../../reviews) makes nothing on the way (5.9.2 code review 2)."""
+    parts = re.split(r"[\\/]", w)
+    for k, p_ in enumerate(parts):
+        if p_ == ".." and any(q not in ("..", ".", "") for q in parts[:k]):
+            before = "/".join(parts[:k])  # the folder the .. climbs out of; "/" works on Windows too
+            if not all(os.path.isdir(before if os.path.isabs(before) else os.path.join(str(c), before)) for c in cands): return True
+    return False
+
 def makes_nothing(cmd, word, cands):
     """True when `word` is the argument of a mkdir and already names a folder from every place the shell may be:
     mkdir then changes nothing and reads nothing (03 §5.57 item 48). The word is judged whole and as the OS resolves
     it, never split or tidied first: `mkdir -p src/new/..` makes src/new, and `mkdir src,.` makes a folder called
     'src,.' (5.9.2 code review)."""
-    if name_of(cmd or "") != "mkdir" or not word or word.startswith("-"): return False
-    w = os.path.expanduser(word.lstrip("\x01"))
-    parts = re.split(r"[\\/]", w)
-    if any(p_ == ".." and any(q not in ("..", ".", "") for q in parts[:k]) for k, p_ in enumerate(parts)): return False  # src/new/.. makes src/new first; Windows would call the path an existing folder by its words alone (CI on #55). A leading .. (../../reviews) is a plain way up
+    w = _mkdir_word(cmd, word)
+    if w is None or climbs_past_new(w, cands): return False
     return all(os.path.isdir(w if os.path.isabs(w) else os.path.join(str(c), w)) for c in cands)
 
-KEYWORDS = {"if", "then", "else", "elif", "fi", "while", "until", "do", "done", "!", "{", "}", "time"}
-SEPS = (";", "&&", "||", "|", "&", "(", ")", "|&", "\n")
+KEYWORDS = {"if", "then", "else", "elif", "fi", "while", "until", "do", "done", "!", "{", "}", "time", "coproc"}
+SEPS = (";", "&&", "||", "|", "&", "(", ")", "|&", "\n", "{", "}")  # { } group commands: function f { kill 1; } runs kill (5.9.2 code review 2)
 
 def run_words(seg):
     """The words a simple command really runs, after shell keywords (if, while, then, do...) and wrappers with their
@@ -241,10 +266,10 @@ def inner(words):
 def on_way_to_review(cmd, word, cands, root, me):
     """True when `word` is a mkdir argument naming a folder on the way to this reviewer's own claimed review, from every
     place the shell may be (03 §5.57 item 48). Case is kept: on Linux a new .CRITIC is another folder."""
-    have = claimed_by(root, me)
-    if not have or name_of(cmd or "") != "mkdir" or not word or word.startswith("-"): return False
-    w = os.path.expanduser(word.lstrip("\x01")); parts = re.split(r"[\\/]", w)
-    if any(p_ == ".." and any(q not in ("..", ".", "") for q in parts[:k]) for k, p_ in enumerate(parts)): return False
+    w = _mkdir_word(cmd, word)
+    if w is None or climbs_past_new(w, cands): return False
+    have = claimed_by(root, me)  # after the cheap checks: it reads the ledger (5.9.2 code review 2)
+    if not have: return False
     exact = lambda x: os.path.normcase(os.path.realpath(str(x)))
     review = exact(pathlib.Path(root) / ".critic" / "reviews" / have)
     return all(review.startswith(exact(w if os.path.isabs(w) else os.path.join(str(c), w)) + os.sep) for c in cands)
@@ -259,7 +284,8 @@ def _commands(toks, depth=0):
         sub = inner(words)
         if sub is not None and depth < 4: out += _commands(_tokens(sub) or [], depth + 1); continue
         n = name_of(words[0])
-        if n == "kill" and len(words) > 1 and words[1].lstrip("\x01") in ("-l", "-L"): continue
+        a1 = [w.lstrip("\x01") for w in words[1:3]]
+        if n == "kill" and a1 and (a1[0] in ("-l", "-L", "-0") or a1[0] in ("-s", "-n") and a1[1:2] == ["0"]): continue  # kill -0 only asks whether a process is there (5.9.2 code review 2)
         out.append(n)
     return out
 
@@ -276,11 +302,17 @@ def write_targets(cmd, start, kinds=False, _depth=0):
     NULLS = {"/dev/null", "/dev/stdout", "/dev/stderr", "/dev/tty", "nul", "con", os.devnull.lower()}  # checked before resolving: on Windows /dev/null resolves to C:\dev\null (CI on #52)
     def expand(x):
         x = x.lstrip("\x01")
-        return re.sub(r"\$\{?([A-Za-z_][A-Za-z0-9_]*)\}?", lambda m: cwd if m.group(1) == "PWD" else assigned.get(m.group(1), os.environ.get(m.group(1), m.group(0))), x)  # $HOME/.claude is Claude Code's folder, not one in the copy (5.9.2 blind round 2)
-    def resolve(x):
+        def one(m):
+            n = m.group(1)
+            if n == "PWD": return cwd
+            if n == "_": return assigned.get("_", m.group(0))  # the last word of the command before, as the shell sets it; never the hook's own $_ (5.9.2 code review 2)
+            return assigned.get(n, os.environ.get(n, m.group(0)))  # $HOME/.claude is Claude Code's folder, not one in the copy (5.9.2 blind round 2)
+        return re.sub(r"\$\{?([A-Za-z_][A-Za-z0-9_]*)\}?", one, x)
+    def resolve(x, tidy=True):
         x = os.path.expanduser(expand(x))
         if x.lower() in NULLS or re.fullmatch(r"/dev/fd/\d+|/proc/self/fd/\d+", x): return None  # 2> /dev/fd/1 joins two streams; no file (5.9.2 blind round 3)
-        return os.path.normpath(x if os.path.isabs(x) else os.path.join(cwd, x))
+        x = x if os.path.isabs(x) else os.path.join(cwd, x)
+        return os.path.normpath(x) if tidy else x
     def flush(seg):
         nonlocal cwd
         seg = run_words(seg)
@@ -288,16 +320,25 @@ def write_targets(cmd, start, kinds=False, _depth=0):
         sub = inner(seg)
         if sub is not None and _depth < 4: out.extend(write_targets(sub, cwd, kinds=True, _depth=_depth + 1)); return  # bash -c '...', eval: the same rules inside (5.9.2 blind round 3)
         name, args = name_of(seg[0]), [a.lstrip("\x01") for a in seg[1:]]
-        if name == "cd" and args: cwd = resolve(args[0]); return
+        try: targets(name, args)
+        finally: assigned["_"] = expand(seg[-1])  # what $_ means in the next command
+    def targets(name, args):
+        nonlocal cwd
+        if name == "cd" and args: cwd = resolve(args[0]) or cwd; return  # cd con: no folder the guard can name; it stays where it was (5.9.2 code review 2)
         if name in ("export", "declare", "local", "readonly"):
             for a in args:
                 m = re.fullmatch(r"([A-Za-z_][A-Za-z0-9_]*)=(.*)", a)
-                if m: assigned[m.group(1)] = m.group(2)
+                if m: assigned[m.group(1)] = expand(m.group(2))  # D=$HOME/.claude: the value as the shell stores it (5.9.2 code review 2)
             return
         tdir = next((args[k + 1] for k, a in enumerate(args) if a in ("-t", "--target-directory") and k + 1 < len(args)), None) or next((a.split("=", 1)[1] for a in args if a.startswith("--target-directory=")), None)
-        if name in WRITERS_LAST and tdir: out.append((resolve(tdir), name)); return  # cp -t DIR src: DIR is where it writes (5.9.2 blind round 2)
-        files = [a for k, a in enumerate(args) if not a.startswith("-") and not (k and args[k - 1] in ("-m", "--mode") and name in ("mkdir", "install"))]  # a mode is no file
-        if name == "mkdir": out.extend((resolve(a), name) for a in files if not makes_nothing(name, expand(a), [cwd]))  # $HOME/.cache, a set variable: judged as the shell will see it (5.9.2 blind round 3)
+        if name in ("cp", "mv", "install", "ln") and tdir: out.append((resolve(tdir), name)); return  # cp -t DIR src: DIR is where it writes (5.9.2 blind round 2); rsync's -t keeps times (5.9.2 code review 2)
+        files = [a for k, a in enumerate(args) if not a.startswith("-") and not (k and re.fullmatch(r"-[A-Za-z]*m|--mode", args[k - 1]) and name in ("mkdir", "install"))]  # a mode is no file (-m 755, -pm 755)
+        if name == "install" and any(re.fullmatch(r"-[A-Za-z]*d[A-Za-z]*|--directory", a) for a in args): out.extend((resolve(a), name) for a in files); return  # install -d makes every folder it names (5.9.2 code review 2)
+        if name == "mkdir":  # $HOME/.cache, a set variable: judged as the shell will see it (5.9.2 blind round 3)
+            for a in files:
+                x = os.path.expanduser(expand(a))
+                if makes_nothing(name, x, [cwd]): continue
+                out.append((resolve(a, tidy=not climbs_past_new(x, [cwd])), name))  # mkdir -p reviews/review-A.json/.. makes review-A.json: the .. stays in the path, so it is never read as a way to the reviews folder (5.9.2 code review 2)
         elif name in WRITERS_ALL: out.extend((resolve(a), name) for a in files)
         elif name in WRITERS_LAST and len(files) >= 2: out.append((resolve(files[-1]), name))
         elif name in ("chmod", "chown") and len(files) >= 2: out.extend((resolve(a), name) for a in files[1:])
@@ -309,12 +350,13 @@ def write_targets(cmd, start, kinds=False, _depth=0):
         if t in (">&", "<&") and i + 1 < len(toks):
             if not re.fullmatch(r"\d+|-", toks[i + 1]): out.append((resolve(toks[i + 1]), t))  # >&file writes the file; >&1 only joins two streams
             i += 2; continue
+        if t in ("<", "<<", "<<<") and i + 1 < len(toks): i += 2; continue  # an input, a here-document's word or a here-string: read, never written (5.9.2 code review 2)
         if t in (">", ">>", ">|", "&>", "&>>") and i + 1 < len(toks):
             if not re.fullmatch(r"&\d*|&-", toks[i + 1]): out.append((resolve(toks[i + 1]), t))  # > &2 duplicates a stream and writes no file; > 2 writes a file named 2
             i += 2; continue
-        if t in (";", "&&", "||", "|", "&", "(", ")", "|&", "\n"): flush(seg); seg = []; i += 1; continue
+        if t in SEPS: flush(seg); seg = []; i += 1; continue
         if seg == [] and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*=.*", t):  # VAR=x before a command is no argument; on its own it sets a variable later paths may use
-            k_, v_ = t.split("=", 1); assigned[k_] = v_.lstrip("\x01")
+            k_, v_ = t.split("=", 1); assigned[k_] = expand(v_)
         else: seg.append(t)
         i += 1
     flush(seg)
