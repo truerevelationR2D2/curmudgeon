@@ -352,8 +352,8 @@ def tally(paths):
         degraded.append(f"review {'cut' if cut_by.get(nm_) and not voided.get(nm_) else 'voided by the proctor'}: {nm_} ({'; and '.join(parts_)}); its votes don't count, and its findings no honest reviewer raised are kept only if a verifier reproduces them")
     if voided_paths and not paths: degraded.append("every reviewer was voided by the proctor, so no finding has a vote")
     unchecked = sorted({x for x in unchecked if x in {pathlib.Path(p).name for p in paths}})
-    for name_, cp in sorted((k, v) for k, v in copies.items() if k not in voided): degraded.append(  # a voided review's line already says its votes don't count (5.8.0 blind round C4)
-f"possible copy: {name_}'s own words hold {', '.join(cp)} (flagged for the owner to judge; its votes still count)")
+    flagged = [f"possible copy: {name_}'s own words hold {', '.join(cp)} (flagged for the owner to judge; its votes still count)"  # a flag, never DEGRADED (03 §5.57 item 53: two honest reviews of a small file share 48 characters); a voided review's line already says its votes don't count (5.8.0 blind round C4)
+               for name_, cp in sorted((k, v) for k, v in copies.items() if k not in voided)]
     if unchecked: degraded.append("the proctor couldn't check " + ", ".join(f"{x} ({unchecked_why.get(x, 'no readable transcript')})" for x in unchecked) + ", so whether its agent saw another's work is unknown")
     coverage = {"read": set(), "not_reached": set()}  # files the reviewers say they read, and the ones they didn't reach (SC-46)
     sandbox = []  # sandbox scenario lines: numbered SB1, SB2 ... here, so the teardown's SANDBOX LEDGER has a source (SC: self-review D C6)
@@ -380,7 +380,7 @@ f"possible copy: {name_}'s own words hold {', '.join(cp)} (flagged for the owner
     # an outside run we can't see never counts as executed: verification decides
     outside_rows = [dict(r, source="outside", verified=r.get("verified") if r.get("verified") == "inferred" else "traced") for r in reviewer_rows(outside)] if outside else []
     voided_rows = [[dict(r, source="voided", voided_from=pathlib.Path(p).name, verified=r.get("verified") if r.get("verified") == "inferred" else "traced") for r in reviewer_rows(p)] for p in voided_paths]  # one channel each; a voided agent's own run claims nothing
-    L = ledger(); out = {"tier": L.get("tier") or "full", "degraded": degraded, "reviewers": n, "votes_needed": need, "outside": None, "kept": [], "contested": [], "dropped": [], "retracted": [], "rejected": [], "suppressed": [], "ruling_committed": [], "set_aside": set_aside, "sandbox": sandbox, "nits": [], "coverage": coverage_report(coverage), "blocked": blocked_by}
+    L = ledger(); out = {"tier": L.get("tier") or "full", "degraded": degraded, "flagged": flagged, "reviewers": n, "votes_needed": need, "outside": None, "kept": [], "contested": [], "dropped": [], "retracted": [], "rejected": [], "suppressed": [], "ruling_committed": [], "set_aside": set_aside, "sandbox": sandbox, "nits": [], "coverage": coverage_report(coverage), "blocked": blocked_by}
     scanned = scan_rows(scan) if scan else []
     accepted = []  # (raw_id, reviewer_index or None for scan, finding)
     OUTSIDE_RI = len(reviews) + 1; VOIDED = set(range(len(reviews) + 2, len(reviews) + 2 + len(voided_rows))); ASIDE = {OUTSIDE_RI} | VOIDED  # channels that never vote as one of ours
@@ -752,7 +752,7 @@ def apply(paths):
         + ([f"verdicts not saved by the verifier's stop hook (written or edited outside .critic/verdicts/, so no record shows a verifier returned them): {', '.join(by_hand[:8])}"] if by_hand else [])
     md = ["# Curmudgeon merged findings", ""] + ([f"DEGRADED: {'; '.join(why_degraded)}", "(Copy that line as the teardown's first line, before the verdict.)", ""] if why_degraded else []) + [
           f"Reviewers: {T['reviewers']} (votes needed: {T['votes_needed']}; {tier} tier).",
-          boundary_line()] + ([("Blocked, not cut (accidental reads the guard stopped; listed for you, 03 §5.57 item 44): " + "; ".join(f"{k} {v[0]} (first: {v[1]})" for k, v in sorted((T.get("blocked") or {}).items())))] if T.get("blocked") else []) + [
+          boundary_line()] + ([("Flagged for you (never voids, never DEGRADED; 03 §5.57 items 40 and 53): " + "; ".join(T.get("flagged")))] if T.get("flagged") else []) + ([("Blocked, not cut (accidental reads the guard stopped; listed for you, 03 §5.57 item 44): " + "; ".join(f"{k} {v[0]} (first: {v[1]})" for k, v in sorted((T.get("blocked") or {}).items())))] if T.get("blocked") else []) + [
           "Counts for the VERDICT (copy exactly): " + " · ".join(f"{k} {v}" for k, v in cnt.items()) + f" · total {len(final)}",
           f"Verdict word (copy exactly): **{verdict_word(cnt)}** (BLOCK: a Critical or High is counted; CONCERNS: only Medium or Low; CLEAN: nothing counted)", "",
           "| ID | Impact | Confidence | Votes | Verifier | Where | Title |", "| --- | --- | --- | --- | --- | --- | --- |"]

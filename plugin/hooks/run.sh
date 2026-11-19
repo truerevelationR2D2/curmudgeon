@@ -33,6 +33,16 @@ nl='
 '
 if command -v cat >/dev/null 2>&1; then input="$(cat; printf x)"; input="${input%x}"  # the hook's input, kept whole for a second try
 else input=""; while IFS= read -r line || [ -n "$line" ]; do input="$input$line$nl"; done; fi  # no cat: sh's own read
+name="${hook##*/}"; name="${name##*\\}"  # the hook's file name, after a / or a Windows \ (CI on #55)
+case "$name" in  # calls that can't concern Curmudgeon end here, before any Python starts (03 §5.57 item 53: on a Windows PC each start took about 3.5 s, on every Read, Grep, Glob and Bash call of every session). In doubt, the hook runs.
+  pre_tool.py)
+    case "$input" in
+      *curmudgeon-*|*'"Agent"'*|*'"Task"'*) ;;  # a Curmudgeon agent's call, or a new agent (the fork check)
+      *'"Bash"'*|*'"PowerShell"'*) case "$input" in *.py*|*' -m '*) ;; *) exit 0 ;; esac ;;  # own_scripts.py looks only at commands that run a .py file or a module
+      *) exit 0 ;;
+    esac ;;
+  post_tool.py) case "$input" in *curmudgeon-*) ;; *) exit 0 ;; esac ;;  # it acts only for Curmudgeon's own agents
+esac
 go() {
   command -v "${py%% *}" >/dev/null 2>&1 || { out=""; rc=127; return; }  # not installed: nothing to start, no error text
   out="$(printf '%s' "$input" | $py "$start" "$hook" "$@")"; rc=$?  # the printout is held until the markers say the hook ran: a wrong program's text never reaches Claude Code

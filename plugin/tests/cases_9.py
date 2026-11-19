@@ -598,8 +598,9 @@ def _(d):
     assert pa["copied"] == [], ("the first writer is never the one judged", pa)
     r = run(S / "critic_merge.py", "tally", *[f".critic/reviews/review-{x}.json" for x in "ABC"], "--no-scan", cwd=d); assert r.returncode == 0, r.stdout[-800:] + r.stderr[-800:]
     t = json.loads((d / ".critic/tally.json").read_text(encoding="utf-8"))
-    assert t["reviewers"] == 3 and any(x.startswith("possible copy: review-B.json") for x in t["degraded"]), ("flagged, its votes still count", t["reviewers"], t["degraded"])
-    assert not any("review-C.json" in x and "possible copy" in x for x in t["degraded"])
+    assert t["reviewers"] == 3 and any(x.startswith("possible copy: review-B.json") for x in t["flagged"]), ("flagged, its votes still count", t["reviewers"], t["flagged"])
+    assert not any("possible copy" in x for x in t["degraded"]), ("a flag never makes the run DEGRADED (03 §5.57 item 53)", t["degraded"])
+    assert not any("review-C.json" in x and "possible copy" in x for x in t["flagged"])
     assert "possible copy" in (HERE.parent / "plugin/agents/curmudgeon-reviewer.md").read_text(encoding="utf-8"), "reviewers are told it is checked"
 
 @test("5.8.0 eval leak check (03 §5.57 item 40): an answer-key entry's wording is a leak only from 48 characters, so a 31-character phrase a review wrote for a real finding isn't one", repo=True)
@@ -642,8 +643,8 @@ def _(d):
     assert P.copied(str(d), "review-A.json", time.time() + 20, "") == [], "the first to stop is never judged, whatever its file's time (C6)"
     _stop9(d, "c1b", "B", [b["B"], b["C"]])  # B also saw brief C's mark: voided
     r2 = run(S / "critic_merge.py", "tally", *[f".critic/reviews/review-{x}.json" for x in "AB"], "--no-scan", cwd=d); assert r2.returncode == 0, r2.stderr[-400:]
-    deg = json.loads((d / ".critic/tally.json").read_text(encoding="utf-8"))["degraded"]
-    assert any("voided by the proctor: review-B.json" in x for x in deg) and not any(x.startswith("possible copy: review-B.json") for x in deg), ("one line for a voided review (C4)", deg)
+    t2 = json.loads((d / ".critic/tally.json").read_text(encoding="utf-8")); deg = t2["degraded"]
+    assert any("voided by the proctor: review-B.json" in x for x in deg) and not any(x.startswith("possible copy: review-B.json") for x in deg + (t2.get("flagged") or [])), ("one line for a voided review (C4)", deg)
     E = HERE.parent / "eval"; rr = d / "run"; rr.mkdir()
     key = json.loads((E / "answer_key2.json").read_text(encoding="utf-8"))
     long_ = next(re.sub(r"\s+", " ", n.split(" ", 1)[-1].lower()) for n in key if len(re.sub(r"\s+", " ", n.split(" ", 1)[-1].lower())) >= 60)
