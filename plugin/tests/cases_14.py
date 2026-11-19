@@ -124,3 +124,30 @@ def _(d):
     many = f"cd {w} && for a in " + " ".join(f"x{k}" for k in range(40)) + "; do cat ../$a/f; done"
     out = run(H / "read_guard.py", cwd=q, stdin=json.dumps({"tool_name": "Bash", "tool_input": {"command": many}, "cwd": str(q), "agent_type": "curmudgeon:curmudgeon-reviewer", "agent_id": "r1"})).stdout
     assert "deny" in out, "past the limit a path built from many values is still refused"
+
+@test("5.9.2 lite review: a variable copied from a loop variable keeps all 32 values the guard follows; a very large project is still copy-checked; the pre-filter starts Python for python -m, PowerShell, Task and a Curmudgeon agent's post_tool call")
+def _(d):
+    q = d / "q"; write(q, "app.py", "print(1)\n"); write(q, ".critic/reviews/review-B.json", "{}"); rec = _ws(q); w = rec["payload"]
+    vals = " ".join(["r2"] + ["r1"] * 11)  # its own folder 11 times, then another reviewer's, first, which the old copy dropped
+    out = run(H / "read_guard.py", cwd=q, stdin=json.dumps({"tool_name": "Bash", "tool_input": {"command": f"cd {w} && for x in {vals}; do Y=$x; cat ../../$Y/notes/f.txt; done"}, "cwd": str(q), "agent_type": "curmudgeon:curmudgeon-reviewer", "agent_id": "r1"})).stdout
+    assert "deny" in out, ("the first of 12 values is judged too", out)
+    sys.path.insert(0, str(HERE / "hooks")); import importlib, proctor; importlib.reload(proctor)
+    write(d / "big", "a.txt", "x" * 100); write(d / "big", "b.txt", "y" * 100); old = proctor.MAX_ALLOWED; proctor.MAX_ALLOWED = 50
+    try: got = proctor._allowed(str(d / "big"), None, time.time() + 20)
+    finally: proctor.MAX_ALLOWED = old
+    assert got is not None, "past the size limit it compares against what it read"
+    import shutil
+    sh = shutil.which("sh")
+    if not sh: raise Skip("needs sh (Git Bash on Windows)")
+    real = pathlib.Path(sys.executable).as_posix(); fake = d / "bin"; fake.mkdir(); log = d / "starts.txt"
+    p_ = fake / "python3"; p_.write_text(f'#!/bin/sh\necho x >> "{log.as_posix()}"\nexec "{real}" "$@"\n', encoding="utf-8"); p_.chmod(0o755)
+    env = dict(os.environ, PATH=f"{fake}{os.pathsep}{os.environ.get('PATH', '')}", CLAUDE_PLUGIN_DATA=str(d / "data"))
+    def starts(hook, payload):
+        log.unlink(missing_ok=True)
+        subprocess.run([sh, str(H / "run.sh"), str(H / hook)], input=json.dumps(payload), capture_output=True, text=True, encoding="utf-8", env=env, timeout=60, cwd=q)
+        return log.read_text(encoding="utf-8").count("x") if log.is_file() else 0
+    assert starts("pre_tool.py", {"tool_name": "Bash", "tool_input": {"command": "python3 -m mod"}}) >= 1, "-m"
+    assert starts("pre_tool.py", {"tool_name": "PowerShell", "tool_input": {"command": "py x.py"}}) >= 1, "PowerShell"
+    assert starts("pre_tool.py", {"tool_name": "Task", "tool_input": {"prompt": "x"}}) >= 1, "Task"
+    assert starts("post_tool.py", {"tool_name": "Bash", "tool_input": {"command": "ls"}, "agent_type": "curmudgeon:curmudgeon-verifier"}) >= 1, "a verifier's post_tool"
+    assert starts("pre_tool.py", {"tool_name": "PowerShell", "tool_input": {"command": "Get-ChildItem"}}) == 0, "PowerShell with no script: no Python"

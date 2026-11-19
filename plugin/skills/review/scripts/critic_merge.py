@@ -351,7 +351,7 @@ def tally(paths):
     if voided_paths and not paths: degraded.append("every reviewer was voided by the proctor, so no finding has a vote")
     unchecked = sorted({x for x in unchecked if x in {pathlib.Path(p).name for p in paths}})
     flagged = [f"possible copy: {name_}'s own words hold {', '.join(cp)} (flagged for the owner to judge; its votes still count)"  # a flag, never DEGRADED (03 §5.57 item 53: two honest reviews of a small file share 48 characters); a voided review's line already says its votes don't count (5.8.0 blind round C4)
-               for name_, cp in sorted((k, v) for k, v in copies.items() if k not in voided)]
+               for name_, cp in sorted((k, v) for k, v in copies.items() if k not in voided and k in {pathlib.Path(p).name for p in paths})]  # only reviews in this tally (5.9.2 lite review)
     if unchecked: degraded.append("the proctor couldn't check " + ", ".join(f"{x} ({unchecked_why.get(x, 'no readable transcript')})" for x in unchecked) + ", so whether its agent saw another's work is unknown")
     coverage = {"read": set(), "not_reached": set()}  # files the reviewers say they read, and the ones they didn't reach (SC-46)
     sandbox = []  # sandbox scenario lines: numbered SB1, SB2 ... here, so the teardown's SANDBOX LEDGER has a source (SC: self-review D C6)

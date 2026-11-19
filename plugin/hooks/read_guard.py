@@ -615,7 +615,7 @@ def bash_problem(cmd, rec, root, critic, role, me):
             am = re.fullmatch(r"([A-Za-z_][A-Za-z0-9_]*)=(.*)", w)
             back = next((j for j in range(i - 1, -1, -1) if words[j] in SEP), -1)
             decl = i and any(words[j] in ("export", "local", "declare", "readonly", "typeset") for j in range(back + 1, i))  # declare -x X=.., export A=1 X=..
-            if am and (cmd_pos or decl): shell_vars.setdefault(am.group(1), []).extend(expand_vars(am.group(2), shell_vars) or [am.group(2)])  # Y=$X takes X's values  # X=/project/.cri, then ${X}tic: judged with every value X was given (audit Q16; a prefix X=zz cmd ${X} still expands the old one)
+            if am and (cmd_pos or decl): shell_vars.setdefault(am.group(1), []).extend(expand_vars(am.group(2), shell_vars, cap=32) or [am.group(2)])  # Y=$X takes X's values  # X=/project/.cri, then ${X}tic: judged with every value X was given (audit Q16; a prefix X=zz cmd ${X} still expands the old one)
             pm = re.fullmatch(r"([A-Za-z_][A-Za-z0-9_]*)\+=(.*)", w)
             if pm: shell_vars[pm.group(1)] = [v + pm.group(2) for v in shell_vars.get(pm.group(1), [""])]
             if w == "for" and cmd_pos and i + 2 < len(words) and words[i + 2] == "in":
