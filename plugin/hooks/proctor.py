@@ -130,7 +130,8 @@ def _allowed(root, letter, deadline):
     for dp, dirs, files in os.walk(root):
         dirs[:] = [x for x in dirs if x not in SKIP_DIRS and not x.startswith(".critic")]
         for f in files:
-            if time.time() > deadline or n > MAX_ALLOWED: return None
+            if time.time() > deadline: return None
+            if n > MAX_ALLOWED: return _norm("\n".join(parts))  # a very large project: compare against what was read, never give up the check (5.9.2 lite review)
             fp = pathlib.Path(dp) / f
             try:
                 if fp.is_symlink() or fp.stat().st_size > 2 * 1024 * 1024: continue

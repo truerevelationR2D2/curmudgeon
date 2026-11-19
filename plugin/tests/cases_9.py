@@ -602,6 +602,9 @@ def _(d):
     assert not any("possible copy" in x for x in t["degraded"]), ("a flag never makes the run DEGRADED (03 §5.57 item 53)", t["degraded"])
     assert not any("review-C.json" in x and "possible copy" in x for x in t["flagged"])
     assert "possible copy" in (HERE.parent / "plugin/agents/curmudgeon-reviewer.md").read_text(encoding="utf-8"), "reviewers are told it is checked"
+    r = run(S / "critic_merge.py", "tally", ".critic/reviews/review-A.json", "--no-scan", cwd=d); assert r.returncode == 0, r.stderr[-400:]
+    t = json.loads((d / ".critic/tally.json").read_text(encoding="utf-8"))
+    assert not any("review-B.json" in x for x in t.get("flagged") or []), ("a review left out of the tally is never flagged as counting (5.9.2 lite review)", t.get("flagged"))
 
 @test("5.8.0 eval leak check (03 §5.57 item 40): an answer-key entry's wording is a leak only from 48 characters, so a 31-character phrase a review wrote for a real finding isn't one", repo=True)
 def _(d):
