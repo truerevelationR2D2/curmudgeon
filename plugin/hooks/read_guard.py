@@ -31,6 +31,7 @@ import json, os, pathlib, re, sys, time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import utf8io  # UTF-8 output on Windows too (03 §5.57 item 20)
 import workspace
+import conduct  # one shell reading of a command's writes, shared with the reviewers' standard (5.9.2 code review)
 
 ALLOW = {"reviewer": {"rules", "rules.md", "change-map.md", "change-map.json", "risk-map.md", ".gitignore"},  # no briefs: a reviewer gets its own brief as its prompt (brief_problem holds the lead to that), and the proctor voids one that read another's (03 §5.57 item 35; 5.5.0 blind round 2)
          "verifier": {"rules", "rules.md", "change-map.md", "change-map.json", "risk-map.md", ".gitignore", "verify", "verify-variants", "decisions.md"},  # never ledger.md: it holds dismissal notes and memories; never the scan (03 §5.56 item 13)
@@ -359,7 +360,7 @@ def bash_problem(cmd, rec, root, critic, role, me):
     unquoted = re.sub(r"'[^']*'|\"(?:\\.|[^\"\\])*\"", " ", rest)  # what the shell itself would expand
     if re.search(r"(?i)\$\{?(?:OLDPWD|CLAUDE_PROJECT_DIR)\b|(?:^|[\s;&|(])(?:cd|pushd)\s+-(?:\s|$|[;&|)])", unquoted): return "a way back to the project folder ($OLDPWD, cd -, $CLAUDE_PROJECT_DIR)"
     if re.search(r"\$\{?IFS\b|(?:^|[\s=:])~-|\{[^}\s]*\b(?:cd|pushd|chdir)\b[^}\s]*,", unquoted): return "a command spelled through $IFS, ~- or brace expansion"
-    rest = re.sub(r"\$\{?PWD\}?", lambda m_: payload, rest)  # $PWD is the copy the command starts in
+    rest = re.sub(r"\$\{?PWD\}?|\$\(\s*pwd\s*\)|`\s*pwd\s*`", lambda m_: payload, rest)  # $PWD and $(pwd) are the copy the command starts in
     flat_orig = re.sub(r"\\(.)", r"\1", rest).replace("${HOME}", home).replace("$HOME", home).replace("\n", " ; ")
     rest = heredoc_operators(rest)
     rest = re.sub(r"\$([A-Za-z_][A-Za-z0-9_]*)(?=[\"'])", r"${\1}", rest)  # "$X"tic: the shell ends the name at the quote; shlex would glue it to tic (round 3 review)
@@ -562,7 +563,7 @@ def bash_problem(cmd, rec, root, critic, role, me):
         subshell, a cd that fails, a cd spelled some way not listed here), so every path is judged from every folder
         the shell might be in: the copy, and every cd destination named so far. A cd may move within the copy, never
         out of it; a path that leads above the copy (to the agent's own scratch folder or higher) is refused."""
-        cmd_pos = True; cmd = None; targets = set(); text_words = set()  # shell_vars is shared: bash -c '...' sees the outer command's variables (round 3 review)
+        cmd_pos = True; cmd = None; targets = set(); text_words = set(); noop = set()  # shell_vars is shared: bash -c '...' sees the outer command's variables (round 3 review)
         sure = not any(x in ("(", ")", "|", "|&", "||", "&") or "$(" in x or "`" in x for x in words)  # no subshell or pipe: a cd joined by && really happened if the command goes on
         skip = None
         for i, w in enumerate(words):
@@ -579,10 +580,19 @@ def bash_problem(cmd, rec, root, critic, role, me):
                     rest_args.append(x)
                 why = tripwire(bare, rest_args)
                 if why: return why, cands
-                targets = write_targets(bare.rsplit("/", 1)[-1], rest_args, i)
-                text_words = data_words(bare.rsplit("/", 1)[-1], rest_args, i)
-            if (i in targets or (i >= 1 and words[i - 1] in (">", ">>", "&>", "1>", "2>", ">|"))) and i != skip:
+                at = i
+                if conduct.name_of(bare) in conduct.WRAPPERS:  # timeout 5 mkdir ..., nice -n 5 tee ...: the command the wrapper runs (5.9.2 code review 2)
+                    rw = conduct.run_words([bare] + rest_args)
+                    if rw and len(rw) <= len(rest_args):
+                        at = i + 1 + len(rest_args) - len(rw); cmd = rw[0]; rest_args = rw[1:]
+                        why = tripwire(cmd, rest_args)
+                        if why: return why, cands
+                targets = write_targets(cmd.rsplit("/", 1)[-1], rest_args, at)
+                text_words = data_words(cmd.rsplit("/", 1)[-1], rest_args, at)
+            if (i in targets or (i >= 1 and words[i - 1] in (">", ">>", "&>", "&>>", ">&", "1>", "2>", ">|"))) and i != skip:  # >& and &>> write too (5.9.2 code review: a verifier has no conduct check)
                 pieces = [w[3:]] if w.startswith("of=") else [p_ for p_ in re.split(r"[=:,]", w) if p_ and not p_.startswith("-")]
+                if i in targets and (conduct.makes_nothing(cmd, w, cands) or role == "reviewer" and conduct.on_way_to_review(cmd, w, cands, root, me)):
+                    pieces = []; noop.add(i)  # a mkdir of a folder that already exists writes and reads nothing (03 §5.57 item 48); the whole word, as mkdir sees it, not its pieces (5.9.2 code review)
                 if any(through_link(p_, c) for p_ in pieces for c in cands):
                     return f"{w}: a write through a link (node_modules, .venv) changes the real project; write in your notes folder instead", cands
                 if any(into_project(p_, c) for p_ in pieces for c in cands):
@@ -605,7 +615,7 @@ def bash_problem(cmd, rec, root, critic, role, me):
             am = re.fullmatch(r"([A-Za-z_][A-Za-z0-9_]*)=(.*)", w)
             back = next((j for j in range(i - 1, -1, -1) if words[j] in SEP), -1)
             decl = i and any(words[j] in ("export", "local", "declare", "readonly", "typeset") for j in range(back + 1, i))  # declare -x X=.., export A=1 X=..
-            if am and (cmd_pos or decl): shell_vars.setdefault(am.group(1), []).extend(expand_vars(am.group(2), shell_vars) or [am.group(2)])  # Y=$X takes X's values  # X=/project/.cri, then ${X}tic: judged with every value X was given (audit Q16; a prefix X=zz cmd ${X} still expands the old one)
+            if am and (cmd_pos or decl): shell_vars.setdefault(am.group(1), []).extend(expand_vars(am.group(2), shell_vars, cap=32) or [am.group(2)])  # Y=$X takes X's values  # X=/project/.cri, then ${X}tic: judged with every value X was given (audit Q16; a prefix X=zz cmd ${X} still expands the old one)
             pm = re.fullmatch(r"([A-Za-z_][A-Za-z0-9_]*)\+=(.*)", w)
             if pm: shell_vars[pm.group(1)] = [v + pm.group(2) for v in shell_vars.get(pm.group(1), [""])]
             if w == "for" and cmd_pos and i + 2 < len(words) and words[i + 2] == "in":
@@ -644,7 +654,7 @@ def bash_problem(cmd, rec, root, critic, role, me):
                 for name in dict.fromkeys(m_.group(1) or m_.group(2) for x_ in variants for m_ in VAR_REF.finditer(x_)):
                     vals = shell_vars.get(name)
                     if vals:
-                        if len(variants) * len(vals) > 16 or len(vals) > 8: return f"{w}: a path built from more variable values than the guard follows; write the path out", cands  # fail closed (round 3 review)
+                        if len(variants) * len(vals) > 64 or len(vals) > 32: return f"{w}: a path built from more variable values than the guard follows; write the path out", cands  # fail closed (round 3 review)
                         variants = [VAR_REF.sub(lambda m_: v if (m_.group(1) or m_.group(2)) == name else m_.group(0), x) for x in variants for v in vals]
             if "$" in w: variants = variants + [VAR_REF.sub("", x) for x in variants if VAR_REF.search(x)]  # a name the command never set expands to nothing (round 3 review)
             if "{" in w and "," in w: variants = [b_ for x in variants for b_ in braces(x)]  # cat /p/.{critic,x}/...: as the shell expands it (round 2 review)
@@ -652,7 +662,7 @@ def bash_problem(cmd, rec, root, critic, role, me):
                 return f"{w}: a path spelled through parameter expansion ({OPAQUE.search(w).group(0)}); write the path out", cands
             if i != skip and i not in text_words and PROC_ANY.search(w): return f"{w}: other agents' processes and command lines are not yours to read (audit P3)", cands
             pieces = []
-            for w_ in ([] if i == skip or i in text_words else variants):
+            for w_ in ([] if i == skip or i in text_words or i in noop else variants):
                 unurl = re.sub(r"(?i)file://", "", re.sub(r"(?i)\b(?!file:)[a-z][\w+.-]*://(?![^\s,;]*(?:\.\.|\.critic))[^\s,;]*", "", w_))  # a URL is no path (audit V22: http:// was read as /), unless it holds .. or .critic (a folder named "x:" makes x://../.. a path); file:// leaves its path
                 pieces += [p_ for p_ in re.split(r"[=:,]", unurl) if p_.strip()]
                 if unurl == w_ and re.search(r"[=:,]", w_): pieces.append(w_)  # the whole word too: a folder named "x:" makes x://../.. a real path
@@ -673,10 +683,15 @@ def bash_problem(cmd, rec, root, critic, role, me):
                         why = judge(real, critic, role, me, "bash")
                         if why: return why, cands
                         if above(real, critic): return f"{piece}: a folder that holds the project's .critic/ (search your workspace instead)", cands
+            if w in SEP and i and words[i - 1] not in SEP: shell_vars["_"] = [words[i - 1]]  # $_ in the next command is this one's last word, as the shell sets it (5.9.2 code review 2: mkdir -p ../../../reviews && cat $_/review-B.json)
             cmd_pos = w in SEP or bare in LEAD or (cmd_pos and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*=.*", w) is not None)
         return None, cands
     why, _ = walk(split(flat), [pay])
     if why: return why
+    for t_, how_ in conduct.write_targets(cmd, payload, kinds=True):  # the same writes the reviewers' standard finds ((echo x)>f, cmd.exe names, >&f, a heredoc's redirect), refused for every agent here, a verifier included (5.9.2 code review)
+        if how_ == "mkdir" and role == "reviewer" and conduct.on_way_to_review("mkdir", t_, [pay], root, me): continue  # the folder on the way to its own claimed review (03 §5.57 item 48)
+        if through_link(t_, pay): return f"{t_}: a write through a link (node_modules, .venv) changes the real project; write in your notes folder instead"
+        if into_project(t_, pay): return f"{t_}: a write into the real project, outside your copy; write in your copy or your notes folder"
     return None
 
 def main(data=None):

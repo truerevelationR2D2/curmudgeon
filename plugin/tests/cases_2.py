@@ -26,7 +26,7 @@ def _(d):
     out = run(H / "check_contract.py", cwd=d, stdin=json.dumps({"agent_type": "curmudgeon-reviewer", "cwd": str(d), "last_assistant_message": "Wrote .critic/reviews/review-B.json"})).stdout
     assert "block" not in out, out
 
-@test("5.0 SC-68: the four typed fix skills are one /curmudgeon:fix with every function kept, and no old command name is left anywhere")
+@test("5.0 SC-68: the four typed fix skills are one /curmudgeon:fix with every function kept, and no old command name is left anywhere", repo=True)
 def _(d):
     import re as _re
     assert sorted(p.name for p in (HERE / "skills").iterdir() if p.is_dir()) == ["check-updates", "fix", "gate", "review"]  # 5.4.0 adds check-updates, which only the user can start (no footprint for the model)
@@ -396,7 +396,7 @@ def _(d):
     assert all("SCAN-SECRET" not in t and "OTHER-REVIEW" not in t for t in b.values()), "a brief never carries the scan or another review"
     first_c = b["C"]; run(S / "critic_brief.py", cwd=d); assert (d / ".critic/briefs/brief-C.md").read_text(encoding="utf-8") == first_c, "the shuffle is seeded by the run: a rerun gives the same order"
 
-@test("5.0 SC-34: the teardown opens with the verdict and counts, has a quiet mode that keeps every count, and the code section is named for what it holds")
+@test("5.0 SC-34: the teardown opens with the verdict and counts, has a quiet mode that keeps every count, and the code section is named for what it holds", repo=True)
 def _(d):
     oc = (HERE / "skills/review/references/output-contract.md").read_text(encoding="utf-8")
     assert "## First line: the verdict" in oc and "## Quiet mode" in oc and "#### 1. CODE AND ARCHITECTURE" in oc and "CRITICAL CODE ARCHITECTURE" not in oc
@@ -486,7 +486,7 @@ def _(d):
     run(S / "critic_ledger.py", "start", "review", "--tier", "full", cwd=d)
     assert not (d / ".critic/verdicts").exists() and list((d / ".critic/history").glob("run-*/verdicts/1.json")), "a new run starts with no verdicts; the old ones are archived"
 
-@test("5.0 SC-41: the README compares Curmudgeon with Anthropic's review options (dated and sourced), gives a CI recipe with the action's real inputs, and says the reviewers share one model")
+@test("5.0 SC-41: the README compares Curmudgeon with Anthropic's review options (dated and sourced), gives a CI recipe with the action's real inputs, and says the reviewers share one model", repo=True)
 def _(d):
     r = (HERE.parent / "README.md").read_text(encoding="utf-8")
     assert r == (HERE / "README.md").read_text(encoding="utf-8"), "the two READMEs must match"
@@ -555,7 +555,7 @@ def _(d):
     write(d, "src/a.py", "x = 1\n"); run(S / "critic_map.py", "--files", "src/a.py", cwd=d); run(S / "critic_ledger.py", "start", "review", "--tier", "lite", cwd=d)
     run(S / "critic_brief.py", cwd=d); assert "ast_view.py FILE" in (d / ".critic/briefs/brief-A.md").read_text(encoding="utf-8")
 
-@test("5.0 SC-48: the tests-of-the-tests lens finds every planted defect, flags no decoy and nothing in the clean twin, and the lens check can fail")
+@test("5.0 SC-48: the tests-of-the-tests lens finds every planted defect, flags no decoy and nothing in the clean twin, and the lens check can fail", repo=True)
 def _(d):
     L = HERE.parent / "eval" / "lens.py"; K = HERE.parent / "eval" / "lens5.json"
     r = run(L, str(K), "--json", cwd=d); out = json.loads(r.stdout)
@@ -617,7 +617,7 @@ def _(d):
         except Y.Refused: pass
     assert Y.plain(Y.loads("yes: no\nn: 010\nv: 1.0")) == {"yes": "no", "n": "010", "v": "1.0"}
 
-@test("5.0 SC-51: the CI and supply-chain lens finds every planted defect, flags no decoy and nothing in the clean twin, and refuses to guess at YAML it can't read")
+@test("5.0 SC-51: the CI and supply-chain lens finds every planted defect, flags no decoy and nothing in the clean twin, and refuses to guess at YAML it can't read", repo=True)
 def _(d):
     r = run(HERE.parent / "eval" / "lens.py", str(HERE.parent / "eval" / "lens6.json"), "--json", cwd=d); out = json.loads(r.stdout)
     assert r.returncode == 0 and out["recall"] == "13 of 13" and out["precision"] == "13 of 13", out
@@ -635,14 +635,14 @@ def _(d):
         r = subprocess.run([sys.executable, "-I", str(S / script), *args], cwd=d, capture_output=True, text=True, env=dict(os.environ, CRITIC_ROOT=str(d)), encoding="utf-8")
         assert r.returncode == 0 and "Traceback" not in r.stderr, (script, r.stderr[-400:])
 
-@test("5.0 SC-52: the agent and MCP configuration lens finds every planted defect, flags no decoy and nothing in the clean twin")
+@test("5.0 SC-52: the agent and MCP configuration lens finds every planted defect, flags no decoy and nothing in the clean twin", repo=True)
 def _(d):
     r = run(HERE.parent / "eval" / "lens.py", str(HERE.parent / "eval" / "lens7.json"), "--json", cwd=d); out = json.loads(r.stdout)
     assert r.returncode == 0 and out["recall"] == "7 of 7" and out["precision"] == "7 of 7" and out["pedantic_rows"] == 1, out
     write(d, ".mcp.json", "{not json"); run(S / "critic_scan.py", ".", "--root", ".", cwd=d)
     assert [x["rule"] for x in json.loads((d / ".critic/scan/report.json").read_text(encoding="utf-8"))["findings"] if x["area"] == "agent-config"] == ["agent-not-checked"]
 
-@test("5.0 SC-53: the release and rollback lens finds every planted defect, flags no decoy and nothing in the clean twin; SQL is split outside quotes")
+@test("5.0 SC-53: the release and rollback lens finds every planted defect, flags no decoy and nothing in the clean twin; SQL is split outside quotes", repo=True)
 def _(d):
     r = run(HERE.parent / "eval" / "lens.py", str(HERE.parent / "eval" / "lens8.json"), "--json", cwd=d); out = json.loads(r.stdout)
     assert r.returncode == 0 and out["recall"] == "7 of 7" and out["precision"] == "7 of 7", out
@@ -650,7 +650,7 @@ def _(d):
     st = M._statements("CREATE FUNCTION f() AS $$ BEGIN; x; END; $$ LANGUAGE plpgsql;\n-- a; comment\nSELECT 'a;b';\n/* c;\n d */ SELECT 1;")
     assert [l for l, _ in st] == [1, 3, 5] and st[1][1] == "SELECT 'a;b'", st
 
-@test("5.0 SC-55: requirements are tabled with the tests that cite them, undefined and untested ids are found, and an inferred requirement can't make a finding Critical or High")
+@test("5.0 SC-55: requirements are tabled with the tests that cite them, undefined and untested ids are found, and an inferred requirement can't make a finding Critical or High", repo=True)
 def _(d):
     r = run(HERE.parent / "eval" / "lens.py", str(HERE.parent / "eval" / "lens9.json"), "--json", cwd=d); out = json.loads(r.stdout)
     assert r.returncode == 0 and out["recall"] == "4 of 4" and out["precision"] == "4 of 4", out
@@ -671,7 +671,7 @@ def _(d):
     write(d, "v.json", "[]"); run(S / "critic_merge.py", "apply", "v.json", cwd=d)
     assert "## Capped at Medium" in (d / ".critic/counts.md").read_text(encoding="utf-8")
 
-@test("5.0 SC-54: the operations lens finds every planted defect, flags no decoy and nothing in the clean twin")
+@test("5.0 SC-54: the operations lens finds every planted defect, flags no decoy and nothing in the clean twin", repo=True)
 def _(d):
     r = run(HERE.parent / "eval" / "lens.py", str(HERE.parent / "eval" / "lens10.json"), "--json", cwd=d); out = json.loads(r.stdout)
     assert r.returncode == 0 and out["recall"] == "6 of 6" and out["precision"] == "6 of 6", out
@@ -816,7 +816,7 @@ def _(d):
     out = run(B, "step", "click", "e4", "--session", "s/w.json", cwd=d).stdout
     assert re.search(r"POST http://127\.0\.0\.1:\d+/api/save 501", out) and "would have sent" not in out, "with the user's yes, a write reaches the local server: " + out
 
-@test("5.0 SC-65: JavaScript code rules read code with strings and comments blanked, so a rule name in a comment or string is not a finding")
+@test("5.0 SC-65: JavaScript code rules read code with strings and comments blanked, so a rule name in a comment or string is not a finding", repo=True)
 def _(d):
     r = run(HERE.parent / "eval" / "lens.py", str(HERE.parent / "eval" / "lens11.json"), "--json", cwd=d); out = json.loads(r.stdout)
     assert r.returncode == 0 and out["recall"] == "6 of 6" and out["precision"] == "6 of 6" and not out["decoy_rows"], out
@@ -825,7 +825,7 @@ def _(d):
     rules = {x["rule"] for x in json.loads((d / ".critic/scan/report.json").read_text(encoding="utf-8"))["findings"]}
     assert {"per-keystroke", "todo"} <= rules, "rules that read strings or comments on purpose still do: " + str(rules)
 
-@test("5.0 SC-70: the death-match harness refuses to spend without --yes-spend, and scores every arm with one scorer, leaving precision NOT MEASURED until labelled")
+@test("5.0 SC-70: the death-match harness refuses to spend without --yes-spend, and scores every arm with one scorer, leaving precision NOT MEASURED until labelled", repo=True)
 def _(d):
     DM = HERE.parent / "eval" / "deathmatch.py"
     r = run(DM, "run", cwd=d); assert r.returncode == 2 and "--yes-spend" in r.stdout
@@ -855,7 +855,7 @@ def _(d):
     g = finding(category="domain", impact="Medium", line=4, quote="const price = total * 1.0825;", title="t")
     assert not validate(dict(g, difficulty="High", exploit_scenario="x", fix_short="y", fix_long="z")) and validate(dict(g, difficulty="Extreme"))
 
-@test("5.0 SC-18: the planter keeps only mutants a behaviour test proves broken, and writes an answer key for them")
+@test("5.0 SC-18: the planter keeps only mutants a behaviour test proves broken, and writes an answer key for them", repo=True)
 def _(d):
     ev = d
     write(ev, "tiny-clean/calc.py", "def total(xs):\n    return sum(xs)\n\n\ndef is_empty(xs):\n    return len(xs) == 0\n\n\ndef label():\n    return 'ok'\n")
@@ -1047,7 +1047,7 @@ def _(d):
     (d / ".critic/change-map.json").write_text(json.dumps({"files": ["docs/notes.txt", "README.md"], "tier": "full"}), encoding="utf-8")
     assert json.loads(run(S / "critic_plan.py", "--json", cwd=d).stdout)["kind"] == "document or plan"
 
-@test("5.0 card-E review B #16: lens.py fails a lens that adds a wrong row, so precision can fail the gate")
+@test("5.0 card-E review B #16: lens.py fails a lens that adds a wrong row, so precision can fail the gate", repo=True)
 def _(d):
     ev = d / "ev"; shutil.copytree(HERE.parent / "eval" / "fixture7", ev / "fixture7"); shutil.copytree(HERE.parent / "eval" / "fixture7-clean", ev / "fixture7-clean")
     key = json.loads((HERE.parent / "eval" / "lens7.json").read_text(encoding="utf-8")); key["planted"] = key["planted"][1:]
@@ -1055,7 +1055,7 @@ def _(d):
     r = run(HERE.parent / "eval" / "lens.py", str(d / "k.json"), "--json", cwd=d); out = json.loads(r.stdout)
     assert out["false_rows"] and out["verdict"] == "FAIL" and r.returncode == 1, out
 
-@test("5.0 card-E review B #17, #18: the death-match scorer credits a plant only from the claim, the same way for every arm, and hides no failed run")
+@test("5.0 card-E review B #17, #18: the death-match scorer credits a plant only from the claim, the same way for every arm, and hides no failed run", repo=True)
 def _(d):
     DM = HERE.parent / "eval" / "deathmatch.py"; rd = d / "runs"
     def put(arm, task, name, text): (rd / arm / task).mkdir(parents=True, exist_ok=True); (rd / arm / task / name).write_text(text, encoding="utf-8")
@@ -1125,7 +1125,7 @@ def _(d):
     (d / ".critic/change-map.json").write_text(json.dumps({"files": ["requirements/base.txt"], "tier": "full"}), encoding="utf-8")
     p = json.loads(run(S / "critic_plan.py", "--json", cwd=d).stdout); assert p["tier"] == "full" and "CI and supply chain" in p["lenses"], p
 
-@test("5.0 card-E verify round: the death-match scorer uses a plant's line range when it has one, counts uncited clean-twin claims as unlabelled, keeps claims before Fix:, and calls an empty reply no output")
+@test("5.0 card-E verify round: the death-match scorer uses a plant's line range when it has one, counts uncited clean-twin claims as unlabelled, keeps claims before Fix:, and calls an empty reply no output", repo=True)
 def _(d):
     DM = HERE.parent / "eval" / "deathmatch.py"; rd = d / "runs"
     def put(arm, task, name, text): (rd / arm / task).mkdir(parents=True, exist_ok=True); (rd / arm / task / name).write_text(text, encoding="utf-8")

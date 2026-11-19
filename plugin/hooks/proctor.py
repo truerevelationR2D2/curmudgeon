@@ -97,10 +97,32 @@ def _review_text(path):
     rows = rows.get("findings", []) if isinstance(rows, dict) else rows
     return [_norm(r[k]) for r in rows if isinstance(r, dict) for k in PROSE if isinstance(r.get(k), str) and len(r[k]) >= COPY_MIN] if isinstance(rows, list) else None
 
+PIECE = 20             # characters: a passage made wholly of pieces this long that the reviewer was allowed to see is no copy (03 §5.57 item 53)
+
+def _references():
+    """Curmudgeon's own instructions every reviewer reads: the review skill's references and the agents' prompts, so
+    their template words (the sandbox scenario names, say) are text a reviewer was allowed to see (03 §5.57 item 53:
+    the Windows acceptance run flagged three honest reviews for them)."""
+    here = pathlib.Path(__file__).resolve().parent.parent; out = []
+    for f in sorted((here / "skills" / "review" / "references").rglob("*.md")) + sorted((here / "agents").glob("*.md")) + [here / "skills" / "review" / "SKILL.md"]:
+        try: out.append(f.read_text(encoding="utf-8", errors="replace"))
+        except OSError: pass
+    return "\n".join(out)
+
+def _explained(g, pool):
+    """True when every character of the passage g lies in a piece of at least PIECE characters found in pool: a quote
+    of the code followed by the reviewer's own words, or two template phrases side by side, is no copy."""
+    covered = [False] * len(g)
+    for i in range(len(g) - PIECE + 1):
+        if g[i:i + PIECE] in pool:
+            for k in range(i, i + PIECE): covered[k] = True
+    return all(covered)
+
 def _allowed(root, letter, deadline):
-    """What the reviewer was allowed to see, squeezed: the project's own files (its private copy is a copy of them)
-    and its own brief. A passage found here is a quote of the code or the brief, never a copy."""
-    root = pathlib.Path(root); parts, n = [], 0
+    """What the reviewer was allowed to see, squeezed: the project's own files (its private copy is a copy of them),
+    its own brief and Curmudgeon's own instructions. A passage found here is a quote of the code, the brief or the
+    instructions, never a copy."""
+    root = pathlib.Path(root); parts, n = [_references()], 0
     if letter:
         b = root / ".critic" / "briefs" / f"brief-{letter}.md"
         try: parts.append(b.read_text(encoding="utf-8", errors="replace"))
@@ -108,7 +130,8 @@ def _allowed(root, letter, deadline):
     for dp, dirs, files in os.walk(root):
         dirs[:] = [x for x in dirs if x not in SKIP_DIRS and not x.startswith(".critic")]
         for f in files:
-            if time.time() > deadline or n > MAX_ALLOWED: return None
+            if time.time() > deadline: return None
+            if n > MAX_ALLOWED: return _norm("\n".join(parts))  # a very large project: compare against what was read, never give up the check (5.9.2 lite review)
             fp = pathlib.Path(dp) / f
             try:
                 if fp.is_symlink() or fp.stat().st_size > 2 * 1024 * 1024: continue
@@ -162,7 +185,8 @@ def copied(root, review_name, deadline, seen=""):
         if not shared: continue
         if allowed is ...: allowed = _allowed(root, letter.group(1), deadline)
         if allowed is None: return None
-        if any(g not in allowed for g in shared): hits.append(f"a {COPY_MIN}-character passage of {other.name} it never saw")
+        pool = allowed + " " + seen
+        if any(g not in allowed and not _explained(g, pool) for g in shared): hits.append(f"a {COPY_MIN}-character passage of {other.name} it never saw")
     return hits
 
 def check(root, transcript_path, review_name):

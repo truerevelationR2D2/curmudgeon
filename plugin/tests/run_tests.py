@@ -46,9 +46,17 @@ ONLY = os.environ.get("CRITIC_TEST_ONLY", "")  # run only the tests whose name c
 class Skip(Exception):
     """Raised by a test that can't run here (no Playwright, say): reported as SKIP, never as PASS (round 3, F-c2e409d3)."""
 
-def test(name):
+REPO = HERE.parent  # the repository around the plugin: its README, CHANGELOG, eval/ and marketplace
+IN_REPO = (REPO / ".claude-plugin" / "marketplace.json").is_file() and (REPO / "eval").is_dir() and (REPO / "README.md").is_file()
+
+def test(name, repo=False):
+    """repo=True: the test reads the repository around the plugin (README, CHANGELOG, eval/), so where only the plugin
+    folder is present, as in a packaged copy, it is reported as skipped, never as failed (03 §5.57 item 49). In the
+    repository and in CI it runs like any other test."""
     def deco(fn):
         if ONLY and ONLY not in name: return fn
+        if repo and not IN_REPO:
+            RESULTS.append((name, None, "needs the repository")); print("SKIP", name, "— needs the repository (README, CHANGELOG, eval/), not just the plugin folder"); return fn
         d = pathlib.Path(tempfile.mkdtemp(prefix="critic-test-"))
         try: fn(d); RESULTS.append((name, True, "")); print("PASS", name)
         except Skip as e: RESULTS.append((name, None, str(e))); print("SKIP", name, "—", e)

@@ -728,7 +728,7 @@ def _(d):
 
 # ---- Batch 4 of the ultimate audit (03 §5.57): documents and the benchmark scorer ----
 
-@test("audit V18: the death match's splitter keeps a bold-numbered finding's flush bullets with it, and ends it at the prose that follows (code-review/suite1~1 credits D01, D04 and D06)")
+@test("audit V18: the death match's splitter keeps a bold-numbered finding's flush bullets with it, and ends it at the prose that follows (code-review/suite1~1 credits D01, D04 and D06)", repo=True)
 def _(d):
     EV = HERE.parent / "eval"; sys.path.insert(0, str(EV))
     import importlib, deathmatch; importlib.reload(deathmatch)
@@ -745,7 +745,7 @@ def _(d):
     sec = deathmatch.blocks_from("### 1. XSS at app.js:11\n\nThe title goes into innerHTML unescaped.\n")
     assert len(sec) == 1 and "unescaped" in sec[0], sec
 
-@test("audit V06: the README's 5.2.4 benchmark rows are the numbers eval/benchmark-5.2.4/stats.json holds (planted bugs, interval, judged findings, false alarms, cost)")
+@test("audit V06: the README's 5.2.4 benchmark rows are the numbers eval/benchmark-5.2.4/stats.json holds (planted bugs, interval, judged findings, false alarms, cost)", repo=True)
 def _(d):
     st = json.loads((HERE.parent / "eval" / "benchmark-5.2.4" / "stats.json").read_text(encoding="utf-8"))["arms"]
     names = {"Curmudgeon 5.2.4, full": "curmudgeon", "Curmudgeon 5.2.4, lite": "curmudgeon-lite", "Claude Code's built-in `/code-review`": "cc-code-review",
@@ -1031,7 +1031,7 @@ def _(d):
         assert browse.live_count("example.com:443") == 5, "the ledger the scan now reads"
     finally: browse.ROOT = old
 
-@test("audit V40 and Qodo Q15: a 200-line range or myapp.js doesn't point at a plant in app.js, and fix advice that names a planted defect earns no credit")
+@test("audit V40 and Qodo Q15: a 200-line range or myapp.js doesn't point at a plant in app.js, and fix advice that names a planted defect earns no credit", repo=True)
 def _(d):
     EV = HERE.parent / "eval"; sys.path.insert(0, str(EV))
     import importlib, keymatch; importlib.reload(keymatch)
@@ -1045,7 +1045,7 @@ def _(d):
     rows = [{"file": "app.js", "line": 10, "title": "the list is slow to render", "evidence": "re-renders every note", "remediation": "escape titles to stop xss"}]
     got = ns["claims_of"](rows, [])[0]; assert "xss" not in got and "slow" in got, got
 
-@test("audit V43: the fast-create id check fails on the fixture where Date.now() ids collide (D14), and passes on an app whose ids can't")
+@test("audit V43: the fast-create id check fails on the fixture where Date.now() ids collide (D14), and passes on an app whose ids can't", repo=True)
 def _(d):
     try: import playwright  # noqa: F401
     except ImportError: raise Skip("Playwright is not installed here")
@@ -1070,7 +1070,7 @@ def _(d):
     bash = (HERE / "evals" / "review-never-edits" / "graders" / "no-bash-edit.md").read_text(encoding="utf-8"); bp = re.search(r"input_match: '(.*)'", bash).group(1)
     assert re.search(bp, '{"command": "sed -i s/<=/</ app.js"}') and not re.search(bp, '{"command": "cd /p/.critic/scratch/r1/payload && sed -i s/a/b/ app.js"}')
 
-@test("audit V20: bench_stats reads an archived run's recorded scores and rescores only when asked (--rescore), whatever the file times")
+@test("audit V20: bench_stats reads an archived run's recorded scores and rescores only when asked (--rescore), whatever the file times", repo=True)
 def _(d):
     EV = HERE.parent / "eval"; src = EV / "benchmark-5.2.4" / "2026-10-29-093654"
     rd = d / "run"; shutil.copytree(src, rd)
@@ -1139,7 +1139,7 @@ def _(d):
     r = run(S / "critic_merge.py", "tally", *[f".critic/reviews/review-{x}.json" for x in "ABC"], "--groups", ".critic/groups.json", cwd=e)
     assert r.returncode == 2 and "review-C.json" in r.stderr, r.stderr
 
-@test("batch 5 review: a nested .critic keeps only the owner's settings in a reviewer's copy, the second reviewer can't reuse the first one's brief, and behaviour1 still checks page errors")
+@test("batch 5 review: a nested .critic keeps only the owner's settings in a reviewer's copy, the second reviewer can't reuse the first one's brief, and behaviour1 still checks page errors", repo=True)
 def _(d):
     p = d / "proj"; write(p, "src/a.py", "x = 1\n")
     for n in ("nits.jsonl", "variants.md", "groups.json", "ledger.json", "integrity-baseline.json"): write(p, f"pkg/.critic/{n}", "{}")
@@ -1154,7 +1154,7 @@ def _(d):
     keys = {n.value for n in _ast.walk(_ast.parse((HERE.parent / "eval" / "behaviour1.py").read_text(encoding="utf-8"))) if isinstance(n, _ast.Constant) and isinstance(n.value, str)}
     assert "no page errors" in keys
 
-@test("batch 6 (03 §5.57.5): the optional modules have their own files, the review skill points at each, and the consent steps they moved still say ask, type the host and never fill it in")
+@test("batch 6 (03 §5.57.5): the optional modules have their own files, the review skill points at each, and the consent steps they moved still say ask, type the host and never fill it in", repo=True)
 def _(d):
     md = HERE / "skills" / "review" / "references" / "modules"; sk = (HERE / "skills" / "review" / "SKILL.md").read_text(encoding="utf-8")
     for n in ("browser-checks.md", "mutation.md", "live-sites.md", "security-feed.md"):
@@ -1345,7 +1345,7 @@ def _(d):
     rs = scan[scan.index("    def reserve():"):scan.index("def same_origin(")]
     assert "return False" in rs and rs.index("return False") < rs.index("return sent[0] < cap"), ("in a review run, a ledger that fails stops the scan's request too (Qodo on #23)", rs)
 
-@test("Qodo on #22 (3): fix advice in one structured field no longer cuts off the claim in a later field")
+@test("Qodo on #22 (3): fix advice in one structured field no longer cuts off the claim in a later field", repo=True)
 def _(d):
     EV = HERE.parent / "eval"; sys.path.insert(0, str(EV))
     import ast as _ast
@@ -1474,13 +1474,13 @@ def _enc_misses(paths):
             out += [f"{f.relative_to(HERE.parent)}:{n.lineno}" for n in _ast.walk(_ast.parse(t)) if isinstance(n, _ast.Call) and needs(n)]
     return out
 
-@test("platforms: every text read, write and subprocess in the plugin, the eval kit and the tests names its encoding, so Windows reads and writes UTF-8, not cp1252")
+@test("platforms: every text read, write and subprocess in the plugin, the eval kit and the tests names its encoding, so Windows reads and writes UTF-8, not cp1252", repo=True)
 def _(d):
     R = HERE.parent; assert (R / "plugin/hooks").is_dir(), R
     miss = _enc_misses([R / "plugin/hooks", R / "plugin/skills/review/scripts", R / "eval", R / "plugin/tests"])
     assert not miss, f"{len(miss)} calls name no encoding, first: {miss[:5]}"
 
-@test("platforms: a script printing non-ASCII to a cp1252 pipe (how Windows hands a hook's output to Claude Code) doesn't crash, and every entry script sets up UTF-8 output the same way")
+@test("platforms: a script printing non-ASCII to a cp1252 pipe (how Windows hands a hook's output to Claude Code) doesn't crash, and every entry script sets up UTF-8 output the same way", repo=True)
 def _(d):
     write(d, ".critic/reviews/review-A.json", json.dumps([{"title": "Für → café", "file": "a.py", "line": 1, "impact": "Low", "quote": "x", "evidence": "é", "category": "c"}]))
     _blind(d, "A")
@@ -1525,7 +1525,7 @@ def _(d):
         t = (S / f).read_text(encoding="utf-8")
         assert "signal.SIGHUP" not in t and "os.killpg(" not in t, f"{f} names a POSIX-only signal or killpg directly"
 
-@test("platforms: the repository checks text out with LF line endings on every platform, so a Windows checkout has the same bytes as the hash and fixture tests expect")
+@test("platforms: the repository checks text out with LF line endings on every platform, so a Windows checkout has the same bytes as the hash and fixture tests expect", repo=True)
 def _(d):
     t = (HERE.parent / ".gitattributes").read_text(encoding="utf-8") if (HERE.parent / ".gitattributes").is_file() else ""
     assert re.search(r"(?m)^\*\s+text=auto\s+eol=lf\s*$", t), t
@@ -1585,7 +1585,7 @@ def _(d):
                    and any(k.arg == "encoding" for k in n.keywords) and not any(k.arg == "errors" for k in n.keywords): miss.append(f"{f.name}:{n.lineno}")
     assert not miss, f"subprocess output decoded strictly (a Windows tool writes its own code page): {miss[:6]}"
 
-@test("Qodo on #27: a root escape held in a name, unpacked, looped over or returned is refused; a path inside the agent's notes with .. in it runs; any Curmudgeon agent's PowerShell is refused and the owner tripwire reads it; the folder dialog writes UTF-8; the stop gate keeps odd file names")
+@test("Qodo on #27: a root escape held in a name, unpacked, looped over or returned is refused; a path inside the agent's notes with .. in it runs; any Curmudgeon agent's PowerShell is refused and the owner tripwire reads it; the folder dialog writes UTF-8; the stop gate keeps odd file names", repo=True)
 def _(d):
     p, ws = _q22_proj(d)
     bad = ["python3 -c \"import os; r='\\\\x2f'; print(os.listdir(r))\"", "python3 -c \"import os; a, b = chr(47), 0; print(os.listdir(a))\"",
@@ -1716,7 +1716,7 @@ def _(d):
         assert privacy._trustees("D:(A;;FA;;;LA)") is None, "an alias Windows can't expand still refuses"
     finally: privacy._alias_sid = o
 
-@test("platforms: the Windows and macOS test jobs are required for release (03 §5.57 item 24): neither the macOS job nor the Windows script-test step may fail without failing the run; since 5.5.0 the WSL2 job is required too")
+@test("platforms: the Windows and macOS test jobs are required for release (03 §5.57 item 24): neither the macOS job nor the Windows script-test step may fail without failing the run; since 5.5.0 the WSL2 job is required too", repo=True)
 def _(d):
     ci = (HERE.parent / ".github/workflows/ci.yml").read_text(encoding="utf-8")
     jobs = {m.group(1): m.group(2) for m in re.finditer(r"(?ms)^  ([a-z0-9]+):\n(.*?)(?=^  [a-z0-9]+:\n|\Z)", ci)}
@@ -1725,7 +1725,7 @@ def _(d):
     assert "continue-on-error" not in step, "the Windows script tests block a release"
     assert "continue-on-error" not in jobs["wsl2"], "the WSL2 job blocks a release (5.5.0, after 40 green runs)"
 
-@test("Qodo on #29 (7): a new start whose lock fails clears the agent's earlier copy record first, so the guard can't accept the old copy; on Windows the real API expands LA and SY; the required-job test covers the Windows job's own setting")
+@test("Qodo on #29 (7): a new start whose lock fails clears the agent's earlier copy record first, so the guard can't accept the old copy; on Windows the real API expands LA and SY; the required-job test covers the Windows job's own setting", repo=True)
 def _(d):
     import importlib; sys.path.insert(0, str(H)); wsm = importlib.import_module("workspace")
     p = d / "proj"; write(p, "src/a.py", "x = 1\n")
@@ -1813,7 +1813,7 @@ def _(d):
         assert privacy.make_private(x, windows=True) and calls[0][4] == "*S-1-5-21-1:(OI)(CI)F" and not any("BUILTIN" in z or z.startswith("Users") for c in calls for z in c), ("the account comes from the token, never USERNAME", privacy.WHY, calls[:1])
     finally: sp.run = orig; undo()
 
-@test("Qodo on #30 (2): the browser's private folder gets its .gitignore even when the first lock fails, and the Windows-only checks still run when a script test fails")
+@test("Qodo on #30 (2): the browser's private folder gets its .gitignore even when the first lock fails, and the Windows-only checks still run when a script test fails", repo=True)
 def _(d):
     import privacy, browse
     om, broot = privacy.make_private, browse.ROOT

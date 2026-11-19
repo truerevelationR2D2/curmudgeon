@@ -415,7 +415,7 @@ def _(d):
     r = ask("git", "log", "--oneline"); assert r.returncode == 0 and "first" in r.stdout, r.stderr
 
 
-@test("5.6.0 eval harness: an arm allowed python3 is allowed the same Python by the full path Curmudgeon prints (the 12 Nov lite runs stalled at 60 approvals)")
+@test("5.6.0 eval harness: an arm allowed python3 is allowed the same Python by the full path Curmudgeon prints (the 12 Nov lite runs stalled at 60 approvals)", repo=True)
 def _(d):
     import shutil, importlib
     sys.path.insert(0, str(HERE.parent / "eval")); dm = importlib.import_module("deathmatch")
@@ -426,7 +426,7 @@ def _(d):
     assert dm.allowed_tools({"tools": ["Read"]}) == ["Read"], "an arm without python3 gets nothing added"
 
 
-@test("5.6.0 eval harness: a second report of a credited plant is neither waiting for a label nor counted, as label.py leaves it out (it kept the 12 Nov lite precision NOT MEASURED)")
+@test("5.6.0 eval harness: a second report of a credited plant is neither waiting for a label nor counted, as label.py leaves it out (it kept the 12 Nov lite precision NOT MEASURED)", repo=True)
 def _(d):
     import importlib
     sys.path.insert(0, str(HERE.parent / "eval")); dm = importlib.import_module("deathmatch")
@@ -455,7 +455,7 @@ def _(d):
     assert "suggested" not in run(S / "critic_plan.py", cwd=d).stdout
 
 
-@test("5.7.0 eval harness (03 §5.57 item 39): the strict gate reads the blind labels (label.py score-labels) and the runner's cost (total_cost_usd) in the baseline's unit")
+@test("5.7.0 eval harness (03 §5.57 item 39): the strict gate reads the blind labels (label.py score-labels) and the runner's cost (total_cost_usd) in the baseline's unit", repo=True)
 def _(d):
     E = HERE.parent / "eval"
     t = d / "run" / "curmudgeon-lite" / "suite1-clean~1"; t.mkdir(parents=True)
@@ -560,7 +560,7 @@ def _(d):
     t = json.loads((d / ".critic/tally.json").read_text(encoding="utf-8")); rows = t["kept"] + t["contested"]
     assert rows and not any(f.get("memory_note") or f.get("scan_evidence") == "E-1" or f.get("outside_impact") or f.get("raised_by") == ["X"] for f in rows), rows
 
-@test("Qodo on #48 (1, 2, 3): the eval allows this runner's own Python too; the label export covers Nits; two findings sharing a key but not a verdict leave it unlabelled")
+@test("Qodo on #48 (1, 2, 3): the eval allows this runner's own Python too; the label export covers Nits; two findings sharing a key but not a verdict leave it unlabelled", repo=True)
 def _(d):
     import importlib, shutil as sh
     sys.path.insert(0, str(HERE.parent / "eval")); dm = importlib.import_module("deathmatch"); lb = importlib.import_module("label")
@@ -580,7 +580,7 @@ def _(d):
     assert out.get(nk) == "nitpick", ("a Nit is labelled too (2)", out)
 
 
-@test("5.8.0 copy check (03 §5.57 item 40): 48 characters of another reviewer's earlier prose that a reviewer never saw are flagged in the counts, not voided; the code, its own tool output and the first writer never count")
+@test("5.8.0 copy check (03 §5.57 item 40): 48 characters of another reviewer's earlier prose that a reviewer never saw are flagged in the counts, not voided; the code, its own tool output and the first writer never count", repo=True)
 def _(d):
     write(d, "src/app.js", APP + "\n// prices are rounded half up to the cent before the tax rate is applied anywhere\n")
     run(S / "critic_run.py", "begin", "--files", "src/app.js", "--tier", "full", cwd=d)
@@ -598,11 +598,15 @@ def _(d):
     assert pa["copied"] == [], ("the first writer is never the one judged", pa)
     r = run(S / "critic_merge.py", "tally", *[f".critic/reviews/review-{x}.json" for x in "ABC"], "--no-scan", cwd=d); assert r.returncode == 0, r.stdout[-800:] + r.stderr[-800:]
     t = json.loads((d / ".critic/tally.json").read_text(encoding="utf-8"))
-    assert t["reviewers"] == 3 and any(x.startswith("possible copy: review-B.json") for x in t["degraded"]), ("flagged, its votes still count", t["reviewers"], t["degraded"])
-    assert not any("review-C.json" in x and "possible copy" in x for x in t["degraded"])
+    assert t["reviewers"] == 3 and any(x.startswith("possible copy: review-B.json") for x in t["flagged"]), ("flagged, its votes still count", t["reviewers"], t["flagged"])
+    assert not any("possible copy" in x for x in t["degraded"]), ("a flag never makes the run DEGRADED (03 §5.57 item 53)", t["degraded"])
+    assert not any("review-C.json" in x and "possible copy" in x for x in t["flagged"])
     assert "possible copy" in (HERE.parent / "plugin/agents/curmudgeon-reviewer.md").read_text(encoding="utf-8"), "reviewers are told it is checked"
+    r = run(S / "critic_merge.py", "tally", ".critic/reviews/review-A.json", "--no-scan", cwd=d); assert r.returncode == 0, r.stderr[-400:]
+    t = json.loads((d / ".critic/tally.json").read_text(encoding="utf-8"))
+    assert not any("review-B.json" in x for x in t.get("flagged") or []), ("a review left out of the tally is never flagged as counting (5.9.2 lite review)", t.get("flagged"))
 
-@test("5.8.0 eval leak check (03 §5.57 item 40): an answer-key entry's wording is a leak only from 48 characters, so a 31-character phrase a review wrote for a real finding isn't one")
+@test("5.8.0 eval leak check (03 §5.57 item 40): an answer-key entry's wording is a leak only from 48 characters, so a 31-character phrase a review wrote for a real finding isn't one", repo=True)
 def _(d):
     E = HERE.parent / "eval"; r = d / "run"; r.mkdir()
     def leak_of(text):
@@ -614,7 +618,7 @@ def _(d):
     assert "ANSWER-KEY LEAK" in leak_of("copied: " + long_), "48 characters copied: a leak"
 
 
-@test("5.8.0 blind round C1 to C6: the agent's own Write echo is never 'seen'; a copy check that can't finish is unchecked, not 'no copy'; it has a deadline; a voided review gets no copy line; any 48 characters of an answer-key entry count; 'earlier' is the first stop, not the file's time")
+@test("5.8.0 blind round C1 to C6: the agent's own Write echo is never 'seen'; a copy check that can't finish is unchecked, not 'no copy'; it has a deadline; a voided review gets no copy line; any 48 characters of an answer-key entry count; 'earlier' is the first stop, not the file's time", repo=True)
 def _(d):
     import importlib
     sys.path.insert(0, str(HERE.parent / "plugin/hooks")); P = importlib.import_module("proctor")
@@ -642,8 +646,8 @@ def _(d):
     assert P.copied(str(d), "review-A.json", time.time() + 20, "") == [], "the first to stop is never judged, whatever its file's time (C6)"
     _stop9(d, "c1b", "B", [b["B"], b["C"]])  # B also saw brief C's mark: voided
     r2 = run(S / "critic_merge.py", "tally", *[f".critic/reviews/review-{x}.json" for x in "AB"], "--no-scan", cwd=d); assert r2.returncode == 0, r2.stderr[-400:]
-    deg = json.loads((d / ".critic/tally.json").read_text(encoding="utf-8"))["degraded"]
-    assert any("voided by the proctor: review-B.json" in x for x in deg) and not any(x.startswith("possible copy: review-B.json") for x in deg), ("one line for a voided review (C4)", deg)
+    t2 = json.loads((d / ".critic/tally.json").read_text(encoding="utf-8")); deg = t2["degraded"]
+    assert any("voided by the proctor: review-B.json" in x for x in deg) and not any(x.startswith("possible copy: review-B.json") for x in deg + (t2.get("flagged") or [])), ("one line for a voided review (C4)", deg)
     E = HERE.parent / "eval"; rr = d / "run"; rr.mkdir()
     key = json.loads((E / "answer_key2.json").read_text(encoding="utf-8"))
     long_ = next(re.sub(r"\s+", " ", n.split(" ", 1)[-1].lower()) for n in key if len(re.sub(r"\s+", " ", n.split(" ", 1)[-1].lower())) >= 60)
