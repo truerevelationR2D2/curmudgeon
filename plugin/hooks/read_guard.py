@@ -654,7 +654,7 @@ def bash_problem(cmd, rec, root, critic, role, me):
                 for name in dict.fromkeys(m_.group(1) or m_.group(2) for x_ in variants for m_ in VAR_REF.finditer(x_)):
                     vals = shell_vars.get(name)
                     if vals:
-                        if len(variants) * len(vals) > 16 or len(vals) > 8: return f"{w}: a path built from more variable values than the guard follows; write the path out", cands  # fail closed (round 3 review)
+                        if len(variants) * len(vals) > 64 or len(vals) > 32: return f"{w}: a path built from more variable values than the guard follows; write the path out", cands  # fail closed (round 3 review)
                         variants = [VAR_REF.sub(lambda m_: v if (m_.group(1) or m_.group(2)) == name else m_.group(0), x) for x in variants for v in vals]
             if "$" in w: variants = variants + [VAR_REF.sub("", x) for x in variants if VAR_REF.search(x)]  # a name the command never set expands to nothing (round 3 review)
             if "{" in w and "," in w: variants = [b_ for x in variants for b_ in braces(x)]  # cat /p/.{critic,x}/...: as the shell expands it (round 2 review)

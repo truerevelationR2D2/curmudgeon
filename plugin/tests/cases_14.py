@@ -85,3 +85,42 @@ def _(d):
     many = f"cd {ws} && " + "".join(f"cat > ../notes/f{k}.txt <<'EOF'\n" + "it's a line\n" * 50 + "EOF\n" for k in range(80))
     t0 = _t.perf_counter(); C._tokens(many); took = _t.perf_counter() - t0
     assert took < 0.5, ("K-B3: here-documents are read in one pass, not once per here-document", took)
+
+@test("5.9.2 Windows acceptance run (03 §5.57 item 53): a passage made only of the code a reviewer quotes and Curmudgeon's own instructions is no copy")
+def _(d):
+    sys.path.insert(0, str(HERE / "hooks")); import importlib, proctor; importlib.reload(proctor)
+    root = d / "proj"; write(root, "app.py", "import sys\ntotal = float(sys.argv[1]) if len(sys.argv) > 1 else 0\n")
+    pool = proctor._allowed(str(root), "A", time.time() + 20)
+    g = proctor._norm("total = float(sys.argv[1]) if len(sys.argv) > 1 no data, no settings. what does the user see")
+    assert g not in pool and proctor._explained(g, pool), "a quote of the code beside the sandbox scenario's own words"
+    assert not proctor._explained(proctor._norm("a negative count prints a meaningless average to the user"), pool), "a reviewer's own words are still compared"
+
+@test("5.9.2 Windows acceptance run (03 §5.57 item 53): run.sh starts no Python for a call that can't concern Curmudgeon, and still checks every call that can")
+def _(d):
+    root = d / "proj"; write(root, "app.py", "print(1)\n")
+    import shutil
+    sh = shutil.which("sh")
+    if not sh: raise Skip("needs sh (Git Bash on Windows)")
+    real = pathlib.Path(sys.executable).as_posix(); fake = d / "bin"; fake.mkdir(); log = d / "starts.txt"
+    p = fake / "python3"; p.write_text(f'#!/bin/sh\necho x >> "{log.as_posix()}"\nexec "{real}" "$@"\n', encoding="utf-8"); p.chmod(0o755)
+    env = dict(os.environ, PATH=f"{fake}{os.pathsep}{os.environ.get('PATH', '')}", CLAUDE_PLUGIN_DATA=str(d / "data"))
+    def go(hook, payload):
+        log.unlink(missing_ok=True)
+        r = subprocess.run([sh, str(H / "run.sh"), str(H / hook)], input=json.dumps(payload), capture_output=True, text=True, encoding="utf-8", env=env, timeout=60, cwd=root)
+        return r.returncode, log.read_text(encoding="utf-8").count("x") if log.is_file() else 0
+    assert go("pre_tool.py", {"tool_name": "Read", "tool_input": {"file_path": "src/a.js"}, "cwd": str(root)}) == (0, 0), "the user's own Read: no Python"
+    assert go("pre_tool.py", {"tool_name": "Bash", "tool_input": {"command": "ls -la"}, "cwd": str(root)}) == (0, 0), "the user's own ls: no Python"
+    assert go("post_tool.py", {"tool_name": "Grep", "tool_input": {"pattern": "x"}, "cwd": str(root)}) == (0, 0)
+    assert go("pre_tool.py", {"tool_name": "Bash", "tool_input": {"command": "python3 tools/x.py"}, "cwd": str(root)})[1] >= 1, "a command that runs a .py file is checked"
+    assert go("pre_tool.py", {"tool_name": "Read", "tool_input": {"file_path": "a"}, "cwd": str(root), "agent_type": "curmudgeon:curmudgeon-reviewer", "agent_id": "r1"})[1] >= 1, "a reviewer's call is checked"
+    assert go("pre_tool.py", {"tool_name": "Agent", "tool_input": {"prompt": "x"}, "cwd": str(root)})[1] >= 1, "a new agent is checked"
+
+@test("5.9.2 Windows acceptance run (03 §5.57 item 53): a reviewer's test loop over 11 argument lists is not refused; a path built from 40 values still is")
+def _(d):
+    q = d / "q"; write(q, "app.py", "print(1)\n"); rec = _ws(q); w = rec["payload"]
+    loop = f"cd {w} && for a in " + " ".join(f'"{k} {k + 1}"' for k in range(11)) + "; do echo \"== [$a]\"; python3 app.py $a; done"
+    out = run(H / "read_guard.py", cwd=q, stdin=json.dumps({"tool_name": "Bash", "tool_input": {"command": loop}, "cwd": str(q), "agent_type": "curmudgeon:curmudgeon-reviewer", "agent_id": "r1"})).stdout
+    assert "deny" not in out, ("11 argument lists for a test loop", out)
+    many = f"cd {w} && for a in " + " ".join(f"x{k}" for k in range(40)) + "; do cat ../$a/f; done"
+    out = run(H / "read_guard.py", cwd=q, stdin=json.dumps({"tool_name": "Bash", "tool_input": {"command": many}, "cwd": str(q), "agent_type": "curmudgeon:curmudgeon-reviewer", "agent_id": "r1"})).stdout
+    assert "deny" in out, "past the limit a path built from many values is still refused"
