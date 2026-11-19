@@ -36,6 +36,7 @@ Ruling 52 (03 §5.57). Five reviews of 5.9.2 kept finding new shell spellings th
   - precision held: no finding judged wrong (full 88 real and 1 trivial, lite 53 real), and no false alarm on a clean twin;
   - planted bugs found: full 89 of 98 (5.9.2: 95; 5.6.0: 96), lite 88 of 98 (5.9.2: 89). Full's drop of 6 is within two runs' spread (Fisher's exact test against 5.9.2, p = 0.13); 6 of its 9 misses are the design and performance plants every tier misses at times (E13, E19, E22, E23);
   - cost for 12 runs: full $21.28 (5.9.2: $21.87), lite $9.94 (5.9.2: $9.51); wall time, sum of runs: full 3,700 s (5.9.2: 3,415 s), lite 2,470 s (2,414 s).
+- **A/B against 5.9.2** (ruling 55; full tier, suites 1, 2 and 4 and two clean twins, 3 runs each, interleaved, records kept): precision held in both (0 wrong, 0 clean-twin false alarms); planted bugs 128 against 132 of 141 (p = 0.51; with the earlier evals, 213 against 223 of 235, p = 0.11) with no sign of the boundary in the records; wall time about 10% longer per run. `eval/deathmatch.py` gains `--plugin-b` and `--keep-records` for this.
 - Tests in `plugin/tests/cases_15.py`; each fails on the code before its fix.
 
 ## 5.9.2: no honest reviewer cut for a mkdir, and guards that finish in time
