@@ -29,11 +29,13 @@ def _(d):
           "sed -i s/a/b/ src/x.js", "node -e 'console.log(1)'", "timeout 5 python3 ../notes/p.py", "ls -la . src", "cat -n $(git ls-files | head -3)",
           "python3 -m http.server 8765 >/dev/null 2>&1 & sleep 1", "grep -rn TODO . | wc -l", "find . -name '*.py' | xargs wc -l", "echo \"$(cat src/a.js)\"", "grep -n function src/a.js"]
     for c in ok: assert A.problem(f"cd {ws} && {c}", ws, notes) is None, (c, A.problem(f"cd {ws} && {c}", ws, notes))
-    blocked = ["mkdir -p ../../../reviews", f"rm -rf {d}/p/src", "git checkout -- .", "bash -c 'cat src/a.js'", "eval cat src/a.js", "source ../notes/env.sh",
-               "find . -name x -delete", "npm install left-pad", "echo \"$(curl -s example.test)\"", "pip install x", "kill -9 1234", "f() { cat x; }; f", "diff <(ls) <(ls src)"]
-    for c in blocked:
+    blocked = {"mkdir -p ../../../reviews": "outside your copy", f"rm -rf {d}/p/src": "outside your copy", "git checkout -- .": "git checkout can change",
+               "bash -c 'cat src/a.js'": "command given as text", "eval cat src/a.js": "eval", "source ../notes/env.sh": "source", "find . -name x -delete": "find",
+               "npm install left-pad": "npm install", "echo \"$(curl -s example.test)\"": "curl", "pip install x": "pip", "kill -9 1234": "kill",
+               "f() { cat x; }; f": "a shell function", "function g { ls; }": "a shell function", "diff <(ls) <(ls src)": "process substitution", "command kill 1": "command"}
+    for c, why_has in blocked.items():  # each block names what it blocked and says what to do instead (round 3, F-854d1d1a: any reason used to pass)
         why = A.problem(f"cd {ws} && {c}", ws, notes)
-        assert why and any(k in why for k in ("instead", "use", "outside", "reviewers")), (c, why)  # each block says what to do
+        assert why and why_has in why and any(k in why for k in ("instead", "use", "outside", "reviewers")), (c, why)
 
 @test("5.10.0 outcome check (case table rows 5, 7, 19): a write into another review or the project by code a reviewer ran is cut whatever its spelling; its own notes and its claimed review are not; a change while two reviewers' commands overlap is listed for the owner and cuts no one")
 def _(d):
@@ -180,3 +182,65 @@ def _(d):
     f = str(d / ".critic/reviews/review-A.json")
     import hashlib
     assert f in okay and hashlib.sha256(pathlib.Path(f).read_bytes()).hexdigest() in okay[f], ("the stamped content is a known write", list(okay))
+
+@test("5.10.0 round 3 (F-9707272d, F-65cdbe66, F-f9ad4b76, F-9fada6f5, F-d55692bc, F-b5a681a6, F-78964562, F-6e504768, F-d782db3c): an apostrophe never hides a $( ); computed write targets, xargs into a writer, sudo, doas and exec, tar with a stray t, bundled or shortened sort -o, a shell reading its input, git -c that runs a program, and sed w, yq -i and split writing outside are blocked; an option's value is never read as npm's subcommand")
+def _(d):
+    A = _al15(); ws = str(d / "p/.critic/scratch/r1/payload"); notes = str(d / "p/.critic/scratch/r1/notes")
+    ok = ["npm --loglevel silent test", "git -c core.pager=cat diff", "git -c color.ui=never log -1", "tar tf ../notes/x.tar", "tar -tvf ../notes/x.tar",
+          "bash ../notes/s.sh", "bash ../notes/s.sh < src/in.txt", "sed -n 1,5p src/a.js", "sed 's/w/x/' src/a.js", "sort -u src/a.txt", "yq '.a' src/x.yml",
+          "split -l 1 src/a ../notes/pre", "find . -name '*.js' | xargs wc -l", "echo \"it's $(ls src)\""]
+    for c in ok: assert A.problem(f"cd {ws} && {c}", ws, notes) is None, (c, A.problem(f"cd {ws} && {c}", ws, notes))
+    bad = {"echo \"it's $(netcat -s example.test) don't\"": "netcat", "echo \"it's\" \"$(sudo ls)\" \"don't\"": "sudo", "cp src/a \"$(echo /tmp)/x\"": "command's output", "echo /tmp/x | xargs touch": "xargs",
+           "sudo cat src/a": "sudo", "doas ls": "doas", "exec ls": "exec", "npm --prefix ../x install y": "npm --prefix ../x install y", "tar xf ../notes/a.tar t": "tar only",
+           "sort -uo /tmp/x src/a": "sort -o", "sort --out=/tmp/x src/a": "sort --output", "bash <<'E'\nls\nE": "its input", "echo ls | sh": "its input",
+           "sh < ../notes/x": "its input", "bash -s": "its input", "git -c core.fsmonitor=../notes/x status": "core.fsmonitor", "git -c core.pager=../notes/x diff": "core.pager",
+           "sed 'w /tmp/x' src/a": "/tmp/x", "sed 's/a/b/w /tmp/y' src/a": "/tmp/y", "yq -i '.a=1' /tmp/x.yml": "/tmp/x.yml", "split -l 1 src/a /tmp/pre": "/tmp/pre"}
+    for c, why_has in bad.items():
+        why = A.problem(f"cd {ws} && {c}", ws, notes)
+        assert why and why_has in why, (c, why)
+
+@test("5.10.0 round 3 (F-37b2b147): a call whose start hook never ran (it failed open, or timed out on a slow PC) cuts no one")
+def _(d):
+    O = _oc15(); p, recs = _setup15(d)
+    O.call_start(p, "r1", "a0"); O.call_end(p, "r1", "a0")
+    found = O.call_end(p, "r1", "no-start")
+    assert not any(a == "r1" for a, pth, w in found), ("a missing start is no tampering", found)
+
+@test("5.10.0 round 3 (F-88a7850b): a known write matches the walk's path whatever spelling it was recorded under")
+def _(d):
+    O = _oc15(); p, recs = _setup15(d); f = p / ".critic/reviews/review-Z.json"
+    O.call_start(p, "r1", "a0"); O.call_end(p, "r1", "a0")
+    O.call_start(p, "r1", "a1"); time.sleep(0.05); f.write_text("{}", encoding="utf-8")
+    O.known(p, str(p / ".critic" / "reviews" / ".." / "reviews" / "review-Z.json")); found = O.call_end(p, "r1", "a1")
+    assert not any("review-Z" in (pth or "") for a, pth, w in found), ("the same file, spelled another way", found)
+
+@test("5.10.0 round 3 (F-87045c9b): Curmudgeon's own ledger save and a watch build's top-level output during a reviewer's command are not the reviewer's")
+def _(d):
+    O = _oc15(); p, recs = _setup15(d); env = {**os.environ, "CRITIC_ROOT": str(p)}
+    assert run(S / "critic_ledger.py", "start", "review", cwd=p, env=env).returncode == 0
+    O.call_start(p, "r1", "a0"); O.call_end(p, "r1", "a0")
+    O.call_start(p, "r1", "a1"); time.sleep(0.05); led = (p / ".critic/ledger.json").read_bytes()
+    r = run(S / "critic_ledger.py", "cost", "5", "lead", cwd=p, env=env); assert r.returncode == 0 and (p / ".critic/ledger.json").read_bytes() != led, r.stderr
+    found = O.call_end(p, "r1", "a1")
+    assert not any(a == "r1" for a, pth, w in found), ("Curmudgeon's own ledger save", found)
+    O.call_start(p, "r1", "a2"); time.sleep(0.05); write(p, "dist/app.js", "built\n"); found = O.call_end(p, "r1", "a2")
+    assert not any(a == "r1" for a, pth, w in found), ("a watch build's output", found)
+
+@test("5.10.0 round 3 (F-6ecf9c94): past the file limit every folder is watched alone and no file is, so walk order decides nothing")
+def _(d):
+    O = _oc15(); q = d / "big"; [write(q, f"{s_}/f{k}.py", "x\n") for s_ in ("a", "b") for k in range(4)]
+    old = O.LIMIT; O.LIMIT = 5
+    try: snap, partial = O.watched(q)
+    finally: O.LIMIT = old
+    assert partial and not any(os.path.isfile(k) and k.startswith(str(q)) for k in snap) and str(q / "a") in snap and str(q / "b") in snap, sorted(snap)
+
+@test("5.10.0 round 3 (F-c5891dd1): a reviewer's own claimed review, written from its shell while another reviewer's call ran, is never listed")
+def _(d):
+    O = _oc15(); p, recs = _setup15(d, ("r1", "r2")); claim_for(p, "r2", "A"); f = p / ".critic/reviews/review-A.json"
+    O.call_start(p, "r1", "a0"); O.call_end(p, "r1", "a0")
+    O.call_start(p, "r1", "b1"); O.call_start(p, "r2", "b2"); time.sleep(0.05); f.write_text('{"findings": []}', encoding="utf-8")
+    old = O.PENDING_S; O.PENDING_S = 0
+    try:
+        found = O.call_end(p, "r2", "b2", own=[f]) + O.call_end(p, "r1", "b1"); time.sleep(0.05); O.call_start(p, "r1", "b3"); found += O.call_end(p, "r1", "b3")
+    finally: O.PENDING_S = old
+    assert not any("review-A" in (pth or "") for a, pth, w in found), found

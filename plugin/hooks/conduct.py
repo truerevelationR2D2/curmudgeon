@@ -355,6 +355,16 @@ def write_targets(cmd, start, kinds=False, _depth=0):
         elif name in ("chmod", "chown") and len(files) >= 2: out.extend((resolve(a), name) for a in files[1:])
         elif name == "sed" and any(re.fullmatch(r"-[A-Za-z]*i.*|--in-place(?:=.*)?", a) for a in args) and len(files) >= 2: out.extend((resolve(a), name) for a in files[1:])
         elif name == "dd": out.extend((resolve(a[3:]), name) for a in args if a.startswith("of="))
+        elif name == "yq" and any(re.fullmatch(r"-[A-Za-z]*i|--inplace", a) for a in args) and len(files) >= 2: out.extend((resolve(a), name) for a in files[1:])  # yq -i EXPR FILE: writes FILE, like sed -i (round 3, F-d782db3c)
+        if name == "sed":  # sed's own w and W commands and the s///w flag write the file they name (round 3, F-d782db3c)
+            scripts = [args[k + 1] for k, a in enumerate(args) if a in ("-e", "--expression") and k + 1 < len(args)] + [a.split("=", 1)[1] for a in args if a.startswith("--expression=")] or files[:1]
+            for sc in scripts:
+                for m in re.finditer(r"(?:^|[;\n{}])\s*(?:[0-9,$+~]+|/(?:\\.|[^/\n])*/)?\s*!?\s*[wW]\s*([^;\n}]+)|\bs(.)(?:\\.|(?!\2).)*\2(?:\\.|(?!\2).)*\2[gpiIeEmM0-9]*w\s*([^\n]+)", sc):
+                    f_ = (m.group(1) or m.group(3) or "").strip()
+                    if f_ and f_ not in ("/dev/stdout", "/dev/stderr"): out.append((resolve(f_), name))
+        if name == "split":  # split [IN [PREFIX]]: writes PREFIXaa, PREFIXab... (round 3, F-d782db3c)
+            pos = [a for k, a in enumerate(args) if not a.startswith("-") and not (k and args[k - 1] in ("-l", "-b", "-C", "-n", "-a", "-t", "--additional-suffix", "--filter"))]
+            if len(pos) >= 2: out.append((resolve(pos[1]), name))
     i = 0
     while i < len(toks):
         t = toks[i]

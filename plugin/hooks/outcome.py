@@ -14,8 +14,10 @@ How it works:
     a write outside its space). Its own claimed review is never a change against it. A change no single agent's call
     covers is listed for the owner as unattributed, and no one is cut for it.
   - At an agent's stop the same comparison runs once more, so a background job's later write is not missed.
-State lives in Curmudgeon's own folder outside the project (~/.curmudgeon, or CURMUDGEON_STATE_DIR), which agents can't
-write. Above LIMIT files the check watches folders only (new and removed files, not edits) and says so. Every part
+State lives in Curmudgeon's own folder outside the project (~/.curmudgeon, or CURMUDGEON_STATE_DIR). The guard keeps
+agents' own writes out of it, but code an agent runs works as the same user and could rewrite it: this check promises
+protection against honest mistakes and ordinary escapes, not deliberate tampering, which only the OS sandbox stops (03
+§5.57 item 54; round 3, F-62e866a2). Above LIMIT files the check watches folders only (new and removed files, not edits) and says so. Every part
 fails open: a broken check never blocks or cuts anyone."""
 import hashlib
 import json
@@ -28,7 +30,7 @@ LIMIT = 20000          # watched files before the check falls back to folders on
 PENDING_S = 30         # seconds a change to another reviewer's claimed review waits for that reviewer's own save to be recorded
 LONGEST = 600          # seconds: a call whose end was never logged is taken to have ended this long after it started (Bash's own longest timeout)
 SLACK = 0.05           # seconds either side of a call: file times come from the same clock as the hook's, a few ms coarser
-SKIP_DIRS = {".critic", ".git"}  # at the project's top: .critic is judged file by file below, .git by its config and hooks
+SKIP_DIRS = {".critic", ".git", "dist", "build", "coverage", "target", ".nyc_output"}  # at the project's top: .critic is judged file by file below, .git by its config and hooks; build output a watch build or test run writes, which no review reads as source (round 3, F-87045c9b)
 CACHES = {"__pycache__", ".cache", ".pytest_cache", ".mypy_cache", ".ruff_cache", ".next", ".turbo"}  # written by honest test runs and tools, anywhere
 
 
@@ -46,6 +48,11 @@ def _when(st):
     return st.st_ctime if os.name != "nt" else st.st_mtime
 
 
+def _key(p):
+    """One spelling for a path, so a known write recorded under the tool's spelling matches the walk's (round 3, F-88a7850b)."""
+    return os.path.normcase(os.path.realpath(str(p)))
+
+
 def _same(a, b):
     """Two snapshot entries match: size, mtime and (on POSIX) ctime, so a same-size rewrite with its mtime put back
     still shows (round 1, F-d00d0b9b)."""
@@ -55,24 +62,26 @@ def _same(a, b):
 def watched(root):
     """Every protected path with (size, mtime_ns, change time), and whether the list is partial (folders only)."""
     root = pathlib.Path(root)
-    out, partial, n = {}, False, 0
-    def add(p):
+    out, n, dirs = {}, 0, []
+    def add(p, into):
         try: st = os.stat(p, follow_symlinks=False)
         except OSError: return
-        if stat.S_ISDIR(st.st_mode) and not partial: return  # folders only in folder mode: their time changes whenever an honest writer adds to them
-        out[str(p)] = (st.st_size, st.st_mtime_ns, _when(st))
+        into[str(p)] = (st.st_size, st.st_mtime_ns, _when(st))
     for d, ds, fs in os.walk(root):
         ds[:] = [x for x in ds if x not in CACHES and not (pathlib.Path(d) == root and x in SKIP_DIRS) and not (os.path.basename(d) == "node_modules" and x.startswith("."))]  # node_modules/.vite, .cache...: tools' caches, written by honest test runs through the copy's link (round 2, F-9dec388c)
-        n += len(fs)
-        if n > LIMIT:  # too many files: from here on each folder alone (its time changes when a file is made or removed in it)
-            partial = True; add(d); continue
-        for f in fs: add(os.path.join(d, f))
+        dirs.append(d); n += len(fs)
+        if n <= LIMIT:
+            for f in fs: add(os.path.join(d, f), out)
+    partial = n > LIMIT
+    if partial:  # too many files: every folder alone, never some folders' files and not others', so walk order decides nothing (round 3, F-6ecf9c94); a folder's time changes when a file is made or removed in it
+        out = {}
+        for d in dirs: add(d, out)
     git = root / ".git"
-    for p in [git / "config", git / "HEAD"] + (sorted((git / "hooks").glob("*")) if (git / "hooks").is_dir() else []): add(p)
+    for p in [git / "config", git / "HEAD"] + (sorted((git / "hooks").glob("*")) if (git / "hooks").is_dir() else []): add(p, out)
     c = root / ".critic"
-    for p in (sorted((c / "reviews").glob("*")) if (c / "reviews").is_dir() else []) + [c / "proctor" / "claim-tokens.json", c / "ledger.json"]: add(p)  # files only: a folder's time changes whenever an honest writer adds to it (round 1, F-a0168e24)
+    for p in (sorted((c / "reviews").glob("*")) if (c / "reviews").is_dir() else []) + [c / "proctor" / "claim-tokens.json", c / "ledger.json"]: add(p, out)  # files only: a folder's time changes whenever an honest writer adds to it (round 1, F-a0168e24)
     home = pathlib.Path.home() / ".claude"
-    for p in (home / "settings.json", home / "settings.local.json", home / "CLAUDE.md"): add(p)
+    for p in (home / "settings.json", home / "settings.local.json", home / "CLAUDE.md"): add(p, out)
     return out, partial
 
 
@@ -83,7 +92,7 @@ def known(root, path):
     try:
         h = hashlib.sha256(pathlib.Path(path).read_bytes()).hexdigest()
         f = _state(root) / "known.jsonl"
-        with f.open("a", encoding="utf-8") as fh: fh.write(json.dumps({"path": str(path), "sha": h}) + "\n")
+        with f.open("a", encoding="utf-8") as fh: fh.write(json.dumps({"path": _key(path), "sha": h}) + "\n")
     except OSError: pass
 
 
@@ -144,10 +153,12 @@ def call_end(root, agent, call_id, own=()):
     mine = any(r.get("agent") == agent and r.get("id") == call_id and "start" in r for r in _calls(root))
     gone = not (_state(root) / "baseline.json").is_file()
     _log_call(root, {"agent": agent, "id": call_id, "end": now})
-    if not mine or gone:  # its start was logged and a snapshot taken before it ran: if either is gone, something removed them during this call (round 1, F-2de49bd3)
-        rest = [] if gone else sweep(root, own_of={agent: own})
-        if gone: snap, partial = watched(root); _save(root, snap, partial)
-        return [(agent, str(_state(root)), "removed the outcome check's own record of")] + rest
+    if gone and mine:  # its start was logged with a snapshot in place before it ran: the snapshot gone means something removed it during this call (round 1, F-2de49bd3)
+        snap, partial = watched(root); _save(root, snap, partial)
+        return [(agent, str(_state(root)), "removed the outcome check's own record of")]
+    if gone: return []  # no start and no snapshot: the hook before this call never ran (it can fail open, or time out on a slow PC), so there is nothing to compare; never a cut (round 3, F-37b2b147)
+    # no start logged but the snapshot is there: the hook before the call failed open; this call has no window, so a
+    # change it made is listed for the owner as unattributed, never charged to it (round 3, F-37b2b147)
     return sweep(root, own_of={agent: own})
 
 
@@ -195,8 +206,8 @@ def _pending(root, okay, now, out):
     for r in rows:
         try: sha = hashlib.sha256(pathlib.Path(r["path"]).read_bytes()).hexdigest()
         except OSError: sha = None
-        if sha and sha in okay.get(r["path"], set()): continue
-        if _stopped(root, r.get("owner")) or now - r["t"] > PENDING_S: out.append((r.get("agent"), r["path"], r["what"]))
+        if sha and sha in okay.get(_key(r["path"]), set()): continue
+        if _stopped(root, r.get("owner")) or now - r["t"] > PENDING_S and not r.get("owner_ran"): out.append((r.get("agent"), r["path"], r["what"]))  # the owner's own call was running: it waits for the owner's stop, when the stamp is recorded (round 3, F-c5891dd1)
         else: keep.append(r)
     tmp = f.with_suffix(f".{os.getpid()}.tmp"); tmp.write_text("".join(json.dumps(r) + "\n" for r in keep), encoding="utf-8"); os.replace(tmp, f)
 
@@ -217,9 +228,9 @@ def sweep(root, own_of=None):
     for path in sorted(set(old) | set(snap)):
         a, b = old.get(path), snap.get(path)
         if a is not None and b is not None and _same(a, b): continue
-        if b is not None and path in okay:
+        if b is not None and _key(path) in okay:
             try:
-                if hashlib.sha256(pathlib.Path(path).read_bytes()).hexdigest() in okay[path]: continue
+                if hashlib.sha256(pathlib.Path(path).read_bytes()).hexdigest() in okay[_key(path)]: continue
             except OSError: pass
         what = "made" if a is None else "removed" if b is None else "changed"
         t = b[2] if b is not None else began  # a removed file has no time of its own: only a call running when the walk began can be charged
@@ -228,7 +239,7 @@ def sweep(root, own_of=None):
         if ag and os.path.normcase(os.path.realpath(path)) in own_of.get(ag, set()): continue  # its own claimed review
         owner = claimed.get(os.path.basename(path)) if os.path.basename(os.path.dirname(path)) == "reviews" else None
         if owner and owner != ag and b is not None:  # another reviewer's claimed review: wait for that reviewer's own save
-            wait.append({"path": path, "agent": ag, "what": what, "t": now, "owner": owner}); continue
+            wait.append({"path": path, "agent": ag, "what": what, "t": now, "owner": owner, "owner_ran": owner in who}); continue
         out.append((ag, path, what))
     if wait:
         with (_state(root) / "pending.jsonl").open("a", encoding="utf-8") as fh:

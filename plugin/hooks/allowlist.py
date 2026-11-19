@@ -28,6 +28,8 @@ GIT_LIST = {"branch": {"-a", "-r", "-v", "-vv", "--list", "-l", "--all", "--remo
             "reflog": {"show"}}
 GIT_GLOBAL = {"-C": 1, "-c": 1, "--git-dir": 1, "--work-tree": 1, "--no-pager": 0, "-P": 0, "--no-optional-locks": 0, "--bare": 0}
 GIT_WRITE_OPTS = ("--output", "-o", "--ext-diff", "--textconv", "-O", "--open-files-in-pager")
+GIT_C_SAFE = r"color(?:\.[\w.-]+)?=\S*|core\.quotepath=\S*|core\.pager=(?:cat|less|more|)|pager\.[\w-]+=(?:false|cat|)|log\.(?:date|decorate|abbrevcommit)=\S*|diff\.(?:noprefix|renames|context)=\S*|i18n\.[\w.]+=\S*"  # git -c with a setting that only changes how output looks; core.fsmonitor, core.pager=PROGRAM, diff.external and the like run a program (round 3, F-6e504768)
+SHELLS = {"bash", "sh", "zsh", "dash", "ksh", "fish", "pwsh", "powershell", "cmd"}
 _data = None
 
 
@@ -48,6 +50,25 @@ def _inside(path, roots):
     return any(p == r or p.startswith(r + os.sep) for r in roots)
 
 
+def _double_quoted(s):
+    """The text inside each double-quoted part of s, read the way the shell reads quotes: an apostrophe inside double
+    quotes is a plain character, so it never hides a later $( ) (round 3, F-9707272d)."""
+    out, i, n = [], 0, len(s)
+    while i < n:
+        c = s[i]
+        if c == "\\": i += 2; continue
+        if c == "'":
+            j = s.find("'", i + 1); i = n if j < 0 else j + 1; continue
+        if c == '"':
+            j, buf = i + 1, []
+            while j < n and s[j] != '"':
+                if s[j] == "\\" and j + 1 < n: buf.append(s[j:j + 2]); j += 2; continue
+                buf.append(s[j]); j += 1
+            out.append("".join(buf)); i = j + 1; continue
+        i += 1
+    return out
+
+
 def problem(cmd, payload, notes, own_review=None, _depth=0):
     """None when every part of `cmd` is on the reviewers' command list, else one line saying what isn't and what to
     use instead. `payload` is the agent's copy, `notes` its notes folder; writes may go only there, to its claimed
@@ -56,7 +77,7 @@ def problem(cmd, payload, notes, own_review=None, _depth=0):
     bare = re.sub(r"'[^']*'|\"(?:\\.|[^\"\\])*\"", "''", flat)
     for rx, what, instead in NO_FORM:
         if re.search(rx, bare): return f"{what} is outside the reviewers' command list; {instead}"
-    for q in re.findall(r'"(?:\\.|[^"\\])*"', re.sub(r"'[^']*'", "''", flat)):  # $( ) inside double quotes: the command inside is judged the same way (round 2)
+    for q in _double_quoted(flat):  # $( ) inside double quotes: the command inside is judged the same way (round 2)
         for inner in re.findall(r"\$\(([^()]*)\)|`([^`]*)`", q):
             inner = inner[0] or inner[1]
             if _depth < 3 and inner.strip():
@@ -67,6 +88,7 @@ def problem(cmd, payload, notes, own_review=None, _depth=0):
     if toks is None: return "a command the guard can't read; write it more plainly"
     roots = [_real(payload), _real(notes)] + ([_real(own_review)] if own_review else [])
     for t, how in conduct.write_targets(cmd, payload, kinds=True):
+        if t and ("$(" in t or "`" in t): return f"{how} writes to a place named by a command's output, which the guard can't judge before it runs; write to a plain path in ../notes/ instead"  # round 3, F-65cdbe66
         if t and not _inside(t, roots) and os.path.normpath(t) not in (os.devnull, "/dev/null"):
             return f"{how} writes {t}, outside your copy and notes; write in your copy or ../notes/ instead"
     cwd, assigned = str(payload), {}
@@ -86,10 +108,31 @@ def problem(cmd, payload, notes, own_review=None, _depth=0):
             if _inside(nxt, roots): cwd = os.path.normpath(nxt)
             continue
         inner = conduct.run_words(words)  # timeout 5 X, xargs X, nice X, env X: X is what runs
+        lead = {conduct.name_of(w.lstrip("\x01")) for w in words[:len(words) - len(inner)]} if inner else set()
+        for w_ in sorted(lead & set(conduct.WRAPPERS)):  # sudo, doas, exec: the wrapper is judged too, before what it runs (round 3, F-f9ad4b76)
+            e_ = D["commands"].get(w_)
+            if e_ is not None and e_["c"] not in D["accepted"]: return f"{w_} {D['classes'].get(e_['c'], e_['c'])}, which is outside the reviewers' command list; run the command itself"
+        if "xargs" in lead and inner and _writes(D, inner): return f"xargs adds words the guard can't see to {conduct.name_of(inner[0])}, which writes files; name the files yourself, inside your copy or ../notes/"  # round 3, F-65cdbe66
         if inner and len(inner) < len(words): words = inner
         why = _judge(D, words, roots, cwd)
         if why: return why
     return None
+
+
+def _writes(D, words):
+    n = conduct.name_of(words[0].lstrip("\x01")); e = D["commands"].get(n) or {}
+    return e.get("c") == "write-own" or n in conduct.WRITERS_ALL | conduct.WRITERS_LAST or "out" in e or any(re.fullmatch(r"-[A-Za-z]*i.*|--in-place(?:=.*)?", w.lstrip("\x01")) for w in words[1:])
+
+
+def _long(a, o):
+    """a names the long option o, whole or cut short as GNU tools allow (--out for --output: round 3, F-b5a681a6)."""
+    k = a.split("=", 1)[0]
+    return a == o or a.startswith(o + "=") or len(k) >= 4 and o.startswith(k)
+
+
+def _short(a, o):
+    """a holds the short option o, alone, with its value joined, or bundled after other flags (-uo FILE: round 3)."""
+    return a.startswith("-") and not a.startswith("--") and len(a) > 1 and o[1] in a[1:]
 
 
 def _judge(D, words, roots, cwd):
@@ -101,8 +144,9 @@ def _judge(D, words, roots, cwd):
     c = e["c"]
     if n == "git": return _git_rules(args, roots, cwd)
     if "sub" in e:
-        sub = next((a for a in args if not a.startswith("-")), args[0] if args else "")
+        sub = next((a for a in args if a in e["sub"]), None) or next((a for a in args if not a.startswith("-")), args[0] if args else "")  # the first known subcommand, so an option's value is never taken for one (round 3, F-9fada6f5)
         c = e["sub"].get(sub, e["sub"].get(args[0], c) if args else c)
+        if sub not in e["sub"]: sub = " ".join(args)[:60]  # no known subcommand: show what it was given
         if c not in D["accepted"]: return f"{n} {sub} {D['classes'].get(c, c)}, which is outside the reviewers' command list; run the project's own tests (npm test, go test, cargo test) instead"
         return None
     if "first" in e:
@@ -110,15 +154,17 @@ def _judge(D, words, roots, cwd):
         else: return e.get("why") or f"{n} {D['classes'].get(c, c)}"
     if c not in D["accepted"]: return f"{n} {D['classes'].get(c, c)}, which is outside the reviewers' command list; {e.get('why') or 'use the reading tools (cat, grep, ls, find), or run code from your copy with python3 or node'}"
     if "only" in e and not any(a in e["only"] for a in args): return e.get("why") or f"{n} only as {' or '.join(e['only'])}"
-    if "only_re" in e and not any(re.search(e["only_re"], a) for a in args): return e.get("why") or f"{n} only in its listing form"
+    if "only_re" in e and not any(re.search(e["only_re"], a) for a in args if a.startswith("-") or a is args[0]): return e.get("why") or f"{n} only in its listing form"
     for o in e.get("w", []):
-        if any(a == o or a.startswith(o + "=") or len(o) == 2 and o[0] == "-" and o[1] != "-" and a.startswith(o) and len(a) > 2 and not a.startswith("--") for a in args):
+        if any(_long(a, o) if o.startswith("--") else _short(a, o) if len(o) == 2 and o[0] == "-" else a == o or a.startswith(o + "=") for a in args):
             return f"{n} {o} writes a file or runs a program, which is outside the reviewers' command list; print the result and redirect it into ../notes/ instead"
     if "out" in e:
         pos = [a for a in args if not a.startswith("-")]
         if len(pos) >= e["out"]:
             t = pos[e["out"] - 1]; t = t if os.path.isabs(t) else os.path.join(cwd, t)
             if not _inside(t, roots): return f"{n} writes {pos[e['out'] - 1]}, outside your copy and notes; write in ../notes/ instead"
+    plain = [a for k, a in enumerate(args) if a not in ("<", "<<", "<<<", "<<-") and not (k and args[k - 1] in ("<", "<<", "<<<", "<<-"))]
+    if n in SHELLS and (not [a for a in plain if not a.startswith("-")] or "-s" in plain): return f"{n} reading commands from its input (a pipe, a here-document or <) runs text the guard can't judge; write a script in ../notes/ and run it"  # round 3, F-78964562
     if e.get("c_deny") and any(re.fullmatch(r"-[A-Za-z]*c[A-Za-z]*", a) for a in args): return f"{n} -c runs a command given as text, which is outside the reviewers' command list; run the commands themselves"
     if e.get("m_deny"):
         mod = args[1] if len(args) >= 2 and args[0] == "-m" else args[0][2:] if args and args[0].startswith("-m") and len(args[0]) > 2 else None
@@ -133,6 +179,8 @@ def _git_rules(args, roots, cwd):
     F-c06b937b); options that write a file or run a program are refused on any subcommand."""
     k = 0
     while k < len(args) and (args[k] in GIT_GLOBAL or re.fullmatch(r"-c\S+|--git-dir=\S+|--work-tree=\S+", args[k])):
+        c_ = args[k + 1] if args[k] == "-c" and k + 1 < len(args) else args[k][2:] if re.fullmatch(r"-c\S+", args[k]) else None
+        if c_ is not None and not re.fullmatch(GIT_C_SAFE, c_, re.I): return f"git -c {c_} sets something that can run a program; use git's own defaults, or -c color.ui=never and -c core.pager=cat"
         if args[k] in ("-C", "--git-dir", "--work-tree") and k + 1 < len(args) and not _inside(os.path.join(cwd, os.path.expanduser(args[k + 1])), roots):
             return f"git {args[k]} {args[k + 1]} points outside your copy and notes; run git from your copy instead"
         k += 1 + (GIT_GLOBAL.get(args[k], 0) if args[k] in GIT_GLOBAL else 0)

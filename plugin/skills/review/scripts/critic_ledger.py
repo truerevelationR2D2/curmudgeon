@@ -152,6 +152,9 @@ def save(L):
     md = render(L); D.mkdir(parents=True, exist_ok=True)
     for path, body in ((F, json.dumps(L, indent=1, ensure_ascii=False)), (D / "ledger.md", md), (D / "decisions.md", render_decisions(L))):
         tmp = path.with_name(path.name + ".tmp"); tmp.write_text(body, encoding="utf-8"); os.replace(tmp, path)
+    try:  # Curmudgeon's own write, recorded so the outcome check never charges it to a reviewer whose command was running (5.10.0 round 3, F-87045c9b)
+        sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[3] / "hooks")); import outcome; outcome.known(ROOT, F)
+    except Exception: pass
     try: record_ledger(ROOT)  # so the merge, scan and brief know this ledger is the owner's own (ultimate audit H1)
     except OSError as e: die(f"saved the ledger, but couldn't record its checksum outside the project ({e}); its rulings won't apply until a save records it")
 
