@@ -244,3 +244,24 @@ def _(d):
         found = O.call_end(p, "r2", "b2", own=[f]) + O.call_end(p, "r1", "b1"); time.sleep(0.05); O.call_start(p, "r1", "b3"); found += O.call_end(p, "r1", "b3")
     finally: O.PENDING_S = old
     assert not any("review-A" in (pth or "") for a, pth, w in found), found
+
+@test("ruling 55, the A/B harness: --plugin-b runs each plugin arm again with the second build, the two builds' runs alternate, and --keep-records keeps a run's .critic records but never the agents' private copies", repo=True)
+def _(d):
+    sys.path.insert(0, str(HERE.parent / "eval")); import importlib; dm = importlib.import_module("deathmatch"); importlib.reload(dm)
+    w = d / "work"; write(w, ".critic/counts.md", "Counts"); write(w, ".critic/reviews/review-A.json", "{}"); write(w, ".critic/scratch/r1/payload/app.js", "x"); write(w, ".critic/scratch/r1/notes/n.txt", "n")
+    td = d / "td"; td.mkdir(); dm.keep_records(w, td)
+    assert (td / "critic/counts.md").is_file() and (td / "critic/reviews/review-A.json").is_file() and (td / "critic/scratch/r1/notes/n.txt").is_file(), "the records are kept"
+    assert not (td / "critic/scratch/r1/payload").exists(), "the private copy is the task itself: never kept"
+    A, B = {"id": "curmudgeon"}, {"id": "curmudgeon-b"}; t1, t2 = {"id": "suite1"}, {"id": "suite2"}
+    jobs = [(A, t1, 0), (A, t2, 0), (A, t1, 1), (B, t1, 0), (B, t2, 0), (B, t1, 1)]
+    order = [(a["id"], t["id"], k) for a, t, k in dm.interleave(jobs)]
+    assert order == [("curmudgeon", "suite1", 0), ("curmudgeon-b", "suite1", 0), ("curmudgeon", "suite2", 0), ("curmudgeon-b", "suite2", 0), ("curmudgeon", "suite1", 1), ("curmudgeon-b", "suite1", 1)], order
+    seen = []
+    real = dm.subprocess.run
+    class R: stdout = '{"result": "", "usage": {}}'; returncode = 0; stderr = ""
+    dm.subprocess.run = lambda cmd, **k: (seen.append(cmd), R())[1]
+    try:
+        arm = {**[x for x in dm.load_cfg()["arms"] if x["id"] == "curmudgeon"][0], "id": "curmudgeon-b", "_plugin": str(d / "buildB")}
+        (d / "out").mkdir(); dm.one_run(arm, w, d / "out", None)
+    finally: dm.subprocess.run = real
+    assert str(d / "buildB") in seen[0] and str(dm.PLUGIN) not in seen[0], ("the second build is the one loaded", seen[0])
