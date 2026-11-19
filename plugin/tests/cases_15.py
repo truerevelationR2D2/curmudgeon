@@ -181,6 +181,7 @@ def _(d):
     O = _oc15(); okay = O._known(d)
     f = str(d / ".critic/reviews/review-A.json")
     import hashlib
+    f = O._key(f)  # known writes are kept under the real path, so a spelling never decides (round 3, F-88a7850b; CI on #56: macOS /private/var, Windows case)
     assert f in okay and hashlib.sha256(pathlib.Path(f).read_bytes()).hexdigest() in okay[f], ("the stamped content is a known write", list(okay))
 
 @test("5.10.0 round 3 (F-9707272d, F-65cdbe66, F-f9ad4b76, F-9fada6f5, F-d55692bc, F-b5a681a6, F-78964562, F-6e504768, F-d782db3c): an apostrophe never hides a $( ); computed write targets, xargs into a writer, sudo, doas and exec, tar with a stray t, bundled or shortened sort -o, a shell reading its input, git -c that runs a program, and sed w, yq -i and split writing outside are blocked; an option's value is never read as npm's subcommand")
@@ -197,7 +198,7 @@ def _(d):
            "sed 'w /tmp/x' src/a": "/tmp/x", "sed 's/a/b/w /tmp/y' src/a": "/tmp/y", "yq -i '.a=1' /tmp/x.yml": "/tmp/x.yml", "split -l 1 src/a /tmp/pre": "/tmp/pre"}
     for c, why_has in bad.items():
         why = A.problem(f"cd {ws} && {c}", ws, notes)
-        assert why and why_has in why, (c, why)
+        assert why and why_has in why.replace("\\", "/"), (c, why)  # Windows names the path with \ (CI on #56)
 
 @test("5.10.0 round 3 (F-37b2b147): a call whose start hook never ran (it failed open, or timed out on a slow PC) cuts no one")
 def _(d):
