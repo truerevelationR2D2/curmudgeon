@@ -25,6 +25,7 @@ import stat
 import time
 
 LIMIT = 20000          # watched files before the check falls back to folders only
+PENDING_S = 30         # seconds a change to another reviewer's claimed review waits for that reviewer's own save to be recorded
 LONGEST = 600          # seconds: a call whose end was never logged is taken to have ended this long after it started (Bash's own longest timeout)
 SLACK = 0.05           # seconds either side of a call: file times come from the same clock as the hook's, a few ms coarser
 SKIP_DIRS = {".critic", ".git"}  # at the project's top: .critic is judged file by file below, .git by its config and hooks
@@ -61,7 +62,7 @@ def watched(root):
         if stat.S_ISDIR(st.st_mode) and not partial: return  # folders only in folder mode: their time changes whenever an honest writer adds to them
         out[str(p)] = (st.st_size, st.st_mtime_ns, _when(st))
     for d, ds, fs in os.walk(root):
-        ds[:] = [x for x in ds if x not in CACHES and not (pathlib.Path(d) == root and x in SKIP_DIRS)]
+        ds[:] = [x for x in ds if x not in CACHES and not (pathlib.Path(d) == root and x in SKIP_DIRS) and not (os.path.basename(d) == "node_modules" and x.startswith("."))]  # node_modules/.vite, .cache...: tools' caches, written by honest test runs through the copy's link (round 2, F-9dec388c)
         n += len(fs)
         if n > LIMIT:  # too many files: from here on each folder alone (its time changes when a file is made or removed in it)
             partial = True; add(d); continue
@@ -171,13 +172,44 @@ def _windows(root):
     return out
 
 
+def _claimed(root):
+    """{review file name: the agent that claimed it}."""
+    try:
+        import conduct
+        return {r: a for a, r in conduct.claims(root).items()}
+    except Exception: return {}
+
+
+def _stopped(root, agent):
+    return (pathlib.Path(root) / ".critic" / "stops" / f"{agent}.json").is_file()
+
+
+def _pending(root, okay, now, out):
+    """Changes to a review another reviewer claimed wait here until that reviewer's own save is recorded as a known
+    write (it lands just after the save, so a command ending in that gap must not be charged: round 2, F-cec6dc20 and
+    F-b75d95cf). One is dropped when its content is the owner's known write, and charged as found once the owner has
+    stopped or PENDING_S seconds have passed."""
+    f = _state(root) / "pending.jsonl"; keep = []
+    try: rows = [json.loads(x) for x in f.read_text(encoding="utf-8").splitlines() if x.strip()]
+    except (OSError, ValueError): rows = []
+    for r in rows:
+        try: sha = hashlib.sha256(pathlib.Path(r["path"]).read_bytes()).hexdigest()
+        except OSError: sha = None
+        if sha and sha in okay.get(r["path"], set()): continue
+        if _stopped(root, r.get("owner")) or now - r["t"] > PENDING_S: out.append((r.get("agent"), r["path"], r["what"]))
+        else: keep.append(r)
+    tmp = f.with_suffix(f".{os.getpid()}.tmp"); tmp.write_text("".join(json.dumps(r) + "\n" for r in keep), encoding="utf-8"); os.replace(tmp, f)
+
+
 def sweep(root, own_of=None):
     """Compare the protected set with the last snapshot, charge each change, and save the new snapshot."""
     old, _ = _baseline(root)
+    began = time.time()  # before the walk: a removed file is timed from here, however long the walk takes (round 2, F-311e3be9)
     snap, partial = watched(root)
     _save(root, snap, partial)
     if old is None: return []
-    now = time.time(); wins = _windows(root); out = []; okay = _known(root)
+    now = time.time(); wins = _windows(root); out = []; okay = _known(root); claimed = _claimed(root); wait = []
+    _pending(root, okay, now, out)
     own_of = {a: {os.path.normcase(os.path.realpath(str(p))) for p in ps} for a, ps in (own_of or {}).items()}
     if partial and not (_state(root) / "partial.flag").exists():
         (_state(root) / "partial.flag").write_text("1", encoding="utf-8")
@@ -190,13 +222,17 @@ def sweep(root, own_of=None):
                 if hashlib.sha256(pathlib.Path(path).read_bytes()).hexdigest() in okay[path]: continue
             except OSError: pass
         what = "made" if a is None else "removed" if b is None else "changed"
-        t = b[2] if b is not None else now  # a removed file has no time of its own: only the call running now can be charged
+        t = b[2] if b is not None else began  # a removed file has no time of its own: only a call running when the walk began can be charged
         who = {ag for ag, s, e in wins if s - SLACK <= t <= (e if e is not None else now) + SLACK}
-        if len(who) == 1:
-            ag = next(iter(who))
-            if os.path.normcase(os.path.realpath(path)) in own_of.get(ag, set()): continue  # its own claimed review
-            out.append((ag, path, what))
-        else: out.append((None, path, what))
+        ag = next(iter(who)) if len(who) == 1 else None
+        if ag and os.path.normcase(os.path.realpath(path)) in own_of.get(ag, set()): continue  # its own claimed review
+        owner = claimed.get(os.path.basename(path)) if os.path.basename(os.path.dirname(path)) == "reviews" else None
+        if owner and owner != ag and b is not None:  # another reviewer's claimed review: wait for that reviewer's own save
+            wait.append({"path": path, "agent": ag, "what": what, "t": now, "owner": owner}); continue
+        out.append((ag, path, what))
+    if wait:
+        with (_state(root) / "pending.jsonl").open("a", encoding="utf-8") as fh:
+            for r in wait: fh.write(json.dumps(r) + "\n")
     return out
 
 
@@ -214,6 +250,6 @@ def record(root, found):
 def forget(root):
     """End of a run: drop the snapshot and the call log."""
     d = _state(root)
-    for f in ("baseline.json", "calls.jsonl", "known.jsonl", "partial.flag"):
+    for f in ("baseline.json", "calls.jsonl", "known.jsonl", "partial.flag", "pending.jsonl"):
         try: (d / f).unlink()
         except OSError: pass

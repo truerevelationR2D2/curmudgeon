@@ -27,10 +27,10 @@ def _(d):
     ok = ["cat src/app.js | head -50", "for f in src/*.js; do wc -l $f; done", "python3 - <<'EOF'\nprint(open('src/app.js').read()[:9])\nEOF",
           "cat > ../notes/p.py <<'EOF'\nprint(1)\nEOF\npython3 ../notes/p.py", "cp src/a.js ../notes/", "git log --oneline -5", "npm test",
           "sed -i s/a/b/ src/x.js", "node -e 'console.log(1)'", "timeout 5 python3 ../notes/p.py", "ls -la . src", "cat -n $(git ls-files | head -3)",
-          "python3 -m http.server 8765 >/dev/null 2>&1 & sleep 1", "grep -rn TODO . | wc -l", "find . -name '*.py' | xargs wc -l"]
+          "python3 -m http.server 8765 >/dev/null 2>&1 & sleep 1", "grep -rn TODO . | wc -l", "find . -name '*.py' | xargs wc -l", "echo \"$(cat src/a.js)\"", "grep -n function src/a.js"]
     for c in ok: assert A.problem(f"cd {ws} && {c}", ws, notes) is None, (c, A.problem(f"cd {ws} && {c}", ws, notes))
     blocked = ["mkdir -p ../../../reviews", f"rm -rf {d}/p/src", "git checkout -- .", "bash -c 'cat src/a.js'", "eval cat src/a.js", "source ../notes/env.sh",
-               "find . -name x -delete", "npm install left-pad", "echo \"$(cat src/a.js)\"", "pip install x", "kill -9 1234", "f() { cat x; }; f", "diff <(ls) <(ls src)"]
+               "find . -name x -delete", "npm install left-pad", "echo \"$(curl -s example.test)\"", "pip install x", "kill -9 1234", "f() { cat x; }; f", "diff <(ls) <(ls src)"]
     for c in blocked:
         why = A.problem(f"cd {ws} && {c}", ws, notes)
         assert why and any(k in why for k in ("instead", "use", "outside", "reviewers")), (c, why)  # each block says what to do
@@ -127,3 +127,56 @@ def _(d):
            "sort -o src/a.txt src/b.txt", "rg --pre ../notes/x.sh foo", "npx left-pad", "npm x left-pad", "pnpm dlx x", "python3 -mpip install x",
            f"echo x > {d}/p/.critic/scratch/r1/notes-evil/f", "go install x@latest", "cargo install x"]
     for c in bad: assert A.problem(f"cd {ws} && {c}", ws, notes), c
+
+@test("5.10.0 round 2 (F-cec6dc20, F-b75d95cf, F-9e4f9a59): another reviewer's own review save that lands during a command is never charged, even before its known-write mark; a forged change to another's claimed review is still charged once that reviewer stops; a known review changed afterwards is charged")
+def _(d):
+    p, recs = _setup15(d, ("r1", "r2")); claim_for(p, "r2", "A"); ws = recs["r1"]["payload"]; f = p / ".critic/reviews/review-A.json"
+    s, _ = _call15(p, "r1", f"cd {ws} && ls", "q0"); _post15(p, s)
+    s, _ = _call15(p, "r1", f"cd {ws} && ls src", "q1"); time.sleep(0.05); f.write_text('{"findings": []}', encoding="utf-8"); _post15(p, s)  # r1's command ends before r2's mark
+    run(H / "post_tool.py", cwd=p, stdin=json.dumps({"tool_name": "Write", "tool_input": {"file_path": str(f)}, "cwd": str(p), "agent_type": "curmudgeon:curmudgeon-reviewer", "agent_id": "r2"}))
+    s, _ = _call15(p, "r1", f"cd {ws} && ls", "q2"); _post15(p, s)
+    assert not _lines15(p, "cut", "r1") and not _lines15(p, "unattributed", "unattributed"), (_lines15(p, "cut", "r1"), _lines15(p, "unattributed", "unattributed"))
+    s, _ = _call15(p, "r1", f"cd {ws} && python3 ../notes/f.py", "q3"); time.sleep(0.05); f.write_text('{"findings": ["forged"]}', encoding="utf-8"); _post15(p, s)
+    assert not _lines15(p, "cut", "r1"), "it waits for r2's own save"
+    write(p, ".critic/stops/r2.json", "{}")  # r2 stops without saving that content
+    s, _ = _call15(p, "r1", f"cd {ws} && ls", "q4"); _post15(p, s)
+    assert any("review-A.json" in w for w in _lines15(p, "cut", "r1")), ("charged once its owner stopped", _lines15(p, "cut", "r1"))
+
+@test("5.10.0 round 2 (F-311e3be9, F-9dec388c, F-9e4f9a59): a file a command deletes is charged however long the walk takes; caches under a linked node_modules are not changes; a blocked command opens no window")
+def _(d):
+    O = _oc15(); p, recs = _setup15(d); ws = recs["r1"]["payload"]
+    write(p, "src/gone.py", "z = 1\n"); write(p, "node_modules/pkg/index.js", "x\n")
+    O.call_start(p, "r1", "w0"); O.call_end(p, "r1", "w0")
+    O.call_start(p, "r1", "w1"); (p / "src/gone.py").unlink()
+    real = O.watched; O.watched = lambda r: (time.sleep(0.3), real(r))[1]
+    try: found = O.call_end(p, "r1", "w1")
+    finally: O.watched = real
+    assert any(a == "r1" and "gone.py" in (pth or "") for a, pth, w in found), ("a deletion during the walk", found)
+    O.call_start(p, "r1", "w2"); write(p, "node_modules/.vite/deps/x.js", "y\n"); found = O.call_end(p, "r1", "w2")
+    assert not any("node_modules" in (pth or "") for a, pth, w in found), found
+    s, out = _call15(p, "r1", f"cd {ws} && eval ls", "w3"); assert "deny" in out
+    time.sleep(0.05); write(p, "src/late.py", "q\n"); time.sleep(0.05)
+    found = O.sweep(p)
+    assert not any(a == "r1" for a, pth, w in found), ("the blocked command had no window", found)
+
+@test("5.10.0 round 2 (F-702ecf38, F-c06b937b, F-35db7c2e, F-ba44f2df) and ruling 53's command data: grep function passes; git listing subcommands with a writing option, git reflog expire, git --output, uniq or xxd writing outside, and a command unknown to commands.json are blocked; git -C .. from a subfolder of the copy passes; a variable set to a known program runs")
+def _(d):
+    A = _al15(); ws = d / "p/.critic/scratch/r1/payload"; (ws / "src").mkdir(parents=True); notes = str(ws.parent / "notes"); ws = str(ws)
+    for c in ["grep -n function src/a.js", "cd src && git -C .. log -3", "P=python3; $P -I app.py 1 2", "uniq src/a.txt ../notes/u.txt", "tar -tf ../notes/x.tar", "command -v node"]:
+        assert A.problem(f"cd {ws} && {c}", ws, notes) is None, (c, A.problem(f"cd {ws} && {c}", ws, notes))
+    for c in ["git branch --list -D main", "git tag -l -d v1", "git reflog expire --all", "git log --output=/tmp/x.txt", "uniq src/a.txt /tmp/out.txt",
+              "xxd -r src/a.hex /tmp/x.bin", "pg_isready", "claude -p hi", "tar -xf ../notes/x.tar", "command kill 1", "curl -s example.test"]:
+        assert A.problem(f"cd {ws} && {c}", ws, notes), c
+    J = json.loads((HERE / "hooks/commands.json").read_text(encoding="utf-8"))
+    assert set(J["accepted"]) <= set(J["classes"]) and all(e["c"] in J["classes"] for e in J["commands"].values()), "every class named in the data is described"
+
+@test("5.10.0 round 2 (F-3b41c013): the stop hook's own stamp on a review is recorded as a known write, through check_contract.py itself")
+def _(d):
+    write(d, "src/app.js", APP); write(d, ".critic/ledger.json", json.dumps({"started_at": time.time() - 5}))
+    run(S / "critic_proctor.py", "begin", cwd=d) if (S / "critic_proctor.py").is_file() else None
+    claim_for(d, "r2", "A"); write(d, ".critic/reviews/review-A.json", json.dumps({"findings": [TAX9]}))
+    _stop9(d, "r2", "A", ["src/app.js"])
+    O = _oc15(); okay = O._known(d)
+    f = str(d / ".critic/reviews/review-A.json")
+    import hashlib
+    assert f in okay and hashlib.sha256(pathlib.Path(f).read_bytes()).hexdigest() in okay[f], ("the stamped content is a known write", list(okay))
