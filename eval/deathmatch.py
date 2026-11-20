@@ -127,7 +127,7 @@ def json_findings(text):
 def _points_at(k, loc):
     """True when the block points where the plant is: its file, and (when the key gives "at") one of its places
     (keymatch.py, shared with score.py)."""
-    if k.get("file") and k["file"].lower() not in loc.lower(): return False
+    if k.get("file") and not k.get("at") and k["file"].lower() not in loc.lower(): return False  # with "at", its places decide: a "file" there hid every place in another file (E03, E04 and E26 of suite 2, D08, R1; 03 §5.57 item 56)
     return keymatch.points_at(k, loc)
 
 def match_plants(plants, blocks):

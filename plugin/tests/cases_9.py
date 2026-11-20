@@ -580,18 +580,18 @@ def _(d):
     assert out.get(nk) == "nitpick", ("a Nit is labelled too (2)", out)
 
 
-@test("5.8.0 copy check (03 §5.57 item 40): 48 characters of another reviewer's earlier prose that a reviewer never saw are flagged in the counts, not voided; the code, its own tool output and the first writer never count", repo=True)
+@test("5.8.0 copy check (03 §5.57 items 40 and 56): 160 characters of another reviewer's earlier prose that a reviewer never saw are flagged in the counts, not voided; the code, its own tool output and the first writer never count", repo=True)
 def _(d):
     write(d, "src/app.js", APP + "\n// prices are rounded half up to the cent before the tax rate is applied anywhere\n")
     run(S / "critic_run.py", "begin", "--files", "src/app.js", "--tier", "full", cwd=d)
     b = {x: (d / f".critic/briefs/brief-{x}.md").read_text(encoding="utf-8") for x in "ABC"}
-    odd = "the discount stack silently compounds when two coupons share a single redemption code"
+    odd = "the discount stack silently compounds when two coupons share a single redemption code, so the second coupon is applied to the already reduced subtotal and the order total drops below the floor price"  # longer than the 160-character copy check (03 §5.57 item 56)
     inproj = "prices are rounded half up to the cent before the tax rate is applied anywhere"
     write(d, ".critic/reviews/review-A.json", json.dumps([dict(TAX9, evidence=TAX9["evidence"] + "; " + odd + "; " + inproj)]))
     pa = _stop9(d, "ca", "A", [b["A"]]); time.sleep(1.1)
     write(d, ".critic/reviews/review-B.json", json.dumps([dict(TAX9, title="Coupons compound", evidence="I found that " + odd + ", which overcharges nobody but undercharges")]))
     pb = _stop9(d, "cb", "B", [b["B"]]); time.sleep(1.1)
-    assert pb["saw"] == [] and pb["copied"] == ["a 48-character passage of review-A.json it never saw"], pb
+    assert pb["saw"] == [] and pb["copied"] == ["a 160-character passage of review-A.json it never saw"], pb
     write(d, ".critic/reviews/review-C.json", json.dumps([dict(TAX9, title="Rounding", evidence="src/app.js says " + inproj + ", and " + odd + " (the test printed it)", failing_case="two coupons on one order", remediation="cap it")]))
     pc = _stop9(d, "cc", "C", [b["C"], "test output: " + odd])
     assert pc["copied"] == [], ("the code and its own tool output never count", pc)
@@ -605,6 +605,22 @@ def _(d):
     r = run(S / "critic_merge.py", "tally", ".critic/reviews/review-A.json", "--no-scan", cwd=d); assert r.returncode == 0, r.stderr[-400:]
     t = json.loads((d / ".critic/tally.json").read_text(encoding="utf-8"))
     assert not any("review-B.json" in x for x in t.get("flagged") or []), ("a review left out of the tally is never flagged as counting (5.9.2 lite review)", t.get("flagged"))
+
+@test("ruling 56 (D21): stock phrasing two honest reviewers share, up to the 150 characters measured on honest runs, is no copy; a passage of 160 characters or more still is", repo=True)
+def _(d):
+    write(d, "src/app.js", APP)
+    run(S / "critic_run.py", "begin", "--files", "src/app.js", "--tier", "full", cwd=d)
+    b = {x: (d / f".critic/briefs/brief-{x}.md").read_text(encoding="utf-8") for x in "ABC"}
+    stock = "remove the claim until it is audited, or fix the failures it hides; the list is never re-rendered after a save, so titles and the rank go stale until the page reloads"[:150]
+    long_ = "the discount stack silently compounds when two coupons share a single redemption code, so the second coupon is applied to the already reduced subtotal and the order total drops below the floor price"
+    write(d, ".critic/reviews/review-A.json", json.dumps([dict(TAX9, evidence=TAX9["evidence"] + "; " + stock + "; " + long_)]))
+    _stop9(d, "da", "A", [b["A"]]); time.sleep(1.1)
+    write(d, ".critic/reviews/review-B.json", json.dumps([dict(TAX9, title="Stale list", evidence="as I traced it, " + stock + " (my words)")]))
+    pb = _stop9(d, "db", "B", [b["B"]]); time.sleep(1.1)
+    assert pb["copied"] == [], ("150 characters of shared stock phrasing: honest reviewers on one model write that (A/B, 19 Nov: 7 of 33 honest runs shared 100 or more)", pb)
+    write(d, ".critic/reviews/review-C.json", json.dumps([dict(TAX9, title="Coupons", evidence="so " + long_ + " here")]))
+    pc = _stop9(d, "dc", "C", [b["C"]])
+    assert pc["copied"] == ["a 160-character passage of review-A.json it never saw"], ("a whole finding's words still count", pc)
 
 @test("5.8.0 eval leak check (03 §5.57 item 40): an answer-key entry's wording is a leak only from 48 characters, so a 31-character phrase a review wrote for a real finding isn't one", repo=True)
 def _(d):
@@ -625,7 +641,7 @@ def _(d):
     write(d, "src/app.js", APP)
     run(S / "critic_run.py", "begin", "--files", "src/app.js", "--tier", "full", cwd=d)
     b = {x: (d / f".critic/briefs/brief-{x}.md").read_text(encoding="utf-8") for x in "ABC"}
-    odd = "the discount stack silently compounds when two coupons share a single redemption code"
+    odd = "the discount stack silently compounds when two coupons share a single redemption code, so the second coupon is applied to the already reduced subtotal and the order total drops below the floor price"  # longer than the 160-character copy check (03 §5.57 item 56)
     write(d, ".critic/reviews/review-A.json", json.dumps([dict(TAX9, evidence=TAX9["evidence"] + "; " + odd)]))
     _stop9(d, "c1a", "A", [b["A"]]); time.sleep(1.1)
     os.utime(d / ".critic/reviews/review-A.json")  # C6: A's file is now the newest, but A stopped first
@@ -636,7 +652,7 @@ def _(d):
         {"message": {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "w1", "content": "File created: " + odd}]}, "toolUseResult": {"content": odd, "type": "create"}},
         {"message": {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "r1", "content": b["B"]}]}})) + "\n", encoding="utf-8")
     r = P.check(str(d), str(tr), "review-B.json")
-    assert r["checked"] and r["copied"] == ["a 48-character passage of review-A.json it never saw"], ("its own Write echo isn't text it was shown (C1)", r)
+    assert r["checked"] and r["copied"] == ["a 160-character passage of review-A.json it never saw"], ("its own Write echo isn't text it was shown (C1)", r)
     real = P.copied
     try:
         P.copied = lambda *a, **k: None

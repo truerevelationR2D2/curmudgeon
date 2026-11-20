@@ -29,7 +29,7 @@ def _(d):
     write(d, "src/app.js", APP)
     run(S / "critic_run.py", "begin", "--files", "src/app.js", "--tier", "full", cwd=d)
     b = {x: (d / f".critic/briefs/brief-{x}.md").read_text(encoding="utf-8") for x in "AB"}
-    odd = "the discount stack silently compounds when two coupons share a single redemption code"
+    odd = "the discount stack silently compounds when two coupons share a single redemption code, so the second coupon is applied to the already reduced subtotal and the order total drops below the floor price"  # longer than the 160-character copy check (03 §5.57 item 56)
     write(d, ".critic/reviews/review-A.json", json.dumps([dict(TAX9, evidence=TAX9["evidence"] + "; " + odd)]))
     _stop9(d, "c3a", "A", [b["A"]]); time.sleep(1.1)
     write(d, ".critic/reviews/review-B.json", json.dumps([dict(TAX9, title="Coupons", evidence="so " + odd + " here", failing_case="two coupons", remediation="cap")]))
@@ -39,7 +39,7 @@ def _(d):
         {"message": {"role": "assistant", "content": [{"type": "tool_use", "id": "r1", "name": "Read", "input": {"file_path": str(d / ".critic/reviews/review-B.json")}}]}},
         {"message": {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "r1", "content": "so " + odd + " here"}]}, "toolUseResult": {"file": {"content": "so " + odd + " here"}}})) + "\n", encoding="utf-8")
     r = P.check(str(d), str(tr), "review-B.json")
-    assert r["checked"] and r["copied"] == ["a 48-character passage of review-A.json it never saw"], r
+    assert r["checked"] and r["copied"] == ["a 160-character passage of review-A.json it never saw"], r
     tr.write_text(tr.read_text(encoding="utf-8").replace("review-B.json", "notes.txt"), encoding="utf-8")
     assert P.check(str(d), str(tr), "review-B.json")["copied"] == [], "the same text read from another file was shown to it"
 
@@ -240,7 +240,7 @@ def _(d):
     write(d, "src/app.js", APP)
     run(S / "critic_run.py", "begin", "--files", "src/app.js", "--tier", "full", cwd=d)
     b = {x: (d / f".critic/briefs/brief-{x}.md").read_text(encoding="utf-8") for x in "AB"}
-    odd = "the discount stack silently compounds when two coupons share a single redemption code"
+    odd = "the discount stack silently compounds when two coupons share a single redemption code, so the second coupon is applied to the already reduced subtotal and the order total drops below the floor price"  # longer than the 160-character copy check (03 §5.57 item 56)
     write(d, ".critic/reviews/review-A.json", json.dumps([dict(TAX9, evidence=TAX9["evidence"] + "; " + odd)]))
     _stop9(d, "c3c", "A", [b["A"]]); time.sleep(1.1)
     write(d, ".critic/reviews/review-B.json", json.dumps([dict(TAX9, title="Coupons", evidence="so " + odd + " here", failing_case="two coupons", remediation="cap")]))
