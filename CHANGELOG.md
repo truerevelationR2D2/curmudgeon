@@ -2,15 +2,16 @@
 
 Every release of Curmudgeon, newest first. The repository's history starts at 4.2.1; earlier versions are summarised from the project's own build and review records. Numbers are the ones measured at the time; the README's Benchmarks section has the current ones and how they were measured.
 
-## 5.10.1 (unreleased): the copy check, cross-file dedup hints and the scorer's places (03 §5.57 item 56)
+## 5.10.1 (unreleased): the copy check and the scorer's places (03 §5.57 items 56 to 58)
 
 From the 5.10.0 A/B against 5.9.2 (`claude/evidence/AB 19 Nov 2026 - 5.9.2 vs 5.10.0.md` in the Project).
 
 - **The copy check counts only passages of 160 characters or more** (was 48). In the A/B's 33 honest runs, every run's reviewers shared a 48-character passage, 7 shared 100, 5 shared 120, and none shared 160: stock phrasing that reviewers on one model write on their own, which made the flag appear on 11 of 12 honest full runs. The marks the proctor finds in a transcript stay the proof of a copy; a whole copied finding is still flagged.
-- **Cross-file hints for the dedup agent.** `dedup-candidates.json` now lists `cross_file_hints`: pairs of findings in different files that name the same identifier, selector or number, or share two longer title words. The agent checks those first and still decides; votes are still counted by the script. In the A/B, two reviewers' "names are clipped with no ellipsis", cited at `app.js` and at `styles.css`, were each dropped as a single vote.
+- **Cross-file hints for the dedup agent: built, measured and taken out.** `dedup-candidates.json` listed pairs of findings in different files that named the same identifier, selector or number. The smoke eval (5.10.0 against 5.10.1, full tier, suites 1 and 2 and the suite 2 clean twin, 2 runs each) found no gain: 4 to 38 hints a run, mostly common words, of which the dedup agent grouped one pair in 6 runs; single-vote drops 11 against 10, cost flat. So the hints and the agent's extra sentence were removed again (03 §5.57 item 58).
 - **The eval scorer: a plant's places decide.** When an answer-key entry lists places (`at`), its `file` no longer hides the places in another file. That affected E03, E04 and E26 of suite 2, D08 of suite 1 and R1 of suite 3. E04 now also credits "HTTP errors" and similar wording, and E26 its README claims line and the key itself. Re-scored on the archived 5.2.4 benchmark runs: Curmudgeon full's suite 2 goes from 116 to 117 planted bugs; no other arm or suite changes. The decoy rule is unchanged.
 - Tests in `plugin/tests/cases_9.py` and `cases_15.py`; each fails on 5.10.0.
-- Footprint: the dedup agent's instructions grow by one sentence and a clause (39 words); nothing else always-on changes.
+- Smoke eval (two blind labellers agreed on all 62 unmatched findings, 12 of 12 controls each): precision held (0 wrong, 0 clean-twin false alarms); planted bugs 78 against 79 of 86; the copy flag appeared on 0 of 6 runs (5.10.0: 6 of 6).
+- Footprint: unchanged from 5.10.0.
 
 ## 5.10.0 (unreleased): the reviewers' boundary judged by what changed, and by a list of allowed commands
 
