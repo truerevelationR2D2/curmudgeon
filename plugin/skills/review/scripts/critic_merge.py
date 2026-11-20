@@ -252,6 +252,38 @@ def matched_votes(rows):
     for i, (ri, _) in enumerate(rows): comp.setdefault(f_(i), set()).add(ri)
     return max((len(v) for v in comp.values()), default=0)
 
+HINT_STOP = set("""about above after again against also another because before being below between cannot could does doing during each every from have having into itself more most only other over same should since some such than that their them then there these they this those through under until very what when where which while with would your user users code file files line lines value values
+function return const class style width height color display none true false null undefined string number object array print error errors""".split())
+
+
+def _title_words(it):
+    return {w.lower() for w in re.findall(r"[A-Za-z][a-z]{4,}", str(it.get("title") or ""))} - HINT_STOP
+
+
+def _anchors(it):
+    """What a candidate names that another file's finding of the same bug would name too: identifiers and selectors
+    in its quote, and numbers with a unit (03 §5.57 item 56)."""
+    q = str(it.get("quote") or ""); t = str(it.get("title") or "")
+    code = {w.lower().lstrip(".#") for w in re.findall(r"[.#]?[A-Za-z_][\w-]{2,}", q)} - HINT_STOP
+    return code | set(re.findall(r"\b\d+(?:px|em|rem|ms|%)", q + " " + t))
+
+
+def cross_file_hints(by_file):
+    """Pairs of candidates in different files that name the same identifier, selector or number, or share two longer
+    title words: the dedup agent checks these first. A hint is a pointer, never a merge: the agent decides, and the
+    votes are still counted by this script (03 §5.57 item 56; in the A/B of 19 Nov two reviewers' "names are clipped
+    with no ellipsis", at app.js and styles.css, were each dropped as one vote)."""
+    items = [(f, it, _anchors(it), _title_words(it)) for f, v in by_file.items() for it in v]
+    out = []
+    for i in range(len(items)):
+        for j in range(i + 1, len(items)):
+            fa, a, aa, ta = items[i]; fb, b, ab, tb = items[j]
+            if fa == fb: continue
+            shared = (aa & ab) | (ta & tb)
+            if aa & ab or len(ta & tb) >= 2: out.append({"ids": [a["id"], b["id"]], "shared": sorted(shared)[:6]})
+    return out[:200]
+
+
 def tally(paths):
     scan = groups = None
     if "--groups" in paths:
@@ -474,7 +506,7 @@ def tally(paths):
     (D).mkdir(parents=True, exist_ok=True)
     from critic_findings import proctor_mark  # the proctor (03 §5.57 item 35): a reviewer's tool output showing one of these marks read the file
     dmk = proctor_mark(ROOT, "the dedup candidates")
-    put((D / "dedup-candidates.json"), json.dumps({"mark": dmk, "instructions": "Group findings that describe the same underlying issue (same cause, one fix resolves both), within a file or across files. Return {\"groups\": [[id, ...], ...]} listing only merged sets; use the 'id' values.", "findings_by_file": scrub(by_file), "mark_end": dmk}, indent=1, ensure_ascii=False))
+    put((D / "dedup-candidates.json"), json.dumps({"mark": dmk, "instructions": "Group findings that describe the same underlying issue (same cause, one fix resolves both), within a file or across files. Check cross_file_hints first: pairs in different files that name the same thing. Return {\"groups\": [[id, ...], ...]} listing only merged sets; use the 'id' values.", "findings_by_file": scrub(by_file), "cross_file_hints": cross_file_hints(by_file), "mark_end": dmk}, indent=1, ensure_ascii=False))
     clusters = []
     for mem in parts:
         c = {"members": [], "reviewers": set(), "scan": False, "outside": False, "voided": False}
