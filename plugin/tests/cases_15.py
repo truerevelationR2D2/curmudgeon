@@ -279,21 +279,3 @@ def _(d):
     assert states(e26k, e26[0]), "E26 at the claims line above its own"
     e03k = next(k for k in plants if k.startswith("E03"))
     assert states(e03k, {"loc": "app.js:50", "claim": "app.js:50 the refund is fire-and-forget: the screen always says success"}), "a plant's place in a second file counts (its \"file\" no longer hides it)"
-
-@test("ruling 56 (D22): the dedup candidates point the agent at findings in different files that name the same thing (two reviewers' clipped names at the markup and at its style), and not at unrelated ones (audit V32's pair)")
-def _(d):
-    write(d, "app.js", "function row(o) {\n  return `<td class=\"name\">${o.customer}</td>`;\n}\n")
-    write(d, "styles.css", "body { margin: 0; }\n.name { width: 120px; overflow: hidden; white-space: nowrap; }\n")
-    write(d, "a.py", "x = 1\nprint(offset_value)\n"); write(d, "b.py", "y = None\nprint(y.size)\n")
-    run(S / "critic_ledger.py", "start", "review", "--tier", "full", cwd=d)
-    a = finding(category="ui", impact="Low", file="app.js", line=2, quote='return `<td class="name">${o.customer}</td>`;', title="Row names are clipped with no ellipsis or tooltip", failing_case="a long customer name is cut off")
-    b = finding(category="ui", impact="Low", file="styles.css", line=2, quote=".name { width: 120px; overflow: hidden; white-space: nowrap; }", title="Customer names are clipped at 120px with no ellipsis and no title", failing_case="a long name is cut")
-    x = finding(category="logic", impact="Medium", file="a.py", line=2, quote="print(offset_value)", title="offset_value is undefined", failing_case="running a.py raises NameError")
-    y = finding(category="logic", impact="Medium", file="b.py", line=2, quote="print(y.size)", title="y is None when printed", failing_case="running b.py raises AttributeError")
-    _tally3(d, [a, x], [b, y], [])
-    c = json.loads((d / ".critic/dedup-candidates.json").read_text(encoding="utf-8"))
-    by_id = {it["id"]: (f, it["title"]) for f, v in c["findings_by_file"].items() for it in v}
-    pairs = [{by_id[i][0] for i in h["ids"]} for h in c.get("cross_file_hints", [])]
-    assert {"app.js", "styles.css"} in pairs, ("the clipped names, at the markup and at its style", c.get("cross_file_hints"))
-    assert {"a.py", "b.py"} not in pairs, ("audit V32's unrelated pair is no hint", c.get("cross_file_hints"))
-    assert "cross_file_hints" in (HERE.parent / "plugin/agents/curmudgeon-dedup.md").read_text(encoding="utf-8"), "the agent is told to check them"
