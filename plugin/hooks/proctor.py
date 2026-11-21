@@ -15,10 +15,11 @@ The check runs at the reviewer's stop (its record in .critic/stops/) and again a
 by then, so a reviewer that read a review stamped after it stopped is caught too. Only tool results are read: what the
 agent was shown, never what it typed (a 96-bit mark can't be guessed). A script; no model judges. It reads only.
 
-It also checks the review itself (03 §5.57 item 40): a passage of 48 characters or more in the reviewer's own prose
+It also checks the review itself (03 §5.57 items 40 and 56): a passage of 160 characters or more in the reviewer's own prose
 that stands in a review another reviewer wrote earlier, and that it never saw (in the project's files, its own brief or
 any tool output in its transcript), is flagged as a possible copy: the counts and the teardown name it. It doesn't void
-the review, because two honest reviewers wrote the same 48 characters in a real run (5.8.0 measurement). Reviewers
+the review: the transcript's marks are the proof of a copy. Honest reviewers on one model share stock phrasing of up to
+about 150 characters (A/B, 19 Nov 2026), so shorter passages never count. Reviewers
 are told this is checked."""
 import json, os, pathlib, re, time
 
@@ -81,7 +82,7 @@ def marks(root):
     m = m.get("marks") if isinstance(m, dict) else None
     return {k: str(v.get("what", "")) for k, v in m.items() if isinstance(k, str) and isinstance(v, dict)} if isinstance(m, dict) else None
 
-COPY_MIN = 48          # characters of a passage, after lower-casing and squeezing spaces (03 §5.57 item 40)
+COPY_MIN = 160         # characters of a passage, after lower-casing and squeezing spaces (03 §5.57 items 40 and 56): every one of 33 honest A/B runs (19 Nov 2026) shared a 48-character passage between reviewers and 5 shared 120, none 160; a copied finding is longer
 SKIP_DIRS = {".critic", ".git", "node_modules", ".venv", "venv", "__pycache__", "dist", "build"}
 MAX_ALLOWED = 32 * 1024 * 1024
 
@@ -155,7 +156,7 @@ def _stop_order(root):
     return out
 
 def copied(root, review_name, deadline, seen=""):
-    """[what it copied] for 48-character passages in this review's own prose that also stand in the prose of a review
+    """[what it copied] for COPY_MIN-character passages in this review's own prose that also stand in the prose of a review
     another reviewer wrote before it (by the files' times), and that the reviewer never saw: not in the project's files,
     its own brief or any tool output in its own transcript (seen). Text it saw itself is either honest (a program's
     output, a vendor file) or carries a run mark, which the mark check catches; what is left came from nowhere, such
@@ -202,4 +203,4 @@ def check(root, transcript_path, review_name):
     reads = shown(transcript_path, deadline, reads_only=True, own=str(review_name or "") or None)
     cp = copied(root, review_name, deadline, reads) if reads is not None else None
     if cp is None and not saw: return {"checked": False, "why": "the copy check couldn't finish in time"}  # never "no copy" (5.8.0 blind round C2); a mark it saw still voids it below
-    return {"checked": True, "saw": sorted(saw), "copied": sorted(cp or [])}  # copied is flagged, not voided: honest reviewers write the same 48 characters too (5.8.0 measurement)
+    return {"checked": True, "saw": sorted(saw), "copied": sorted(cp or [])}  # copied is flagged, not voided: the marks are the proof (03 §5.57 item 56)
