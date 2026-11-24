@@ -31,6 +31,7 @@ tally:
      the highest and always verified (impact_split); the verifier may lower it.
      Kept: votes >= 2 of 3, or a single vote with an executed failing case.
      Contested: a single vote at Critical/High that was traced, not executed. It goes to verification.
+     Single Medium, or single Low with a checked quote (ruling 61), when several reviewers ran: verified, kept only if confirmed.
      Dropped: other single votes. Listed with reasons so drops can be audited.
   5. Writes .critic/verify/<id>.json, one blind packet per finding (the claim and the code only: no teardown, no votes,
      no reviewer names), and .critic/tally.json.
@@ -533,7 +534,7 @@ def tally(paths):
             out["contested"].append(f)  # an outside vote never stands in for a check  # nothing the script could check: verify it, even on one reviewer
         elif (votes >= need and not (out["tier"] == "trivial" and n == 1 and f["impact"] in ("Critical", "High"))) or executed: out["kept"].append(f)  # audit V07: in the trivial tier one reviewer's traced Critical or High is contested, as the docs say, never kept unverified
         elif f["impact"] in ("Critical", "High"): out["contested"].append(f)
-        elif f["impact"] == "Medium" and n > 1 or c.get("cross_file"):  # 03 §5.57.6: one reviewer's Medium goes to a blind verifier and is kept only if confirmed (the self-review lost a real High this way); so does a cross-file group whatever its impact (batch 5 review: two reviewers' Lows were dropped unverified)
+        elif (f["impact"] == "Medium" or f["impact"] == "Low" and not unanchored) and n > 1 or c.get("cross_file"):  # ruling 61: a quoted Low one of several reviewers raised is verified too, not dropped (the milestones lost planted bugs this way); kept only if confirmed, as a Medium  # 03 §5.57.6: one reviewer's Medium goes to a blind verifier and is kept only if confirmed (the self-review lost a real High this way); so does a cross-file group whatever its impact (batch 5 review: two reviewers' Lows were dropped unverified)
             f["single_vote"] = True; out["contested"].append(f)
         else: out["dropped"].append({"finding": f, "why": f"raised by {votes} of {n} reviewers, not executed"})
     vd = D / "verify"; vd.mkdir(parents=True, exist_ok=True)

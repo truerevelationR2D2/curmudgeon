@@ -72,6 +72,19 @@ def problems_review(root, msg, agent_id=None, review=None):
         if e: errs.append(f"finding {i + 1}: {'; '.join(e)}")  # never its title: if a reviewer named another's file, the message must not carry that review's words
     return errs[:8]
 
+TWO_DEFECTS = re.compile(r",\s+and\s+|;\s+")  # "X is wrong, and Y is missing" / "X; Y": a title that joins two clauses
+
+def bundled(root, review):
+    """The 1-based numbers of the findings in this reviewer's own review whose title joins two clauses: maybe two defects
+    in one finding (ruling 61, 1b). One finding is one fix, and a defect folded into another's finding can't vote with
+    the other reviewers who raised it on its own, so the tally drops it (the milestone head to heads lost planted bugs
+    this way). Asked once, never required: the reviewer decides. Numbers only, never titles (as problems_review)."""
+    try:
+        rows = json.loads((root / ".critic" / "reviews" / str(review)).read_text(encoding="utf-8"))
+        rows = rows.get("findings") if isinstance(rows, dict) else rows
+        return [i + 1 for i, f in enumerate(rows or []) if isinstance(f, dict) and TWO_DEFECTS.search(str(f.get("title") or ""))][:12]
+    except Exception: return []
+
 def problems_verdict(msg, root=None):
     blocks = re.findall(r"```json\s*\n(.*?)```", msg or "", re.S)
     if not blocks: return ["no ```json verdict list in the reply"]
@@ -203,6 +216,10 @@ def main():
     review, wrote = own_review(data.get("agent_transcript_path"), msg) if kind.endswith("curmudgeon-reviewer") else (None, False)
     problems = problems_review(root, msg, data.get("agent_id"), review) if kind.endswith("curmudgeon-reviewer") else problems_verdict(msg, root)
     errs = [] if data.get("stop_hook_active") else problems
+    split = []  # ruling 61 (1b): asked once, on a review that already meets the contract, and only while the reviewer can still act on it
+    if kind.endswith("curmudgeon-reviewer") and review and not problems and not data.get("stop_hook_active") and not read_transcript(data.get("agent_transcript_path"))[2]:
+        split = bundled(root, review)
+    if split: errs = ["split"]  # held like a contract problem: no stamp yet, the copy stays, so the reviewer's edit never meets a file the hook changed
     # What can be recorded is recorded now, block or not: a host may ignore the block and never call again (R1), and
     # then the blindness record and the verdicts must already be saved.
     if kind.endswith("curmudgeon-reviewer"):  # 03 §5.56 item 15: the tally checks that each review came from an agent that worked in its private copy
@@ -226,6 +243,9 @@ def main():
     elif not problems:  # a verdict that fails the contract is never saved, on a retry too: the merge counts it missing and marks the run DEGRADED (Qodo on #38, #39)
         try: save_verdicts(root, msg, data.get("agent_id"))
         except Exception as e: print(json.dumps({"systemMessage": f"Curmudgeon could not save this verifier's verdicts ({type(e).__name__}: {e}); critic_run.py next will ask for them again"}))
+    if split:
+        print(json.dumps({"decision": "block", "reason": f"One question before you finish: the title of finding{'s' if len(split) > 1 else ''} {', '.join(map(str, split))} in your review joins two clauses. One finding is one fix. If a finding holds two problems that need different fixes, split it into two findings, each at its own file:line with its own quote and failing case, and rewrite the review file. If one fix covers it all, leave it as it is. Then finish. You are asked this once."}))
+        return 0  # it can still act (it hasn't handed back), so its private copy stays
     if errs:
         print(json.dumps({"decision": "block", "reason": "Your output doesn't meet Curmudgeon contract yet: " + " | ".join(errs) + ". Fix it, then finish."}))
         if read_transcript(data.get("agent_transcript_path"))[2]:  # it already handed back: the host won't resume it, so its copy goes now (10 Nov acceptance run)
