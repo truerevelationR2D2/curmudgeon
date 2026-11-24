@@ -76,7 +76,7 @@ TWO_DEFECTS = re.compile(r",\s+and\s+|;\s+")  # "X is wrong, and Y is missing" /
 
 def bundled(root, review):
     """The 1-based numbers of the findings in this reviewer's own review whose title joins two clauses: maybe two defects
-    in one finding (ruling 61, 1b). One finding is one fix, and a defect folded into another's finding can't vote with
+    in one finding (03 §5.57 item 61, 1b). One finding is one fix, and a defect folded into another's finding can't vote with
     the other reviewers who raised it on its own, so the tally drops it (the milestone head to heads lost planted bugs
     this way). Asked once, never required: the reviewer decides. Numbers only, never titles (as problems_review)."""
     try:
@@ -84,6 +84,11 @@ def bundled(root, review):
         rows = rows.get("findings") if isinstance(rows, dict) else rows
         return [i + 1 for i, f in enumerate(rows or []) if isinstance(f, dict) and TWO_DEFECTS.search(str(f.get("title") or ""))][:12]
     except Exception: return []
+
+def split_mark(root, review):
+    """Where the hook notes that it asked this review's reviewer the split question: in .critic/stops/, which agents
+    can't write (guard_state) or read (read_guard). Its next stop is then checked against the contract once more."""
+    return pathlib.Path(root) / ".critic" / "stops" / f"split-{pathlib.Path(str(review)).name}.asked"  # not .json: the merge and the proctor read every stops/*.json as a stop record
 
 def problems_verdict(msg, root=None):
     blocks = re.findall(r"```json\s*\n(.*?)```", msg or "", re.S)
@@ -216,10 +221,20 @@ def main():
     review, wrote = own_review(data.get("agent_transcript_path"), msg) if kind.endswith("curmudgeon-reviewer") else (None, False)
     problems = problems_review(root, msg, data.get("agent_id"), review) if kind.endswith("curmudgeon-reviewer") else problems_verdict(msg, root)
     errs = [] if data.get("stop_hook_active") else problems
-    split = []  # ruling 61 (1b): asked once, on a review that already meets the contract, and only while the reviewer can still act on it
-    if kind.endswith("curmudgeon-reviewer") and review and not problems and not data.get("stop_hook_active") and not read_transcript(data.get("agent_transcript_path"))[2]:
+    split = []  # 03 §5.57 item 61 (1b): asked once, on a review that already meets the contract, and only while the reviewer can still act on it
+    asked = split_mark(root, review) if kind.endswith("curmudgeon-reviewer") and review else None
+    if asked and data.get("stop_hook_active") and asked.is_file() and not asked.is_symlink():
+        errs = problems  # the split question used the hook's one block, so the rewrite it asked for is checked against the contract here, once (blind round 1, L2)
+        try: asked.unlink()
+        except OSError: pass
+    elif kind.endswith("curmudgeon-reviewer") and review and not problems and not data.get("stop_hook_active") and not read_transcript(data.get("agent_transcript_path"))[2]:
         split = bundled(root, review)
-    if split: errs = ["split"]  # held like a contract problem: no stamp yet, the copy stays, so the reviewer's edit never meets a file the hook changed
+    if split:
+        errs = ["split"]  # held like a contract problem: no stamp yet, the copy stays, so the reviewer's edit never meets a file the hook changed
+        try:
+            if asked and not asked.parent.is_symlink():
+                asked.parent.mkdir(parents=True, exist_ok=True); asked.write_text(json.dumps({"findings": split, "at": time.time()}), encoding="utf-8")
+        except OSError: pass
     # What can be recorded is recorded now, block or not: a host may ignore the block and never call again (R1), and
     # then the blindness record and the verdicts must already be saved.
     if kind.endswith("curmudgeon-reviewer"):  # 03 §5.56 item 15: the tally checks that each review came from an agent that worked in its private copy
