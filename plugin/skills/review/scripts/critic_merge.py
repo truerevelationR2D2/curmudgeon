@@ -31,6 +31,7 @@ tally:
      the highest and always verified (impact_split); the verifier may lower it.
      Kept: votes >= 2 of 3, or a single vote with an executed failing case.
      Contested: a single vote at Critical/High that was traced, not executed. It goes to verification.
+     Single Medium, or single Low with a checked quote (03 §5.57 item 61), when several reviewers ran: verified, kept only if confirmed.
      Dropped: other single votes. Listed with reasons so drops can be audited.
   5. Writes .critic/verify/<id>.json, one blind packet per finding (the claim and the code only: no teardown, no votes,
      no reviewer names), and .critic/tally.json.
@@ -533,7 +534,7 @@ def tally(paths):
             out["contested"].append(f)  # an outside vote never stands in for a check  # nothing the script could check: verify it, even on one reviewer
         elif (votes >= need and not (out["tier"] == "trivial" and n == 1 and f["impact"] in ("Critical", "High"))) or executed: out["kept"].append(f)  # audit V07: in the trivial tier one reviewer's traced Critical or High is contested, as the docs say, never kept unverified
         elif f["impact"] in ("Critical", "High"): out["contested"].append(f)
-        elif f["impact"] == "Medium" and n > 1 or c.get("cross_file"):  # 03 §5.57.6: one reviewer's Medium goes to a blind verifier and is kept only if confirmed (the self-review lost a real High this way); so does a cross-file group whatever its impact (batch 5 review: two reviewers' Lows were dropped unverified)
+        elif (f["impact"] == "Medium" or f["impact"] == "Low" and not unanchored) and n > 1 or c.get("cross_file"):  # 03 §5.57 item 61: a quoted Low one of several reviewers raised is verified too, not dropped (the milestones lost planted bugs this way); kept only if confirmed, as a Medium  # 03 §5.57.6: one reviewer's Medium goes to a blind verifier and is kept only if confirmed (the self-review lost a real High this way); so does a cross-file group whatever its impact (batch 5 review: two reviewers' Lows were dropped unverified)
             f["single_vote"] = True; out["contested"].append(f)
         else: out["dropped"].append({"finding": f, "why": f"raised by {votes} of {n} reviewers, not executed"})
     vd = D / "verify"; vd.mkdir(parents=True, exist_ok=True)
@@ -698,8 +699,8 @@ def apply(paths):
                 unverified.append(f); notes.append(f"{f['id']}: outside-only finding with no verdict; left out of the findings until a verifier judges it")
                 if (D / "verify" / f"{f['id']}.json").exists(): missing.append(f["id"])  # every tier verifies these (verdict_required): its absence marks the run DEGRADED
                 continue
-            if f.get("single_vote"):  # 03 §5.57.6: one reviewer's Medium stands only on a verifier's confirmation
-                notes.append(f"{f['id']}: one reviewer's Medium with no verdict; dropped"); missing.append(f["id"]); continue
+            if f.get("single_vote"):  # 03 §5.57.6 and 03 §5.57 item 61: one reviewer's Medium, or quoted Low, stands only on a verifier's confirmation
+                notes.append(f"{f['id']}: one reviewer's {f['impact']} with no verdict; dropped"); missing.append(f["id"]); continue
             if (D / "verify" / f"{f['id']}.json").exists():
                 if verdict_required(tier, f, f["id"] in contested):  # §5.56: the tier needed this verdict, and it never came
                     notes.append(f"{f['id']}: no verdict returned, and the {tier} tier verifies this finding; kept, confidence lowered"); f["verifier"] = "missing"; missing.append(f["id"])
@@ -724,7 +725,7 @@ def apply(paths):
                 f["impact_before"] = f["impact"]; f["impact"] = new
             else: notes.append(f"{f['id']}: downgrade to {new or '?'} ignored ({dp}); kept at {f['impact']}"); kind = "unclear"
         if f.get("single_vote") and kind not in ("confirmed", "downgrade"):  # 03 §5.57.6: kept only on a verifier's confirmation
-            notes.append(f"{f['id']}: one reviewer's Medium the verifier didn't confirm ({kind}); dropped"); continue
+            notes.append(f"{f['id']}: one reviewer's {f['impact']} the verifier didn't confirm ({kind}); dropped"); continue
         if f.get("voided_only") and (kind not in ("confirmed", "downgrade") or v.get("reproduced") != "executed"):  # 03 §5.57 item 35: only a reproduction run by the verifier keeps it
             unverified.append(f); notes.append(f"{f['id']}: from a voided review; the verifier didn't reproduce it by running it ({kind}, {v.get('reproduced') or 'not reproduced'}); left out of the findings"); continue
         if f.get("outside_only") and kind not in ("confirmed", "downgrade"):  # nobody of ours saw it and no verifier confirmed it

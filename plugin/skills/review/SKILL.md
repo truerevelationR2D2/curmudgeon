@@ -2,7 +2,7 @@
 name: review
 description: This skill should be used when the user says "/curmudgeon:review", "curmudgeon this", "tear this apart", "review my work", "how did I do", or asks for a merciless review of code, an interface, a document or a plan, or before shipping. It sizes the review to the risk, runs free scripted checks, one to three blind reviewers whose votes are counted by a script, and blind per-finding verification, then writes an evidence-backed teardown. It changes files only when the user asks for fixes ("curmudgeon and fix", "/curmudgeon:review fix").
 metadata:
-  version: "5.10.1"
+  version: "5.10.2"
 ---
 
 # Curmudgeon
@@ -78,7 +78,7 @@ Reviewers from one model family share blind spots: in two double-blind tests, an
    - clusters the same issue across reviewers;
    - counts no vote from a review the proctor voided (at each reviewer's stop, a script found another reviewer's or the scan's work in its transcript; 03 §5.57 item 35); a finding only a voided review raised is verified blind and kept only if the verifier reproduces it by running it, labelled, with no vote;
    - keeps 2-of-3 votes, single votes with an executed case, and scanner FAILs (an outside reviewer's agreement counts as one more vote); when reviewers disagree on a finding's impact it is filed at the highest and always verified, and one reviewer's two findings are never merged into one;
-   - sends single Critical/High traced votes, a Medium only one of several reviewers raised without a run (kept only if the verifier confirms it, 03 §5.57.6), and any Critical/High/Medium finding with nothing the script could check (no confirmed quote, not executed, one vote), to verification as contested;
+   - sends single Critical/High traced votes, a Medium only one of several reviewers raised without a run (kept only if the verifier confirms it, 03 §5.57.6), a Low the same, when its quote checked out (03 §5.57 item 61), and any Critical/High/Medium finding with nothing the script could check (no confirmed quote, not executed, one vote), to verification as contested;
    - drops the rest, with reasons kept for audit.
 
    Reviewers rarely word the same issue alike, so the first tally also writes `.critic/dedup-candidates.json`: every finding not already merged, listed by file, with no reviewer names or votes. Start the `curmudgeon-dedup` agent on it, then run the tally again with `--groups .critic/groups.json` so votes count on merged issues.
