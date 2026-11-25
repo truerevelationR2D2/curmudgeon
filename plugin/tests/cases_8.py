@@ -1470,6 +1470,7 @@ def _enc_misses(paths):
     out = []
     for root in paths:
         for f in sorted(root.rglob("*.py")):
+            if "runs" in f.relative_to(root).parts[:1]: continue  # eval/runs/: git-ignored run output, which --keep-records fills with the reviewers' own scratch scripts (ruling 55)
             t = f.read_text(encoding="utf-8")
             out += [f"{f.relative_to(HERE.parent)}:{n.lineno}" for n in _ast.walk(_ast.parse(t)) if isinstance(n, _ast.Call) and needs(n)]
     return out

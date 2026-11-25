@@ -6,6 +6,13 @@ of a review; nothing from another tool goes into the plugin through it.
 usage:
   deathmatch.py plan  [--arms a,b] [--tasks t1,t2]           show what would run (no model calls)
   deathmatch.py run   --yes-spend [--arms ...] [--tasks ...] [--model ID] [--repeat N] [--parallel N] [--plugin DIR]
+                      [--plugin-b DIR] [--keep-records]
+                                                              --plugin-b: each plugin arm runs a second time as ARM-b
+                                                              with the build in DIR, its runs interleaved with ARM's, so
+                                                              two builds meet the same conditions (an A/B; 03 §5.57 item
+                                                              55); --keep-records keeps each run's .critic/ records
+                                                              (reviews, counts, tally, proctor, verdicts; never the
+                                                              agents' private copies) in its folder as critic/
                                                               run it (model calls cost money: --yes-spend is required)
   deathmatch.py rerun RUN_DIR --yes-spend [--all-errors]     run again the runs a usage limit voided (with --all-errors,
                                                               every failed run); each voided result is kept in voided.jsonl
@@ -36,6 +43,7 @@ HERE = pathlib.Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 import keymatch, plant_keys
 PLUGIN = HERE.parent / "plugin"
+KEEP_RECORDS = False
 CFG = HERE / "deathmatch.json"
 
 def load_cfg(): return json.loads(CFG.read_text(encoding="utf-8"))
@@ -119,7 +127,7 @@ def json_findings(text):
 def _points_at(k, loc):
     """True when the block points where the plant is: its file, and (when the key gives "at") one of its places
     (keymatch.py, shared with score.py)."""
-    if k.get("file") and k["file"].lower() not in loc.lower(): return False
+    if k.get("file") and not k.get("at") and k["file"].lower() not in loc.lower(): return False  # with "at", its places decide: a "file" there hid every place in another file (E03, E04 and E26 of suite 2, D08, R1; 03 §5.57 item 56)
     return keymatch.points_at(k, loc)
 
 def match_plants(plants, blocks):
@@ -213,11 +221,12 @@ def one_run(a, w, td, model):
         (td / "output.md").write_text(r.stdout, encoding="utf-8"); meta = {"exit": r.returncode}
         if r.returncode not in (0, 1): meta["error"] = f"exit {r.returncode}: {(r.stderr or '')[-200:]}"
         return meta
-    prompt = a["prompt"].replace("{plugin}", str(PLUGIN))  # an arm given part of Curmudgeon's material names it here (03 §5.56 item 20)
+    P = pathlib.Path(a["_plugin"]) if a.get("_plugin") else PLUGIN  # an A/B's second build (--plugin-b)
+    prompt = a["prompt"].replace("{plugin}", str(P))  # an arm given part of Curmudgeon's material names it here (03 §5.56 item 20)
     cmd = ["claude", "-p", prompt, "--output-format", "json", "--allowedTools", ",".join(allowed_tools(a))]
-    for ad in a.get("add_dirs") or []: cmd += ["--add-dir", str(pathlib.Path(ad.replace("{plugin}", str(PLUGIN))).resolve())]  # read-only material outside the task folder
+    for ad in a.get("add_dirs") or []: cmd += ["--add-dir", str(pathlib.Path(ad.replace("{plugin}", str(P))).resolve())]  # read-only material outside the task folder
     if model: cmd += ["--model", model]
-    if a.get("plugin"): cmd += ["--plugin-dir", str(PLUGIN)]
+    if a.get("plugin"): cmd += ["--plugin-dir", str(P)]
     for pd in a.get("plugin_dirs") or []:  # another plugin under test, kept outside this repository (its own licence); $VARS from the environment
         d = pathlib.Path(os.path.expandvars(pd)).resolve()  # absolute: claude runs in the task's temporary folder
         if not (d / ".claude-plugin").is_dir() and not (d / "agents").is_dir() and not (d / "skills").is_dir(): return {"error": f"plugin folder not found: {d} (set its variable; nothing is installed for you)"}
@@ -293,8 +302,25 @@ def one_job(a, t, k, repeat, out, model):
         meta["wall_s"] = round(time.time() - t0, 1)
         for f_ in ("findings.jsonl", "last-review.md"):
             if (w / ".critic" / f_).exists(): shutil.copy2(w / ".critic" / f_, td / f_)
+        if KEEP_RECORDS: keep_records(w, td)
         (td / "meta.json").write_text(json.dumps(meta, indent=1), encoding="utf-8")
     return f"done {a['id']} / {td.name} ({meta.get('wall_s')} s)" + (f" error: {str(meta['error'])[:80]}" if meta.get("error") else "")
+
+def keep_records(w, td):
+    """Keep the run's .critic/ records (reviews, counts.md, tally, proctor, stops, verdicts) as td/critic, so an A/B can
+    say why a planted bug was missed: never found, dropped on one vote, refuted, or a reviewer blocked or cut. The
+    agents' private copies of the project (scratch/*/payload) and any node_modules are left out: they are the task
+    itself, and large."""
+    src = w / ".critic"
+    if not src.is_dir(): return
+    shutil.copytree(src, td / "critic", symlinks=True, ignore=lambda d, names: [n for n in names if n in ("payload", "node_modules")])
+
+def interleave(jobs):
+    """Jobs ordered repeat by repeat and task by task, with the arms alternating, so two builds or arms run under the
+    same conditions (time of day, rate limits) instead of one after the other."""
+    order = {}
+    for j in jobs: order.setdefault(j[0]["id"], len(order))
+    return sorted(jobs, key=lambda j: (j[2], j[1]["id"], order[j[0]["id"]]))
 
 VOID = re.compile(r"(?i)usage limit|rate.?limit|limit reached|hit your [\w -]*limit|\b429\b|overloaded|credit balance|quota")
 
@@ -327,12 +353,13 @@ def run(arms, tasks, model, repeat, parallel=1):
     import concurrent.futures as cf
     PLUGINS[:] = installed_plugins()
     out = HERE / "runs" / time.strftime("%Y-%m-%d-%H%M%S"); out.mkdir(parents=True)
-    (out / "run.json").write_text(json.dumps({"model": model, "repeat": repeat, "plugin": str(PLUGIN), "arms": [a["id"] for a in arms],
+    (out / "run.json").write_text(json.dumps({"model": model, "repeat": repeat, "plugin": str(PLUGIN), "plugin_b": next((a["_plugin"] for a in arms if a.get("_plugin")), None), "arms": [a["id"] for a in arms],
                                                "tasks": [t["id"] for t in tasks], "plugins_off": PLUGINS, "started": time.strftime("%Y-%m-%d %H:%M:%S")}, indent=1), encoding="utf-8")
     jobs = []
     for a in arms:
         if a.get("requires") and not shutil.which(a["requires"]): print(f"skip {a['id']}: {a['requires']} not installed"); continue
         jobs += [(a, t, k) for k in range(repeat) for t in tasks if not (a.get("tasks") and t["id"] not in a["tasks"])]
+    jobs = interleave(jobs)
     with cf.ThreadPoolExecutor(max(1, parallel)) as ex:  # several sessions at once; each has its own folder, so none sees another
         for f in cf.as_completed([ex.submit(one_job, a, t, k, repeat, out, model) for a, t, k in jobs]): print(f.result(), flush=True)
     return score(out)
@@ -369,6 +396,11 @@ def main(a):
     global PLUGIN
     if opt("--plugin"): PLUGIN = pathlib.Path(opt("--plugin")).resolve()  # a frozen copy of the build under test, not this checkout
     cfg = load_cfg(); arms = pick(cfg["arms"], opt("--arms")); tasks = pick(cfg["tasks"], opt("--tasks"))
+    global KEEP_RECORDS
+    KEEP_RECORDS = "--keep-records" in a
+    if opt("--plugin-b"):  # the A/B: every plugin arm again, with the second build
+        b = str(pathlib.Path(opt("--plugin-b")).resolve())
+        arms = arms + [{**x, "id": x["id"] + "-b", "_plugin": b} for x in arms if x.get("plugin")]
     if a[0] == "plan": return plan(arms, tasks)
     if a[0] == "run":
         if "--yes-spend" not in a: print("refused: a run makes paid model calls; pass --yes-spend after checking `deathmatch.py plan`"); return 2

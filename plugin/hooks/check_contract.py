@@ -192,6 +192,11 @@ def main():
     kind = str(data.get("agent_type") or "")
     root = workspace.project_root(data)
     if not (kind.endswith("curmudgeon-reviewer") or kind.endswith("curmudgeon-verifier")): return 0
+    try:  # the outcome check's last look (03 §5.57 item 52): a write after a call ended, by a job left running
+        import outcome, conduct
+        me_ = workspace.clean_id(data.get("agent_id")); have_ = conduct.claimed_by(root, me_)
+        outcome.record(root, outcome.sweep(root, own_of={me_: [root / ".critic" / "reviews" / have_] if have_ else []}))
+    except Exception: pass
     msg = last_reply(data)
     # The reply is checked every time; only the block is skipped on a second stop (never block twice in a row). So a
     # verdict that still breaks the contract on the retry is never saved either (Qodo on #39).
@@ -208,7 +213,11 @@ def main():
                 try:  # the proctor (03 §5.57 item 35): its review gets its marks, then what its tools showed it is checked
                     from critic_findings import stamp_review
                     import proctor
-                    if not errs: stamp_review(root, review)  # a review sent back to be fixed is stamped only once it passes (or on the second stop), so the reviewer's fix never meets a file the hook changed since it last read it (5.6.0 re-review C4)
+                    if not errs:
+                        stamp_review(root, review)  # a review sent back to be fixed is stamped only once it passes (or on the second stop), so the reviewer's fix never meets a file the hook changed since it last read it (5.6.0 re-review C4)
+                        try:
+                            import outcome; outcome.known(root, pathlib.Path(root) / ".critic" / "reviews" / str(review))  # the stamp is the hook's own write, never charged to anyone (round 1, F-b4ea77d7)
+                        except Exception: pass
                     rec["transcript"] = str(data.get("agent_transcript_path") or "")
                     rec["proctor"] = proctor.check(root, rec["transcript"], review)
                 except Exception as e: rec["proctor"] = {"checked": False, "why": f"{type(e).__name__}"}

@@ -172,7 +172,7 @@ def match_key(key, blocks, locs=None, impacts=None):
     candidates are tried highest impact first, so the finding credited is the one that rated it most seriously."""
     rank = lambda bi: IMPACT_RANK.get((impacts or {}).get(bi) if impacts else None, 4)
     eligible = {name: sorted([bi for bi, b in enumerate(blocks) if (locs is None or keymatch.points_at(k, locs[bi]))
-                       and (not k["file"] or k["file"].lower() in (b + " " + (locs[bi] if locs else "")).lower()) and any(re.search(p, b, re.I) for p in k["any"])], key=lambda bi: (rank(bi), bi)) for name, k in key.items()}
+                       and (not k["file"] or k.get("at") or k["file"].lower() in (b + " " + (locs[bi] if locs else "")).lower()) and any(re.search(p, b, re.I) for p in k["any"])], key=lambda bi: (rank(bi), bi)) for name, k in key.items()}
     serious = {name: [bi for bi in c if rank(bi) <= 2] for name, c in eligible.items() if impacts and key[name].get("impact") in ("Critical", "High")}
     hits = keymatch.serious_first(eligible, serious) if serious else keymatch.max_match(eligible)  # one finding per plant, as many plants as possible
     return dict(sorted(hits.items(), key=lambda kv: list(key).index(kv[0]))), set(hits.values())
@@ -294,7 +294,8 @@ if "--funnel" in args:
     key = json.loads((HERE / ("answer_key.json" if suite == "1" else f"answer_key{suite}.json")).read_text(encoding="utf-8"))
     def blk(f): return " ".join(str(f.get(k, "")) for k in ("file", "line", "category", "title", "quote", "evidence", "failing_case", "remediation"))
     def jl(p): return [json.loads(x) for x in p.read_text(encoding="utf-8").splitlines() if x.strip()] if p.is_file() else []
-    def hit(k, rows): return [r for r in rows if keymatch.points_at(k, f"{r.get('file', '')}:{r.get('line')} {r.get('quote', '')}") and (not k["file"] or k["file"].lower() in blk(r).lower()) and any(re.search(x, claims_of([r], [])[0], re.I) for x in k["any"])]
+    # with "at", an entry's places decide, not its "file" (03 §5.57 item 56)
+    def hit(k, rows): return [r for r in rows if keymatch.points_at(k, f"{r.get('file', '')}:{r.get('line')} {r.get('quote', '')}") and (not k["file"] or k.get("at") or k["file"].lower() in blk(r).lower()) and any(re.search(x, claims_of([r], [])[0], re.I) for x in k["any"])]
     final = jl(C / "findings.jsonl")
     tally = json.loads((C / "tally.json").read_text(encoding="utf-8")) if (C / "tally.json").is_file() else {}
     raised, aside = [], []
